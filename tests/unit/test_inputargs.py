@@ -532,6 +532,7 @@ def test_process_bad_types(pytestdir):
     assert "nrvnkenrgdvf" in result.output
 
     d_yaml_file = get_templates_fpath('download.yaml')
+    d_yaml_file = pytestdir.yamlfile(d_yaml_file, dburl='sqlite:///./path/to/my/db/sqlite.sqlite')
     result = CliRunner().invoke(cli, ['process', '--dburl', d_yaml_file, '-c', p_yaml_file,
                                       '-p', p_py_file])
     assert result.exit_code != 0

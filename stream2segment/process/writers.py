@@ -237,7 +237,6 @@ class HDFWriter(BaseWriter):
         `close()`, this method is no-op'''
         try:
             self._write(True)
-        except:
-            pass
-        self._dframeslist = []  # clear data, if any, and also help gc)
-        return BaseWriter.close(self)
+        finally:
+            self._dframeslist = []  # clear data, if any, and also help gc)
+            BaseWriter.close(self)

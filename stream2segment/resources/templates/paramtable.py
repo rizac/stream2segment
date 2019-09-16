@@ -15,9 +15,8 @@ from builtins import (ascii, bytes, chr, dict, filter, hex, input,
                       int, map, next, oct, open, pow, range, round,
                       str, super, zip)
 
-# OrderedDict is a python dict that returns its keys in the order they are inserted
-# (a normal python dict returns its keys in arbitrary order)
-# Useful e.g. in  "main" if we want to control the *order* of the columns in the output csv
+# From Python >= 3.6, dicts keys are returned (and thus, written to file) in the order they
+# are inserted. Prior to that version, to preserve insertion order you needed to use OrderedDict:
 from collections import OrderedDict
 from datetime import datetime, timedelta  # always useful
 from math import factorial  # for savitzky_golay function
@@ -130,21 +129,29 @@ def main(segment, config):
 
     ret['dist_deg'] = segment.event_distance_deg        # dist
     ret['dist_km'] = d2km(segment.event_distance_deg)  # dist_km
-    ret['t_PGA'] = t_PGA                  # peak info
+    # t_PGA is a obspy UTCDateTime. This type is not supported in HDF output, thus
+    # convert it to Python datetime. Note that in CSV output, the value will be written as
+    # str(t_PGA.datetime): another option might be to store it as string
+    # with str(t_PGA) (returns the iso-formatted string, supported in all output formats):
+    ret['t_PGA'] = t_PGA.datetime  # peak info
     ret['PGA'] = PGA
-    ret['t_PGV'] = t_PGV                  # peak info
+    # (for t_PGV, see note above for t_PGA)
+    ret['t_PGV'] = t_PGV.datetime  # peak info
     ret['PGV'] = PGV
-    ret['t_WA'] = t_WA
+    # (for t_WA, see note above for t_PGA)
+    ret['t_WA'] = t_WA.datetime
     ret['maxWA'] = maxWA
     ret['channel'] = segment.channel.channel
     ret['channel_component'] = segment.channel.channel[-1]
-    ret['ev_id'] = segment.event.id           # event metadata
+    # event metadata:
+    ret['ev_id'] = segment.event.id
     ret['ev_lat'] = segment.event.latitude
     ret['ev_lon'] = segment.event.longitude
     ret['ev_dep'] = segment.event.depth_km
     ret['ev_mag'] = segment.event.magnitude
     ret['ev_mty'] = segment.event.mag_type
-    ret['st_id'] = segment.station.id         # station metadata
+    # station metadata:
+    ret['st_id'] = segment.station.id
     ret['st_name'] = segment.station.station
     ret['st_net'] = segment.station.network
     ret['st_lat'] = segment.station.latitude

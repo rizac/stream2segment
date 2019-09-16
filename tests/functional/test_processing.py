@@ -8,9 +8,10 @@ from __future__ import print_function, division
 import os
 import sys
 import re
+from itertools import product
 import mock
 from mock import patch
-
+import pandas as pd
 import pytest
 import pandas as pd
 from pandas.errors import EmptyDataError
@@ -23,7 +24,7 @@ from stream2segment.utils.resources import get_templates_fpath
 from stream2segment.process.db import get_inventory
 from stream2segment.utils.log import configlog4processing as o_configlog4processing
 from stream2segment.process.main import run as process_main_run, query4process
-from stream2segment.process.writers import BaseWriter
+from stream2segment.process.writers import BaseWriter, SEGMENT_ID_COLNAME
 
 
 @pytest.fixture
@@ -216,19 +217,18 @@ class Test(object):
     # station_inventory in [true, false] and segment.data in [ok, with_gaps, empty]
     # use db4process(with_inventory, with_data, with_gap) to return sqlalchemy query for
     # those segments in case. For info see db4process in conftest.py
-    @pytest.mark.parametrize("advanced_settings, cmdline_opts",
-                             [({}, []),
-                              ({'segments_chunk': 1}, []),
-                              ({'segments_chunk': 1}, ['--multi-process']),
-                              ({}, ['--multi-process']),
-                              ({'segments_chunk': 1}, ['--multi-process', '--num-processes', '1']),
-                              ({}, ['--multi-process', '--num-processes', '1'])])
-    def test_simple_run_retDict_complex_select(self,
-                                               advanced_settings,
-                                               cmdline_opts,
+    @pytest.mark.parametrize("file_extension, options",
+                             product(['.h5', '.csv'], [({}, []),
+                                                       ({'segments_chunksize': 1}, []),
+                                                       ({'segments_chunksize': 1}, ['--multi-process']),
+                                                       ({}, ['--multi-process']),
+                                                       ({'segments_chunksize': 1}, ['--multi-process', '--num-processes', '1']),
+                                                       ({}, ['--multi-process', '--num-processes', '1'])]))
+    def test_simple_run_retDict_complex_select(self, file_extension, options,
                                                # fixtures:
                                                pytestdir, db4process, yamlfile):
         '''test a case where we have a more complex select involving joins'''
+        advanced_settings, cmdline_opts = options
         session = db4process.session
         # select the event times for the segments with data:
         etimes = sorted(_[1] for _ in session.query(Segment.id, Event.time).
@@ -250,15 +250,20 @@ class Test(object):
         station_id_whose_inventory_is_saved = _seg.station.id
 
         runner = CliRunner()
-        filename = pytestdir.newfile('.csv')
+        filename = pytestdir.newfile(file_extension)
         result = runner.invoke(cli, ['process', '--dburl', db4process.dburl,
                                '-p', self.pyfile, '-c', yaml_file, filename] + cmdline_opts)
 
         assert not result.exception
         # check file has been correctly written:
-        csv1 = readcsv(filename)
-        assert len(csv1) == 1
-        assert csv1.loc[0, csv1.columns[0]] == expected_first_row_seg_id
+        if file_extension == '.csv':
+            csv1 = readcsv(filename)
+            assert len(csv1) == 1
+            assert csv1.loc[0, csv1.columns[0]] == expected_first_row_seg_id
+        else:
+            dfr = pd.read_hdf(filename)
+            assert len(dfr) == 1
+            assert dfr.iloc[0][SEGMENT_ID_COLNAME] == expected_first_row_seg_id
 
         self.inlogtext("""3 segment(s) found to process
 
@@ -335,7 +340,7 @@ segment (id=5): 4 traces (probably gaps/overlaps)
         if select_with_data:
             config_overrides['segment_select']['has_data'] = 'true'
         if seg_chunk is not None:
-            config_overrides['advanced_settings'] = {'segments_chunk': seg_chunk}
+            config_overrides['advanced_settings'] = {'segments_chunksize': seg_chunk}
 
         yaml_file = yamlfile(**config_overrides)
 
@@ -377,10 +382,10 @@ segment (id=6): MiniSeed error: no data
     # those segments in case. For info see db4process in conftest.py
     @pytest.mark.parametrize("advanced_settings, cmdline_opts",
                              [({}, []),
-                              ({'segments_chunk': 1}, []),
-                              ({'segments_chunk': 1}, ['--multi-process']),
+                              ({'segments_chunksize': 1}, []),
+                              ({'segments_chunksize': 1}, ['--multi-process']),
                               ({}, ['--multi-process']),
-                              ({'segments_chunk': 1}, ['--multi-process', '--num-processes', '1']),
+                              ({'segments_chunksize': 1}, ['--multi-process', '--num-processes', '1']),
                               ({}, ['--multi-process', '--num-processes', '1'])])
     def test_simple_run_ret_list(self, advanced_settings, cmdline_opts,
                                  # fixtures:

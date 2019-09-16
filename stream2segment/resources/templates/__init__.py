@@ -267,11 +267,11 @@ IMPORTANT: Any exception raised by this routine will be logged to file for inspe
       The first column of the resulting csv will be *always* the segment id (an integer
       stored in the database uniquely identifying the segment)
 
-      Complex objects (e.g., everything neither string nor numeric) in the
-      returned iterable will be written converting them to string by Python and might not be
-      what the user wants. We suggest to convert everything to string or number. E.g.,
-      for obspy's `UTCDateTime`s you could return either `float(utcdatetime)` (numeric) or
-      `utcdatetime.isoformat()` (string)
+      SUPPORTED TYPES as elements of the returned iterable: any Python object, but we
+      suggest to use only strings or numbers: any other object will be converted to string
+      via `str(object)`: if this is not what you want, convert it to the numeric or string
+      representation of your choice. E.g., for Python `datetime`s you might want to set
+      `datetime.isoformat()` (string), for obspy's `UTCDateTime`s `float(utcdatetime)` (numeric)
 
    * For HDF output, this function must return a dict, pandas Series or pandas DataFrame
      that will be written as a row of the resulting file (or rows, in case of DataFrame).
@@ -281,6 +281,9 @@ IMPORTANT: Any exception raised by this routine will be logged to file for inspe
      A column with name {0} (an integer stored in the database
      uniquely identifying the segment) will be automatically added to the dict / Series, or to
      each row of the DataFrame, before writing to file.
+
+     SUPPORTED TYPES as elements of the returned dict/Series/DataFrame: all types supported
+     by pandas: https://pandas.pydata.org/pandas-docs/stable/getting_started/basics.html#dtypes
 
      For info on hdf and the pandas library (included in the package), see:
      https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.read_hdf.html

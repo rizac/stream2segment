@@ -82,10 +82,10 @@ class Test(object):
     # those segments in case. For info see db4process in conftest.py
     @pytest.mark.parametrize("advanced_settings, cmdline_opts",
                              [({}, []),
-                              ({'segments_chunk': 1}, []),
-                              ({'segments_chunk': 1}, ['--multi-process']),
+                              ({'segments_chunksize': 1}, []),
+                              ({'segments_chunksize': 1}, ['--multi-process']),
                               ({}, ['--multi-process']),
-                              ({'segments_chunk': 1}, ['--multi-process', '--num-processes', '1']),
+                              ({'segments_chunksize': 1}, ['--multi-process', '--num-processes', '1']),
                               ({}, ['--multi-process', '--num-processes', '1'])])
     @mock.patch('stream2segment.main.run_process', side_effect=process_main_run)
     def test_simple_run_no_outfile_provided(self, mock_run, advanced_settings,
@@ -151,10 +151,10 @@ class Test(object):
                              [None, 2])
     @pytest.mark.parametrize("advanced_settings, cmdline_opts",
                              [({}, []),
-                              ({'segments_chunk': 1}, []),
-                              ({'segments_chunk': 1}, ['--multi-process']),
+                              ({'segments_chunksizesize': 1}, []),
+                              ({'segments_chunksize': 1}, ['--multi-process']),
                               ({}, ['--multi-process']),
-                              ({'segments_chunk': 1}, ['--multi-process', '--num-processes', '1']),
+                              ({'segments_chunksize': 1}, ['--multi-process', '--num-processes', '1']),
                               ({}, ['--multi-process', '--num-processes', '1'])])
     @mock.patch('stream2segment.process.main.Pool')
     @mock.patch('stream2segment.process.main.get_advanced_settings',
@@ -228,11 +228,11 @@ class Test(object):
 
         seg_processed_count = query4process(db4process.session,
                                             configarg.get('segment_select', {})).count()
-        # seg_process_count is 6. 'segments_chunk' in advanced_settings is not given or 1.
+        # seg_process_count is 6. 'segments_chunksize' in advanced_settings is not given or 1.
         # def_chunksize can be None (i,e., 1200) or given (2)
         # See stream2segment.process.core._get_chunksize_defaults to see how we calculated
         # the expected calls to mock_process_segments*:
-        if 'segments_chunk' in advanced_settings:
+        if 'segments_chunksize' in advanced_settings:
             expected_callcount = seg_processed_count
         elif def_chunksize is None:
             expected_callcount = seg_processed_count
@@ -257,8 +257,8 @@ class Test(object):
             assert mock_process_segments.call_count == expected_callcount
         # test that advanced settings where correctly written:
         real_advanced_settings = configarg.get('advanced_settings', {})
-        assert ('segments_chunk' in real_advanced_settings) == \
-            ('segments_chunk' in advanced_settings)
+        assert ('segments_chunksize' in real_advanced_settings) == \
+            ('segments_chunksize' in advanced_settings)
 
         # 'advanced_settings', if present HERE, will REPLACE 'advanced_settings' in config. Thus:
         if advanced_settings and '--multi-process' not in cmdline_opts:
@@ -266,9 +266,9 @@ class Test(object):
             for k in advanced_settings.keys():
                 assert advanced_settings[k] == real_advanced_settings[k]
         else:
-            if 'segments_chunk' in advanced_settings:
-                assert real_advanced_settings['segments_chunk'] == \
-                    advanced_settings['segments_chunk']
+            if 'segments_chunksize' in advanced_settings:
+                assert real_advanced_settings['segments_chunksize'] == \
+                    advanced_settings['segments_chunksize']
             assert ('multi_process' in real_advanced_settings) == \
                 ('--multi-process' in cmdline_opts)
             if '--multi-process' in cmdline_opts:
