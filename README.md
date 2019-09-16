@@ -31,7 +31,7 @@ Please refer to the [github documentation](https://github.com/rizac/stream2segme
 
 ## Installation
 
-This program has been installed and tested on Ubuntu14.04, Ubuntu16.04 and Mac OSX El Capitan
+This program has been installed and tested on Ubuntu 14+ and Mac OSX (El Capitan and Sierra)
 
 ### Prerequisites
 
