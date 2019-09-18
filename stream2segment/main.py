@@ -45,6 +45,7 @@ from stream2segment.download.utils import FailedDownload
 from stream2segment.gui.dinfo import DReport, DStats
 from stream2segment.resources.templates import DOCVARS
 from stream2segment.process.writers import get_writer
+import shutil
 
 
 if PY2:
@@ -331,7 +332,10 @@ def init(outpath, prompt=True, *filenames):
     copied_files = []
     for filename in filenames:
         outfilepath = os.path.join(outpath, filename)
-        env.get_template(filename).stream(DOCVARS).dump(outfilepath)
+        if os.path.splitext(filename)[1].lower() in ('.yaml', '.py'):
+            env.get_template(filename).stream(DOCVARS).dump(outfilepath)
+        else:
+            shutil.copyfile(os.path.join(templates_dir, filename), outfilepath)
         copied_files.append(outfilepath)
     return copied_files
 

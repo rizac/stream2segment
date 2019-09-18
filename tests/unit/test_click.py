@@ -261,7 +261,10 @@ def test_click_template(mock_main_init, mock_input, pytestdir):
     assert result.exit_code == 0
 
     expected_files = ['download.yaml', 'paramtable.py', 'paramtable.yaml',
-                      'save2fs.py', 'save2fs.yaml']
+                      'save2fs.py', 'save2fs.yaml', 'jupyter.example.ipynb',
+                      'jupyter.example.db']
+    non_python_files = [_ for _ in expected_files if os.path.splitext(_)[1]
+                        not in ('.py', '.yaml')]
 
     dir_ = pytestdir.makedir()
     path = os.path.join(dir_, 'abc')
@@ -275,7 +278,7 @@ def test_click_template(mock_main_init, mock_input, pytestdir):
     assert result.exit_code == 0
     assert mock_main_init.called
     files = os.listdir(path)
-    assert sorted(files) == expected_files
+    assert sorted(files) == sorted(expected_files)
     assert not mock_input.called
 
     # assert we correctly wrote the files
@@ -307,9 +310,8 @@ def test_click_template(mock_main_init, mock_input, pytestdir):
             assert sorted(sourcekeys) == sorted(destkeys)
             for key in sourcekeys:
                 assert type(getattr(sourcepy, key)) == type(getattr(destpy, key))
-        else:
-            raise ValueError('There should be only python files or yaml files in %s' %
-                             get_templates_dirpath())
+        elif fle not in non_python_files:
+            raise ValueError('The file "%s" is not supposed to be copied by init' % fle)
 
     # try to write to the same dir (1)
     mock_input.reset_mock()

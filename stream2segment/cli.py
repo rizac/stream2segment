@@ -120,20 +120,28 @@ def init(outdir):
     """
     helpdict = OrderedDict([
         ("download.yaml",
-         "download configuration file ('s2s download -c' option)"),
+         "Download configuration file ('s2s download -c' option)"),
         ("paramtable.py",
-         "processing python file for creating a parametric table in csv format"
-         " ('s2s process -p' and 's2s show -p' option) [template#1]"),
+         "Processing python file for creating a parametric table (HDF, CSV). "
+         "Option '-p' of 's2s process' and 's2s show'"),
         ("paramtable.yaml",
-         "processing configuration file of [template#1]"
-         " ('s2s process -c' and 's2s show -c' option)"),
+         "Processing configuration used in the associated Python file. "
+         "Option '-c' of 's2s process' and 's2s show'"),
         ("save2fs.py",
-         "processing python file for saving waveform to filesystem"
-         " ('s2s process -p' and 's2s show -p' option) [template#2]"),
+         "Processing python file for saving waveform to filesystem. "
+         "Option '-p' of 's2s process' and 's2s show'"),
         ("save2fs.yaml",
-         "processing configuration file of [template#2]"
-         " ('s2s process -c' and 's2s show -c' option)")
-        ])
+         "Processing configuration used in the associated Python file. "
+         "Option '-c' of 's2s process' and 's2s show'"),
+        ("jupyter.example.ipynb",
+         "Jupyter notebook illustrating how to "
+         "access downloaded data and run custom code. "
+         "Run 'jupyter notebook jupyter.example.ipynb' for details "
+         "(requires the installation of jupyter)"),
+        ("jupyter.example.db",
+         "Test database with few downloaded segments. Used in the "
+         "associated jupyter notebook")
+    ])
 
     try:
         copied_files = main.init(outdir, True, *helpdict)  # pass only helpdict keys
