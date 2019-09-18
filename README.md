@@ -1,10 +1,10 @@
 # <img align="left" height="30" src="https://www.gfz-potsdam.de/fileadmin/gfz/medien_kommunikation/Infothek/Mediathek/Bilder/GFZ/GFZ_Logo/GFZ-Logo_eng_RGB.svg"> Stream2segment <img align="right" height="50" src="https://www.gfz-potsdam.de/fileadmin/gfz/GFZ_Wortmarke_SVG_klein_en_edit.svg">
 
-A Python project to download, process and visualize event-based seismic waveform segments.
+A Python project to download, process and visualize event-based seismic waveform segments, specifically created to manage massive amounts of data
 
 The key aspects with respect to widely-used similar applications are:
 
-* A database storage (sqlite or postgres) for downloaded data and metadata. We suggest to use sqlite for small to medium downloads (as a rule of thumb: up to hundreds of thousands of segments), and postgres otherwise. We also suggest to use the program with at least 16GB of RAM: if less, try to use postgres, although we experienced problems with any database, on machines with 8GB of RAM)
+* A database storage (sqlite or postgres) for downloaded data and metadata. We suggest to use sqlite for small to medium downloads (as a rule of thumb: up to hundreds of thousands of segments), and postgres otherwise. For massive downloads, we also suggest to use the program with at least 16GB of RAM: if less, try to use postgres, although we experienced problems with any database, on machines with 8GB of RAM)
 * A highly customizable processing module to get any user-dependent output such as, e.g., create tabular file outputs (e.g., csv, hdf5) or store
   on the local file system the processed waveform segments.
 * A visualization tool to show downloded and optionally customized processed segments in a web browser by means
