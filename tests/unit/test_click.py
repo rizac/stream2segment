@@ -311,7 +311,7 @@ def test_click_template(mock_main_init, mock_input, pytestdir):
             for key in sourcekeys:
                 assert type(getattr(sourcepy, key)) == type(getattr(destpy, key))
         elif fle not in non_python_files:
-            raise ValueError('The file "%s" is not supposed to be copied by init' % fle)
+            raise ValueError('The file "%s" is not supposed to be copied by `init`' % fle)
 
     # try to write to the same dir (1)
     mock_input.reset_mock()
