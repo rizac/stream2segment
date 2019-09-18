@@ -8,7 +8,7 @@
 # Database url where to save data (currently supported are sqlite and postgresql).
 # We suggest sqlite for small to medium data sizes or enough system RAM (as a rule of thumb:
 # less than a million segments, or more than 8GB of RAM) and postgres
-# otherwise (note that with postgres, the database must have been created beforehand)
+# otherwise (note that with postgres, the database must have been created beforehand).
 # If sqlite, just write the path to your local file
 # prefixed with 'sqlite:///' (e.g., 'sqlite:////home/myfolder/db.sqlite'): non-absolute
 # paths will be relative to the config file path.
@@ -41,9 +41,9 @@ endtime: 2016-12-25T00:00:00
 # The events list returned by the url or in the supplied file must be formatted as specified
 # in https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf#page=16
 # or as isf (http://www.isc.ac.uk/standards/isf/download/isf.pdf), although the latter
-# has limited support in this program (e.g., comments are not allowed. Use at your own risk).
+# has limited support in this program (e.g., comments are not supported. Use at your own risk).
 # Implementation details: 1. You can also type one of the following shortcut strings:
-# {{ DOWNLOAD_EVENTWS_LIST }}
+# {{ DOWNLOAD_EVENTWS_LIST }}.
 # 2. If providing an event list file, the file name (not the full path) will be used
 # as catalog identifier: renaming the file and downloading again on the same database
 # will result in the events and their segments being saved twice
@@ -184,9 +184,9 @@ search_radius:
 # Dataselect web service to use (url). It *must* be FDSN compliant
 # otherwise the station query can not be retrieved automatically:
 #   <site>/fdsnws/dataselect/<majorversion>/query. Examples:
-#   https://service.iris.edu/fdsnws/dataselect/1/query
-#   service.iris.edu/fdsnws/dataselect/1/query  (scheme will default to 'http://')
-#   (an ending '/' or '?' will be removed from the url, if present).
+#   https://service.iris.edu/fdsnws/dataselect/1/query or
+#   service.iris.edu/fdsnws/dataselect/1/query  (scheme will default to 'http://').
+#   An ending '/' or '?' will be removed from the url, if present.
 # You can also type two special values:
 # "iris" (shortcut for: https://service.iris.edu/fdsnws/dataselect/1/query) or
 # "eida" (which will automatically fetch data from the urls of all EIDA datacenters).

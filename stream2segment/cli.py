@@ -45,7 +45,7 @@ class clickutils(object):  #pylint: disable=invalid-name, too-few-public-methods
 
     TERMINAL_HELP_WIDTH = 110  # control width of help. 80 should be the default (roughly)
     DEFAULTDOC = yaml_load_doc(get_templates_fpath("download.yaml"))
-    EQA = "(eventws query argument)"
+    EQA = "(event search parameter)"
     DBURL_OR_YAML_ATTRS = dict(type=inputargs.extract_dburl_if_yamlpath,
                                metavar='TEXT or PATH',
                                help=("Database url where data has been saved. "
@@ -239,8 +239,8 @@ def download(config, dburl, eventws, starttime, endtime, network,  # pylint: dis
              maxlongitude, mindepth, maxdepth, minmagnitude,  # pylint: disable=unused-argument
              maxmagnitude):  # pylint: disable=unused-argument
     """Downloads waveform data segments with metadata in a specified database.
-    The config file (-c option, see below) is the only required option. All other options
-    ar optional: if provided, they will overwrite the value of the config file
+    The config file (-c option, see below) is the only required option. All other options,
+    if provided, will overwrite the correspomding value in the config file
     """
     # REMEMBER: NO LOCAL VARIABLES OTHERWISE WE MESS UP THE CONFIG OVERRIDES ARGUMENTS
     try:
@@ -312,8 +312,8 @@ def process(dburl, config, pyfile, funcname, append, no_prompt,
     file.
 
     [OUTFILE] (optional): the path of the CSV or HDF file where the output of the user-defined
-    processing function F will be written to (one row per processed segment);
-    The given file extension will denote the type of output (.H5, .HDF5, .HDF for HDF files,
+    processing function F will be written to (generally, one row per processed segment).
+    The given file extension will denote the type of output (.h5, .hdf5, .hdf for HDF files,
     anything else: CSV).
     All logging information, errors or warnings will be written to the file
     [OUTFILE].[now].log (where [now] denotes the execution date-time, in iso format UTC).
