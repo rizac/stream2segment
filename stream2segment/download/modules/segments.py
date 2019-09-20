@@ -389,6 +389,7 @@ def seg_responses(seg_groups, dc_dataselect_manager, chaid2mseedid,
         return dc_dataselect_manager.opener(group_element[0][0])
 
     seg_response = SegResponse()
+    code_url_err = s2scodes.url_err
     for (group_keys, dframe), result, exc, request in \
             read_async(seg_groups, urlkey=req, raise_http_err=False,
                        max_workers=max_thread_workers, timeout=timeout,
@@ -404,7 +405,7 @@ def seg_responses(seg_groups, dc_dataselect_manager, chaid2mseedid,
         # the tuple (data, http code, http message) (code>=400). So:
         if exc:
             seg_response.data = None  # pylint: disable=attribute-defined-outside-init
-            seg_response.code = s2scodes.url_err  # pylint: disable=attribute-defined-outside-init
+            seg_response.code = code_url_err  # pylint: disable=attribute-defined-outside-init
             seg_response.msg = None  # pylint: disable=attribute-defined-outside-init
         else:
             seg_response.data = result[0]  # pylint: disable=attribute-defined-outside-init
@@ -538,7 +539,7 @@ def _process_seg_response_with_waveform_data(seg_response, dframe, stats, chaid2
         of that request
     '''
     unknowns = len(dframe)  # count of download status code = None (we will substract from it)
-
+    codes = s2scodes
     resdict = mseedunpack(seg_response.data, seg_response.starttime, seg_response.endtime)
     # iterate over dframe rows and assign the relative data
     # Note that we could use iloc which is SLIGHTLY faster than
@@ -557,14 +558,14 @@ def _process_seg_response_with_waveform_data(seg_response, dframe, stats, chaid2
         err, data, s_rate, max_gap_ratio, stime, etime, outoftime = res
         if err is not None:
             # set only the code field.
-            dframe.at[idxval, SEG.DSCODE] = s2scodes.mseed_err
-            stats[seg_response.url][s2scodes.mseed_err] += 1
+            dframe.at[idxval, SEG.DSCODE] = codes.mseed_err
+            stats[seg_response.url][codes.mseed_err] += 1
         else:
             # DO NOT MODIFY `seg_response` attributes in loop! Otherwise
             # next segments might have invalid value(s)! Therefore, set _code:
             _code = seg_response.code
             if outoftime is True:
-                _code = s2scodes.timespan_warn if data else s2scodes.timespan_err
+                _code = codes.timespan_warn if data else codes.timespan_err
             stats[seg_response.url][_code] += 1
             # This raised a UnicodeDecodeError:
             # dframe.loc[idxval, SEG_COLNAMES] = (data, s_rate,
@@ -584,7 +585,7 @@ def _process_seg_response_with_waveform_data(seg_response, dframe, stats, chaid2
             dframe.at[idxval, SEG.DATA] = data
 
     if unknowns:
-        stats[seg_response.url][s2scodes.seg_not_found] += unknowns
+        stats[seg_response.url][codes.seg_not_found] += unknowns
 
 
 class DcDataselectManager(object):
