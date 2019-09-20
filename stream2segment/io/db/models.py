@@ -88,7 +88,7 @@ def sqlite_concat(element, compiler, **kw):
 # two utility functions to return the timestamp from a datetime
 def _duration_sqlite(start, end):
     '''returns the time in seconds since 1970 as floating point for of the
-    soecified argument (a datetime in sqlite format)'''
+    specified argument (a datetime in sqlite format)'''
     # note: sqlite tiem format is bizarre: they have %s: timestamp in SECONDS since 1970,
     # %f seconds only (with 3 decimal digits WTF?) and %S: seconds part (integer).
     # Thus to have a floating point value with 3 decimal digits we should do:
@@ -103,7 +103,7 @@ def _duration_sqlite(start, end):
 
 def _duration_postgres(start, end):
     '''returns the time in seconds since 1970 as floating point for of the
-    soecified argument (a datetime in postgres format)'''
+    specified argument (a datetime in postgres format)'''
     # Note: we use round at the end
     # to coerce to float with 3 decimal digits, for safety
     # and avoid integer divisions when needed but proper floating point arithmentic
@@ -363,9 +363,6 @@ class DataCenter(Base):
 
     __table_args__ = (UniqueConstraint('station_url', 'dataselect_url',
                                        name='sta_data_uc'),)
-
-
-# global var defining the substring to search for returning the network location
 
 
 # standard decorator style for event listener. Note: we cannot implement validators otherwise

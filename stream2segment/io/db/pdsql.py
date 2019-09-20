@@ -207,8 +207,7 @@ def harmonize_columns(table, dataframe, parse_dates=None):
 
 
 def _harmonize_columns(table, dataframe, parse_dates=None):
-    """
-    Copied and modified from pandas.io.sql:
+    """Copied and modified from pandas.io.sql:
     Make the DataFrame's column types align with the SQL table
     column types. The original dataframe dtypes and values MIGHT be modified in place!
 
@@ -308,13 +307,13 @@ def _harmonize_columns(table, dataframe, parse_dates=None):
 
 def _handle_date_column(col, format=None):  # @ReservedAssignment
     '''Copied and simplified from pandas.io.sql._handle_date_column for parsing datetime(s)
-        which are supposed to be in UTC.
+    which are supposed to be in UTC.
 
-        :param col: pandas Series or numpy array with values to be cated to datetime
-        :param format: either None (in that case the col values are supposed to be datetime
-            parsable) or a string in  ['D', 'd', 'h', 'm', 's', 'ms', 'us', 'ns'] denoting the
-            unit of `col`, in which case `col` must be numeric. If `col` is numeric and
-            `format` is None, then `format` defaults to 's' (seconds)
+    :param col: pandas Series or numpy array with values to be cated to datetime
+    :param format: either None (in that case the col values are supposed to be datetime
+        parsable) or a string in  ['D', 'd', 'h', 'm', 's', 'ms', 'us', 'ns'] denoting the
+        unit of `col`, in which case `col` must be numeric. If `col` is numeric and
+        `format` is None, then `format` defaults to 's' (seconds)
     '''
     if format is None and (issubclass(col.dtype.type, np.floating) or
                            issubclass(col.dtype.type, np.integer)):
@@ -804,8 +803,7 @@ def _get_shared_colnames(table_model, dataframe, where_col=None):
 
 
 def syncdfseq(dataframe, session, seq_col, overwrite=False, pkeycol_maxval=None):
-    '''
-    Synchronizes `dataframe[seq_col.key]` with the underlying database table T,
+    '''Synchronizes `dataframe[seq_col.key]` with the underlying database table T,
     setting values not in T by auto-incrementing the sequence of values (thus `seq_col`
     must be numeric and having unique constraint, e.g. an integer primary key).
 
@@ -882,8 +880,7 @@ def cast_column(dataframe, sql_column):
 def insertdf(dataframe, session, table_model, colnames2insert=None,
              buf_size=10, return_df=True,
              onerr=None):
-    """
-    Efficiently inserts row of `dataframe` to the Table T mapped by the ORM `table_model`.
+    """Efficiently inserts row of `dataframe` to the Table T mapped by the ORM `table_model`.
     This function performs a sort of "raw" insert with no check, thus any kind of constraint
     defined on T must be satisfied by `dataframe`. For instance, if T
     defines a primary key with some sort of auto sequence (INTEGER auto increment), then
@@ -1063,7 +1060,7 @@ def syncdfcol(dataframe, session, matching_columns, sync_col):
     NOTE: If sync_col is of SQL type INTEGER, the returning dataframe[sync_col.key]'s dtype
         might be float to accomodate NaN's, if any. Note that postgres is strict and will issue an
         `sqlalchemy.exc.DataError` if inserting/updating a non-nan value (e.g., 6.0 instead of 6),
-        and it's also terribly slow in some updates when a where clause is made ona  float column
+        and it's also terribly slow in some updates when a where clause is made on a float column
         supposed to be 'int'. The cast cannot be done here as the column might have nan's not
         convertible to int. If there are non-NaNs, see :function:`cast_column` for casting.
 

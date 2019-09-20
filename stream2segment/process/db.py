@@ -1,4 +1,6 @@
 '''
+ORM for processing. Enhances Segment and Station class with several methods
+
 Created on 26 Mar 2019
 
 @author: riccardo
@@ -158,8 +160,6 @@ def _parse_sn_windows(window):
     exception
 
     :param sn_wondows: either a float or a iterable of two
-
-    :raise: :class:`BadArgument`
     '''
     try:
         try:

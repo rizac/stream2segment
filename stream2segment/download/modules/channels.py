@@ -325,7 +325,7 @@ def save_stations_and_channels(session, channels_df, eidavalidator, update, db_b
     CHA_LOC = Channel.location.key  # pylint: disable=invalid-name
     CHA_CHA = Channel.channel.key  # pylint: disable=invalid-name
     # set columns to show in the log on error (no row written):
-    STA_ERRCOLS = [STA_NET, STA_STA, STA_STIME, STA_DCID]
+    STA_ERRCOLS = [STA_NET, STA_STA, STA_STIME, STA_DCID]  # pylint: disable=invalid-name
     CHA_ERRCOLS = [STA_NET, STA_STA, CHA_LOC, CHA_CHA, STA_STIME, STA_DCID]
 
     # first drop channels of same station:

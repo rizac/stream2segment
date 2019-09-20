@@ -322,10 +322,10 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
                 # if there are rows to update and response has no data, then
                 # discard those for which the code is the same. If we requested a different
                 # time window, we should update the time windows but there is no point as the
-                # db segment does not have data stored. The last if (response code is not None)
+                # db segment does not have data stored. The last condition (`code is not None`)
                 # should never happen but for safety, otherwise we risk to skip segments
                 # with download_code NA (which means exactly the opposite: force insert/update
-                # them to the db): 
+                # them to the db. See comment on line 182):
                 if toupdate and not data and code is not None:
                     _skipped = dframe[SEG_DSCODE] == code
                     if _skipped.any():
