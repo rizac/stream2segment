@@ -777,10 +777,12 @@ EVENTWS_MAPPING = {
     'usgs':  'http://earthquake.usgs.gov/fdsnws/event/1/query',
     }
 
+
 EVENTWS_SAFE_PARAMS = ['minlatitude', 'minlat', 'maxlatitude', 'maxlat',
                        'minlongitude', 'minlon', 'maxlongitude', 'maxlon',
                        'minmagnitude', 'minmag', 'maxmagnitude', 'maxmag',
                        'mindepth', 'maxdepth']
+
 
 class Authorizer(object):
     '''Class handling authorization/authentication'''

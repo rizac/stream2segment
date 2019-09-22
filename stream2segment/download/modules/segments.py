@@ -11,7 +11,7 @@ from builtins import map, next, zip, range, object
 import os
 from datetime import timedelta
 import sys
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 # import logging
 
 import numpy as np
@@ -240,26 +240,6 @@ class SEG(object):
     QAUTH = Segment.queryauth.key  # pylint: disable=invalid-name
     RETRY = "__do.download__"  # pylint: disable=invalid-name
 
-    # these are the column names to be set on a dataframe from a received response,
-    # mapped to their default value
-    # Set nan to let pandas understand it's numeric. None I don't know how it is converted
-    # (should be checked) but it's for string types
-    # for numpy types, see
-    # https://docs.scipy.org/doc/numpy/reference/arrays.dtypes.html#specifying-and-constructing-data-types
-    # Use OrderedDict to preserve order (see comments below)
-    DEFVALS = OrderedDict([
-        (DATA, None),
-        (SRATE, np.nan),
-        (MGAP, np.nan),
-        (DATAID, None),
-        (DSCODE, np.nan),
-        (STIME, pd.NaT),
-        (ETIME, pd.NaT)
-    ])
-
-    # these is a list of column names to be set on a dataframe from a received response
-    DEFCOLS = list(DEFVALS.keys())
-
 
 def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2mseedid,
                            download_id, update_request_timebounds, max_thread_workers, timeout,
@@ -326,11 +306,29 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
         [SEG.DCID, SEG.START, SEG.END, SEG.CHAID]
     ]
 
-    # some variables to be used in the loop below:
+    # these are the column names to be set on a dataframe from a received response,
+    # mapped to their default value
+    # Set nan to let pandas understand it's numeric. None I don't know how it is converted
+    # (should be checked) but it's for string types
+    # for numpy types, see
+    # https://docs.scipy.org/doc/numpy/reference/arrays.dtypes.html#specifying-and-constructing-data-types
+    # Use OrderedDict to preserve order (see comments below)
+    defaultvalues = OrderedDict([
+        (SEG.DATA, None),
+        (SEG.SRATE, np.nan),
+        (SEG.MGAP, np.nan),
+        (SEG.DATAID, None),
+        (SEG.DSCODE, np.nan),
+        (SEG.STIME, pd.NaT),
+        (SEG.ETIME, pd.NaT)
+    ])
+    # these is a list of column names to be set on a dataframe from a received response
+    columns2set = list(defaultvalues.keys())
+    defaultvalues[SEG.DOWNLID] = download_id
     toupdate = SEG.DSCODE in segments_df.columns
+    code_not_found = s2scodes.seg_not_found
     skipped_same_code = 0
     seg_logger = SegmentLogger()  # report seg. errors only once per error type and data center
-
     with get_progressbar(show_progress, length=len(segments_df)) as pbar:
 
         skipped_dataframes = []  # store dataframes with a 413 error and retry later
@@ -341,31 +339,47 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
 
             islast = group_ == groupsby[-1]
             seg_groups = segments_df.groupby(group_, sort=False)
-            for seg_response, dframe, request in \
-                    seg_responses(seg_groups, dc_dataselect_manager, chaid2mseedid,
+            for data, exc, code, request, dframe in \
+                    get_responses(seg_groups, dc_dataselect_manager, chaid2mseedid,
                                   max_thread_workers, timeout, download_blocksize):
 
-                if seg_response.code == 413 and not islast and len(dframe) > 1:
+                if code == 413 and not islast and len(dframe) > 1:
                     skipped_dataframes.append(dframe)
                     continue
 
                 # update bar now:
                 pbar.update(len(dframe))
 
-                if toupdate:
-                    dframe, _skippedcount = _purge_not2update(seg_response, dframe, stats)
+                url = get_host(request)
+                if toupdate and not data:
+                    dframe, _skippedcount = drop_download_code(dframe, code)
                     if _skippedcount:
                         skipped_same_code += _skippedcount
+                        stats[url][code] += _skippedcount
                         if dframe.empty:
                             continue
 
-                dframe = _setup_defaults_on_dataframe(dframe, download_id)
-                _set_responsedata_on_dataframe(seg_response, dframe, stats, chaid2mseedid)
+                dframe = _setup_defaults_on_dataframe(dframe, defaultvalues)
+                if data:
+                    _set_responsedata_on_dataframe(data,
+                                                   code,
+                                                   dframe,
+                                                   chaid2mseedid,
+                                                   columns2set)
+                    # group by download code, count them, and add the counts to stats:
+                    url_stats = stats[url]
+                    for kode, kount in get_counts(dframe, SEG.DSCODE, code_not_found).items():
+                        url_stats[kode] += kount
+                else:
+                    dframe[SEG.DSCODE] = code
+                    if data is not None:
+                        dframe[SEG.DATA] = data  # mighe be b''
+                    stats[url][code] += len(dframe)
 
-                if seg_response.exc is not None:
+                if exc is not None:
                     # log segment errors only once per error type and data center,
                     # otherwise the log is hundreds of Mb and it's unreadable:
-                    seg_logger.warn(request, seg_response.url, seg_response.code, seg_response.exc)
+                    seg_logger.warn(request, url, code, exc)
 
                 segmanager.add(dframe)
 
@@ -389,7 +403,7 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
     return stats
 
 
-def seg_responses(seg_groups, dc_dataselect_manager, chaid2mseedid,
+def get_responses(seg_groups, dc_dataselect_manager, chaid2mseedid,
                   max_thread_workers, timeout, download_blocksize):
     '''Downloads segments and yields results
 
@@ -416,45 +430,38 @@ def seg_responses(seg_groups, dc_dataselect_manager, chaid2mseedid,
         # group_element[0][0] is the datacenter id:
         return dc_dataselect_manager.opener(group_element[0][0])
 
-    seg_response = SegResponse()
-    code_url_err = s2scodes.url_err
+    # seg_response = SegResponse()
+    code_url_err, code_mseed_err = s2scodes.url_err, s2scodes.mseed_err
     for (group_keys, dframe), result, exc, request in \
             read_async(seg_groups, urlkey=req, raise_http_err=False,
                        max_workers=max_thread_workers, timeout=timeout,
                        blocksize=download_blocksize, openers=openerfunc):
-        # group_keys is the tuple (datacenter_id, request_start_time, request_end_time)
-        seg_response.starttime = group_keys[1]  # pylint: disable=attribute-defined-outside-init
-        seg_response.endtime = group_keys[2]  # pylint: disable=attribute-defined-outside-init
-        seg_response.url = get_host(request)  # pylint: disable=attribute-defined-outside-init
-        # set exception (might be None)
-        seg_response.exc = exc  # pylint: disable=attribute-defined-outside-init
         # result is the tuple (data, http code, http message), or None if exc is not None
         # Note that exc can be only issued from an URLError, as HTTPErrors are returned in
         # the tuple (data, http code, http message) (code>=400). So:
         if exc:
-            seg_response.data = None  # pylint: disable=attribute-defined-outside-init
-            seg_response.code = code_url_err  # pylint: disable=attribute-defined-outside-init
-            seg_response.msg = None  # pylint: disable=attribute-defined-outside-init
+            code = code_url_err
+            data = None  # for safety
         else:
-            seg_response.data = result[0]  # pylint: disable=attribute-defined-outside-init
-            seg_response.code = result[1]  # pylint: disable=attribute-defined-outside-init
-            seg_response.msg = result[2]  # pylint: disable=attribute-defined-outside-init
+            data, code = result[0], result[1]
+            if code >= 400:
+                exc = "%d: %s" % (code, result[2])
+                data = None  # for safety
+            elif not data:
+                data = b''
+            else:
+                try:
+                    data = mseedunpack(data,
+                                       group_keys[1],  # stime
+                                       group_keys[2]  # etime
+                                       )
+                    exc = None  # for safety
+                except MSeedError as mseedexc:
+                    code = code_mseed_err
+                    exc = mseedexc
+                    data = None  # for safety
 
-        yield seg_response, dframe, request
-
-
-class SegResponse(object):
-    '''Memory efficient container for all data related to a received segment response'''
-    # Use slots (https://stackoverflow.com/a/28059785):
-    __slots__ = [
-        'url',  # the url DOMAIN of the request
-        'starttime',  # request start time
-        'endtime',  # request end time
-        'exc',  # the response exception (URLError, non HTTPError), might be None
-        'data',  # the waveform data (might be None)
-        'code',  # the stream2segment download code (superset of HTTP status code)
-        'msg'  # the server response message
-    ]
+        yield data, exc, code, request, dframe
 
 
 def get_seg_request(segments_df, datacenter_url, chaid2mseedid):
@@ -478,10 +485,9 @@ def get_seg_request(segments_df, datacenter_url, chaid2mseedid):
     return Request(url=datacenter_url, data=post_data.encode('utf8'))
 
 
-def _purge_not2update(seg_response, dframe, stats):
-    '''Purges from dataframe the segments (rows) which should not be written
-    to the database during an update download, because their download code did not
-    change and the server response does not have data
+def drop_download_code(dframe, code):
+    '''Drops rows (=segments) from dataframe with the same download status code
+    as `code`
 
     :return: the tuple dframe, skipped, where dframe is the dframe with only rows
         to be written, and skipped >=0 the removed rows
@@ -494,16 +500,15 @@ def _purge_not2update(seg_response, dframe, stats):
     # with download_code NA (which means exactly the opposite: force insert/update
     # them to the db. See comment on line 90):
     _skippedcount = 0
-    if not seg_response.data and seg_response.code is not None:
-        _skipped = dframe[SEG.DSCODE] == seg_response.code
+    if code is not None:
+        _skipped = dframe[SEG.DSCODE] == code
         _skippedcount = _skipped.sum()
         if _skippedcount:
             dframe = dframe[~_skipped]
-            stats[seg_response.url][seg_response.code] += _skippedcount
     return dframe, _skippedcount
 
 
-def _setup_defaults_on_dataframe(dframe, download_id):
+def _setup_defaults_on_dataframe(dframe, columns_dict):
     '''Sets up the default values on a given dataframe representing the segments to
     download (one row per segment)
     '''
@@ -512,64 +517,27 @@ def _setup_defaults_on_dataframe(dframe, download_id):
     # Moreover, let's avoid pandas SettingsWithCopy warning:
     dframe = dframe.copy()
     # init columns with default values:
-    for col, defval in SEG.DEFVALS.items():
+    for col, defval in columns_dict.items():
         dframe[col] = defval
         # Note that we could use
         # dframe.insert(len(dframe.columns), col, segvals[col])
         # to preserve order, if needed. A starting discussion on adding new column:
         # https://stackoverflow.com/questions/12555323/adding-new-column-to-existing-dataframe-in-python-pandas
-    # init download id column with our download_id:
-    dframe[SEG.DOWNLID] = download_id
     return dframe
 
 
-def _set_responsedata_on_dataframe(seg_response, dframe, stats, chaid2mseedid):
-    '''Writes to dframe all necessary values according to `seg_response`
-
-    :param seg_response: a SegResponse object
-    :param dframe: the dataframe of the segments (one segment per row)
-        whose waveform data was requested to the server. `seg_response` is the server response
-        of that request
-    '''
-    # Here it is safe to `set seg_response` attributes, because we will use some
-    # modified values in the caller (see above).
-    # In _process_seg_response_with_waveform_data, when looping through
-    # dframe rows, we can not set attributes otherwise they might affect subsequent looped rows
-    if seg_response.exc is None:
-        if seg_response.code >= 400:
-            seg_response.exc = "%d: %s" % (seg_response.code, seg_response.msg)
-        elif not seg_response.data:
-            # if we have empty data set only specific columns:
-            # (avoid mseed_id as is useless string data on the db, and we can
-            # retrieve it via station and channel joins in case)
-            dframe.loc[:, SEG.DATA] = b''
-            dframe.loc[:, SEG.DSCODE] = seg_response.code
-            stats[seg_response.url][seg_response.code] += len(dframe)
-        else:
-            try:
-                _set_responsedata_with_waveformdata_on_dataframe(seg_response, dframe, stats,
-                                                                 chaid2mseedid)
-            except MSeedError as mseedexc:
-                seg_response.code = s2scodes.mseed_err
-                seg_response.exc = mseedexc
-
-    if seg_response.exc is not None:
-        dframe.loc[:, SEG.DSCODE] = seg_response.code
-        stats[seg_response.url][seg_response.code] += len(dframe)
-
-
-def _set_responsedata_with_waveformdata_on_dataframe(seg_response, dframe, stats, chaid2mseedid):
+def _set_responsedata_on_dataframe(resdict, code, dframe, chaid2mseedid, columns2set):
     '''Writes to dframe all necessary values according to `seg_response`. The latter
     has its 'data' attribute (bytes of waveform data received from the server) not null
 
-    :param seg_response: a SegResponse object. `seg_response.data` (bytes) is surely not None
+    :param resdict: a dict mapping a miniseed_id (string) to the tuple
+        err, data, s_rate, max_gap_ratio, stime, etime, outoftime.
+        Return value of `mseedliste.mseedunpack` function
     :param dframe: the dataframe of the segments (one segment per row)
         whose waveform data was requested to the server. `seg_response` is the server response
         of that request
     '''
-    unknowns = len(dframe)  # count of download status code = None (we will substract from it)
     codes = s2scodes
-    resdict = mseedunpack(seg_response.data, seg_response.starttime, seg_response.endtime)
     # iterate over dframe rows and assign the relative data
     # Note that we could use iloc which is SLIGHTLY faster than
     # loc for setting the data, but this would mean using column
@@ -583,19 +551,16 @@ def _set_responsedata_with_waveformdata_on_dataframe(seg_response, dframe, stats
         res = resdict.get(mseedid, None)
         if res is None:
             continue
-        unknowns -= 1
         err, data, s_rate, max_gap_ratio, stime, etime, outoftime = res
         if err is not None:
             # set only the code field.
             dframe.at[idxval, SEG.DSCODE] = codes.mseed_err
-            stats[seg_response.url][codes.mseed_err] += 1
         else:
-            # DO NOT MODIFY `seg_response` attributes in loop! Otherwise
+            # DO NOT MODIFY code attributes in loop! Otherwise
             # next segments might have invalid value(s)! Therefore, set _code:
-            _code = seg_response.code
+            _code = code
             if outoftime is True:
                 _code = codes.timespan_warn if data else codes.timespan_err
-            stats[seg_response.url][_code] += 1
             # This raised a UnicodeDecodeError:
             # dframe.loc[idxval, SEG_COLNAMES] = (data, s_rate,
             #                                 max_gap_ratio,
@@ -609,12 +574,26 @@ def _set_responsedata_with_waveformdata_on_dataframe(seg_response, dframe, stats
             # decoded) and then use set_value only for the `data` field
             # set_value should be relatively fast. Update 2018: set_value deprecated
             # we use at
-            dframe.loc[idxval, SEG.DEFCOLS] = (b'', s_rate, max_gap_ratio,
+            dframe.loc[idxval, columns2set] = (b'', s_rate, max_gap_ratio,
                                                mseedid, _code, stime, etime)
-            dframe.at[idxval, SEG.DATA] = data
+            dframe.at[idxval, columns2set[0]] = data
 
-    if unknowns:
-        stats[seg_response.url][codes.seg_not_found] += unknowns
+
+def get_counts(dframe, dframe_column, na_key):
+    '''Counts the distinct values of dframe[dframe_column], returns a dict
+    of distinct_value: count. na_key is the key to be used for nans, which
+    pandas does not include by default and has to be counted 'manually'
+    '''
+    # first count NA: if the dataframe has all NA, grouping by raises
+    # (group by skips NA)
+    dframe_column = dframe[dframe_column]
+    na_count = dframe_column.isna().sum()
+    if na_count == len(dframe):
+        return {na_key: na_count}
+    codes_count = dframe.groupby(SEG.DSCODE).size().to_dict()
+    if na_count:
+        codes_count[na_key] = na_count
+    return codes_count
 
 
 class DcDataselectManager(object):
