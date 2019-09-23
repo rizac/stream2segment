@@ -334,13 +334,13 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
             if segments_df.empty:  # for safety (if this is the second loop or greater)
                 break
 
-            islast = group_ == groupsby[-1]
+            is_last_iteration = group_ == groupsby[-1]
             seg_groups = segments_df.groupby(group_, sort=False)
             for data, exc, code, request, dframe in \
                     get_responses(seg_groups, dc_dataselect_manager, chaid2mseedid,
                                   max_thread_workers, timeout, download_blocksize):
 
-                if code == 413 and not islast and len(dframe) > 1:
+                if code == 413 and not is_last_iteration and len(dframe) > 1:
                     skipped_dataframes.append(dframe)
                     continue
 
@@ -497,11 +497,10 @@ def drop_download_code(dframe, code):
         to be written, and skipped >=0 the removed rows
     '''
     _skippedcount = 0
-    if code is not None:
-        _skipped = dframe[SEG.DSCODE] == code
-        _skippedcount = _skipped.sum()
-        if _skippedcount:
-            dframe = dframe[~_skipped]
+    _skipped = dframe[SEG.DSCODE] == code
+    _skippedcount = _skipped.sum()
+    if _skippedcount:
+        dframe = dframe[~_skipped]
     return dframe, _skippedcount
 
 
@@ -516,6 +515,7 @@ def _set_responsedata_on_dataframe(resdict, code, dframe, chaid2mseedid, columns
         whose waveform data was requested to the server.
     '''
     codes = s2scodes
+    col_dscode = SEG.DSCODE
     # iterate over dframe rows and assign the relative data
     # Note that we could use iloc which is SLIGHTLY faster than
     # loc for setting the data, but this would mean using column
@@ -532,7 +532,7 @@ def _set_responsedata_on_dataframe(resdict, code, dframe, chaid2mseedid, columns
         err, data, s_rate, max_gap_ratio, stime, etime, outoftime = res
         if err is not None:
             # set only the code field.
-            dframe.at[idxval, SEG.DSCODE] = codes.mseed_err
+            dframe.at[idxval, col_dscode] = codes.mseed_err
         else:
             # DO NOT MODIFY code attributes in loop! Otherwise
             # next segments might have invalid value(s)! Therefore, set _code:
@@ -569,7 +569,7 @@ def get_counts(dframe, dframe_column, na_key):
     na_count = dframe_column.isna().sum()
     if na_count < len(dframe):
         # NOTE: groupby DOES NOT COUNT NA/Nones/NaNs
-        for result in dframe.groupby(SEG.DSCODE).size().iteritems():
+        for result in dframe.groupby(dframe_column).size().iteritems():
             yield result  # result is (code, count)
     if na_count:
         yield na_key, na_count
