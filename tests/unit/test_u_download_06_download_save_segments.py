@@ -31,7 +31,7 @@ from stream2segment.download.modules.datacenters import get_datacenters_df
 from stream2segment.download.modules.channels import get_channels_df, chaid2mseedid_dict
 from stream2segment.download.modules.stationsearch import merge_events_stations
 from stream2segment.download.modules.segments import prepare_for_download, \
-    download_save_segments, DcDataselectManager
+    download_save_segments, DcDataselectManager, get_counts
 from stream2segment.download.utils import Authorizer
 from stream2segment.io.db.pdsql import dbquery2df, insertdf, updatedf
 from stream2segment.download.utils import s2scodes
@@ -829,3 +829,37 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         row__ = df__.iloc[0]
         assert row__[Segment.download_code.key] == OUTTIME_ERR
         assert len(row__[Segment.data.key]) == 0
+
+
+def test_get_counts():
+    '''tests get_counts in segments.py'''
+    dframe = pd.DataFrame([
+        {'a': 1.1},
+        {'a': 1.1},
+        {'a': 5},
+        {'a': None}
+    ])
+    d = dict(get_counts(dframe, 'a', 'bla'))
+    assert d[1.1] == 2
+    assert d[5] == 1
+    assert d['bla'] == 1
+    assert len(d) == 3
+
+    dframe = pd.DataFrame([
+        {'a': None},
+        {'a': None},
+        {'a': None}
+    ])
+    d = dict(get_counts(dframe, 'a', None))
+    assert d[None] == 3
+    assert len(d) == 1
+
+    dframe = pd.DataFrame([
+        {'a': 5},
+        {'a': 1.1},
+        {'a': 1.1}
+    ])
+    d = dict(get_counts(dframe, 'a', 'bla'))
+    assert d[1.1] == 2
+    assert d[5] == 1
+    assert len(d) == 2
