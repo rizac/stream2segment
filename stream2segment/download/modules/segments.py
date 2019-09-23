@@ -288,12 +288,6 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
 
     # define the groupsby columns
     # remember that segments_df has columns:
-    # ['channel_id', 'datacenter_id', 'event_distance_deg', 'event_id', 'arrival_time',
-    #  'request_start', 'request_end', 'id']
-    # first try to download per-datacenter and time bounds. On 413, load each
-    # segment separately (thus use SEG_DCID_NAME, SEG_SART_NAME, SEG_END_NAME, SEG_CHAID_NAME
-    # (and SEG_EVTID_NAME for safety?)
-
     # we should group by (net, sta, loc, stime, etime), meaning that two rows with those values
     # equal will be given in the same sub-dataframe, and if 413 is found, take 413s erros creating a
     # new dataframe, and then group segment by segment, i.e.
@@ -312,7 +306,7 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
     # (should be checked) but it's for string types
     # for numpy types, see
     # https://docs.scipy.org/doc/numpy/reference/arrays.dtypes.html#specifying-and-constructing-data-types
-    # Use OrderedDict to preserve order (see comments below)
+    # Use OrderedDict to preserve order (see `columns2set` below)
     defaultvalues = OrderedDict([
         (SEG.DATA, None),
         (SEG.SRATE, np.nan),
@@ -322,9 +316,12 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
         (SEG.STIME, pd.NaT),
         (SEG.ETIME, pd.NaT)
     ])
-    # these is a list of column names to be set on a dataframe from a received response
+    # list of column names to be set on a dataframe from a response with waveform data
+    # (the order is important):
     columns2set = list(defaultvalues.keys())
     defaultvalues[SEG.DOWNLID] = download_id
+    defaultvalues_nodata = dict(defaultvalues)  # copy
+    col_dscode, col_data = SEG.DSCODE, SEG.DATA
     toupdate = SEG.DSCODE in segments_df.columns
     code_not_found = s2scodes.seg_not_found
     skipped_same_code = 0
@@ -351,30 +348,38 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
                 pbar.update(len(dframe))
 
                 url = get_host(request)
-                if toupdate and not data:
+                url_stats = stats[url]
+                if toupdate and not data and code is not None:
+                    # if there are rows to update and response has no data, then
+                    # discard those for which the code is the same. If we requested a different
+                    # time window, we should update the time windows but there is no point as the
+                    # db segment does not have data stored. The last condition (`code is not None`)
+                    # should never happen but for safety, otherwise we risk to skip segments
+                    # with download_code NA (which means exactly the opposite: force insert/update
+                    # them to the db. See comment on line 90):
                     dframe, _skippedcount = drop_download_code(dframe, code)
                     if _skippedcount:
                         skipped_same_code += _skippedcount
-                        stats[url][code] += _skippedcount
+                        url_stats[code] += _skippedcount
                         if dframe.empty:
                             continue
 
-                dframe = _setup_defaults_on_dataframe(dframe, defaultvalues)
                 if data:
+                    # set default values on the dataframe:
+                    dframe = dframe.assign(dframe, **defaultvalues)  # assign returns a copy
                     _set_responsedata_on_dataframe(data,
                                                    code,
                                                    dframe,
                                                    chaid2mseedid,
                                                    columns2set)
                     # group by download code, count them, and add the counts to stats:
-                    url_stats = stats[url]
-                    for kode, kount in get_counts(dframe, SEG.DSCODE, code_not_found).items():
+                    for kode, kount in get_counts(dframe, col_dscode, code_not_found):
                         url_stats[kode] += kount
                 else:
-                    dframe[SEG.DSCODE] = code
-                    if data is not None:
-                        dframe[SEG.DATA] = data  # mighe be b''
-                    stats[url][code] += len(dframe)
+                    # update dict of default values, and set it to the dataframe:
+                    defaultvalues_nodata.update({col_dscode: code, col_data: data})
+                    dframe = dframe.assign(**defaultvalues_nodata)  # assign returns a copy
+                    url_stats[code] += len(dframe)
 
                 if exc is not None:
                     # log segment errors only once per error type and data center,
@@ -430,7 +435,6 @@ def get_responses(seg_groups, dc_dataselect_manager, chaid2mseedid,
         # group_element[0][0] is the datacenter id:
         return dc_dataselect_manager.opener(group_element[0][0])
 
-    # seg_response = SegResponse()
     code_url_err, code_mseed_err = s2scodes.url_err, s2scodes.mseed_err
     for (group_keys, dframe), result, exc, request in \
             read_async(seg_groups, urlkey=req, raise_http_err=False,
@@ -492,13 +496,6 @@ def drop_download_code(dframe, code):
     :return: the tuple dframe, skipped, where dframe is the dframe with only rows
         to be written, and skipped >=0 the removed rows
     '''
-    # if there are rows to update and response has no data, then
-    # discard those for which the code is the same. If we requested a different
-    # time window, we should update the time windows but there is no point as the
-    # db segment does not have data stored. The last condition (`code is not None`)
-    # should never happen but for safety, otherwise we risk to skip segments
-    # with download_code NA (which means exactly the opposite: force insert/update
-    # them to the db. See comment on line 90):
     _skippedcount = 0
     if code is not None:
         _skipped = dframe[SEG.DSCODE] == code
@@ -508,41 +505,22 @@ def drop_download_code(dframe, code):
     return dframe, _skippedcount
 
 
-def _setup_defaults_on_dataframe(dframe, columns_dict):
-    '''Sets up the default values on a given dataframe representing the segments to
-    download (one row per segment)
-    '''
-    # Seems that copy(), although allocates a new small memory chunk,
-    # helps gc better managing total memory (which might be an issue).
-    # Moreover, let's avoid pandas SettingsWithCopy warning:
-    dframe = dframe.copy()
-    # init columns with default values:
-    for col, defval in columns_dict.items():
-        dframe[col] = defval
-        # Note that we could use
-        # dframe.insert(len(dframe.columns), col, segvals[col])
-        # to preserve order, if needed. A starting discussion on adding new column:
-        # https://stackoverflow.com/questions/12555323/adding-new-column-to-existing-dataframe-in-python-pandas
-    return dframe
-
-
 def _set_responsedata_on_dataframe(resdict, code, dframe, chaid2mseedid, columns2set):
-    '''Writes to dframe all necessary values according to `seg_response`. The latter
+    '''Writes to dframe all necessary values according to `resdict`. The latter
     has its 'data' attribute (bytes of waveform data received from the server) not null
 
     :param resdict: a dict mapping a miniseed_id (string) to the tuple
         err, data, s_rate, max_gap_ratio, stime, etime, outoftime.
         Return value of `mseedliste.mseedunpack` function
     :param dframe: the dataframe of the segments (one segment per row)
-        whose waveform data was requested to the server. `seg_response` is the server response
-        of that request
+        whose waveform data was requested to the server.
     '''
     codes = s2scodes
     # iterate over dframe rows and assign the relative data
     # Note that we could use iloc which is SLIGHTLY faster than
     # loc for setting the data, but this would mean using column
     # indexes and we have column labels. A conversion is possible but
-    # would make the code  hard to understand (even more ;))
+    # would make the code  hard to understand
     for idxval, chaid in zip(dframe.index.values, dframe[SEG.CHAID]):
         mseedid = chaid2mseedid.get(chaid, None)
         if mseedid is None:
@@ -561,7 +539,7 @@ def _set_responsedata_on_dataframe(resdict, code, dframe, chaid2mseedid, columns
             _code = code
             if outoftime is True:
                 _code = codes.timespan_warn if data else codes.timespan_err
-            # This raised a UnicodeDecodeError:
+            # On old pandas versions (<=0.20?), this raised a UnicodeDecodeError:
             # dframe.loc[idxval, SEG_COLNAMES] = (data, s_rate,
             #                                 max_gap_ratio,
             #                                 mseedid, code)
@@ -580,20 +558,21 @@ def _set_responsedata_on_dataframe(resdict, code, dframe, chaid2mseedid, columns
 
 
 def get_counts(dframe, dframe_column, na_key):
-    '''Counts the distinct values of dframe[dframe_column], returns a dict
-    of distinct_value: count. na_key is the key to be used for nans, which
-    pandas does not include by default and has to be counted 'manually'
+    '''Returns an iterable yielding the distinct values of dframe[dframe_column],
+    Each yielded element is (val, count), where val is one of the distinct values
+    of `dframe[dframe_column]`. na_key is the value of `val` above to be yielded for
+    na/none/nans'
     '''
-    # first count NA: if the dataframe has all NA, grouping by raises
+    # first count NA: if the dataframe has all NA, groupby raises
     # (group by skips NA)
     dframe_column = dframe[dframe_column]
     na_count = dframe_column.isna().sum()
-    if na_count == len(dframe):
-        return {na_key: na_count}
-    codes_count = dframe.groupby(SEG.DSCODE).size().to_dict()
+    if na_count < len(dframe):
+        # NOTE: groupby DOES NOT COUNT NA/Nones/NaNs
+        for result in dframe.groupby(SEG.DSCODE).size().iteritems():
+            yield result  # result is (code, count)
     if na_count:
-        codes_count[na_key] = na_count
-    return codes_count
+        yield na_key, na_count
 
 
 class DcDataselectManager(object):
