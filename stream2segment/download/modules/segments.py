@@ -340,29 +340,15 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
                     get_responses(seg_groups, dc_dataselect_manager, chaid2mseedid,
                                   max_thread_workers, timeout, download_blocksize):
 
-                if code == 413 and not is_last_iteration and len(dframe) > 1:
+                num_segments = len(dframe)
+                if code == 413 and not is_last_iteration and num_segments > 1:
                     skipped_dataframes.append(dframe)
                     continue
 
                 # update bar now:
-                pbar.update(len(dframe))
-
+                pbar.update(num_segments)
                 url = get_host(request)
                 url_stats = stats[url]
-                if toupdate and not data and code is not None:
-                    # if there are rows to update and response has no data, then
-                    # discard those for which the code is the same. If we requested a different
-                    # time window, we should update the time windows but there is no point as the
-                    # db segment does not have data stored. The last condition (`code is not None`)
-                    # should never happen but for safety, otherwise we risk to skip segments
-                    # with download_code NA (which means exactly the opposite: force insert/update
-                    # them to the db. See comment on line 90):
-                    dframe, _skippedcount = drop_download_code(dframe, code)
-                    if _skippedcount:
-                        skipped_same_code += _skippedcount
-                        url_stats[code] += _skippedcount
-                        if dframe.empty:
-                            continue
 
                 if data:
                     # set default values on the dataframe:
@@ -376,10 +362,24 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
                     for kode, kount in get_counts(dframe, col_dscode, code_not_found):
                         url_stats[kode] += kount
                 else:
+                    url_stats[code] += num_segments
+                    if toupdate and code is not None:
+                        # if there are rows to update and response has no data, then
+                        # discard those for which the code is the same. If we requested a different
+                        # time window, we should update the time windows but there is no point in
+                        # this overhead. The last condition (`code is not None`)
+                        # should never happen but for safety we put it, otherwise we risk to skip
+                        # segments with download_code NA (which means exactly the opposite: force
+                        # insert/update them to the db. See comment on line 90):
+                        _skipped = num_segments - (dframe[col_dscode] != code).sum()
+                        if _skipped:
+                            skipped_same_code += _skipped
+                            if _skipped >= num_segments:  # == is enough, but for safety ...
+                                continue
+                            dframe = dframe[dframe[col_dscode] != code]  # is a weak ref (no copy)
                     # update dict of default values, and set it to the dataframe:
                     defaultvalues_nodata.update({col_dscode: code, col_data: data})
                     dframe = dframe.assign(**defaultvalues_nodata)  # assign returns a copy
-                    url_stats[code] += len(dframe)
 
                 if exc is not None:
                     # log segment errors only once per error type and data center,
@@ -487,21 +487,6 @@ def get_seg_request(segments_df, datacenter_url, chaid2mseedid):
                                               replace(".", " "), stime, etime))
                           for chaid in segments_df[CHA_ID] if chaid in chaid2mseedid)
     return Request(url=datacenter_url, data=post_data.encode('utf8'))
-
-
-def drop_download_code(dframe, code):
-    '''Drops rows (=segments) from dataframe with the same download status code
-    as `code`
-
-    :return: the tuple dframe, skipped, where dframe is the dframe with only rows
-        to be written, and skipped >=0 the removed rows
-    '''
-    _skippedcount = 0
-    _skipped = dframe[SEG.DSCODE] == code
-    _skippedcount = _skipped.sum()
-    if _skippedcount:
-        dframe = dframe[~_skipped]
-    return dframe, _skippedcount
 
 
 def _set_responsedata_on_dataframe(resdict, code, dframe, chaid2mseedid, columns2set):
