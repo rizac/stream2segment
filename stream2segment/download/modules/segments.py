@@ -264,27 +264,8 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
     else:
         segments_df[SEG.QAUTH] = False
 
+    segmanager = get_dbmanager(session, update_request_timebounds, db_bufsize)
     stats = DownloadStats()
-    colnames2update = [
-        SEG.DOWNLID,
-        SEG.DATA,
-        SEG.SRATE,
-        SEG.MGAP,
-        SEG.DATAID,
-        SEG.DSCODE,
-        SEG.STIME,
-        SEG.ETIME,
-        SEG.QAUTH
-    ]
-    if update_request_timebounds:
-        colnames2update += [SEG.START, SEG.ATIME, SEG.END]
-
-    db_exc_logger = DbExcLogger([SEG.ID, SEG.CHAID, SEG.START, SEG.END, SEG.DCID])
-
-    segmanager = DbManager(session, Segment.id, colnames2update,
-                           db_bufsize, return_df=False,
-                           oninsert_err_callback=db_exc_logger.failed_insert,
-                           onupdate_err_callback=db_exc_logger.failed_update)
 
     # define the groupsby columns
     # remember that segments_df has columns:
@@ -306,19 +287,15 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
     # (should be checked) but it's for string types
     # for numpy types, see
     # https://docs.scipy.org/doc/numpy/reference/arrays.dtypes.html#specifying-and-constructing-data-types
-    # Use OrderedDict to preserve order (see `columns2set` below)
-    defaultvalues = OrderedDict([
-        (SEG.DATA, None),
-        (SEG.SRATE, np.nan),
-        (SEG.MGAP, np.nan),
-        (SEG.DATAID, None),
-        (SEG.DSCODE, np.nan),
-        (SEG.STIME, pd.NaT),
-        (SEG.ETIME, pd.NaT)
-    ])
-    # list of column names to be set on a dataframe from a response with waveform data
-    # (the order is important):
-    columns2set = list(defaultvalues.keys())
+    defaultvalues = {
+        SEG.DATA: None,
+        SEG.SRATE: np.nan,
+        SEG.MGAP: np.nan,
+        SEG.DATAID: None,
+        SEG.DSCODE: np.nan,
+        SEG.STIME: pd.NaT,
+        SEG.ETIME: pd.NaT
+    }
     defaultvalues[SEG.DOWNLID] = download_id
     defaultvalues_nodata = dict(defaultvalues)  # copy
     col_dscode, col_data = SEG.DSCODE, SEG.DATA
@@ -345,19 +322,14 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
                     skipped_dataframes.append(dframe)
                     continue
 
-                # update bar now:
                 pbar.update(num_segments)
                 url = get_host(request)
                 url_stats = stats[url]
 
                 if data:
                     # set default values on the dataframe:
-                    dframe = dframe.assign(dframe, **defaultvalues)  # assign returns a copy
-                    _set_responsedata_on_dataframe(data,
-                                                   code,
-                                                   dframe,
-                                                   chaid2mseedid,
-                                                   columns2set)
+                    dframe = dframe.assign(**defaultvalues)  # assign returns a copy
+                    populate_dataframe(data, code, dframe, chaid2mseedid)
                     # group by download code, count them, and add the counts to stats:
                     for kode, kount in get_counts(dframe, col_dscode, code_not_found):
                         url_stats[kode] += kount
@@ -406,6 +378,30 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
                                   "in statistics") % skipped_same_code,
                                  "Still receiving the same download code"))
     return stats
+
+
+def get_dbmanager(session, update_request_timebounds, db_bufsize):
+    '''Returns a DbManager for downloading waveform data'''
+    colnames2update = [
+        SEG.DOWNLID,
+        SEG.DATA,
+        SEG.SRATE,
+        SEG.MGAP,
+        SEG.DATAID,
+        SEG.DSCODE,
+        SEG.STIME,
+        SEG.ETIME,
+        SEG.QAUTH
+    ]
+    if update_request_timebounds:
+        colnames2update += [SEG.START, SEG.ATIME, SEG.END]
+
+    db_exc_logger = DbExcLogger([SEG.ID, SEG.CHAID, SEG.START, SEG.END, SEG.DCID])
+
+    return DbManager(session, Segment.id, colnames2update,
+                     db_bufsize, return_df=False,
+                     oninsert_err_callback=db_exc_logger.failed_insert,
+                     onupdate_err_callback=db_exc_logger.failed_update)
 
 
 def get_responses(seg_groups, dc_dataselect_manager, chaid2mseedid,
@@ -489,18 +485,29 @@ def get_seg_request(segments_df, datacenter_url, chaid2mseedid):
     return Request(url=datacenter_url, data=post_data.encode('utf8'))
 
 
-def _set_responsedata_on_dataframe(resdict, code, dframe, chaid2mseedid, columns2set):
-    '''Writes to dframe all necessary values according to `resdict`. The latter
-    has its 'data' attribute (bytes of waveform data received from the server) not null
+def populate_dataframe(resdict, code, dframe, chaid2mseedid):
+    '''Writes to dframe all necessary values according to `resdict`.
 
-    :param resdict: a dict mapping a miniseed_id (string) to the tuple
+    :param resdict: a dict mapping miniseed_id (string) to the tuple
         err, data, s_rate, max_gap_ratio, stime, etime, outoftime.
         Return value of `mseedliste.mseedunpack` function
     :param dframe: the dataframe of the segments (one segment per row)
-        whose waveform data was requested to the server.
+        whose waveform data was requested to the server. `resdict` is the
+        result of `mseedliste.mseedunpack` on that server data
     '''
     codes = s2scodes
     col_dscode = SEG.DSCODE
+    col_data = SEG.DATA
+    # the order of these columns matters! see below
+    columns2set = (
+        col_data,
+        SEG.SRATE,
+        SEG.MGAP,
+        SEG.DATAID,
+        col_dscode,
+        SEG.STIME,
+        SEG.ETIME
+    )
     # iterate over dframe rows and assign the relative data
     # Note that we could use iloc which is SLIGHTLY faster than
     # loc for setting the data, but this would mean using column
@@ -539,7 +546,7 @@ def _set_responsedata_on_dataframe(resdict, code, dframe, chaid2mseedid, columns
             # we use at
             dframe.loc[idxval, columns2set] = (b'', s_rate, max_gap_ratio,
                                                mseedid, _code, stime, etime)
-            dframe.at[idxval, columns2set[0]] = data
+            dframe.at[idxval, col_data] = data
 
 
 def get_counts(dframe, dframe_column, na_key):
