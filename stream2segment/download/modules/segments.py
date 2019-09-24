@@ -508,6 +508,7 @@ def populate_dataframe(resdict, code, dframe, chaid2mseedid):
         SEG.STIME,
         SEG.ETIME
     )
+
     # iterate over dframe rows and assign the relative data
     # Note that we could use iloc which is SLIGHTLY faster than
     # loc for setting the data, but this would mean using column

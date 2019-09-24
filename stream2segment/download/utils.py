@@ -534,21 +534,17 @@ def get_s2s_responses():
     return resp
 
 
-class intkeysdict(dict):
-    '''a defaultdict -like dict with integer keys (e.g. http status codes) mapped to int
-    (occurrences of that status code). This dict tries to cast in all getting / insertion
-    operation each key to integer, in order to make keys such as '200' and 200 the same:
-    this is important because some datacenters return http codes as strings (such as '200')
-    instead of integers (200), and both should be considered the same code'''
+class HTTPCodesCounter(dict):
+    '''a defaultdict-like dict, mapping http status codes to the number of thimes they occurred.
+    This class handles string status codes, which are sometimes returned by some data center
+    (i.e., treat '200' as if it was 200).
+    This feature is the reqson why we did not opt for a `defaultdict` nor this class
+    inherits from it: a new dict subclass makes the code more readable and without performance
+    costs
+    '''
     # implementation note: In a previous version, we used a normal defaultdict as values of
-    # DownloadStats, but we might account for keys (http codes) passed as strings
-    # (e.g. '204' instead of 204): we decided to implement a custom dict with both defaultdict
-    # and cast-to-int functionalities because it is more maintainable, clean, and even faster
-    # (couple of seconds on 2 millions segments is
-    # negligible, but we compensate a bit the overhead of
-    # casting to int each time, which raises from 1.5 seconds - normal defaultdict -
-    # to about 5.5 seconds. In any case, everything negligible compared to the
-    # time spent downloading data)
+    # DownloadStats, but the above mentioned int/str problem (e.g., treat '200' and 200 as the same
+    # key) turned out to be easier to implement on a dict subclass, without performances drop
     def __missing__(self, key):  # @UnusedVariable
         return 0
 
@@ -568,46 +564,47 @@ class intkeysdict(dict):
 
 
 class DownloadStats(OrderedDict):
-    ''':ref:`class``OrderedDict` subclass (with defaultdict-like capabilities) which holds
-        statistics of a download.
-        Keys of this dict are the domains (string), and values are `defaultdict`s of
-        download codes keys (usually integers) mapped to their
-        occurrences (any code key castable to int will be casted and inserted as int).
-        This class is inteded for representation, e.g. typical usage:
+    '''Class storing statistics during a download routine, and printing them nicely formatted
+    to string.
+    You can think of this class as a table where each row is a URL (string), and each
+    column a different HTTP status code: the cell value is the number of status codes received
+    from that URL. This class is a dict (instead of the more natural choice of a pandas DataFrame)
+    because dicts are way more efficient with dynamically changing data sizes (on a million 'items'
+    inserted, dicts 1-2 hundreds seconds, DataFrames 2-3 thousands)
+    Typical usage:
+    ```
+        d = DownloadStats()
+        d['domain.org'][200] += 4  # note defaultdict capabilities
+        d['domain2.org2'][413] = 4
+        # Strings are casted, when possible:
+        d['domain2.org2']['413'] = 4 # d['domain2.org2']['413']=8
+        ...
+        print(str(d))
+    ```
 
-        ```
-            d = DownloadStats()
-            d['domain.org'][200] += 4  # note defaultdict capabilities
-            d['domain2.org2'][413] = 4
-            # Strings are casted, when possible:
-            d['domain2.org2']['413'] = 4 # d['domain2.org2']['413']=8
-            ...
-            print(str(d))
-        ```
+    Advanced usage:
+    ---------------
+    If you want to fill custom codes (non-standard HTTP status code, including our
+    application codes -1, -2, -200, -204 and None), you should subclass this class.
+    For instance, to add a custom GAP_OVLAP_CODE integer:
+    ```
+        class DownloadStats2(DownloadStats):
+            GAP_OVLAP_CODE = -2000
+            resp = dict(DownloadStats.resp, GAP_OVLAP_CODE=('OK Gaps Overlaps',  # title
+                                                'Data saved (download ok, '  # legend
+                                                'data has gaps or overlaps)',
+                                                0.1)  # sort order (put it next ot '200 ok')
+            )
+    ```
 
-        Advanced usage:
-        ---------------
-        If you want to fill custom codes (non-standard HTTP status code, including our
-        application codes -1, -2, -200, -204 and None), you should subclass this class.
-        For instance, to add a custom GAP_OVLAP_CODE integer:
-        ```
-            class DownloadStats2(DownloadStats):
-                GAP_OVLAP_CODE = -2000
-                resp = dict(DownloadStats.resp, GAP_OVLAP_CODE=('OK Gaps Overlaps',  # title
-                                                    'Data saved (download ok, '  # legend
-                                                    'data has gaps or overlaps)',
-                                                    0.1)  # sort order (put it next ot '200 ok')
-                )
-        ```
-
-        In this case, please note:
-        1. titles should be all with first letters capitalized (to conform to HTTP
-           messages implemented as values of `stream2segment.utils.url.responses`)
-        2. legends should have the format:
-           '<Data saved|No data saved> (download <ok|failed|completed><optional details>)'
-        3. The last tuple element is a float denoting the column position (order)
-           when this class is printed or its `str` method called. The sort values
-           for the default codes are described in `get_s2s_responses`
+    In this case, please note:
+    1. titles should be all with first letters capitalized (to conform to HTTP
+       messages implemented as values of `stream2segment.utils.url.responses`)
+    2. legends should have the format:
+       '<Data saved|No data saved> (download <ok|failed|completed><optional details>)'
+    3. The last tuple element is a float denoting the column position (order)
+       when this class is printed or its `str` method called. The sort values
+       for the default codes are described in `get_s2s_responses`
     '''
     resp = get_s2s_responses()
 
@@ -620,7 +617,7 @@ class DownloadStats(OrderedDict):
         # This dict, on the other hand, has assignements of this type:
         # `downloadstats['geofon'][204] += 5`
         # so we need to assign here the intkeysdict() before returning it
-        value = intkeysdict()
+        value = HTTPCodesCounter()
         OrderedDict.__setitem__(self, key, value)
         return value
 

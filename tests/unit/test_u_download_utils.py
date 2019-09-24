@@ -21,7 +21,7 @@ from stream2segment.download.modules.stationsearch import locations2degrees as s
     get_magdep_search_radius
 from stream2segment.download.modules.datacenters import EidaValidator
 from stream2segment.download.utils import s2scodes, DownloadStats, to_fdsn_arg,\
-    intkeysdict
+    HTTPCodesCounter
 
 
 @pytest.mark.parametrize('lat1, lon1, lat2, lon2',
@@ -93,7 +93,7 @@ def test_get_magdep_search_radius(mag, minmag_maxmag_minradius_maxradius, expect
 
 def test_stats_table():
 
-    ikd = intkeysdict()
+    ikd = HTTPCodesCounter()
     ikd['a'] += 5
     ikd['b'] = 5
     ikd[1] += 5
