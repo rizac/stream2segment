@@ -522,6 +522,17 @@ class Station(Base):
     def has_inventory(cls):  # pylint:disable=no-self-argument
         return withdata(cls.inventory_xml)
 
+    @hybrid_property
+    def netsta_code(self):
+        return "%s.%s" % (self.network, self.station)
+
+    @netsta_code.expression
+    def netsta_code(cls):  # pylint:disable=no-self-argument
+        '''returns the station code, i.e. self.network + '.' + self.station'''
+        dot = text("'.'")
+        return select([concat(Station.network, dot, Station.station)]).\
+            label('networkstationcode')
+
     __table_args__ = (UniqueConstraint('network', 'station', 'start_time',
                                        name='net_sta_stime_uc'),)
 

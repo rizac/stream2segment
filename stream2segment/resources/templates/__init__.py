@@ -147,8 +147,10 @@ segment.channel.station               object: same as segment.station (see below
 ------------------------------------- ------------------------------------------------
 segment.station                       object (attributes below)
 segment.station.id                    int
-segment.station.network               str
-segment.station.station               str
+segment.station.network               str: the station's network code, e.g. 'AZ'
+segment.station.station               str: the station code, e.g. 'NHZR'
+segment.station.netsta_code           str: the network + station code, concatenated with
+                                      the dot, e.g.: 'AZ.NHZR'
 segment.station.latitude              float
 segment.station.longitude             float
 segment.station.elevation             float

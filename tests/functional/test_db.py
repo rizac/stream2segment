@@ -273,6 +273,13 @@ class Test(object):
         db.session.add(e)
         db.session.commit()
         assert e.id is not None
+        
+        # test netsta_code:
+        assert e.netsta_code == 'abc.f'
+        e__ = db.session.query(Station).filter((Station.netsta_code == 'a.f')).first()
+        assert e__ is None
+        e__ = db.session.query(Station).filter((Station.netsta_code == 'abc.f')).first()
+        assert e__.id == e.id
 
         # test unique constraints by changing only network
         sta = Station(network='a', datacenter_id=dc.id, station='f', latitude='89.5',
