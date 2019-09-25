@@ -1,5 +1,9 @@
 '''
-ORM for processing. Enhances Segment and Station class with several methods
+ORM for processing. Enhances Segment and Station class with several methods.
+
+For functions called from within the processing rotuine (e.g., see the classmeth_*
+functions) remember that raising ValueError will block only the currently processed segment,
+all other exceptions will terminat ethe whole subroutine
 
 Created on 26 Mar 2019
 
@@ -20,6 +24,14 @@ from stream2segment.process.math.traces import cumsumsq, cumtimes
 
 def get_session(dburl, scoped=False):
     '''Returns an SQLALchemy session object for **processing** downloaded Segments'''
+    # We want to enhance the Segment class with new (processing-related) methods.
+    # We might write a new class Segment2 extending 'models.Segment' (as usual) but SQLAlchemy
+    # is not designed to handle conditional ORMs like this, and also this implementation
+    # might introduce bugs due to the 'wrong' Segment class used.
+    # We need thus to programmatically toggle on/off the new methods:
+    # What we found here is maybe not the cleanest solution, but it's currently the only one
+    # with no overhead: simply attach methods to the Segment class. Call manually
+    # '_toggle_enhance_segment(False) to detach the methods when and if you need to.
     _toggle_enhance_segment(True)
     return _get_session(dburl, Base, scoped)
 
@@ -28,19 +40,19 @@ def _toggle_enhance_segment(value):
     if value == hasattr(Segment, '_stream'):
         return
     if value:
-        Station.inventory = _inventory
-        Segment.stream = _stream
+        Station.inventory = classmeth_inventory
+        Segment.stream = classmeth_stream
         Segment.inventory = lambda self: self.station.inventory()
         Segment.dbsession = lambda self: object_session(self)  # pylint: disable=unnecessary-lambda
-        Segment.sn_windows = _sn_windows
-        Segment.siblings = _siblings
+        Segment.sn_windows = classmeth_sn_windows
+        Segment.siblings = classmeth_siblings
     else:
         del Station.inventory
         del Station._inventory
-        del Segment.dbsession
         del Segment.stream
         del Segment._stream
         del Segment.inventory
+        del Segment.dbsession
         del Segment.sn_windows
         del Segment.siblings
 
@@ -68,9 +80,69 @@ def configure_classes(session, update_dict, commit=True):
         session.commit()
 
 
+def _raiseifreturnsexception(func):
+    '''decorator that makes a function raise the returned exception, if any
+    (otherwise no-op, and the function value is returned as it is)'''
+    def wrapping(*args, **kwargs):
+        '''wrapping function which raises if the returned value is an exception'''
+        ret = func(*args, **kwargs)
+        if isinstance(ret, Exception):
+            raise ret
+        return ret
+    return wrapping
+
+
+@_raiseifreturnsexception
+def classmeth_inventory(self):
+    '''returns the inventory from self (a segment class)'''
+    # inventory is lazy loaded. The output of the loading process
+    # (or the Exception raised, if any) is stored in the self._inventory attribute.
+    # When querying the inventory a further time, the stored value is returned,
+    # or raised (if it is an Exception)
+    inventory = getattr(self, "_inventory", None)
+    if inventory is None:
+        try:
+            inventory = self._inventory = get_inventory(self)
+        except Exception as exc:   # pylint: disable=broad-except
+            inventory = self._inventory = \
+                ValueError("Station inventory (xml) error: %s" %
+                           (str(exc) or str(exc.__class__.__name__)))
+    return inventory
+
+
+def get_inventory(station):
+    """Returns the inventory object for the given station.
+    Raises ValueError if inventory data is empty
+    """
+    data = station.inventory_xml
+    if not data:
+        raise ValueError('no data')
+    return loads_inv(data)
+
+
+@_raiseifreturnsexception
+def classmeth_stream(self):
+    '''returns the stream from self (a segment class)'''
+    # stream is lazy loaded. The output of the loading process
+    # (or the Exception raised, if any) is stored in the self._stream attribute.
+    # When querying the stream a further time, the stored value is returned,
+    # or raised (if it is an Exception)
+    stream = getattr(self, "_stream", None)
+    if stream is None:
+        try:
+            stream = self._stream = get_stream(self)
+        except Exception as exc:  # pylint: disable=broad-except
+            stream = self._stream = \
+                ValueError("MiniSeed error: %s" %
+                           (str(exc) or str(exc.__class__.__name__)))
+
+    return stream
+
+
 def get_stream(segment, format="MSEED", headonly=False, **kwargs):  # @ReservedAssignment
     """Returns a Stream object relative to the given segment. The optional arguments are the same
     than `obspy.core.stream.read` (excepts than "format" defaults to "MSEED")
+
     :param segment: a model ORM instance representing a Segment (waveform data db row)
     :param format: string, optional (default "MSEED"). Format of the file to read. See obspy
         `Supported Formats`_ section below for a list of supported
@@ -101,82 +173,8 @@ def get_stream(segment, format="MSEED", headonly=False, **kwargs):  # @ReservedA
         raise ValueError(str(terr))
 
 
-def get_inventory(station):
-    """Gets the inventory object for the given station, downloading it and saving it
-    if not data is empty/None.
-    Raises ValueError if inventory data is empty
-    """
-    data = station.inventory_xml
-    if not data:
-        raise ValueError('no data')
-    return loads_inv(data)
-
-
-def _raiseifreturnsexception(func):
-    '''decorator that makes a function raise the returned exception, if any
-    (otherwise no-op, and the function value is returned as it is)'''
-    def wrapping(*args, **kwargs):
-        '''wrapping function which raises if the returned value is an exception'''
-        ret = func(*args, **kwargs)
-        if isinstance(ret, Exception):
-            raise ret
-        return ret
-    return wrapping
-
-
-@_raiseifreturnsexception
-def _inventory(self):
-    '''returns the inventory from self (a segment class)'''
-    inventory_ = getattr(self, "_inventory", None)
-    if inventory_ is None:
-        try:
-            inventory_ = self._inventory = get_inventory(self)
-        except Exception as exc:   # pylint: disable=broad-except
-            inventory_ = self._inventory = \
-                ValueError("Station inventory (xml) error: %s" %
-                           (str(exc) or str(exc.__class__.__name__)))
-    return inventory_
-
-
-@_raiseifreturnsexception
-def _stream(self):
-    '''returns the stream from self (a segment class)'''
-    stream_ = getattr(self, "_stream", None)
-    if stream_ is None:
-        try:
-            stream_ = self._stream = get_stream(self)
-        except Exception as exc:  # pylint: disable=broad-except
-            stream_ = self._stream = \
-                ValueError("MiniSeed error: %s" %
-                           (str(exc) or str(exc.__class__.__name__)))
-
-    return stream_
-
-
-def _parse_sn_windows(window):
-    '''callback to parse sn_windows. Returns the argument parsed to float (or with all
-    its elements parsed to float). Any exception will be caught and raised with a
-    BadArgument exception properly formatted with the argument name provided and the
-    exception
-
-    :param sn_wondows: either a float or a iterable of two
-    '''
-    try:
-        try:
-            cum0, cum1 = window
-            if cum0 < 0 or cum0 > 1 or cum1 < 0 or cum1 > 1:
-                raise ValueError('elements must be both in [0, 1]')
-            return float(cum0), float(cum1)
-        except TypeError:  # not a tuple/list? then it's a scalar:
-            return float(window)
-    except Exception as exc:
-        raise Exception('S/N Window error: %s' % str(exc))
-
-
-def _sn_windows(self, win_length, atime_shift=0):
-    '''Returns the spectra windows from a given arguments. Used by `_spectra`
-    :return the tuple (start, end), (start, end) where all arguments are `UTCDateTime`s
-    and the first tuple refers to the noisy window, the latter to the signal window
+def classmeth_sn_windows(self, win_length, atime_shift=0):
+    '''Computes time windows from the arguments.
 
     :param win_length: float or 2-element tuple. If float, it is the window length,
         in seconds. If two element tuple, denotes the start and end time of the window
@@ -185,10 +183,13 @@ def _sn_windows(self, win_length, atime_shift=0):
         and the cumulative sum C of the waveform after arrival time will be calculated.
         The time where C reaches its 95% minus the time where C reaches its %% will
         denote the window length
+
+    :return the tuple (start, end), (start, end) where all arguments are `UTCDateTime`s
+        and the first tuple refers to the noisy window, the latter to the signal window
     '''
     # Use inputargs utilities to raise pre-formatted exception messages from our
     # validation callbacks:
-    s_windows = _parse_sn_windows(win_length)
+    s_windows = parse_sn_windows(win_length)
     stream_ = self.stream()
 
     if len(stream_) != 1:
@@ -210,8 +211,26 @@ def _sn_windows(self, win_length, atime_shift=0):
     return sig, nsy
 
 
-def _siblings(self, parent=None, conditions=None):
-    '''returns a query yielding the siblings of this segments according to `parent`
+def parse_sn_windows(window):
+    '''Returns the argument parsed to float (or with all its elements parsed to float).
+
+    :param window: either a string float or a iterable of two float elements
+        (by floats we mean also float parsable strings)
+    '''
+    try:
+        try:
+            cum0, cum1 = window
+            if cum0 < 0 or cum0 > 1 or cum1 < 0 or cum1 > 1:
+                raise ValueError('elements must be both in [0, 1]')
+            return float(cum0), float(cum1)
+        except TypeError:  # not a tuple/list? then it's a scalar:
+            return float(window)
+    except Exception as exc:
+        raise Exception('S/N Window error: %s' % str(exc))
+
+
+def classmeth_siblings(self, parent=None, conditions=None):
+    '''returns a SQLAlchemy query yielding the siblings of this segments according to `parent`
     Refer to the method Segment.get_siblings in :module:`models.py`.
 
     :parent: a string identifying the parent whereby perform a selection
