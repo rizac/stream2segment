@@ -11,7 +11,7 @@ import os
 import pytest
 import numpy as np
 
-from stream2segment.process.math.traces import cumsumsq, cumtimes
+from stream2segment.process.math.traces import cumsumsq, timeswhere
 
 
 class Test(object):
@@ -51,28 +51,42 @@ class Test(object):
         assert cumsumsq.__name__ in c3.stats.processing[0]
 
 
-    def test_cumtimes(self):
-        c1 = cumsumsq(self.mseed[0])
-        t0, t1 = cumtimes(c1, 0, 1)
+    def test_timeswhere(self):
+        c1 = cumsumsq(self.mseed[0], normalize=True)
+        t0, t1 = timeswhere(c1, 0, 1)
         assert t0 == c1.stats.starttime
         assert t1 == c1.stats.endtime
-
-        c2 = cumsumsq(self.mseed[0], normalize=True)
-        t0, t1 = cumtimes(c2, 0, 1)
+        assert c1[0] == 0
+        assert c1[-1] == 1
+        
+        c2 = cumsumsq(self.mseed[0], normalize=False)
+        t0, t1 = timeswhere(c2, 0, 1)
         assert t0 == c2.stats.starttime
-        assert t1 == c2.stats.endtime
+        assert t1 < c2.stats.endtime
+        assert c2[0] > 0
+        assert c2[-1] > 1
 
-        for c in [c1, c2]:
-            t0, t1 = cumtimes(c, 0.1, .9)
-            assert t0 > c.stats.starttime
-            assert t1 < c.stats.endtime
+        t0, t1 = timeswhere(c1, 0.1, .9)
+        assert t0 > c1.stats.starttime
+        assert t1 < c1.stats.endtime
 
-        c1.data[-1] = np.nan
-        t0, t1 = cumtimes(c1, 0, 1)
+        # padding with nans does not change the result:
+        # left pad with nan
+        tmp_pt = c1.data[0]
+        c1.data[0] = np.nan
+        t0, t1 = timeswhere(c1, 0, 1)
         assert t0 == c1.stats.starttime
-        assert t1 == c1.stats.endtime - c1.stats.delta
+        assert t1 == c1.stats.endtime
+        c1.data[0] = tmp_pt
+        # right pad with nan:
+        tmp_pt = c1.data[-1]
+        c1.data[-1] = np.nan
+        t0, t1 = timeswhere(c1, 0, 1)
+        assert t0 == c1.stats.starttime
+        assert t1 == c1.stats.endtime
+        c1.data[-1] = tmp_pt
 
         # test what happens if all are nans
         c1.data = np.array([np.nan] * len(c1.data))
-        t0, t1 = cumtimes(c1, 0, 1)
+        t0, t1 = timeswhere(c1, 0, 1)
         assert t0 == t1 == c1.stats.starttime

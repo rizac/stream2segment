@@ -4,13 +4,13 @@ Math utilities for `obspy.Trace` objects.
 This package wraps many functions of the :module:`stream2segment.math.ndarrays`
 defining their counterparts for `Trace` objects
 
-Remember that all functions processing and returning `Trace`s, e.g.:
+Remember that all functions processing and returning Traces, e.g.:
 ```
     func(trace, ...)  # returns a new Trace from trace
 ```
-can be applied on a `Stream` easily:
+can be applied on a Stream `stream` easily:
 ```
-    Stream([func(trace, ...) for trace in stream])` # returns a new Stream from stream
+    Stream([func(trace, ...) for trace in stream])` # returns a new Stream
 ```
 
 :date: Jun 20, 2016
@@ -19,7 +19,6 @@ can be applied on a `Stream` easily:
                   Graeme Weatherill <gweather@gfz-potsdam.de>
 '''
 from __future__ import division
-
 import numpy as np
 
 from obspy.core import Trace, UTCDateTime  # , Stats
@@ -29,9 +28,6 @@ from stream2segment.process.math.ndarrays import fft as _fft, ampspec as _ampspe
     powspec as _powspec, cumsumsq as _cumsum, dfreq, freqs, ResponseSpectrum as _ResponseSpectrum, \
     NewmarkBeta as _NewmarkBeta, NigamJennings as _NigamJennings
 
-
-# __all__ = ['bandpass', 'maxabs', 'cumsumsq', 'cumtimes', 'fft', 'ampspec', 'powspec', 'ampratio',
-#            'timeof', 'utcdatetime']
 
 def _add_processing_info(trace, func_name, **kwargs):
     """
@@ -43,7 +39,7 @@ def _add_processing_info(trace, func_name, **kwargs):
     and we don't want complex workaround for that.
     Call this function at the end of any function modifying a trace
     """
-    
+
     # Attach after executing the function to avoid having it attached
     # while the operation failed.
     # Create info:
@@ -129,7 +125,9 @@ def maxabs(trace, starttime=None, endtime=None):
         :return: the tuple (time, value) where `value = max(abs(trace.data))`, and time is
         the value occurrence (`UTCDateTime`)
 
-    :return: the tuple `(time_of_max_abs, max_abs)`
+    :return: the tuple `(time_of_max_abs, max_abs)`. If the trace has no point
+        (possibly after providing `starttime` or `endtime` out of bounds), returns
+        the tuple (None, numpy.nan)
     """
     original_stime = None if starttime is None else trace.stats.starttime
     if starttime is not None or endtime is not None:
@@ -137,7 +135,7 @@ def maxabs(trace, starttime=None, endtime=None):
         # Does not copy data but just passes a reference to it"
         trace = trace.slice(starttime, endtime)
     if trace.stats.npts < 1:
-        return np.nan
+        return (None, np.nan)
     idx = np.nanargmax(np.abs(trace.data))
     val = trace.data[idx]
     tdelta = 0 if original_stime is None else trace.stats.starttime - original_stime
@@ -148,7 +146,7 @@ def maxabs(trace, starttime=None, endtime=None):
 def cumsumsq(trace, normalize=True, copy=True):
     """
     Returns the cumulative sum of the squares of the trace's data, `trace.data**2`
-    
+
     :param trace: the input :class:`obspy.core.Trace`
     :param normalize: boolean (default: True), whether to normalize the data in [0, 1]
     :return: a Trace representing the cumulative sum of the square of `trace.data`
@@ -163,16 +161,14 @@ def cumsumsq(trace, normalize=True, copy=True):
     return trace
 
 
-def cumtimes(mi_trace, *percentages):
+def timeswhere(mi_trace, *values):
     """
-    Calculates the time(s) where `mi_trace` reaches the given percentage(s) of `mi_trace`
-    maximum. **`mi_trace.data` need to be monotonically increasing**, e.g., as resulting from
-    :func:`stream2segment.stream2segment.process.math.traces.cumsumsq`.
+    Calculates the time(s) where `mi_trace` reaches the given value(s)
+    **`mi_trace.data` need to be monotonically increasing**, e.g., as resulting from
+    :func:`stream2segment.process.math.traces.cumsumsq`.
 
-    :param mi_trace: a **monotonically increasing** trace. NaNs values, if any, should be
-        at the end of the array (as returned, e.g., from
-        :func:`stream2segment.stream2segment.process.math.traces.cumsumsq`).
-    :param percentages: the precentages to be calculated, in [0, 1]; e.g. 0.05, 0.95 (5% and 95%)
+    :param mi_trace: a **monotonically increasing** trace
+    :param values: the values whose time occurrence has to be calculated
 
     :return: a list of N `UtcDateTime`s (N = len(percentages)) denoting the occurrence of
         the given percentages of the total signal in `mi_trace`
@@ -180,18 +176,7 @@ def cumtimes(mi_trace, *percentages):
     starttime = mi_trace.stats.starttime
     delta = mi_trace.stats.delta
     tracedata = mi_trace.data
-    minv = tracedata[0]
-    maxv = tracedata[-1] if not np.isnan(tracedata[-1]) else np.nanmax(tracedata)
-    vrange = (maxv - minv)
-    
-#     val = []
-#     for perc in percentages:
-#         idx = np.searchsorted(mi_trace.data, minv + vrange * perc)
-#         val.append(starttime + idx * delta)
-#     return val
-
-    return [starttime + delta * np.searchsorted(tracedata, minv + vrange * perc)
-            for perc in percentages]
+    return [starttime + delta * np.searchsorted(tracedata, v) for v in values]
 
 
 def fft(trace, starttime=None, endtime=None, taper_max_percentage=0.05, taper_type='hann',

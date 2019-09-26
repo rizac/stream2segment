@@ -31,7 +31,7 @@ from stream2segment.process import gui
 # strem2segment functions for processing obspy Traces. This is just a list of possible functions
 # to show how to import them:
 from stream2segment.process.math.traces import ampratio, bandpass, cumsumsq,\
-    cumtimes, fft, maxabs, utcdatetime, ampspec, powspec, timeof
+    timeswhere, fft, maxabs, utcdatetime, ampspec, powspec, timeof
 # stream2segment function for processing numpy arrays:
 from stream2segment.process.math.ndarrays import triangsmooth, snr, linspace
 
@@ -83,8 +83,8 @@ def main(segment, config):
     # calculate cumulative
 
     cum_labels = [0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99]
-    cum_trace = cumsumsq(trace, copy=True)  # prevent original trace from being modified
-    cum_times = cumtimes(cum_trace, *cum_labels)
+    cum_trace = cumsumsq(trace, normalize=True, copy=True)  #  copy=True prevent original trace from being modified
+    cum_times = timeswhere(cum_trace, *cum_labels)
 
     # double event
     pstart = 1

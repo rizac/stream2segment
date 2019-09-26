@@ -19,7 +19,7 @@ from stream2segment.io.utils import loads_inv, dumps_inv
 from stream2segment.utils import _get_session
 from stream2segment.io.db.models import Segment, Station, Base, object_session, Class
 from stream2segment.io.db.sqlevalexpr import exprquery
-from stream2segment.process.math.traces import cumsumsq, cumtimes
+from stream2segment.process.math.traces import cumsumsq, timeswhere
 
 
 def get_session(dburl, scoped=False):
@@ -203,7 +203,7 @@ def classmeth_sn_windows(self, win_length, atime_shift=0):
     if hasattr(s_windows, '__len__'):
         cum0, cum1 = s_windows
         trim_trace = stream_[0].copy().trim(starttime=a_time)
-        times = cumtimes(cumsumsq(trim_trace, normalize=False), cum0, cum1)
+        times = timeswhere(cumsumsq(trim_trace, normalize=True), cum0, cum1)
         nsy, sig = (a_time - (times[1]-times[0]), a_time), (times[0], times[1])
     else:
         nsy, sig = (a_time-s_windows, a_time), (a_time, a_time+s_windows)

@@ -633,11 +633,11 @@ class Segment(Base):
     request_end = Column(DateTime, nullable=False)
     queryauth = Column(Boolean, nullable=False, server_default="0")  # note: null fails in sqlite!
 
-    # DEFINE HYBRID PROPERTIES. ACTUALY, WE ARE JUST INTERESTED IN HYBRID CLASSMETHODS FOR
-    # QUERYING, BUT IT SEEMS THERE IS NO WAY TO DEFINE THEM WITHOUT DEFINING THE INSTANCE METHOD
+    # DEFINE HYBRID PROPERTIES WITH RELATIVE SELECTION EXPRESSIONS FOR QUERYING THE DB:
+
     @hybrid_property
     def event_distance_km(self):
-        return self.event_distance_deg * (2.0 * 6371 * 3.14159265359 / 360.0)
+        return self.event_distance_deg * (2.0 * 6371 * 3.141592653589793 / 360.0)
 
     @event_distance_km.expression
     def event_distance_km(cls):  # pylint:disable=no-self-argument
