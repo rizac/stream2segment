@@ -7,10 +7,9 @@ Math utilities operating on `numpy` arrays
 
 from __future__ import division
 
-from math import floor, ceil, isnan, sqrt
+from math import floor, ceil, sqrt
 
 import numpy as np
-from scipy.signal import hilbert
 from scipy.integrate import cumtrapz
 
 

@@ -216,8 +216,7 @@ def fft(trace, starttime=None, endtime=None, taper_max_percentage=0.05, taper_ty
     dft = _fft(trace.data)
     if return_freqs:
         return freqs(trace.data, trace.stats.delta), dft
-    else:
-        return dfreq(trace.data, trace.stats.delta), dft
+    return dfreq(trace.data, trace.stats.delta), dft
 
 
 def ampspec(trace, starttime=None, endtime=None, taper_max_percentage=0.05, taper_type='hann',
