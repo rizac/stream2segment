@@ -1,13 +1,26 @@
 # <img align="left" height="30" src="https://www.gfz-potsdam.de/fileadmin/gfz/medien_kommunikation/Infothek/Mediathek/Bilder/GFZ/GFZ_Logo/GFZ-Logo_eng_RGB.svg"> Stream2segment <img align="right" height="50" src="https://www.gfz-potsdam.de/fileadmin/gfz/GFZ_Wortmarke_SVG_klein_en_edit.svg">
 
-A Python project to download, process and visualize event-based seismic waveform segments, specifically created to manage massive amounts of data
+A Python project to download, process and visualize event-based seismic waveform segments, specifically
+created to manage massive amounts of data.
 
 The key aspects with respect to widely-used similar applications are:
 
-* A database storage (sqlite or postgres) for downloaded data and metadata. We suggest to use sqlite for small to medium downloads (as a rule of thumb: up to hundreds of thousands of segments), and postgres otherwise. For massive downloads, we also suggest to use the program with at least 16GB of RAM: if less, try to use postgres, although we experienced problems with any database, on machines with 8GB of RAM)
-* A highly customizable processing module to get any user-dependent output. Few templates (command `s2s init`) provide the user with editable examples for two typical scenarios: create tabular file outputs (e.g., csv, hdf5) or store on the local file system the processed waveform segments.
-* A visualization tool to show downloded and optionally customized processed segments in a web browser Graphical User Interface (GUI) by means of Python web framework and Javascript libraries. The user can also set class labels to make the GUI a hand-labelling tool for supervised classification problems, or to simply label special segments for easy selection
-* A highly efficient, easy-to-use selection of segments for filtering data for processing and/or visualization. The selection can be performed on all segments metadata, it exploits the efficiency of SQL 'select' syntax and its simplified for non-experienced user with a documented and simplified custom syntax.
+* A database storage (sqlite or postgres) for downloaded data and metadata. We suggest to use sqlite for
+  small to medium downloads (as a rule of thumb: up to hundreds of thousands of segments), and postgres
+  otherwise. For massive downloads, we also suggest to use the program with at least 16GB of RAM:
+  if less, try to use postgres, although we experienced problems with any database, on machines with 8GB of RAM)
+* A highly customizable processing module to get any user-dependent output. Few templates (command `s2s init`)
+  provide the user with editable examples for two typical scenarios: create tabular file outputs (e.g., csv, hdf5) 
+  or store on the local file system the processed waveform segments
+* A visualization tool to show downloded and optionally customized processed segments in a web browser 
+  Graphical User Interface (GUI) by means of Python web framework and Javascript libraries.
+  The user can also set class labels to make the GUI a hand-labelling tool for supervised classification 
+  problems, or to simply label special segments for easy selection
+* Each segment is accessible in the user's code as a simple Python object with a list of attributes which
+  does not only make segment data and metadata very easily accessible, but also makes the selection of
+  suitable segments incredibly unique, powerful and easy to use. The selection can be performed on all
+  segments metadata, it exploits the efficiency of SQL 'select' syntax and its simplified for non-experienced
+  user with a documented and simplified custom syntax.
 
 **Citation (Software):**
 > Zaccarelli, Riccardo (2018): Stream2segment: a tool to download, process and visualize event-based seismic waveform data. V. 2.7.3. GFZ Data Services.
@@ -99,15 +112,19 @@ python3 -m venv ./env
 ```
 
 #### Installation (all Python versions)
-To install Python virtual environment either use [Virtualenvwrapper](http://virtualenvwrapper.readthedocs.io/en/latest/install.html#basic-installation) or the more low-level approach `virtualenv`:
+To install Python virtual environment either use
+[Virtualenvwrapper](http://virtualenvwrapper.readthedocs.io/en/latest/install.html#basic-installation)
+or the more low-level approach `virtualenv`:
 ```
 sudo pip install virtualenv
 ```
-Make virtual environment in an stream2segment/env directory (env is a convention, but it's ignored by git commits so better keep it)
+Make virtual environment in an stream2segment/env directory (env is a convention, but it's ignored by git
+commits so better keep it)
  ```
 virtualenv env
  ```
-(on ubuntu 16.04, we got the message 'virtualenv: Command not found.'. We just typed: `/usr/local/bin/virtualenv env`)
+(on ubuntu 16.04, we got the message 'virtualenv: Command not found.'.
+We just typed: `/usr/local/bin/virtualenv env`)
 
 #### Activation
  ```
@@ -116,16 +133,21 @@ virtualenv env
 or `source env/bin/activate.csh` (depending on your shell)
 
 > <sub>Activation needs to be done __each time__ we will run the program.</sub>
-> <sub>To check you are in the right env, type: `which pip` and you should see it's pointing inside the env folder</sub>
+> <sub>To check you are in the right env, type: `which pip` and you should see it's pointing inside the
+  env folder</sub>
 
 
 ### Install and activate Python virtualenv (Anaconda)
 
-**disclaimer: the lines below might be outdated. Please refer to the [Conda documentation](https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html) for details**
+**disclaimer: the lines below might be outdated.
+Please refer to the [Conda documentation](https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html)
+for details**
 
 Create a virtual environment for your project
 
-  - In the terminal client enter the following where yourenvname (like « env ») is the name you want to call your environment, and replace x.x with the Python version you wish to use. (To see a list of available Python versions first, type conda search "^python$" and press enter.)
+  - In the terminal client enter the following where yourenvname (like « env ») is the name you want to
+    call your environment, and replace x.x with the Python version you wish to use. (To see a list of
+    available Python versions first, type conda search "^python$" and press enter.)
 	```
 	Conda create –n yourenvname python=x.x anaconda
 	```
@@ -172,7 +194,9 @@ Install the current package
 pip install -e .
 ```
 
-(The `-e` options installs this package as editable, meaning that after making a change - e.g. a `git pull` to fetch a new version - you don't need to reinstall it but the new version will be already available for use)
+(The `-e` options installs this package as editable, meaning that after making a change -
+e.g. a `git pull` to fetch a new version - you don't need to reinstall it but the new version will
+be already available for use)
 
 ##### Install Jupyter (optional)
 
@@ -231,8 +255,8 @@ Where the options denote:
 
 ## Installation Notes:
 
-- If you see (we experienced this while running tests, thus we can guess you should see it whenever accessing the program
-  for the first time):
+- If you see (we experienced this while running tests, thus we can guess you should see it whenever
+  accessing the program for the first time):
   ```
   This system supports the C.UTF-8 locale which is recommended.
   You might be able to resolve your issue by exporting the
@@ -256,9 +280,12 @@ has been to update gcc and install python3-dev (python2.7-dev if you are using P
 	sudo apt-get upgrade gcc
 	sudo apt-get install python3-dev```
 	For details see http://stackoverflow.com/questions/18785063/install-numpy-in-python-virtualenv
- - For scipy problems, `build-essential gfortran libatlas-base-dev` are required for scipy (see http://stackoverflow.com/questions/2213551/installing-scipy-with-pip/3865521#3865521)
+ - For scipy problems, `build-essential gfortran libatlas-base-dev` are required for scipy
+   (see http://stackoverflow.com/questions/2213551/installing-scipy-with-pip/3865521#3865521)
  - For lxml problems, `libxml2-dev libxslt-dev` are required (see here: http://lxml.de/installation.html)
- - For matplotlib problems (matplotlib is not used by the program but from imported libraries), `libpng-dev libfreetype6-dev` are required (see http://stackoverflow.com/questions/25593512/cant-install-matplotlib-using-pip and http://stackoverflow.com/questions/28914202/pip-install-matplotlib-fails-cannot-build-package-freetype-python-setup-py-e)
+ - For matplotlib problems (matplotlib is not used by the program but from imported libraries),
+   `libpng-dev libfreetype6-dev` are required
+   (see http://stackoverflow.com/questions/25593512/cant-install-matplotlib-using-pip and http://stackoverflow.com/questions/28914202/pip-install-matplotlib-fails-cannot-build-package-freetype-python-setup-py-e)
 
 ## Developer(s) notes:
 
@@ -269,16 +296,16 @@ has been to update gcc and install python3-dev (python2.7-dev if you are using P
   The command above will download and install the most recent versions of the
   program dependencies: this is not as safe as using `requirements.txt` (see above)
   which forces to install the specific versions used when running tests. From times to times, it is neverthless
-  necessary to update the dependencies, which would also make `pip install` more likely to work, at least for some time.
-  The procedure is:
+  necessary to update the dependencies, which would also make `pip install` more likely to work,
+  at least for some time. The procedure is:
   ```
 	pip install -e .
 	pip freeze > ./requirements.tmp
 	pip install -e .[dev,test]
 	pip freeze > ./requirements.dev.tmp
   ```
-  Run tests (see above) with warnings on: if everything is fine you can replace the old `requirements.txt` and
-  `requirements.dev.txt` with the `.tmp` file created. 
+  Run tests (see above) with warnings on: if everything is fine you can replace the old `requirements.txt`
+  and `requirements.dev.txt` with the `.tmp` file created. 
 
 <!--
 ## Misc:
