@@ -17,10 +17,11 @@ from stream2segment.download.utils import EVENTWS_MAPPING
 from stream2segment.process.writers import SEGMENT_ID_COLNAME, HDF_DEFAULT_CHUNKSIZE
 
 
+# REMEMBER:this list does not comprise ALL attributes  (look at _SEGMENT_ATTRS_REMOVED below)
 _SEGMENT_ATTRS = '''
-===================================== ================================================
-segment attribute                     python type and description (if any)
-===================================== ================================================
+===================================== ==============================================================
+Segment attribute                     Python type and (optional) description
+===================================== ==============================================================
 segment.id                            int: segment (unique) db id
 segment.event_distance_deg            float: distance between the segment's station and
                                       the event, in degrees
@@ -28,93 +29,61 @@ segment.event_distance_km             float: distance between the segment's stat
                                       the event, in km, assuming a perfectly spherical earth
                                       with a radius of 6371 km
 segment.start_time                    datetime.datetime: the waveform data start time
-segment.arrival_time                  datetime.datetime
+segment.arrival_time                  datetime.datetime: the station's arrival time of the waveform.
+                                      Value between 'start_time' and 'end_time'
 segment.end_time                      datetime.datetime: the waveform data end time
 segment.request_start                 datetime.datetime: the requested start time of the data
 segment.request_end                   datetime.datetime: the requested end time of the data
 segment.duration_sec                  float: the waveform data duration, in seconds
 segment.missing_data_sec              float: the number of seconds of missing data, with respect
-                                      to the request time window. E.g. if we requested 5
-                                      minutes of data and we got 4 minutes, then
-                                      missing_data_sec=60; if we got 6 minutes, then
-                                      missing_data_sec=-60. This attribute is particularly
-                                      useful in the config to select only well formed data and
-                                      speed up the processing, e.g.: missing_data_sec: '< 120'
+                                      to the requested time window. It might also be negative
+                                      (more data received than requested). This parameter is useful
+                                      when selecting segments: e.g., if we requested 5
+                                      minutes of data and we want to process segments with at
+                                      least 4 minutes of downloaded data, then:
+                                      missing_data_sec: '< 60'
 segment.missing_data_ratio            float: the portion of missing data, with respect
-                                      to the request time window. E.g. if we requested 5
-                                      minutes of data and we got 4 minutes, then
-                                      missing_data_ratio=0.2 (20%); if we got 6 minutes, then
-                                      missing_data_ratio=-0.2. This attribute is particularly
-                                      useful in the config to select only well formed data and
-                                      speed up the processing, e.g.: missing_data_ratio: '< 0.5'
+                                      to the request time window. It might also be negative
+                                      (more data received than requested). This parameter is useful
+                                      when selecting segments: e.g., if you want to process
+                                      segments whose real time window is at least 90% of the
+                                      requested one, then: missing_data_ratio: '< 0.1'
 segment.sample_rate                   float: the waveform data sample rate.
                                       It might differ from the segment channel's sample_rate
 segment.has_data                      boolean: tells if the segment has data saved (at least
-                                      one byte of data). This attribute useful in the config to
-                                      select only well formed data and speed up the processing,
-                                      e.g. has_data: 'true'.
-segment.download_code                 int: the download code (for experienced users). As for
-                                      any HTTP status code,
-                                      values between 200 and 399 denote a successful download
-                                      (this does not tell anything about the segment's data,
-                                      which might be empty anyway. See 'segment.has_data'.
-                                      Conversely, a download error assures no data has been
-                                      saved), whereas
-                                      values >=400 and < 500 denote client errors and
-                                      values >=500 server errors.
-                                      Moreover,
-                                      -1 indicates a general download error - e.g. no Internet
-                                      connection,
-                                      -2 a successful download with corrupted waveform data,
-                                      -200 a successful download where some waveform data chunks
-                                      (miniSeed records) have been discarded because completely
-                                      outside the requested time span,
-                                      -204 a successful download where no data has been saved
-                                      because all chunks were completely outside the requested
-                                      time span, and finally:
-                                      None denotes a successful download where no data has been
-                                      saved because the given segment wasn't found in the
-                                      server response (note: this latter case is NOT the case
-                                      when the server returns no data with an appropriate
-                                      'No Content' message with download_code=204)
-segment.maxgap_numsamples             float: the maximum gap found in the waveform data, in
-                                      number of points. This attribute is particularly useful
-                                      in the config to select only well formed data and speed
-                                      up the processing.
-                                      If this attribute is zero, the segment has no
-                                      gaps/overlaps, if >=1 the segment has gaps, if <=-1,
-                                      the segment has overlaps.
-                                      Values in (-1, 1) are difficult to interpret: as this
-                                      number is the ratio between
-                                      the waveform data's max gap/overlap and its sampling
-                                      period (both in seconds), a rule of thumb is to
-                                      consider a segment with gaps/overlaps when this
-                                      attribute's absolute value exceeds 0.5, e.g. you can
-                                      discard segments with gaps overlaps by inputting in the
-                                      config "maxgap_numsamples:  '[-0.5, 0.5]'" and, if you
-                                      absolutely want no segment with gaps/overlaps,
-                                      perform a further check in the processing via
-                                      `len(segment.stream())` (zero if no gaps/overlaps) or
-                                      `segment.stream().get_gaps()` (see obspy doc)
-segment.data_seed_id                  str: the seed identifier in the typical format
-                                      [Network.Station.Location.Channel] stored in the
-                                      segment's data. It might be null if the data is empty
-                                      or null (e.g., because of a download error).
-                                      See also 'segment.seed_id'
+                                      one byte of data). This parameter is useful when selecting
+                                      segments (in most cases, almost necessary), e.g.:
+                                      has_data: 'true'
+segment.download_code                 int: the code reporting the segment download status. This
+                                      parameter is useful to further refine the segment selection
+                                      skipping beforehand segments with malformed data (code -2):
+                                      has_data: 'true'
+                                      download_code: '!=-2'
+                                      (We omit all other codes because of no interest. For details,
+                                      see Table 2 in https://doi.org/10.1785/0220180314#tb2)
+segment.maxgap_numsamples             float: the maximum gap or overlap found in the waveform data,
+                                      in number of points. If 0, the segment has no gaps/overlaps.
+                                      Otherwise, if >=1: the segment has gaps, if <=-1: the segment
+                                      has overlaps. Values in (-1, 1) are difficult to interpret: a
+                                      rule of thumb is to consider half a point (> 0.5 or <-0.5)
+                                      a gap / overlap.
+                                      This parameter is useful when selecting segments: e.g.,
+                                      to select segments with no gaps/overlaps, then:
+                                      maxgap_numsamples: '(-0.5, 0.5)'
 segment.seed_id                       str: the seed identifier in the typical format
-                                      [Network.Station.Location.Channel]: it is the same as
-                                      'segment.data_seed_id' if the latter is not null,
-                                      otherwise it is fetched from the segment's metadata
-                                      (in this case, the operation might more time consuming)
+                                      [Network.Station.Location.Channel]. For segments
+                                      with waveform data, `data_seed_id` (see below) might be
+                                      faster to fetch.
+segment.data_seed_id                  str: same as 'segment.seed_id', but faster because it
+                                      reads the value stored in the waveform data. The drawback
+                                      is that this value is null for segments with no waveform data
 segment.has_class                     boolean: tells if the segment has (at least one) class
                                       assigned
-segment.data                          bytes: the waveform (raw) data. You don't generally need
-                                      to access this attribute which is also time-consuming
-                                      to fetch. Used by `segment.stream()`
+segment.data                          bytes: the waveform (raw) bytes data. Used by `segment.stream()`
 ------------------------------------- ------------------------------------------------
 segment.event                         object (attributes below)
 segment.event.id                      int
-segment.event.event_id                str: the id returned by the web service
+segment.event.event_id                str: the id returned by the web service or catalog
 segment.event.time                    datetime.datetime
 segment.event.latitude                float
 segment.event.longitude               float
@@ -157,15 +126,11 @@ segment.station.elevation             float
 segment.station.site_name             str
 segment.station.start_time            datetime.datetime
 segment.station.end_time              datetime.datetime
-segment.station.inventory_xml         bytes. The station inventory (raw) data. You don't
-                                      generally need to access this attribute which is also
-                                      time-consuming to fetch. Used by `segment.inventory()`
 segment.station.has_inventory         boolean: tells if the segment's station inventory has
                                       data saved (at least one byte of data).
-                                      This attribute useful in the config to select only
-                                      segments with inventory downloaded and speed up the
-                                      processing,
-                                      e.g. has_inventory: 'true'.
+                                      This parameter is useful when selecting segments: e.g.,
+                                      to select only segments with inventory downloaded:
+                                      has_inventory: 'true'
 segment.station.datacenter            object (same as segment.datacenter, see below)
 ------------------------------------- ------------------------------------------------
 segment.datacenter                    object (attributes below)
@@ -177,6 +142,20 @@ segment.datacenter.organization_name  str
 segment.download                      object (attributes below): the download execution
 segment.download.id                   int
 segment.download.run_time             datetime.datetime
+------------------------------------- ------------------------------------------------
+segment.classes.id                    int: the id(s) of the classes assigned to the segment
+segment.classes.label                 int: the label(s) of the classes assigned to the segment
+segment.classes.description           int: the description(s) of the classes assigned to the
+                                      segment
+===================================== ================================================
+'''.strip()
+
+# the variable below IS NOT USED ANYWHERE, it just collects the attributes removed from
+# _SEGMENT_ATTRS. Add them back in _SEGMENT_ATTRS (in the right place) at your choice:
+_SEGMENT_ATTRS_REMOVED = '''
+segment.station.inventory_xml         bytes. The station inventory (raw) data. You don't
+                                      generally need to access this attribute which is also
+                                      time-consuming to fetch. Used by `segment.inventory()`
 segment.download.log                  str: The log text of the segment's download execution.
                                       You don't generally need to access this
                                       attribute which is also time-consuming to fetch.
@@ -185,13 +164,7 @@ segment.download.warnings             int
 segment.download.errors               int
 segment.download.config               str
 segment.download.program_version      str
-------------------------------------- ------------------------------------------------
-segment.classes.id                    int: the id(s) of the classes assigned to the segment
-segment.classes.label                 int: the label(s) of the classes assigned to the segment
-segment.classes.description           int: the description(s) of the classes assigned to the
-                                      segment
-===================================== ================================================
-'''.strip()
+'''
 
 
 PROCESS_PY_BANDPASSFUNC = """
@@ -577,10 +550,10 @@ _SEGMENT_ATTRS_YAML = "\n# ".join(s[8:] for s in _SEGMENT_ATTRS.splitlines())
 
 
 PROCESS_YAML_SEGMENTSELECT = '''
-The parameter 'segment_select' defines which segments to be processed or
-# visualized. If this argument is missing, all segments will be processed or
-# (from within the GUI) visualized **INCLUDING SEGMENTS WITH NO WAVEFORM DATA**
-# (which might not be desired). The selection is made via the list-like argument:
+The parameter 'segment_select' defines which segments to be processed or visualized. PLEASE USE
+# THIS PARAMETER. If missing, all segments will be loaded, including segment with no
+# (or malformed) waveform data: this is in practically always useless and slows down considerably
+# the processing or visualization routine. The selection is made via the list-like argument:
 #
 # segment_select:
 #   <att>: "<expression>"
