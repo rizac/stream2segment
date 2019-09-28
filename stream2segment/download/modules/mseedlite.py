@@ -66,15 +66,6 @@ class MSeedError(Exception):
 class Record(object):
     """Mini-SEED record."""
 
-    @staticmethod
-    def fromfile(filepath):
-        with open(filepath, 'rb') as _opn:
-            return Record(_opn)
-
-    @staticmethod
-    def frombytes(bytesdata):
-        return Record(BytesIO(bytesdata))
-
     def __init__(self, fd):
         """Create a Mini-SEED record from a file handle or a bitstream.
         :param fd: any object (File descriptor, BytesIO) with a 'read' attribute
@@ -546,9 +537,7 @@ def unpack(data, starttime=None, endtime=None):
     :raise MiniseedError if some error is raised, that is 'not' recoverable (e.g., header error, or
      bad file length for some record causing all subsequent records to be mis-aligned)
     """
-    # we might use defaultdict, but a dict with the future package is py2-3 compliant
-    # e.g., when using dict.items()
-    mseeds_to_read = defaultdict(list)
+    mseeds_to_read = {}
 
     # values of preocessed_mseed below are:
     #     exc (Exception or Npne)
@@ -568,7 +557,11 @@ def unpack(data, starttime=None, endtime=None):
             continue
         elif rec.error:
             processed_mseeds[id_] = (MSeedError(rec.error), None, None, None, None, None, False)
+            mseeds_to_read.pop(id_, None)
             continue
+
+        if id_ not in mseeds_to_read:
+            mseeds_to_read[id_] = []
 
         # check time bounds, and discard if chunk COMPLETELY out-of bound:
         if (starttime is not None and starttime > rec.end_time) or \

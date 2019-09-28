@@ -404,7 +404,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         dfres1.reset_index(drop=True, inplace=True)  # we need to normalize indices for
         # comparison later
         # just change the value of the bytes so that we can better 
-        # visually inspect dataframe under clipse, in case:
+        # visually inspect dataframe under eclipse, in case:
         dfres1.loc[(~pd.isnull(dfres1[Segment.data.key])) &
                    (dfres1[Segment.data.key].str.len() > 0),
                    Segment.data.key] = b'data'

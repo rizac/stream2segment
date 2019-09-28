@@ -226,9 +226,20 @@ def test_with_gaps_overlaps(mock_response_inbytes):
 
     s2s_stream = get_s2s_stream(dic)
     assert streamequal(obspy_stream, s2s_stream, deep=True)
-#     assert not all(np.array_equal(x.data, obspy_dic[id_].data) for id_, x in mseed_dic.iteritems())
-#     assert sorted(mseed_dic.keys()) == sorted(obspy_dic.keys())
-#     assert gaps == keys_with_gaps(obspy_dic)
+
+
+def test_empty_data(mock_response_inbytes):
+    '''test empty data'''
+    bytez = b''
+    assert not unpack(bytez)
+
+
+def test_outofbounds_data(mock_response_inbytes):
+    '''test empty data'''
+    bytez = b''
+    data = unpack(bytez, datetime.utcnow(), datetime.utcnow() + timedelta(5))
+    assert all(_[1] == b'' for _ in data.values())
+    assert all(_[-1] is True for _ in data.values())
 
 
 def test_unexpected_end_of_header(mock_response_inbytes):
@@ -302,7 +313,10 @@ def test_invalid_pointers(mock_response_inbytes):
     # assert not same num of channels and traces and time ranges:
     assert not streamequal(obspy_stream, s2s_stream, deep=False)
 
+
 @pytest.mark.parametrize("struct_unpack_arg, raises", [
+    # these are all the possible arguments passed to struct.unpack
+    # in mseedlite (1st argument), and whether they're supposed to raise or not:
     (">6scx5s2s3s2s2H3Bx2H2h4Bl2H", True),
     (">2H", True),
     (">3Bx", True),
@@ -334,4 +348,3 @@ def test_struct_unpack_error(mock_struct_unpack, struct_unpack_arg, raises, mock
     assert haserr(dic)
     assert len(dic) == 3
     assert mseed_with_error(dic) == len(dic)
-    return

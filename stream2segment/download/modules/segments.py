@@ -326,7 +326,7 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
                 url = get_host(request)
                 url_stats = stats[url]
 
-                if data:
+                if exc is None and data != b'':
                     # set default values on the dataframe:
                     dframe = dframe.assign(**defaultvalues)  # assign returns a copy
                     populate_dataframe(data, code, dframe, chaid2mseedid)
@@ -334,6 +334,7 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
                     for kode, kount in get_counts(dframe, col_dscode, code_not_found):
                         url_stats[kode] += kount
                 else:
+                    # here we are if: exc is not None OR data = b''
                     url_stats[code] += num_segments
                     if toupdate and code is not None:
                         # if there are rows to update and response has no data, then
@@ -353,10 +354,10 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
                     defaultvalues_nodata.update({col_dscode: code, col_data: data})
                     dframe = dframe.assign(**defaultvalues_nodata)  # assign returns a copy
 
-                if exc is not None:
-                    # log segment errors only once per error type and data center,
-                    # otherwise the log is hundreds of Mb and it's unreadable:
-                    seg_logger.warn(request, url, code, exc)
+                    if exc is not None:
+                        # log segment errors only once per error type and data center,
+                        # otherwise the log is hundreds of Mb and it's unreadable:
+                        seg_logger.warn(request, url, code, exc)
 
                 segmanager.add(dframe)
 
@@ -443,6 +444,7 @@ def get_responses(seg_groups, dc_dataselect_manager, chaid2mseedid,
             code = code_url_err
             data = None  # for safety
         else:
+            exc = None  # for safety
             data, code = result[0], result[1]
             if code >= 400:
                 exc = "%d: %s" % (code, result[2])
@@ -455,7 +457,6 @@ def get_responses(seg_groups, dc_dataselect_manager, chaid2mseedid,
                                        group_keys[1],  # stime
                                        group_keys[2]  # etime
                                        )
-                    exc = None  # for safety
                 except MSeedError as mseedexc:
                     code = code_mseed_err
                     exc = mseedexc
