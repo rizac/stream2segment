@@ -7,6 +7,7 @@ from __future__ import division
 
 import os
 import sys
+from itertools import product
 
 import mock
 from mock.mock import patch
@@ -336,12 +337,10 @@ def test_triangsmooth():
 
 
 def triangsmooth0(spectrum, alpha):
-    """First implementation of triangsmooth (or bartlettsmooth). Used to check that current
-    version is equal to the first implemented"""
+    """First working implementation of triangsmooth (or bartlettsmooth).
+    Used to check that current version produces the same results as this one"""
     spectrum_ = np.array(spectrum, dtype=float)
-#     if copy:
-#         spectrum = spectrum.copy()
- 
+
     leng = len(spectrum)
     # get the number of points (left branch, center if leng odd, right branch = left reversed)
     nptsl = np.arange(leng // 2)
@@ -353,19 +352,46 @@ def triangsmooth0(spectrum, alpha):
                                 np.arange(leng, dtype=float) * alpha)).astype(int)
     del nptsl, nptsc, nptsr  # frees up memory?
     npts_u = np.unique(npts)
- 
+
     startindex = 0
     try:
         startindex = np.argwhere(npts_u <= 1)[-1][0] + 1
     except IndexError:
         pass
- 
+
     for n in npts_u[startindex:]:
         # n_2 = np.true_divide(2*n-1, 2)
         tri = (1 - np.abs(np.true_divide(np.arange(2*n + 1) - n, n)))
         idxs = np.argwhere(npts == n)
         spec_slices = spectrum[idxs-n + np.arange(2*n+1)]
         spectrum_[idxs.flatten()] = old_div(np.sum(tri * spec_slices, axis=1), np.sum(tri))
- 
+
     return spectrum_
+
+
+@pytest.mark.parametrize('start, delta, num',
+                         list(product([0, -3.4], [1, 0.004], [0, 45]))
+                         )
+def test_arange_equals_linspace(start, delta, num):
+    a1, a2 = start + np.arange(num) * delta, linspace(start, delta, num)
+    if num == 0:
+        assert not len(a1) and not len(a2)
+    else:
+        assert (a1 == a2).all()
+
+
+def linspace(start, delta, num):
+    """
+    Returns an evenly spaced array of values, convenient for building e.g. arrays of
+    frequencies, given the fft's frequency resolution `delta`. Equivalent to:
+    `numpy.linspace(start, start + delta * num, num, endpoint=False)`
+
+    :param start: numeric, the first element of the returned array
+    :param delta: numeric, the distance between points of the returned array
+    :param num: integer, the length of the returned array
+
+    :return: A numpy array of evenly spaced `num` numbers starting from `start`,
+        with resolution=`delta` (distance between two consecutive points).
+    """
+    return np.linspace(start, start + delta * num, num, endpoint=False)
 

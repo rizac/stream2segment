@@ -10,8 +10,9 @@ import pytest
 import numpy as np
 import mock
 from obspy.core import Trace
+from obspy.core.utcdatetime import UTCDateTime
 
-from stream2segment.process.math.ndarrays import fft as orig_fft, linspace
+from stream2segment.process.math.ndarrays import fft as orig_fft
 from stream2segment.process.math.traces import fft, bandpass, dfreq, maxabs, timeof
 
 
@@ -33,22 +34,6 @@ def test_fft(mock_mseed_fft, arr, arr_len_after_trim, fft_npts):
     freqs, f = fft(t, return_freqs=True)
     assert (freqs == freqs0).all()  # also assures they have same length
     assert np.allclose(freqs[1] - freqs[0], df)
-
-
-@pytest.mark.parametrize('start, delta, num',
-                         [(0.1, 12, 11),
-                          (0, 0.01, 100),
-                          (1, 1, 1),
-                          (1.1, 0, 55),
-                          (1, 1, 0)
-                          ])
-def test_linspace(start, delta, num):
-    space = linspace(start, delta, num)
-    if num == 0:
-        assert len(space) == 0
-    else:
-        expected = np.linspace(start, space[-1], num, endpoint=True)
-        assert (space == expected).all()
 
 
 @pytest.fixture(scope="module")
@@ -91,4 +76,11 @@ def testmaxabs(_data):
     td = 2 * trace.stats.delta
     assert maxabs(trace, None, t-td)[0] < t < maxabs(trace, t+td, None)[0]
 
-    assert np.isnan(maxabs(trace, None, trace.stats.starttime-td))
+    data = trace.data
+    npts = trace.stats.npts
+    t, g = maxabs(trace, None, trace.stats.starttime-td)
+    assert t == UTCDateTime(0) and np.isnan(g)
+    # check that data has not been changed by trace.slice (called by maxabs)
+    # this is for safety:
+    assert data is trace.data
+    assert len(trace.data) == npts  # further safety check

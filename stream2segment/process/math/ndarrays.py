@@ -89,29 +89,9 @@ def freqs(time_signal, delta_t):
 
     :return: the numpy array of the frequencies of a real fft applied on `time_signal`
     """
-    try:
-        leng = int(floor(1 + len(time_signal) / 2))
-        delta_f = dfreq(time_signal, delta_t)
-    except TypeError:
-        leng = time_signal
-        delta_f = delta_t
-    return linspace(0, delta_f, leng)
-
-
-def linspace(start, delta, num):
-    """
-    Returns an evenly spaced array of values, convenient for building e.g. arrays of
-    frequencies, given the fft's frequency resolution `delta`. Equivalent to:
-    `numpy.linspace(start, start + delta * num, num, endpoint=False)`
-
-    :param start: numeric, the first element of the returned array
-    :param delta: numeric, the distance between points of the returned array
-    :param num: integer, the length of the returned array
-
-    :return: A numpy array of evenly spaced `num` numbers starting from `start`,
-        with resolution=`delta` (distance between two consecutive points).
-    """
-    return np.linspace(start, start + delta * num, num, endpoint=False)
+    leng = int(floor(1 + len(time_signal) / 2))
+    delta_f = dfreq(time_signal, delta_t)
+    return np.linspace(0, delta_f * leng, leng, endpoint=False)
 
 
 def snr(signal, noise, signals_form='', fmin=None, fmax=None, delta_signal=1.,

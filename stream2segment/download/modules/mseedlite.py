@@ -57,31 +57,11 @@ def _mdy2dy(month, day, year):
     return _ldoy(year, month - 1) + day
 
 
-class EndOfData(Exception):
-    """."""
-
-    pass
-
-
 class MSeedError(Exception):
     """Custom mseed exception"""
-    def __init__(self, message, record_id=None):
+    def __init__(self, message):
         # Call the base class constructor with the parameters it needs
         super(MSeedError, self).__init__(message)
-        # Now for your custom code...
-        self._record_id = record_id
-
-
-class MSeedNoData(MSeedError):
-    """Mseed exception indicating no miniseed data. Left from seiscomp implementation,
-       not used here"""
-    pass
-
-
-# class MSeedHeaderError(MSeedError):
-#     """."""
-#     def __init__(self):
-#         super(MSeedHeaderError, self).__init__("unexpected end of header")
 
 
 class Record(object):
@@ -100,40 +80,72 @@ class Record(object):
         """Create a Mini-SEED record from a file handle or a bitstream.
         :param fd: any object (File descriptor, BytesIO) with a 'read' attribute
         """
+
+        # fd is the file pointer to a sequence of bytes of miniseed records
+        # (not necessarily from a single waveformd data). We have 2 types of errors
+        # 1) errors preventing us to move to the start of the next record
+        #    1a) because we reached the EOF -> store the error in self.error and return
+        #        The miniseed of the current record will be malformed, all other miniseed
+        #        if any, are successfully read
+        #    1b) Any other reason -> raise MseedError. All miniseed are malformed.
+        #        This means skip successfully read records, but it is safer to do so
+        # 2) errors NOT preventing to move to the next record -> set set self.error and continue.
+        #    Return only if we already read all data block and we are already on the next
+        #    Record
+
         # self.header = ""
         self.header = bytes()
         fixhead = fd.read(_FIXHEAD_LEN)
 
+        self.error = ''
+        self.EOF = False
         if len(fixhead) == 0:
-            # FIXME Check if there is no better option, but NOT StopIteration!
-            raise EndOfData
+            self.EOF = True
+            return
 
         if len(fixhead) < _FIXHEAD_LEN:
-            raise MSeedError("unexpected end of header")
-
-        (recno_str, self.rectype, sta, loc, cha, net, bt_year, bt_doy, bt_hour,
-         bt_minute, bt_second, bt_tms, self.nsamp, self.sr_factor,
-         self.sr_mult, self.aflgs, self.cflgs, self.qflgs, self.__num_blk,
-         self.time_correction, self.__pdata, self.__pblk) = \
-            struct.unpack(">6scx5s2s3s2s2H3Bx2H2h4Bl2H", fixhead)
+            raise MSeedError("unexpected end of header")  # err type 1b
 
         try:
-            self._record_id = _get_id(net, sta, loc, cha)
+            (recno_str, self.rectype, sta, loc, cha, net, bt_year, bt_doy, bt_hour,
+             bt_minute, bt_second, bt_tms, self.nsamp, self.sr_factor,
+             self.sr_mult, self.aflgs, self.cflgs, self.qflgs, self.__num_blk,
+             self.time_correction, self.__pdata, self.__pblk) = \
+                struct.unpack(">6scx5s2s3s2s2H3Bx2H2h4Bl2H", fixhead)
+        except struct.error as serr:
+            raise MSeedError(str(serr))  # err type 1b
+
+        try:
+            self.recno = int(recno_str)
+        except (TypeError, ValueError) as exc:
+            self.error = 'recno not integer'  # err type 2
+
+        self.net = net.strip()
+        self.sta = sta.strip()
+        self.loc = loc.strip()
+        self.cha = cha.strip()
+
+        try:
+            self.record_id = _get_id(net, sta, loc, cha)
         except UnicodeDecodeError as exc:  # raise MSeedError so it will be caught
-            raise MSeedError(str(exc))
+            raise MSeedError(str(exc))  # err type 1b
 
         self.header += fixhead
 
         if ((self.rectype != b'D') and (self.rectype != b'R') and
                 (self.rectype != b'Q') and (self.rectype != b'M')):
+            # what do we do here below? seems we know how to move to the next block, how?
             fd.read(_MAX_RECLEN - _FIXHEAD_LEN)
-            raise MSeedNoData("non-data record", self._record_id)
+            self.error = "non-data record"  # err type 2
+            return
 
         if ((self.__pdata < _FIXHEAD_LEN) or (self.__pdata >= _MAX_RECLEN) or
             ((self.__pblk != 0) and ((self.__pblk < _FIXHEAD_LEN) or
                                      (self.__pblk >= self.__pdata)))):
+            # what do we do here below? seems we know how to move to the next block, how?
             fd.read(_MAX_RECLEN - _FIXHEAD_LEN)
-            raise MSeedError("invalid pointers", self._record_id)
+            self.error = "invalid pointers"  # err type 2
+            return
 
         if self.__pblk == 0:
             blklen = 0
@@ -142,7 +154,8 @@ class Record(object):
             gaplen = self.__pblk - _FIXHEAD_LEN
             gap = fd.read(gaplen)
             if len(gap) < gaplen:
-                raise MSeedError("unexpected end of data", self._record_id)
+                self.error = "unexpected end of data"  # err type 2
+                return
 
             self.header += gap
 
@@ -161,21 +174,30 @@ class Record(object):
         while pos < blklen:
             blkhead = fd.read(_BLKHEAD_LEN)
             if len(blkhead) < _BLKHEAD_LEN:
-                raise MSeedError("unexpected end of blockettes at %s" %
-                                 pos + len(blkhead), self._record_id)
+                self.error = "unexpected end of blockettes at %d" % \
+                    (pos + len(blkhead))  # err type 2
+                return
 
-            (blktype, nextblk) = struct.unpack(">2H", blkhead)
+            try:
+                (blktype, nextblk) = struct.unpack(">2H", blkhead)
+            except struct.error as serr:
+                raise MSeedError(str(serr))  # err type 1
+
             self.header += blkhead
             pos += _BLKHEAD_LEN
 
             if blktype == 1000:
                 blk1000 = fd.read(_BLK1000_LEN)
                 if len(blk1000) < _BLK1000_LEN:
-                    raise MSeedError("unexpected end of blockettes at %s" %
-                                     pos + len(blk1000), self._record_id)
+                    self.error = "unexpected end of blockettes at %d" % \
+                        (pos + len(blk1000))  # err type 2
+                    return
 
-                (self.encoding, self.byteorder, rec_len_exp) = \
-                    struct.unpack(">3Bx", blk1000)
+                try:
+                    (self.encoding, self.byteorder, rec_len_exp) = \
+                        struct.unpack(">3Bx", blk1000)
+                except struct.error as serr:
+                    raise MSeedError(str(serr))  # err type 1
 
                 self.__rec_len_exp_idx = self.__pblk + pos + 2
                 self.header += blk1000
@@ -184,11 +206,16 @@ class Record(object):
             elif blktype == 1001:
                 blk1001 = fd.read(_BLK1001_LEN)
                 if len(blk1001) < _BLK1001_LEN:
-                    raise MSeedError("unexpected end of blockettes at %s" %
-                                     pos + len(blk1001), self._record_id)
+                    self.error = "unexpected end of blockettes at %d" % \
+                        (pos + len(blk1001))  # err type 2
+                    return
 
-                (self.time_quality, micros, self.nframes) = \
-                    struct.unpack(">BbxB", blk1001)
+                try:
+                    (self.time_quality, micros, self.nframes) = \
+                        struct.unpack(">BbxB", blk1001)
+                except struct.error as serr:
+                    self.error = str(serr)  # err type 2
+                    # do not return, try to reach next Record start
 
                 self.__micros_idx = self.__pblk + pos + 1
                 self.__nframes_idx = self.__pblk + pos + 3
@@ -199,32 +226,28 @@ class Record(object):
                 break
 
             if nextblk < self.__pblk + pos or nextblk >= self.__pdata:
-                raise MSeedError("invalid pointers", self._record_id)
+                raise MSeedError("invalid pointers")  # err type 1
 
             gaplen = nextblk - (self.__pblk + pos)
             gap = fd.read(gaplen)
             if len(gap) < gaplen:
-                raise MSeedError("unexpected end of data", self._record_id)
+                self.error = "unexpected end of data"  # err type 2
+                return
 
             self.header += gap
             pos += gaplen
 
         if pos > blklen:
-            raise MSeedError("corrupt record", self._record_id)
+            raise MSeedError("corrupt record")  # err type 1
 
         gaplen = self.__pdata - len(self.header)
         gap = fd.read(gaplen)
         if len(gap) < gaplen:
-            raise MSeedError("unexpected end of data", self._record_id)
+            self.error = "unexpected end of data"  # err type 2
+            return
 
         self.header += gap
         pos += gaplen
-
-        self.recno = int(recno_str)
-        self.net = net.strip()
-        self.sta = sta.strip()
-        self.loc = loc.strip()
-        self.cha = cha.strip()
 
         if (self.sr_factor > 0) and (self.sr_mult > 0):
             self.samprate_num = self.sr_factor * self.sr_mult
@@ -266,24 +289,39 @@ class Record(object):
                 self.end_time = self.begin_time
 
         except ValueError as verr:
-            raise MSeedError("invalid time: %s" % str(verr), self._record_id)
+            self.error = "invalid time: %s" % str(verr)  # err type 2
+            # do not return, try to reach next Record start
 
         self.size = 1 << rec_len_exp
         if (self.size < len(self.header)) or (self.size > _MAX_RECLEN):
-            raise MSeedError("invalid record size", self._record_id)
+            raise MSeedError("invalid record size")  # err type 1
 
         datalen = self.size - self.__pdata
         self.data = fd.read(datalen)
+
+        # we got to the next Record start. From now on, all error types are 2
+        # and we can return to avoid unnecessary operations. In any case,
+        # the record's miniseed will not be marked as malformed
+
         if len(self.data) < datalen:
-            raise MSeedError("unexpected end of data", self._record_id)
+            self.error = "unexpected end of data"  # err type 2
+            return
 
         if len(self.header) + len(self.data) != self.size:
-            raise MSeedError("internal error", self._record_id)
+            self.error = "internal error"  # err type 2
+            return
 
-        (self.X0, self.Xn) = struct.unpack(">ll", self.data[4:12])
+        if self.error:  # we might have an error set, we reached the next block, just return
+            return  # err type 2
 
-        (w0,) = struct.unpack(">L", self.data[:4])
-        (w3,) = struct.unpack(">L", self.data[12:16])
+        try:
+            (self.X0, self.Xn) = struct.unpack(">ll", self.data[4:12])
+            (w0,) = struct.unpack(">L", self.data[:4])
+            (w3,) = struct.unpack(">L", self.data[12:16])
+        except struct.error as serr:
+            self.error = str(serr)  # err type 2
+            return
+
         c3 = (w0 >> 24) & 0x3
         d0 = None
 
@@ -366,7 +404,7 @@ class Record(object):
     def write(self, fd, rec_len_exp):
         """Write the record to an already opened file."""
         if self.size > (1 << rec_len_exp):
-            raise MSeedError("record is larger than requested write size", self._record_id)
+            raise MSeedError("record is larger than requested write size")
 
         recno_str = bytes(b"%06d" % (self.recno,))
         sta = bytes(b"%-5.5s" % (self.sta,))
@@ -438,23 +476,16 @@ class Input(object):
         """Define the iterator. Yields the tuple (Record, is_exc). Record is the record read
         (if is_exc is False) or the MiniseedError raised (is_exc = True). In any case,
         the Record object has the attribute
-        ```_record_id = "[network].[station].[location].[channel]" != None```
+        ```record_id = "[network].[station].[location].[channel]" != None```
         This method raises for any kind of non-MiniseedError exception, or for MiniseedError
-        occurred during header reading, i.e. for which the exception attribute "_record_id" would
+        occurred during header reading, i.e. for which the exception attribute "record_id" would
         be None.
         """
         while True:
-            try:
-                rec = Record(self.__fd)
-                yield rec, False
-            except EndOfData:
+            rec = Record(self.__fd)
+            if rec.EOF:
                 break
-            except MSeedError as mse:
-                if mse._record_id is None:  # header errror, cannot guess id
-                    raise
-                yield mse, True
-            except Exception:
-                raise
+            yield rec
 
 
 def _get_id(net, sta, loc, cha):
@@ -519,8 +550,9 @@ def unpack(data, starttime=None, endtime=None):
     # we might use defaultdict, but a dict with the future package is py2-3 compliant
     # e.g., when using dict.items()
     ret_dic = dict()
-    for rec, is_exc in Input(data):
-        id_ = rec._record_id
+    for rec in Input(data):
+        is_exc = rec.error
+        id_ = rec.record_id
         value = ret_dic.get(id_, None)
         if value is None:
             # list fields are:
@@ -533,11 +565,11 @@ def unpack(data, starttime=None, endtime=None):
             #     out_of_time_chunks_found (boolean)
             # we populate in this first loop only the first two and the last item
             ret_dic[id_] = value = [None, [], None, None, None, None, False]
-        elif value[0] is not None:  # is an exception, continue
+        elif value[0] is not None:  # has already an exception, continue
             continue
 
         if is_exc:
-            value[0] = rec
+            value[0] = MSeedError(rec.error)
             value[1] = None  # help gc?
             continue
 
@@ -562,7 +594,13 @@ def unpack(data, starttime=None, endtime=None):
         max_gap_overlap_ratio = 0
         bytesio = BytesIO()
         for i, record in enumerate(records):
-            record.write(bytesio, int(log(record.size) / log(2)))
+            try:
+                record.write(bytesio, int(log(record.size) / log(2)))
+            except MSeedError as mserr:
+                value[0] = mserr
+                value[1] = None
+                continue
+
             if i == 0:
                 fsamp = record.fsamp  # assign only first time
                 continue

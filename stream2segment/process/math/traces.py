@@ -127,7 +127,8 @@ def maxabs(trace, starttime=None, endtime=None):
 
     :return: the tuple `(time_of_max_abs, max_abs)`. If the trace has no point
         (possibly after providing `starttime` or `endtime` out of bounds), returns
-        the tuple (None, numpy.nan)
+        the tuple (starttime, numpy.nan), where starttime is UTDDateTime(0) (1st January 1970):
+        which is arbitrarily chosen just to keep the returned value types consistent.
     """
     original_stime = None if starttime is None else trace.stats.starttime
     if starttime is not None or endtime is not None:
@@ -135,7 +136,10 @@ def maxabs(trace, starttime=None, endtime=None):
         # Does not copy data but just passes a reference to it"
         trace = trace.slice(starttime, endtime)
     if trace.stats.npts < 1:
-        return (None, np.nan)
+        # We return UTDCadeTime(0) because we want a consistent type (thus,
+        # None, pd.NaT, numpy.datetime64('NaT') are all not good choices) AND
+        # because we want a trace-independent value for all cases where the trace has no points
+        return (UTCDateTime(0), np.nan)
     idx = np.nanargmax(np.abs(trace.data))
     val = trace.data[idx]
     tdelta = 0 if original_stime is None else trace.stats.starttime - original_stime
@@ -201,9 +205,9 @@ def fft(trace, starttime=None, endtime=None, taper_max_percentage=0.05, taper_ty
     :param return_freqs: if False (the default) the first item of the returned tuple will be
         the frequency resolution 'df', otherwise the array of frequencies
 
-    :return: a tuple where the second element if the numpy array of the fft values, and the first
-        item is either the frequency resolution (`return_freqs=False`) or the numpy array of the
-        frequencies of the fft (`return_freqs=True`)
+    :return: the tuple (freq, values), where `values` are the computed FFT values (numpy array),
+        and `freq` is the frequency resolution DeltaF (if `return_freqs=False`) or the
+        numpy array of the frequencies (if `return_freqs=True`)
     """
     if starttime is not None or endtime is not None or taper_max_percentage > 0:
         trace = trace.copy()
@@ -222,9 +226,11 @@ def fft(trace, starttime=None, endtime=None, taper_max_percentage=0.05, taper_ty
 def ampspec(trace, starttime=None, endtime=None, taper_max_percentage=0.05, taper_type='hann',
             return_freqs=False):
     """
-    Computes the amplitude spectrum of the given trace.
-    See :func:`stream2segment.process.math.traces.fft` for info (this function does exactly the
-    same, it only returns the amplitude spectrum as second element - i.e., the modulus of the fft)
+    Computes the amplitude spectrum of the given trace. Returns the tuple (freq, values),
+    where `values` are the computed amplitudes (numpy array), and `freq` is the frequency
+    resolution DeltaF (if `return_freqs=False`) or the numpy array of the frequencies
+    (if `return_freqs=True`).
+    For other details, see :func:`stream2segment.process.math.traces.fft`
     """
     _, dft = fft(trace, starttime, endtime, taper_max_percentage, taper_type, return_freqs)
     return _, _ampspec(dft, signal_is_fft=True)
@@ -233,9 +239,11 @@ def ampspec(trace, starttime=None, endtime=None, taper_max_percentage=0.05, tape
 def powspec(trace, starttime=None, endtime=None, taper_max_percentage=0.05, taper_type='hann',
             return_freqs=False):
     """
-    Computes the power spectrum of the given trace.
-    See :func:`stream2segment.process.math.traces.fft` for info (this function does exactly the
-    same, it only returns the power spectrum as second element - i.e., the square of the fft)
+    Computes the amplitude spectrum of the given trace. Returns the tuple (freq, values),
+    where `values` are the computed powers (numpy array), and `freq` is the frequency
+    resolution DeltaF (if `return_freqs=False`) or the numpy array of the frequencies
+    (if `return_freqs=True`).
+    For other details, see :func:`stream2segment.process.math.traces.fft`
     """
     _, dft = fft(trace, starttime, endtime, taper_max_percentage, taper_type, return_freqs)
     return _, _powspec(dft, signal_is_fft=True)

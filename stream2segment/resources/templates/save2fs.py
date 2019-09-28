@@ -36,7 +36,7 @@ from stream2segment.process import gui
 from stream2segment.process.math.traces import ampratio, bandpass, cumsumsq,\
     timeswhere, fft, maxabs, utcdatetime, ampspec, powspec, timeof
 # stream2segment function for processing numpy arrays:
-from stream2segment.process.math.ndarrays import triangsmooth, snr, linspace
+from stream2segment.process.math.ndarrays import triangsmooth, snr
 
 
 def assert1trace(stream):
@@ -62,10 +62,18 @@ def main(segment, config):
         raise ValueError('possibly saturated (amp. ratio exceeds)')
 
     original_trace = trace.copy()  # keep a track of the original mseed
+
     # bandpass the trace, according to the event magnitude.
     # WARNING: this modifies the segment.stream() permanently!
-    # If you want to preserve the original stream, store trace.copy()
-    processed_trace = bandpass_remresp(segment, config)
+    # If you want to preserve the original stream, store trace.copy() beforehand.
+    # Also, use a 'try catch': sometimes Inventories are corrupted and obspy raises
+    # a TypeError, which would break the WHOLE processing execution.
+    # Raising a ValueError will stop the execution of the currently processed
+    # segment only (logging the error message):
+    try:
+        processed_trace = bandpass_remresp(segment, config)
+    except TypeError as type_error:
+        raise ValueError("Error in 'bandpass_remresp': %s" % str(type_error))
 
     stream_path = segment.sds_path(config['root_dir'])
     basedir = os.path.dirname(stream_path)

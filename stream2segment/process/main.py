@@ -70,6 +70,21 @@ def run(session, pyfunc, writer, config=None, show_progress=False):
     # get total segment length (in numpy it is equivalent to len(seg_sta_ids)):
     chunksize, multi_process, num_processes = \
         get_advanced_settings(config, seg_len, show_progress)
+    # Note on chunksize above:
+    # When loading segments, we have two strategies:
+    # A) load only a Segment with its id (and defer loading of other
+    # attributes upon access) or B) load a Segment with all attributes
+    # (columns). From experiments on a 16 GB memory Mac:
+    # Querying A) and then accessing (=loading) later two likely used attributes
+    # (data and arrival_time) we take:
+    # ~= 0.043 secs/segment, Peak memory (Kb): 111792 (0.650716 %)
+    # Querying B) and then accessing the already loaded data and arrival_time attributes,
+    # we get:
+    # 0.024 secs/segment, Peak memory (Kb): 409194 (2.381825 %).
+    # With millions of segments, the latter
+    # approach can save up to 9 hours with almost no memory perf issue (2.4% vs 0.7%).
+    # So we define a chunk size whereby we load all segments:
+
     # set/update classes, if written in the config, so that we can set instance classes in the
     # processing, if we want:
     configure_classes(session, config.get('class_labels', []))
@@ -113,21 +128,10 @@ def fetch_segments_stations_ids(session, config, writer):
     '''
 
     # (Over commenting this function to keep track of all choices done)
-    logger.info("Fetching segments to process, please wait...")
-    # Note on chunksize above:
-    # When loading segments, we have two strategies:
-    # A) load only a Segment with its id (and defer loading of other
-    # attributes upon access) or B) load a Segment with all attributes
-    # (columns). From experiments on a 16 GB memory Mac:
-    # Querying A) and then accessing (=loading) later two likely used attributes
-    # (data and arrival_time) we take:
-    # ~= 0.043 secs/segment, Peak memory (Kb): 111792 (0.650716 %)
-    # Querying B) and then accessing the already loaded data and arrival_time attributes,
-    # we get:
-    # 0.024 secs/segment, Peak memory (Kb): 409194 (2.381825 %).
-    # With millions of segments, the latter
-    # approach can save up to 9 hours with almost no memory perf issue (2.4% vs 0.7%).
-    # So we define a chunk size whereby we load all segments:
+    logger.info("Fetching segments to process, PLEASE WAIT: "
+                "this might be time consuming depending on:")
+    logger.info("  1. The size of the input database")
+    logger.info("  2. The size of the output file (If writing in 'append' mode)")
 
     # the query is always loaded in memory, see:
     # https://stackoverflow.com/questions/11769366/why-is-sqlalchemy-insert-with-sqlite-25-times-slower-than-using-sqlite3-directly/11769768#11769768
@@ -149,8 +153,7 @@ def fetch_segments_stations_ids(session, config, writer):
                         'or not provided')
         else:
             logger.info('Appending results to existing file. Scanning output file for '
-                        'already processed segments (it might require up to few minutes '
-                        'for large files)')
+                        'already processed segments')
             skip_ids = writer.already_processed_segments(aslist=True)
     elif writer.outputfileexists:
         logger.info('Overwriting existing output file')
@@ -158,7 +161,8 @@ def fetch_segments_stations_ids(session, config, writer):
     if skip_ids:
         logger.info("Skipping %d already processed segment(s)", len(skip_ids))
         qry = qry.filter(~Segment.id.in_(skip_ids))
-        skip_ids = None  # help gc?
+
+    logger.info("Querying the database for segments to process")
     seg_sta_ids = np.array(qry.all(), dtype=int)
     seg_len = seg_sta_ids.shape[0]
     logger.info("%d segment(s) found to process", seg_len)

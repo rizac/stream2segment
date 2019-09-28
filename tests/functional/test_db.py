@@ -845,12 +845,32 @@ class Test(object):
         assert len(db.session.query(Segment).filter(Segment.duration_sec == None).all()) == \
             len(db.session.query(Segment).all()) - 1
 
-        # tst event distance km:
+        # test event distance km:
+        # note that querying for the EXACT value of event_distance_km
+        # causes rounding errors, we must issue a between
         segs = db.session.query(Segment).all()
-        for s in segs:
-            dist_km = s.event_distance_km
-            zegs = db.session.query(Segment).filter(Segment.event_distance_km == dist_km).all()
-            assert any(s.id == z.id for z in zegs)
+        # change event_distance_deg
+        segs[0].event_distance_deg = 0
+        segs[1].event_distance_deg = 1
+        db.session.commit()
+        for i in range(2):
+            cond_ = Segment.event_distance_km.between(segs[i].event_distance_km - 0.00001,
+                                                      segs[i].event_distance_km + 0.00001)
+            zegs = db.session.query(Segment).filter(cond_).all()
+            if i <= 1:
+                # segments for which we changed the event_distance_deg
+                assert len(zegs) == 1 and zegs[0].id == segs[i].id
+            else:
+                # other segments(have all the same event_distance_deg):
+                segids = sorted(s.id for s in segs[2:])
+                zegids = sorted(z.id for z in zegs)
+                assert segids == zegids
+                
+                
+#         for s in segs:
+#             dist_km = s.event_distance_km
+#             zegs = db.session.query(Segment).filter(Segment.event_distance_km == dist_km).all()
+#             assert any(s.id == z.id for z in zegs)
 
         #######################################
         #

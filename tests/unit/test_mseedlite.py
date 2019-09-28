@@ -8,7 +8,8 @@ import os
 from datetime import datetime, timedelta
 from io import BytesIO
 from math import log
-
+from mock import patch
+from struct import unpack as original_unpack
 import numpy as np
 import pytest
 from obspy.core.stream import read, Stream
@@ -170,12 +171,13 @@ def test_fsamp_mismatchs(mock_response_inbytes):
     ret_dic = dict()
     key = None
     records = []
-    for rec, is_exc in Input(bytez):
+    for rec in Input(bytez):
+        is_exc = rec.error
         if is_exc:
             continue
         if key is None:
-            key = rec._record_id
-        elif rec._record_id != key:
+            key = rec.record_id
+        elif rec.record_id != key:
             continue
         records.append(rec)
         if len(records) > 1:
@@ -276,6 +278,36 @@ def test_invalid_pointers(mock_response_inbytes):
     bytez = mock_response_inbytes()
     # get our dicts of trace_id: trace_bytes
     dic = unpack(bytez[:_FIXHEAD_LEN-8] + (b'a' * 8) + bytez[_FIXHEAD_LEN:])
+    # erros is not empty but has the trace id 'aa.aaaaa.aa.aaa'. What is that?
+    # is the id we created by modyfing the bytes above
+    assert haserr(dic)
+    assert len(dic) == 3
+    # assert first one is erroneous (actually, different python versions might not store it in
+    # the first item, so use 'any'):
+    assert any(str(list(dic.values())[i][0]) == 'invalid pointers' for i in range(len(dic)))
+    # assert all max gap ratios are below a certain threshold
+    # (we should get 0, some rounding errors might occur)
+    assert all(abs(v[3]) < 0.00011 for v in dic.values() if v[3] is not None)
+
+    obspy_stream = get_stream(bytez)
+    s2s_stream = get_s2s_stream(dic)
+    # assert not same num of channels and traces and time ranges:
+    assert not streamequal(obspy_stream, s2s_stream, deep=False)
+
+@patch('stream2segment.download.modules.mseedlite.struct.unpack')
+def test_struct_unpack(mock_struct_unpack, mock_response_inbytes):
+    '''test invalid pointers error'''
+    
+    def sunpack(what, bytez):
+        newbytez = bytez if what == '>6scx5s2s3s2s2H3Bx2H2h4Bl2H' \
+            else bytez[:-1]
+        return original_unpack(what, newbytez)
+    
+    mock_struct_unpack.side_effect = sunpack
+        
+    bytez = mock_response_inbytes()
+    # bytez = bytez[:bytez.find(chunk)] + b'\x01I' * 3
+    dic = unpack(bytez)
     # erros is not empty but has the trace id 'aa.aaaaa.aa.aaa'. What is that?
     # is the id we created by modyfing the bytes above
     assert haserr(dic)

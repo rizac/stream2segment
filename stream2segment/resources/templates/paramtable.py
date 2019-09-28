@@ -33,7 +33,7 @@ from stream2segment.process import gui
 from stream2segment.process.math.traces import ampratio, bandpass, cumsumsq,\
     timeswhere, fft, maxabs, utcdatetime, ampspec, powspec, timeof
 # stream2segment function for processing numpy arrays:
-from stream2segment.process.math.ndarrays import triangsmooth, snr, linspace
+from stream2segment.process.math.ndarrays import triangsmooth, snr
 
 
 def assert1trace(stream):
@@ -60,8 +60,15 @@ def main(segment, config):
 
     # bandpass the trace, according to the event magnitude.
     # WARNING: this modifies the segment.stream() permanently!
-    # If you want to preserve the original stream, store trace.copy()
-    trace = bandpass_remresp(segment, config)
+    # If you want to preserve the original stream, store trace.copy() beforehand.
+    # Also, use a 'try catch': sometimes Inventories are corrupted and obspy raises
+    # a TypeError, which would break the WHOLE processing execution.
+    # Raising a ValueError will stop the execution of the currently processed
+    # segment only (logging the error message):
+    try:
+        trace = bandpass_remresp(segment, config)
+    except TypeError as type_error:
+        raise ValueError("Error in 'bandpass_remresp': %s" % str(type_error))
 
     spectra = sn_spectra(segment, config)
     normal_f0, normal_df, normal_spe = spectra['Signal']
@@ -108,7 +115,7 @@ def main(segment, config):
 
     # calculates amplitudes at the frequency bins given in the config file:
     required_freqs = config['freqs_interp']
-    ampspec_freqs = linspace(start=normal_f0, delta=normal_df, num=len(normal_spe))
+    ampspec_freqs = normal_f0 + np.arange(len(normal_spe)) * normal_df
     required_amplitudes = np.interp(np.log10(required_freqs),
                                     np.log10(ampspec_freqs), normal_spe) / segment.sample_rate
 

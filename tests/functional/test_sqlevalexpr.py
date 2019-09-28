@@ -430,7 +430,10 @@ class Test(object):
         assert 'event_id' in attnames and 'id' not in attnames \
             and 'classes' not in attnames and '_fake_method' not in attnames
         attnames2 = list(insp.attnames(Inspector.FKEY, sort=False))
-        assert attnames != attnames2 and len(attnames) == len(attnames2)
+        # sort=False MIGHT return the same attributes order as sorted=True
+        # thus perform a check only if they differ:
+        if attnames != attnames:
+            assert sorted(attnames) == sorted(attnames2)
         attnames = list(insp.attnames(Inspector.QATT))
         assert '_fake_method' in attnames and not 'id' in attnames and \
             not 'event_id' in attnames
@@ -438,7 +441,10 @@ class Test(object):
         assert 'classes' in attnames and 'id' not in attnames \
             and 'event_id' not in attnames and '_fake_method' not in attnames
         attnames2 = list(insp.attnames(Inspector.REL, sort=False))
-        assert attnames != attnames2 and len(attnames) == len(attnames2)
+        # sort=False MIGHT return the same attributes order as sorted=True
+        # thus perform a check only if they differ:
+        if attnames != attnames:
+            assert sorted(attnames) == sorted(attnames2)
         
         attnames = insp.attnames(deep=True)
         for attname in attnames:
