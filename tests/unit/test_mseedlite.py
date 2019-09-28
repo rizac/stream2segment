@@ -73,6 +73,14 @@ def streamequal(stream1, stream2, deep=True):
     return True
 
 
+def mseed_with_error(dataread):
+    count = 0
+    for v in dataread.values():
+        if v[0] is not None:
+            count+=1
+    return count
+
+
 def haserr(dataread):
     for v in dataread.values():
         if v[0] is not None:
@@ -294,46 +302,36 @@ def test_invalid_pointers(mock_response_inbytes):
     # assert not same num of channels and traces and time ranges:
     assert not streamequal(obspy_stream, s2s_stream, deep=False)
 
+@pytest.mark.parametrize("struct_unpack_arg, raises", [
+    (">6scx5s2s3s2s2H3Bx2H2h4Bl2H", True),
+    (">2H", True),
+    (">3Bx", True),
+    (">BbxB", False),
+    (">ll", False),
+    (">L", False)
+])
 @patch('stream2segment.download.modules.mseedlite.struct.unpack')
-def test_struct_unpack(mock_struct_unpack, mock_response_inbytes):
+def test_struct_unpack_error(mock_struct_unpack, struct_unpack_arg, raises, mock_response_inbytes):
     '''test invalid pointers error'''
-    
+
     def sunpack(what, bytez):
-        newbytez = bytez if what == '>6scx5s2s3s2s2H3Bx2H2h4Bl2H' \
-            else bytez[:-1]
-        return original_unpack(what, newbytez)
-    
+        if what == struct_unpack_arg:
+            bytez = bytez[:-1]
+        return original_unpack(what, bytez)
+
     mock_struct_unpack.side_effect = sunpack
-        
     bytez = mock_response_inbytes()
-    # bytez = bytez[:bytez.find(chunk)] + b'\x01I' * 3
+
+    if raises:
+        with pytest.raises(MSeedError):
+            unpack(bytez)
+        return
+
     dic = unpack(bytez)
+
     # erros is not empty but has the trace id 'aa.aaaaa.aa.aaa'. What is that?
     # is the id we created by modyfing the bytes above
     assert haserr(dic)
     assert len(dic) == 3
-    # assert first one is erroneous (actually, different python versions might not store it in
-    # the first item, so use 'any'):
-    assert any(str(list(dic.values())[i][0]) == 'invalid pointers' for i in range(len(dic)))
-    # assert all max gap ratios are below a certain threshold
-    # (we should get 0, some rounding errors might occur)
-    assert all(abs(v[3]) < 0.00011 for v in dic.values() if v[3] is not None)
-
-    obspy_stream = get_stream(bytez)
-    s2s_stream = get_s2s_stream(dic)
-    # assert not same num of channels and traces and time ranges:
-    assert not streamequal(obspy_stream, s2s_stream, deep=False)
-
-#     # Let's change some header. But keeping the ref to the trace id for the record with errors:
-#     bytez = mock_response_inbytes()
-#     bytez = bytez[:_FIXHEAD_LEN-8] + (b'a' * 8) + bytez[_FIXHEAD_LEN:]
-#     # get our dicts of trace_id: trace_bytes
-#     mseed_dic, errs = unpack(bytez)
-#     assert errs
-#     # get the same dict by calling obspy.read:
-#     obspy_dic = getobspydic(bytez)
-#     # we skip a record, ignoring all subsequent read for that trace. Thus:
-#     assert len(mseed_dic) != len(obspy_dic)
-#     # However, for the trace saved, the traces are the same:
-#     assert all(np.array_equal(read(StringIO(x))[0].data,
-#                               obspy_dic[id].data) for id, x in mseed_dic.iteritems())
+    assert mseed_with_error(dic) == len(dic)
+    return
