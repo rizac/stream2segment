@@ -7,8 +7,8 @@ from __future__ import print_function, division
 
 # make the following(s) behave like python3 counterparts if running from python2.7.x
 # (http://python-future.org/imports.html#explicit-imports):
-from builtins import object, dict
-
+from builtins import object
+from collections import defaultdict
 import datetime
 import struct
 from math import log
@@ -60,7 +60,6 @@ def _mdy2dy(month, day, year):
 class MSeedError(Exception):
     """Custom mseed exception"""
     def __init__(self, message):
-        # Call the base class constructor with the parameters it needs
         super(MSeedError, self).__init__(message)
 
 
@@ -469,7 +468,6 @@ class Input(object):
         # each time. This is not DRY (don't repeat yourself) but avoids modifying the original code:
         if not hasattr(fd, "read"):
             fd = BytesIO(fd)
-
         self.__fd = fd
 
     def __iter__(self):
@@ -484,6 +482,7 @@ class Input(object):
         while True:
             rec = Record(self.__fd)
             if rec.EOF:
+                self.__fd.close()
                 break
             yield rec
 
@@ -549,90 +548,76 @@ def unpack(data, starttime=None, endtime=None):
     """
     # we might use defaultdict, but a dict with the future package is py2-3 compliant
     # e.g., when using dict.items()
-    ret_dic = dict()
-    for rec in Input(data):
-        is_exc = rec.error
-        id_ = rec.record_id
-        value = ret_dic.get(id_, None)
-        if value is None:
-            # list fields are:
-            #     exc (Exception or Npne)
-            #     data (list of Records) or Exception (if is_exc is True)
-            #     sample_rate (float),
-            #     max_gap_overlap_ratio (float),
-            #     starttime (datetime),
-            #     endtime (datetime),
-            #     out_of_time_chunks_found (boolean)
-            # we populate in this first loop only the first two and the last item
-            ret_dic[id_] = value = [None, [], None, None, None, None, False]
-        elif value[0] is not None:  # has already an exception, continue
-            continue
+    mseeds_to_read = defaultdict(list)
 
-        if is_exc:
-            value[0] = MSeedError(rec.error)
-            value[1] = None  # help gc?
+    # values of preocessed_mseed below are:
+    #     exc (Exception or Npne)
+    #     data (list of Records) or Exception (if is_exc is True)
+    #     sample_rate (float),
+    #     max_gap_overlap_ratio (float),
+    #     starttime (datetime),
+    #     endtime (datetime),
+    #     out_of_time_chunks_found (boolean)
+    # Example: [None, b'...', None, None, None, None, False]
+    processed_mseeds = {}
+    chunks_out_of_bounds = set()
+    for rec in Input(data):
+        id_ = rec.record_id
+
+        if id_ in processed_mseeds:
+            continue
+        elif rec.error:
+            processed_mseeds[id_] = (MSeedError(rec.error), None, None, None, None, None, False)
             continue
 
         # check time bounds, and discard if chunk COMPLETELY out-of bound:
         if (starttime is not None and starttime > rec.end_time) or \
                 (endtime is not None and endtime < rec.begin_time):
-            value[-1] = True
+            chunks_out_of_bounds.add(id_)
             continue
 
-        value[1].append(rec)
+        mseeds_to_read[id_].append(rec)
 
-    for id_, value in ret_dic.items():
-        if value[0] is not None:  # exception, do not process the list
-            continue
-        records = value[1]
+    for id_, records in mseeds_to_read.items():
         if not records:
-            value[1] = b''
+            processed_mseeds[id_] = (None, b'', None, None, None, None, id_ in chunks_out_of_bounds)
             continue
         # get records and sort ascending by time
         records.sort(key=lambda elm: elm.begin_time)
-        fsamp = None
+        fsamp = records[0].fsamp
         max_gap_overlap_ratio = 0
         bytesio = BytesIO()
-        for i, record in enumerate(records):
-            try:
+        try:
+            for i, record in enumerate(records):
+
+                if record.fsamp != fsamp:
+                    raise MSeedError("records sample rate mismatch")
                 record.write(bytesio, int(log(record.size) / log(2)))
-            except MSeedError as mserr:
-                value[0] = mserr
-                value[1] = None
-                continue
 
-            if i == 0:
-                fsamp = record.fsamp  # assign only first time
-                continue
-            elif record.fsamp != fsamp:
-                value[0], value[1] = MSeedError("records sample rate mismatch"), None
-                break
-            # curr_max_gap_ratio = distance between end_time of this chunk and begin_time of
-            # next chunk.
-            # curr_max_gap_ratio is in number of samples, thus curr_max_gap_ratio *= fsamp.
-            # If curr_max_gap_ratio == 1, then no gaps. If > 1, possible gaps,
-            # if < 1 possible overlaps. Subtract 1 as we want 0 for no gaps/overlaps,
-            # >0 for possible gaps, and <0 for possible overlaps:
-            curr_max_gap_ratio = \
-                (record.begin_time - records[i-1].end_time).total_seconds() * fsamp - 1
-            if abs(curr_max_gap_ratio) > abs(max_gap_overlap_ratio):
-                max_gap_overlap_ratio = curr_max_gap_ratio
+                if i == 0:
+                    continue
 
-        if value[0] is None:  # no exception (need further check for mismatching fsamp)
-            bytez = bytesio.getvalue()
+                # curr_max_gap_ratio = distance between end_time of this chunk and begin_time of
+                # next chunk.
+                # curr_max_gap_ratio is in number of samples, thus curr_max_gap_ratio *= fsamp.
+                # If curr_max_gap_ratio == 1, then no gaps. If > 1, possible gaps,
+                # if < 1 possible overlaps. Subtract 1 as we want 0 for no gaps/overlaps,
+                # >0 for possible gaps, and <0 for possible overlaps:
+                curr_max_gap_ratio = \
+                    (record.begin_time - records[i-1].end_time).total_seconds() * fsamp - 1
+                if abs(curr_max_gap_ratio) > abs(max_gap_overlap_ratio):
+                    max_gap_overlap_ratio = curr_max_gap_ratio
+
+            processed_mseeds[id_] = (None,
+                                     bytesio.getvalue(),
+                                     fsamp,
+                                     max_gap_overlap_ratio,
+                                     records[0].begin_time,
+                                     records[-1].end_time,
+                                     id_ in chunks_out_of_bounds)
             bytesio.close()
-            # list fields are:
-            #     exc (Exception or Npne)
-            #     data (list of Records) or Exception (if is_exc is True)
-            #     sample_rate (float),
-            #     max_gap_overlap_ratio (float),
-            #     starttime (datetime),
-            #     endtime (datetime),
-            #     out_of_time_chunks_found (boolean)
-            value[1] = bytez
-            value[2] = fsamp
-            value[3] = max_gap_overlap_ratio
-            value[4] = records[0].begin_time
-            value[5] = records[-1].end_time
 
-    return ret_dic
+        except MSeedError as mserr:
+            processed_mseeds[id_] = (mserr, None, None, None, None, None, False)
+
+    return processed_mseeds
