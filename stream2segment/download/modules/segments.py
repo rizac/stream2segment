@@ -336,7 +336,7 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
                 else:
                     # here we are if: exc is not None OR data = b''
                     url_stats[code] += num_segments
-                    if toupdate and code is not None:
+                    if toupdate and code is not None and (dframe[col_dscode] == code).sum():
                         # if there are rows to update and response has no data, then
                         # discard those for which the code is the same. If we requested a different
                         # time window, we should update the time windows but there is no point in
@@ -344,12 +344,10 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
                         # should never happen but for safety we put it, otherwise we risk to skip
                         # segments with download_code NA (which means exactly the opposite: force
                         # insert/update them to the db. See comment on line 90):
-                        _skipped = num_segments - (dframe[col_dscode] != code).sum()
-                        if _skipped:
-                            skipped_same_code += _skipped
-                            if _skipped >= num_segments:  # == is enough, but for safety ...
-                                continue
-                            dframe = dframe[dframe[col_dscode] != code]  # is a weak ref (no copy)
+                        dframe = dframe[dframe[col_dscode] != code]
+                        skipped_same_code += num_segments - len(dframe)
+                        if dframe.empty:  # nothing to update on the db
+                            continue
                     # update dict of default values, and set it to the dataframe:
                     defaultvalues_nodata.update({col_dscode: code, col_data: data})
                     dframe = dframe.assign(**defaultvalues_nodata)  # assign returns a copy
