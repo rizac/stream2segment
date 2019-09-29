@@ -56,15 +56,9 @@ class BaseWriter(object):
         '''Returns True if the output file exists and is empty'''
         return self.outputfileexists and os.stat(self.outputfile).st_size == 0
 
-    def already_processed_segments(self, aslist=False):
-        '''returns an iterable of integers denoting the already processed segments.
-        It must return a *list of Python integers* if `aslist=True` (False by default).
-        This method will probably open the internal file handle for reading,
-        consider that it might be already opened for writing (we omit doing this
-        check and raising for the moment)
-
-        :param aslist: if True, this method must return a list of **Python integers**
-            (no other types, e.g. numpy.int64s, and so on)
+    def already_processed_segments(self):
+        '''returns a numpy array of UNIQUE integers denoting the the already processed
+        segments
         '''
         return []
 
@@ -107,9 +101,11 @@ class CsvWriter(BaseWriter):
         self.csvwriter = None  # bad hack: in python3, we might use 'nonlocal' @UnusedVariable
         self.csvwriterisdict = False
 
-    def already_processed_segments(self, aslist=False):
-        ret = self._already_processed_segments_iter()
-        return list(ret) if aslist else ret
+    def already_processed_segments(self):
+        '''returns a numpy array of UNIQUE integers denoting the the already processed
+        segments
+        '''
+        return pd.unique(list(self._already_processed_segments_iter()))
 
     def _already_processed_segments_iter(self):
         with open(self.outputfile) as filep:
@@ -191,14 +187,12 @@ class HDFWriter(BaseWriter):
             data_columns += [SEGMENT_ID_COLNAME]
         self.options['data_columns'] = data_columns
 
-    def already_processed_segments(self, aslist=False):
-        '''Returns the segment ids which should not be processed because already in the
-        output file'''
+    def already_processed_segments(self):
+        '''returns a numpy array of UNIQUE integers denoting the the already processed
+        segments
+        '''
         outputfile = self.outputfile
-        ret = pd.read_hdf(outputfile, columns=[SEGMENT_ID_COLNAME])[SEGMENT_ID_COLNAME]
-        if aslist:
-            return ret.tolist()
-        return ret
+        return pd.unique(pd.read_hdf(outputfile, columns=[SEGMENT_ID_COLNAME])[SEGMENT_ID_COLNAME])
 
     def __enter__(self):
         # py2 compatibility of csv library: open in 'wb'. If py3, open in 'w' mode:

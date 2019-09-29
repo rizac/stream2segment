@@ -145,7 +145,7 @@ class Test(object):
         assert csv1.loc[0, csv1.columns[0]] == expected_first_row_seg_id
         logtext = self.logfilecontent
         assert len(logtext) > 0
-        assert "Appending results to existing file." in logtext
+        assert "Appending results to existing file" in logtext
 
     # Recall: we have 6 segments, issued from all combination of
     # station_inventory in [true, false] and segment.data in [ok, with_gaps, empty]
@@ -221,7 +221,7 @@ def main2(segment, config):""")
         logtext2 = self.logfilecontent
         assert "3 segment(s) found to process" in logtext2
         assert "Skipping 1 already processed segment(s)" in logtext2
-        assert "Appending results to existing file." in logtext2
+        assert "Appending results to existing file" in logtext2
         assert "0 of 3 segment(s) successfully processed" in logtext2
         assert not mock_click_confirm.called
         # assert two rows are equal:
@@ -246,7 +246,7 @@ def main2(segment, config):""")
         logtext3 = self.logfilecontent
         assert "4 segment(s) found to process" in logtext3
         assert "Skipping 1 already processed segment(s)" in logtext3
-        assert "Appending results to existing file." in logtext3
+        assert "Appending results to existing file" in logtext3
         assert "1 of 4 segment(s) successfully processed" in logtext3
         assert not mock_click_confirm.called
         # assert two rows are equal:
@@ -263,7 +263,7 @@ def main2(segment, config):""")
         logtext4 = self.logfilecontent
         assert "4 segment(s) found to process" in logtext4
         assert "Skipping 1 already processed segment(s)" not in logtext4
-        assert "Appending results to existing file." not in logtext4
+        assert "Appending results to existing file" not in logtext4
         assert "1 of 4 segment(s) successfully processed" in logtext4
         assert 'Overwriting existing output file' in logtext4
         assert mock_click_confirm.called

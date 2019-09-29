@@ -144,24 +144,32 @@ def fetch_segments_ids(session, config, writer):
     # (i.e., after the line below we do not need to issue session.expunge_all()
     qry = query4process(session, config.get('segment_select', {}))
 
-    skip_ids = []
+    skip_already_processed = False
     if writer.append:
         if not writer.outputfileexists:
             logger.info('Ignoring `append` functionality: output file does not exist '
                         'or not provided')
         else:
-            logger.info('Appending results to existing file. Scanning output file for '
-                        'already processed segments (please wait)')
-            skip_ids = writer.already_processed_segments(aslist=True)
+            logger.info('Appending results to existing file')
+            skip_already_processed = True
     elif writer.outputfileexists:
         logger.info('Overwriting existing output file')
 
-    if skip_ids:
-        logger.info("Skipping %d already processed segment(s)", len(skip_ids))
-        qry = qry.filter(~Segment.id.in_(skip_ids))
-
     logger.info("Querying the database for segments to process (please wait)")
     seg_ids = np.array(qry.all(), dtype=int).flatten()
+    if skip_already_processed:
+        # it might be more elegant to issue a query with a NOT IS IN ...
+        # and the already processed ids. But for large files, the query might be huge
+        # not necessarily faster (we need to build a string from a huge numpy array)
+        # but more importantly the database might simply not support such a long query string,
+        # and raise Exceptions.
+        # It is therefore way more efficient to do it in numpy. The drawback is that
+        # we will query more segments than needed and we might waste time in the query above
+        # but this is outweighted by the efficiency here
+        skip_ids = writer.already_processed_segments()
+        logger.info("Skipping %d already processed segment(s) (please wait)", len(skip_ids))
+        seg_ids = np.copy(seg_ids[np.isin(seg_ids, skip_ids, assume_unique=True, invert=True)])
+
     # we flatten the array because the qry.all() returns 1element tuples,
     # so we want to convert e.g. [[1], [5], [6]] to [1, 5, 6]
     seg_len = len(seg_ids)
