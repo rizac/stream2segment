@@ -101,7 +101,7 @@ class Test(object):
     # use db4process(with_inventory, with_data, with_gap) to return sqlalchemy query for
     # those segments in case. For info see db4process in conftest.py
     @patch('stream2segment.process.db.get_inventory', side_effect=get_inventory)
-    def test_segwrapper(self, mock_getinv,
+    def tst_segwrapper(self, mock_getinv,
                         # fixtures:
                         db4process, data):
         session = db4process.session

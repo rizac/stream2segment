@@ -36,7 +36,7 @@ from sqlalchemy import func
 from stream2segment.io.db.sqlevalexpr import exprquery
 from stream2segment.utils import get_progressbar, StringIO
 from stream2segment.process.db import get_session, configure_classes
-from stream2segment.io.db.models import Segment, Station, Event, Channel
+from stream2segment.io.db.models import Segment, Station, Event, Channel, DataCenter
 from stream2segment.utils.inputargs import load_pyfunc
 
 
@@ -66,7 +66,8 @@ def run(session, pyfunc, writer, config=None, show_progress=False):
         config = {}
     done_skipped_errors = [0, 0, 0]
 
-    seg_sta_ids, seg_len = fetch_segments_stations_ids(session, config, writer)
+    seg_ids = fetch_segments_ids(session, config, writer)
+    seg_len = len(seg_ids)
     # get total segment length (in numpy it is equivalent to len(seg_sta_ids)):
     chunksize, multi_process, num_processes = \
         get_advanced_settings(config, seg_len, show_progress)
@@ -103,10 +104,10 @@ def run(session, pyfunc, writer, config=None, show_progress=False):
                                    redirect_stderr=True,
                                    warnings_filter=None) as pbar:
             if multi_process:
-                process_mp(session, pyfunc, config, get_slices(seg_sta_ids, chunksize), writer,
+                process_mp(session, pyfunc, config, get_slices(seg_ids, chunksize), writer,
                            done_skipped_errors, pbar, num_processes)
             else:
-                process_simple(session, pyfunc, config, get_slices(seg_sta_ids, chunksize),
+                process_simple(session, pyfunc, config, get_slices(seg_ids, chunksize),
                                writer, done_skipped_errors, pbar)
 
     logger.info('')
@@ -120,18 +121,15 @@ def run(session, pyfunc, writer, config=None, show_progress=False):
     logger.info('')
 
 
-def fetch_segments_stations_ids(session, config, writer):
-    '''Returns the tuple seg_sta_ids, seg_len denotingg:
-    seg_sta_ids: the numpy array of Nx2 items, where each item denotes the (segment_id, station_id)
-        to be processed according to `config` and `writer` settings
-    seg_len: the size of seg_sta_ids[0] (basically N above)
+def fetch_segments_ids(session, config, writer):
+    '''Returns the numpy array of segments ids to process
+
+    :return: the numpy array of integers denoting the ids of the segments to process
+        according to `config` and `writer` settings
     '''
 
     # (Over commenting this function to keep track of all choices done)
-    logger.info("Fetching segments to process, PLEASE WAIT: "
-                "this might be time consuming depending on:")
-    logger.info("  1. The size of the input database")
-    logger.info("  2. The size of the output file (If writing in 'append' mode)")
+    logger.info("Fetching segments to process")
 
     # the query is always loaded in memory, see:
     # https://stackoverflow.com/questions/11769366/why-is-sqlalchemy-insert-with-sqlite-25-times-slower-than-using-sqlite3-directly/11769768#11769768
@@ -153,7 +151,7 @@ def fetch_segments_stations_ids(session, config, writer):
                         'or not provided')
         else:
             logger.info('Appending results to existing file. Scanning output file for '
-                        'already processed segments')
+                        'already processed segments (please wait)')
             skip_ids = writer.already_processed_segments(aslist=True)
     elif writer.outputfileexists:
         logger.info('Overwriting existing output file')
@@ -162,12 +160,14 @@ def fetch_segments_stations_ids(session, config, writer):
         logger.info("Skipping %d already processed segment(s)", len(skip_ids))
         qry = qry.filter(~Segment.id.in_(skip_ids))
 
-    logger.info("Querying the database for segments to process")
-    seg_sta_ids = np.array(qry.all(), dtype=int)
-    seg_len = seg_sta_ids.shape[0]
+    logger.info("Querying the database for segments to process (please wait)")
+    seg_ids = np.array(qry.all(), dtype=int).flatten()
+    # we flatten the array because the qry.all() returns 1element tuples,
+    # so we want to convert e.g. [[1], [5], [6]] to [1, 5, 6]
+    seg_len = len(seg_ids)
     logger.info("%d segment(s) found to process", seg_len)
     logger.info('')
-    return seg_sta_ids, seg_len
+    return seg_ids
 
 
 def get_advanced_settings(config, segments_count, show_progress):
@@ -203,11 +203,11 @@ def _get_chunksize_defaults():
     return 1200, 10
 
 
-def process_mp(session, pyfunc, config, seg_sta_chunks, writer, done_skipped_errors, pbar,
+def process_mp(session, pyfunc, config, seg_ids_chunks, writer, done_skipped_errors, pbar,
                num_processes):
     '''Executes `pyfunc` using the multiprocessing Python module
 
-    :param seg_sta_chunks: iterable yielding Nx2 numpy arrays of (segment_id, station_id) rows
+    :param seg_ids_chunks: iterable yielding numpy arrays of segment ids
     :param done_skipped_errors: list of three int elements denoting segments done, skipped, and
         discarded (due to errors), respectively
     '''
@@ -229,8 +229,8 @@ def process_mp(session, pyfunc, config, seg_sta_chunks, writer, done_skipped_err
     try:
         for results in \
                 pool.imap_unordered(process_segments_mp,
-                                    ((seg_sta_chunk, dburl, config, pyfile, pyfunc.__name__)
-                                     for seg_sta_chunk in seg_sta_chunks)):
+                                    ((seg_ids_chunk, dburl, config, pyfile, pyfunc.__name__)
+                                     for seg_ids_chunk in seg_ids_chunks)):
             for output, is_ok, segment_id in results:
                 process_output(output, is_ok, segment_id, writer, done_skipped_errors)
             pbar.update(len(results))
@@ -252,41 +252,19 @@ def _mp_initializer():
     signal.signal(signal.SIGINT, signal.SIG_IGN)
 
 
-def process_simple(session, pyfunc, config, seg_sta_chunks, writer, done_skipped_errors, pbar):
+def process_simple(session, pyfunc, config, seg_ids_chunks, writer, done_skipped_errors, pbar):
     '''Executes `pyfunc` in a single system process
 
-    :param seg_sta_chunks: iterable yielding Nx2 numpy arrays of (segment_id, station_id) rows
+    :param seg_ids_chunks: iterable yielding numpy arrays of segment ids
     :param done_skipped_errors: list of three int elements denoting segments done, skipped, and
         discarded (due to errors), respectively
     '''
-    sta_query = session.query(Station)  # for getting station (cache)
-    inventory = None  # currently processed inv. (Inventory object, Exception or None)
-    station_id = None  # currently processed station id (integer)
-
-    # load all segments at once. The number 1200 seems to be a reasonable choice
-    for seg_sta_chunk in seg_sta_chunks:
-        # clear identity map, i.e. the cache-like sqlalchemy object, to free memory (do
-        # it before querying otherwise all queried stuff is detached from the session):
-        # 1. First keep the current station, if any, as relationships like
-        # segment.station might use the cached value and we avoid re-loading data:
-        # http://docs.sqlalchemy.org/en/latest/orm/query.html#sqlalchemy.orm.query.Query.yield_per
-        station = sta_query.get(int(station_id)) \
-            if inventory is not None and station_id == seg_sta_chunk[0, 1] else None
-        # now clear session identity map (sort of cache)
-        session.expunge_all()
-        # re-assign station to the identity map, if any (not None):
-        if station is not None:
-            # Note1: session.merge but it's useless as we don't have other instances:
-            # http://docs.sqlalchemy.org/en/latest/orm/session_state_management.html#merging
-            # Note2: By adding a station, also related objects are added
-            # (e.g., station's datacenter)
-            # The instance should be persistent after adding it, for info see:
-            # http://docs.sqlalchemy.org/en/latest/orm/session_state_management.html
-            session.add(station)
-
-        for output, is_ok, segment_id, station_id, inventory in \
-                process_segments(session, seg_sta_chunk, config, pyfunc, station_id,
-                                 inventory):
+    segment = None  # currently processed segment id (will be used later)
+    # now clear session identity map (sort of cache) freeing memory:
+    session.expunge_all()
+    for seg_ids_chunk in seg_ids_chunks:
+        for output, is_ok, segment in \
+                process_segments(session, seg_ids_chunk, config, pyfunc):
             # `process_segment` uses internally an inventory cache mechanism, i.e.
             # it avoids loading an inventory again, if we have it already calculated.
             # (this is why, to make the mechanism easier, we query to the db segments
@@ -295,33 +273,58 @@ def process_simple(session, pyfunc, config, seg_sta_chunks, writer, done_skipped
             # `process_segment` yields also station_id and inventory with the only
             # purpose to perform the same inventory cache mechanism also on the first
             # segment of the next `seg_sta_chunk` loop (see above)
-            process_output(output, is_ok, segment_id, writer, done_skipped_errors)
-        pbar.update(int(seg_sta_chunk.shape[0]))
+            process_output(output, is_ok, segment.id, writer, done_skipped_errors)
+        _clear_session(session, segment)
+        pbar.update(len(seg_ids_chunk.shape))
+
+
+def _clear_session(session, segment=None):
+    '''Clears the session and re-assigns `segment` to it
+
+    :param segment: A Segment object denoting the last processed segment, or None
+    '''
+    if segment is None:
+        return
+
+    # now clear session identity map (sort of cache), freeing memory:
+    session.expunge_all()
+
+    # re-assign the segment. This will add also to session.identity_map
+    # all the segment's already loaded related objects (e.g., Station, with
+    # relative inventory). This will not garbage collect these objects (keeping
+    # thm in memory) but it means that if in the next loop we work
+    # with segments of the same station/event and so on (which might happen because
+    # segments are sorted by station id and event id, see `query4process'), accessing
+    # those objects (e.g. Segment.inventory()) is faster because no database query
+    # is issued. For info see:
+    # https://docs.sqlalchemy.org/en/13/orm/query.html#sqlalchemy.orm.query.Query.get
+    # Note: session.merge it's useless as we don't have other instances in the identity map:
+    # http://docs.sqlalchemy.org/en/latest/orm/session_state_management.html#merging
+    session.add(segment)
 
 
 def process_segments_mp(args):
     '''Function to be used INSIDE A CHILD python-process to process a chunk of segments
-        Takes care of releasing db session and other stuff.
+    Takes care of releasing db session and other stuff.
 
-        :param args: the tuple (seg_sta_chunk, dburl, config, pyfile, funcname)
-        where seg_sta_chunk is a Nx2 numpy array of (segment_id, station_id) rows,
-        dburl is the database url (string), config is the config dict, pyfile is the
-        path to the processing module (string) and funcname is the processing function name
-        to be called
+    :param args: the tuple (seg_ids_chunk, dburl, config, pyfile, funcname)
+        where seg_ids_chunk is a numpy array of segment ids, dburl is the database
+        url (string), config is the config dict, pyfile is the path to the processing
+        module (string) and funcname is the processing function name to be called
 
-        :return: a list of (output, is_ok, segment_id) tuples, where output is the
-        output of the processing funcion name (either iterable or Exception), is_ok (boolean)
-        tells if `output` is NOT an Exception, and segment_id is the id of the segment processed
+    :return: a list of (output, is_ok, segment_id) tuples, where output is the
+    output of the processing funcion name (either iterable or Exception), is_ok (boolean)
+    tells if `output` is NOT an Exception, and segment_id is the id of the segment processed
     '''
-    seg_sta_chunk, dburl, config, pyfile, funcname = args
+    seg_ids_chunk, dburl, config, pyfile, funcname = args
     pyfunc = load_pyfunc(pyfile, funcname)
     session = get_session(dburl)
     ret = []
 
     with create_processing_env(0, redirect_stderr=False, warnings_filter='ignore'):
         try:
-            for output, is_ok, segment_id, station_id, inventory in \
-                        process_segments(session, seg_sta_chunk, config, pyfunc):
+            for output, is_ok, segment in \
+                        process_segments(session, seg_ids_chunk, config, pyfunc):
                 # `process_segment` uses internally an inventory cache mechanism, i.e.
                 # it avoids loading an inventory again, if we have it already calculated.
                 # (this is why, to make the mechanism easier, we query to the db segments in a
@@ -330,14 +333,14 @@ def process_segments_mp(args):
                 # here: they are used only when `process_segments` is called inside an outer loop,
                 # to perform the same inventory cache mechanism also on the first segment of the
                 # next loop
-                ret.append((output, is_ok, segment_id))
+                ret.append((output, is_ok, segment.id))
             return ret
         finally:
             session.close()
             session.bind.engine.dispose()
 
 
-def process_segments(session, seg_sta_chunk, config, pyfunc, station_id=None, inventory=None):
+def process_segments(session, seg_ids_chunk, config, pyfunc):
     '''Function that proceses a chunk of segments and yield the resulted output.
     Yields a list of (output, is_ok, segment_id, station_id, inventory) tuples, where output is the
     output of the processing funcion name (either iterable or Exception), is_ok (boolean)
@@ -347,27 +350,19 @@ def process_segments(session, seg_sta_chunk, config, pyfunc, station_id=None, in
     operation of reading the inventory raised.
 
     :param session: the db session (sql-alcheemy session)
-    :param seg_sta_chunk: a Nx2 numpy array of (segment_id, station_id) rows,
+    :param seg_ids_chunk: a numpy array of segment ids
     :param config: the config dict
     :param pyfunc: a python function to be invoked on each segment
-    :param station_id: the station id of the previously calculated segment, if this
-    function is called in a loop on the same process. Otherwise ignore (pass None)
-    :param inventory: the station inventory of the previously calculated segment,
+
     if this function is called in a loop on the same python process. Otherwise ignore (pass None)
     '''
     # To make the query with "in" operator return segments in the same order
     # (station id, then event id etceters) use joinandorder:
     segments = joinandorder(session.query(Segment)).\
-        filter(Segment.id.in_(seg_sta_chunk[:, 0].tolist()))
-    station_ids = seg_sta_chunk[:, 1]  # numpy note: does not allocate new memory
-    for segment, sta_id in zip(segments, station_ids):
-        if station_id == sta_id:  # set cached inventory object (might be None)
-            segment._inventory = inventory  # pylint: disable=protected-access
+        filter(Segment.id.in_(seg_ids_chunk.tolist()))
+    for segment in segments:
         output, is_ok = process_segment(segment, config, pyfunc)
-        # set cached inventory using private-like field:
-        inventory = getattr(segment, "_inventory", None)
-        station_id = sta_id
-        yield output, is_ok, segment.id, station_id, inventory
+        yield output, is_ok, segment
 
 
 def process_segment(segment, config, pyfunc):
@@ -416,7 +411,7 @@ def query4process(session, conditions=None):
     :return: a query yielding the tuples: ```(Segment.id, Segment.station.id)```
     '''
     # Note: without the join below, rows would be duplicated
-    qry = joinandorder(session.query(Segment.id, Station.id))
+    qry = joinandorder(session.query(Segment.id))
     # Now parse selection:
     if conditions:
         # parse user defined conditions (as dict of key:value <=> "column": "expr")
@@ -427,7 +422,7 @@ def query4process(session, conditions=None):
 def joinandorder(query):
     '''Given an already built query for processing, adds joins and order_by to the
     query in order to return segments ordered by stationid, then event, and then
-    channel's location and channel's channel. This assures that if `query` had returned
+    channel's location and channel's channel.
 
     :param query: an sql-alchemy query object
     :return: a new query identical to the passed `auery` argument with joined table and
