@@ -268,8 +268,8 @@ def process_simple(session, pyfunc, config, seg_ids_chunks, writer, done_skipped
         discarded (due to errors), respectively
     '''
     segment = None  # currently processed segment id (will be used later)
-    # now clear session identity map (sort of cache) freeing memory:
-    session.expunge_all()
+    _clear_session(session)
+
     for seg_ids_chunk in seg_ids_chunks:
         for output, is_ok, segment in \
                 process_segments(session, seg_ids_chunk, config, pyfunc):
@@ -282,6 +282,7 @@ def process_simple(session, pyfunc, config, seg_ids_chunks, writer, done_skipped
             # purpose to perform the same inventory cache mechanism also on the first
             # segment of the next `seg_sta_chunk` loop (see above)
             process_output(output, is_ok, segment.id, writer, done_skipped_errors)
+
         _clear_session(session, segment)
         pbar.update(len(seg_ids_chunk.shape))
 
@@ -291,11 +292,11 @@ def _clear_session(session, segment=None):
 
     :param segment: A Segment object denoting the last processed segment, or None
     '''
+    # clear session identity map (sort of cache), freeing memory:
+    session.expunge_all()
+
     if segment is None:
         return
-
-    # now clear session identity map (sort of cache), freeing memory:
-    session.expunge_all()
 
     # re-assign the segment. This will add also to session.identity_map
     # all the segment's already loaded related objects (e.g., Station, with
