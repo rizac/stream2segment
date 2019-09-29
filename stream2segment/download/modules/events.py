@@ -1,5 +1,5 @@
 '''
-Download module forevents download
+Events download module
 
 :date: Dec 3, 2017
 
