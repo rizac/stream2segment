@@ -22,7 +22,7 @@ from stream2segment.io.db.models import Segment
 from stream2segment.utils.resources import get_templates_fpath
 from stream2segment.process.main import run as process_main_run
 from stream2segment.utils.log import configlog4processing as o_configlog4processing
-from stream2segment.process.writers import BaseWriter
+from stream2segment.process.writers import BaseWriter, SEGMENT_ID_COLNAME
 
 
 @pytest.fixture
@@ -151,6 +151,7 @@ class Test(object):
     # station_inventory in [true, false] and segment.data in [ok, with_gaps, empty]
     # use db4process(with_inventory, with_data, with_gap) to return sqlalchemy query for
     # those segments in case. For info see db4process in conftest.py
+    @pytest.mark.parametrize('hdf', [True, False])
     @pytest.mark.parametrize('return_list', [True, False])
     @pytest.mark.parametrize("advanced_settings, cmdline_opts",
                              [({}, ['-a']),
@@ -158,10 +159,14 @@ class Test(object):
                               ])
     @mock.patch('stream2segment.cli.click.confirm', return_value=True)
     def test_append(self, mock_click_confirm, advanced_settings, cmdline_opts,
-                    return_list,
+                    return_list, hdf,
                     # fixtures:
                     pytestdir, db4process, clirunner, yamlfile):
         '''test a typical case where we supply the append option'''
+        if return_list and hdf:
+            # hdf does not support returning lists
+            return
+
         # set values which will override the yaml config in templates folder:
         config_overrides = {'snr_threshold': 0,
                             'segment_select': {'has_data': 'true'}}
@@ -175,7 +180,7 @@ class Test(object):
 
         session = db4process.session
 
-        filename = pytestdir.newfile('.csv')
+        filename = pytestdir.newfile('.hdf' if hdf else '.csv')
 
         pyfile = self.pyfile
         if return_list:
@@ -197,10 +202,14 @@ def main2(segment, config):""")
                                   + cmdline_opts)
         assert clirunner.ok(result)
 
+        def read_hdf(filename):
+            return pd.read_hdf(filename).reset_index(drop=True, inplace=False)
+
         # check file has been correctly written:
-        csv1 = readcsv(filename, header=not return_list)
+        csv1 = read_hdf(filename) if hdf else readcsv(filename, header=not return_list)
         assert len(csv1) == 1
-        assert csv1.loc[0, csv1.columns[0]] == expected_first_row_seg_id
+        segid_column = SEGMENT_ID_COLNAME if hdf else csv1.columns[0]
+        assert csv1.loc[0, segid_column] == expected_first_row_seg_id
         logtext1 = self.logfilecontent
         assert "4 segment(s) found to process" in logtext1
         assert "Skipping 1 already processed segment(s)" not in logtext1
@@ -215,9 +224,10 @@ def main2(segment, config):""")
                                         '-p', pyfile, '-c', yaml_file, filename]
                                   + cmdline_opts)
         # check file has been correctly written:
-        csv2 = readcsv(filename, header=not return_list)
+        csv2 = read_hdf(filename) if hdf else readcsv(filename, header=not return_list)
         assert len(csv2) == 1
-        assert csv2.loc[0, csv1.columns[0]] == expected_first_row_seg_id
+        segid_column = SEGMENT_ID_COLNAME if hdf else csv1.columns[0]
+        assert csv2.loc[0, segid_column] == expected_first_row_seg_id
         logtext2 = self.logfilecontent
         assert "3 segment(s) found to process" in logtext2
         assert "Skipping 1 already processed segment(s)" in logtext2
@@ -239,10 +249,11 @@ def main2(segment, config):""")
         result = clirunner.invoke(cli, ['process', '--dburl', db4process.dburl, '-p', pyfile,
                                         '-c', yaml_file, filename] + cmdline_opts)
         # check file has been correctly written:
-        csv3 = readcsv(filename, header=not return_list)
+        csv3 = read_hdf(filename) if hdf else readcsv(filename, header=not return_list)
         assert len(csv3) == 2
-        assert csv3.loc[0, csv1.columns[0]] == expected_first_row_seg_id
-        assert csv3.loc[1, csv1.columns[0]] == new_seg_id
+        segid_column = SEGMENT_ID_COLNAME if hdf else csv1.columns[0]
+        assert csv3.loc[0, segid_column] == expected_first_row_seg_id
+        assert csv3.loc[1, segid_column] == new_seg_id
         logtext3 = self.logfilecontent
         assert "4 segment(s) found to process" in logtext3
         assert "Skipping 1 already processed segment(s)" in logtext3
@@ -257,9 +268,10 @@ def main2(segment, config):""")
         result = clirunner.invoke(cli, ['process', '--dburl', db4process.dburl, '-p', pyfile,
                                         '-c', yaml_file, filename] + cmdline_opts[1:])
         # check file has been correctly written:
-        csv4 = readcsv(filename, header=not return_list)
+        csv4 = read_hdf(filename) if hdf else readcsv(filename, header=not return_list)
         assert len(csv4) == 1
-        assert csv4.loc[0, csv1.columns[0]] == new_seg_id
+        segid_column = SEGMENT_ID_COLNAME if hdf else csv1.columns[0]
+        assert csv4.loc[0, segid_column] == new_seg_id
         logtext4 = self.logfilecontent
         assert "4 segment(s) found to process" in logtext4
         assert "Skipping 1 already processed segment(s)" not in logtext4
