@@ -101,7 +101,7 @@ class Test(object):
     # use db4process(with_inventory, with_data, with_gap) to return sqlalchemy query for
     # those segments in case. For info see db4process in conftest.py
     @patch('stream2segment.process.db.get_inventory', side_effect=get_inventory)
-    def tst_segwrapper(self, mock_getinv,
+    def test_segwrapper(self, mock_getinv,
                         # fixtures:
                         db4process, data):
         session = db4process.session
@@ -111,12 +111,13 @@ class Test(object):
         sta_with_inv_id = seg_with_inv.station.id
         invcache = {}
         prev_staid = None
-        for (segid, staid) in segids:
+        for segid in [_[0] for _ in segids]:
+            segment = session.query(Segment).filter(Segment.id == segid).first()
+            sta = segment.station
+            staid = sta.id
             assert prev_staid is None or staid >= prev_staid
             staequal = prev_staid is not None and staid == prev_staid
             prev_staid = staid
-            segment = session.query(Segment).filter(Segment.id == segid).first()
-            sta = segment.station
             segment.station._inventory = invcache.get(sta.id, None)
 
             mock_getinv.reset_mock()
@@ -168,8 +169,9 @@ class Test(object):
         # start testing:
         segids = query4process(session, {}).all()
 
-        for (segid, staid) in segids:
+        for segid in [_[0] for _ in segids]:
             segment = session.query(Segment).filter(Segment.id == segid).first()
+            # staid = segment.station.id
             segs = segment.siblings()
             if segs.all():
                 assert segment.id in (sg1.id, sg2.id, sg3.id)
