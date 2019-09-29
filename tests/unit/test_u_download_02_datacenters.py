@@ -30,7 +30,8 @@ import pandas as pd
 import pytest
 
 from stream2segment.io.db.models import DataCenter, Download
-from stream2segment.download.modules.datacenters import get_datacenters_df
+from stream2segment.download.modules.datacenters import get_datacenters_df,\
+    _get_local_routing_service
 from stream2segment.download.utils import FailedDownload
 from stream2segment.utils.url import URLError, HTTPError, responses
 from stream2segment.utils.resources import get_templates_fpath, yaml_load
@@ -431,7 +432,10 @@ UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
         assert self.mock_urlopen.called
         assert mock_fileopen.called
         msg = self.log_msg()
-        assert "Eida routing service error, reading routes from file (last updated: " in msg
+        _, last_mod_time = _get_local_routing_service()
+        expected_str = ("Eida routing service error, reading routes from file "
+                        "(last updated: %s") % last_mod_time
+        assert expected_str in msg
         assert eidavalidator is not None
         assert db.session.query(DataCenter).\
             filter(DataCenter.organization_name == 'eida').count() == 10

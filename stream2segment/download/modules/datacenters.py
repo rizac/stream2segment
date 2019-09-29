@@ -11,17 +11,15 @@ from builtins import map, next, zip, range, object
 
 import os
 from datetime import datetime, timedelta
-import logging
 import re
 
 from collections import defaultdict
 import pandas as pd
 
 from stream2segment.io.db.models import DataCenter, Fdsnws
-from stream2segment.download.utils import FailedDownload, dbsyncdf, to_fdsn_arg, formatmsg
+from stream2segment.download.utils import FailedDownload, dbsyncdf, formatmsg
 from stream2segment.utils import strconvert, urljoin, strptime
-from stream2segment.utils.url import URLException, urlread, urlparse
-from stream2segment.io.db.pdsql import dbquery2df
+from stream2segment.utils.url import URLException, urlread
 
 
 # logger: do not use logging.getLogger(__name__) but point to stream2segment.download.logger:
@@ -111,17 +109,32 @@ def get_eidars_response_text(routing_service_url):
         if not responsetext:
             raise URLException(Exception("Empty data response"))  # fall below
     except URLException as urlexc:
-        fpath = get_resources_fpath('eidars.txt')
-        lastmod_dtime = datetime(1970, 1, 1) + timedelta(seconds=os.path.getmtime(fpath))
+        responsetext, last_mod_time_str = _get_local_routing_service()
         msg = ("Eida routing service error, reading routes from file "
-               "(last updated: %s)" % lastmod_dtime.strftime('%Y-%m-%d'))
+               "(last updated: %s)" % last_mod_time_str)
         logger.info(formatmsg(msg, "eida routing service error"))
         logger.warning(formatmsg("Eida routing service error", urlexc.exc, url))
-        # read from file
-        with open(fpath, 'r') as opn_:
-            responsetext = opn_.read()
 
     return responsetext
+
+
+def _get_local_routing_service():
+    '''Reads the routing service from local file where we stored a successful response
+    from the eida routing service (format=post), returns the file content and last modified
+    time (in string format)
+
+    :return: the tuple of strings:
+        (content, last_modified)
+        where content is the file content which is a string in the same format
+        expected from a successful server response, and last_modified is the local
+        file last modification time
+    '''
+    fpath = get_resources_fpath('eidars.txt')
+    lastmod_dtime = datetime(1970, 1, 1) + timedelta(seconds=os.path.getmtime(fpath))
+    # read from file
+    with open(fpath, 'r') as opn_:
+        responsetext = opn_.read()
+    return responsetext, lastmod_dtime.strftime('%Y-%m-%d')
 
 
 def get_eida_datacenters_df(responsetext):
