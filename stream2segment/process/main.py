@@ -128,8 +128,7 @@ def fetch_segments_ids(session, config, writer):
         according to `config` and `writer` settings
     '''
 
-    # (Over commenting this function to keep track of all choices done)
-    logger.info("Fetching segments to process")
+    # (Over commenting this module to keep track of all choices done)
 
     # the query is always loaded in memory, see:
     # https://stackoverflow.com/questions/11769366/why-is-sqlalchemy-insert-with-sqlite-25-times-slower-than-using-sqlite3-directly/11769768#11769768
@@ -155,8 +154,11 @@ def fetch_segments_ids(session, config, writer):
     elif writer.outputfileexists:
         logger.info('Overwriting existing output file')
 
-    logger.info("Querying the database for segments to process (please wait)")
+    logger.info("Fetching segments to process (please wait)")
     seg_ids = np.array(qry.all(), dtype=int).flatten()
+    # we flatten the array because the qry.all() returns 1element tuples,
+    # so we want to convert e.g. [[1], [5], [6]] to [1, 5, 6]
+
     if skip_already_processed:
         # it might be more elegant to issue a query with a NOT IS IN ...
         # and the already processed ids. But for large files, the query might be huge
@@ -166,14 +168,12 @@ def fetch_segments_ids(session, config, writer):
         # It is therefore way more efficient to do it in numpy. The drawback is that
         # we will query more segments than needed and we might waste time in the query above
         # but this is outweighted by the efficiency here
+        logger.info("Fetching already processed segment(s) (please wait)")
         skip_ids = writer.already_processed_segments()
-        logger.info("Skipping %d already processed segment(s) (please wait)", len(skip_ids))
+        logger.info("Skipping %d already processed segment(s)", len(skip_ids))
         seg_ids = np.copy(seg_ids[np.isin(seg_ids, skip_ids, assume_unique=True, invert=True)])
 
-    # we flatten the array because the qry.all() returns 1element tuples,
-    # so we want to convert e.g. [[1], [5], [6]] to [1, 5, 6]
-    seg_len = len(seg_ids)
-    logger.info("%d segment(s) found to process", seg_len)
+    logger.info("%d segment(s) found to process", len(seg_ids))
     logger.info('')
     return seg_ids
 
