@@ -22,21 +22,36 @@ from sqlalchemy.orm.collections import InstrumentedList, InstrumentedSet,\
     InstrumentedDict
 
 
-def exprquery(sa_query, conditions, orderby=None, distinct=None):
+def exprquery(sa_query, conditions, orderby=None):
     """
-    Enhance the given sql-alchemy query `sa_query` with conditions
-    and ordering given in form of (string) expression, returning a new sql alchemy query.
-    Columns (and relationships, if any) are extracted from the string keys of `conditions`
-    by detecting the reference model class from `sa_query` first column
-    (`sa_query.column_descriptions[0]`): thus **pay attention to the argument order of sa_query**.
-    Consqeuently, joins are automatically added inside this method, if needed (if a join is
-    already present, in `sa_query` and should be required by any of `conditions`, it won't be
-    added twice)
+    Enhances the given sql-alchemy query `sa_query` with conditions
+    and ordering given in form of **string** expression, returning a new sql alchemy query.
+
+    This method first infers the reference Model from **the first entity passed** in
+    `sa_query` (thus **pay attention to the arguments order when you build sa_query**).
+    These for example all consider the class 'Parent' as reference model:
+    ```
+        session.query(Parent)
+        session.query(Parent, Child)
+        session.query(count(distinct(Parent)))
+
+    ```
+    Then columns (and relationships, if any) are extracted from `conditions`,
+    which is a dict of string keys representing columns or relationships relative to the
+    **reference model**, and mapped to a string expression. E.g.:
+    ```
+    {
+        'id' : '<6',
+        'child.age': '>8'
+    }
+    ```
+    The order by condition is then applied, if present.
+
     The returned query is a valid sql-alchemy query and can be further manipulated
     **in most cases**: a case when it's not possible is when issuing a `group_by` in `postgres`
     (for info, see
     http://stackoverflow.com/questions/18061285/postgresql-must-appear-in-the-group-by-clause-or-be-used-in-an-aggregate-functi).
-    In these cases a normal SqlAlchemy query must be issued
+    In these case a normal SqlAlchemy query must be issued
 
     Example:
     ```
@@ -86,22 +101,22 @@ def exprquery(sa_query, conditions, orderby=None, distinct=None):
     ```
 
     :param sa_query: any sql-alchemy query object
-    :param conditions: a dict of string columns mapped to **strings** expression, e.g.
-    "column2": "[1, 45]" or "column1": "true" (note: string, not the boolean True)
-    A string column is an expression denoting an attribute of the reference model class
-    and can include relationships.
-    Example: if the reference model tablename is 'mymodel', then a string column 'name'
-    will refer to 'mymodel.name', 'name.id' denotes on the other hand a relationship 'name'
-    on 'mymodel' and will refer to the 'id' attribute of the table mapped by 'mymodel.name'.
-    The values of the dict on the other hand are string expressions in the form recognized
-    by `binexpr`. E.g. '>=5', '["4", "5"]' ...
-    For each condition mapped to a falsy value (e.g., None or empty string), the condition is
-    discarded. See note [*] below for auto-added joins from columns.
+    :param conditions: a dict of string columns mapped to **string** expression, e.g.
+        "column2": "[1, 45]" or "column1": "true" (note: string, not the boolean True)
+        A string column is an expression denoting an attribute of the reference model class
+        and can include relationships.
+        Example: if the reference model tablename is 'mymodel', then a string column 'name'
+        will refer to 'mymodel.name', 'name.id' denotes on the other hand a relationship 'name'
+        on 'mymodel' and will refer to the 'id' attribute of the table mapped by 'mymodel.name'.
+        The values of the dict on the other hand are string expressions in the form recognized
+        by `binexpr`. E.g. '>=5', '["4", "5"]' ...
+        For each condition mapped to a falsy value (e.g., None or empty string), the condition is
+        discarded. See note [*] below for auto-added joins from columns.
     :param orderby: a list of string columns (same format
-    as `conditions` keys), or a list of tuples where the first element is
-    a string column, and the second is either "asc" (ascending) or "desc" (descending). In the
-    first case, the order is "asc" by default. See note [*] below for auto-added joins from
-    orderby columns.
+        as `conditions` keys), or a list of tuples where the first element is
+        a string column, and the second is either "asc" (ascending) or "desc" (descending). In the
+        first case, the order is "asc" by default. See note [*] below for auto-added joins from
+        orderby columns.
 
     :return: a new sel-alchemy query including the given conditions and ordering
 
@@ -154,8 +169,6 @@ def exprquery(sa_query, conditions, orderby=None, distinct=None):
         sa_query = sa_query.filter(and_(*parsed_conditions))
     if orders:
         sa_query = sa_query.order_by(*orders)
-    if distinct is True:
-        sa_query = sa_query.distinct()
     return sa_query
 
 

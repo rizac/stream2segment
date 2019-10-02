@@ -240,5 +240,5 @@ def classmeth_siblings(self, parent=None, conditions=None):
     '''
     sblngs = self.get_siblings(parent, colname=None)  # returns a Segment object
     if conditions:
-        sblngs = exprquery(sblngs, conditions, orderby=None, distinct=True)
+        sblngs = exprquery(sblngs, conditions, orderby=None)
     return sblngs

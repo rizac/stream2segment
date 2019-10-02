@@ -424,7 +424,7 @@ def query4process(session, conditions=None):
     # Now parse selection:
     if conditions:
         # parse user defined conditions (as dict of key:value <=> "column": "expr")
-        qry = exprquery(qry, conditions=conditions, orderby=None, distinct=True)
+        qry = exprquery(qry, conditions=conditions, orderby=None)
     return qry
 
 
