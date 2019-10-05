@@ -530,7 +530,7 @@ class Station(Base):
     def netsta_code(cls):  # pylint:disable=no-self-argument
         '''returns the station code, i.e. self.network + '.' + self.station'''
         dot = text("'.'")
-        return select([concat(Station.network, dot, Station.station)]).\
+        return concat(Station.network, dot, Station.station).\
             label('networkstationcode')
 
     __table_args__ = (UniqueConstraint('network', 'station', 'start_time',
