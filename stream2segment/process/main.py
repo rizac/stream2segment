@@ -284,7 +284,7 @@ def process_simple(session, pyfunc, config, seg_ids_chunks, writer, done_skipped
             process_output(output, is_ok, segment.id, writer, done_skipped_errors)
 
         _clear_session(session, segment)
-        pbar.update(len(seg_ids_chunk.shape))
+        pbar.update(len(seg_ids_chunk))
 
 
 def _clear_session(session, segment=None):
@@ -301,8 +301,8 @@ def _clear_session(session, segment=None):
     # re-assign the segment. This will add also to session.identity_map
     # all the segment's already loaded related objects (e.g., Station, with
     # relative inventory). This will not garbage collect these objects (keeping
-    # thm in memory) but it means that if in the next loop we work
-    # with segments of the same station/event and so on (which might happen because
+    # them in memory) but if in the next loop we work
+    # with segments sharing the related objects (which might happen because
     # segments are sorted by station id and event id, see `query4process'), accessing
     # those objects (e.g. Segment.inventory()) is faster because no database query
     # is issued. For info see:

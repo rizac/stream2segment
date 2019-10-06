@@ -15,9 +15,10 @@ from obspy.core.utcdatetime import UTCDateTime
 from obspy.core.stream import _read
 # from sqlalchemy import event
 
-from stream2segment.io.utils import loads_inv, dumps_inv
+from stream2segment.io.utils import loads_inv
 from stream2segment.utils import _get_session
-from stream2segment.io.db.models import Segment, Station, Base, object_session, Class
+from stream2segment.io.db.models import (Segment, Station, Base, object_session,
+                                         Class, Event, Channel, DataCenter)
 from stream2segment.io.db.sqlevalexpr import exprquery
 from stream2segment.process.math.traces import cumsumsq, timeswhere
 
@@ -187,8 +188,6 @@ def classmeth_sn_windows(self, win_length, atime_shift=0):
     :return the tuple (start, end), (start, end) where all arguments are `UTCDateTime`s
         and the first tuple refers to the noisy window, the latter to the signal window
     '''
-    # Use inputargs utilities to raise pre-formatted exception messages from our
-    # validation callbacks:
     s_windows = parse_sn_windows(win_length)
     stream_ = self.stream()
 
@@ -203,7 +202,7 @@ def classmeth_sn_windows(self, win_length, atime_shift=0):
     if hasattr(s_windows, '__len__'):
         cum0, cum1 = s_windows
         trim_trace = stream_[0].copy().trim(starttime=a_time)
-        times = timeswhere(cumsumsq(trim_trace, normalize=True), cum0, cum1)
+        times = timeswhere(cumsumsq(trim_trace, copy=False, normalize=True), cum0, cum1)
         nsy, sig = (a_time - (times[1]-times[0]), a_time), (times[0], times[1])
     else:
         nsy, sig = (a_time-s_windows, a_time), (a_time, a_time+s_windows)
