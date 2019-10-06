@@ -392,8 +392,7 @@ any Exception raised will be handled this way:
     `raise ValueError("segment sample rate too low")`
   (thus, do not issue `print` statements for debugging as it's useless, and a bad practice overall)
 
-Conventions and suggestions
----------------------------
+Conventions and suggestions:
 
 This module is designed to encourage the decoupling of code and configuration, so that you can
 easily and safely experiment different configurations on the same code of the same Python module,
