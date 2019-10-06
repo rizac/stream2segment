@@ -6,7 +6,7 @@ can be injected in a template file in the usual way, e.g.:
 For any new variable name to be implemented here in the future, note also that:
 1. the variables
 values are stripped before being assigned to the gobal DOCVARS (the dict passed to to jinja).
-2. By convention, *_PY_* variable names are for python docs, *_YAML_* variable names for yaml docs.
+2. By convention, *_PY_* variable names are for Python docs, *_YAML_* variable names for yaml docs.
 2b. In the latter case, yaml variables values do not need a leading '# ' on the first line,
 as it is usually input in the template file, e.g.:
 # {{ PROCESS_YAML_MAIN }}
@@ -59,22 +59,23 @@ segment.download_code                 int: the code reporting the segment downlo
                                       skipping beforehand segments with malformed data (code -2):
                                       has_data: 'true'
                                       download_code: '!=-2'
-                                      (We omit all other codes because of no interest. For details,
-                                      see Table 2 in https://doi.org/10.1785/0220180314#tb2)
+                                      (All other codes are generally of no interest for the user.
+                                      However, for details see Table 2 in
+                                      https://doi.org/10.1785/0220180314#tb2)
 segment.maxgap_numsamples             float: the maximum gap or overlap found in the waveform data,
                                       in number of points. If 0, the segment has no gaps/overlaps.
                                       Otherwise, if >=1: the segment has gaps, if <=-1: the segment
                                       has overlaps. Values in (-1, 1) are difficult to interpret: a
-                                      rule of thumb is to consider half a point (> 0.5 or <-0.5)
-                                      a gap / overlap.
+                                      rule of thumb is to consider half a point a gap / overlap
+                                      (maxgap_numsamples > 0.5 or maxgap_numsamples < -0.5).
                                       This parameter is useful when selecting segments: e.g.,
                                       to select segments with no gaps/overlaps, then:
                                       maxgap_numsamples: '(-0.5, 0.5)'
 segment.seed_id                       str: the seed identifier in the typical format
-                                      [Network.Station.Location.Channel]. For segments
+                                      [Network].[Station].[Location].[Channel]. For segments
                                       with waveform data, `data_seed_id` (see below) might be
                                       faster to fetch.
-segment.data_seed_id                  str: same as 'segment.seed_id', but faster because it
+segment.data_seed_id                  str: same as 'segment.seed_id', but faster to get because it
                                       reads the value stored in the waveform data. The drawback
                                       is that this value is null for segments with no waveform data
 segment.has_class                     boolean: tells if the segment has (at least one) class
@@ -130,7 +131,7 @@ segment.station.has_inventory         boolean: tells if the segment's station in
                                       data saved (at least one byte of data).
                                       This parameter is useful when selecting segments: e.g.,
                                       to select only segments with inventory downloaded:
-                                      has_inventory: 'true'
+                                      station.has_inventory: 'true'
 segment.station.datacenter            object (same as segment.datacenter, see below)
 ------------------------------------- ------------------------------------------------
 segment.datacenter                    object (attributes below)
@@ -221,7 +222,7 @@ IMPORTANT: Any exception raised by this routine will be logged to file for inspe
     reflecting the relative database table row. See above for a detailed list
     of attributes and methods
 
-:param: config (python dict): a dictionary reflecting what has been implemented in the configuration
+:param: config (Python dict): a dictionary reflecting what has been implemented in the configuration
     file. You can write there whatever you want (in yaml format, e.g. "propertyname: 6.7" ) and it
     will be accessible as usual via `config['propertyname']`
 
@@ -268,7 +269,7 @@ IMPORTANT: Any exception raised by this routine will be logged to file for inspe
 
 PROCESS_PY_MAIN = '''
 ============================================================================================
-stream2segment python file to implement the processing/visualization subroutines: User guide
+stream2segment Python file to implement the processing/visualization subroutines: User guide
 ============================================================================================
 
 This module needs to implement one or more functions which will be described in the sections below.
@@ -276,8 +277,8 @@ This module needs to implement one or more functions which will be described in 
 ```
     def myfunction(segment, config):
 ```
-where `segment` is the python object representing a waveform data segment to be processed
-and `config` is the python dictionary representing the given configuration file.
+where `segment` is the Python object representing a waveform data segment to be processed
+and `config` is the Python dictionary representing the given configuration file.
 
 After editing, this file can be invoked from the command line commands `s2s process` and `s2s show`
 with the `-p` / `--pyfile` option (type `s2s process --help` or `s2s show --help` for details).
@@ -347,9 +348,9 @@ date-times on the x values).
 Functions decorated with '@gui.plot' must return a numeric sequence y taken at successive
 equally spaced points in any of these forms:
 
-- a Trace object
+- a obspy Trace object
 
-- a Stream object
+- a obspy Stream object
 
 - the tuple (x0, dx, y) or (x0, dx, y, label), where
 
@@ -384,27 +385,19 @@ any Exception raised will be handled this way:
   displayed on the plot
 
 * if the function is called for processing, the exception will raise as usual, interrupting
-  the routine, with one special case: `ValueError`s will interrupt the currently processed
-  segment only (the exception message will be logged, if a logging system is configured)
-  and continue the execution to the next segment. This feature can also be triggered
-  programmatically to skip the currently processed segment and log the error for later
-  insopection, e.g.:
+  the routine, with one special case: `ValueError`s will interrupt the currently processed segment
+  only (the exception message will be logged) and continue the execution to the next segment.
+  This feature can also be triggered programmatically to skip the currently processed segment and
+  log the error for later insopection, e.g.:
     `raise ValueError("segment sample rate too low")`
   (thus, do not issue `print` statements for debugging as it's useless, and a bad practice overall)
 
 Conventions and suggestions
 ---------------------------
 
-1) This module is designed to encourage the decoupling of code and configuration, so that you can
-easily and safely experiment different configurations on the same code, if needed: this is more
-mantainable than having several Python files with the same code but different
-hard-coded parameters (e.g., fixing a code bug can be done once)
-
-2) This module is designed to force the DRY (don't repeat yourself) principle. This is particularly
-important when using the GUI to visually debug / inspect some code for processing
-implemented in `main`: we strongly encourage to *move* the portion of code into a separate
-function F and call F from 'main' AND decorate it with '@gui.plot'
-
+This module is designed to encourage the decoupling of code and configuration, so that you can
+easily and safely experiment different configurations on the same code of the same Python module,
+instead of having duplicated modules with different hard coded parameters.
 
 Functions arguments
 -------------------
@@ -424,8 +417,8 @@ segment (object)
 ~~~~~~~~~~~~~~~~
 
 Technically it's like an 'SqlAlchemy` ORM instance but for the user it is enough to
-consider and treat it as a normal python object. It features special methods and
-several attributes returning python "scalars" (float, int, str, bool, datetime, bytes).
+consider and treat it as a normal Python object. It features special methods and
+several attributes returning Python "scalars" (float, int, str, bool, datetime, bytes).
 Each attribute can be considered as segment metadata: it reflects a segment column
 (or an associated database table via a foreign key) and returns the relative value.
 
@@ -537,7 +530,7 @@ PROCESS_YAML_MAIN = '''
 # ==========================================================================
 #
 # This editable template defines the configuration parameters which will
-# be accessible in the associated processing / visualization python file.
+# be accessible in the associated processing / visualization Python file.
 #
 # You are free to implement here anything you need: there are no mandatory parameters but we
 # strongly suggest to keep 'segment_select' and 'sn_windows', which add also special features
@@ -598,7 +591,7 @@ Settings for computing the 'signal' and 'noise' time windows on a segment wavefo
 # From within the GUI, signal and noise windows will be visualized as shaded areas on the plot
 # of the currently selected segment. If this parameter is missing, the areas will not be shown.
 # This parameter can also be used to define the arguments of `segment.sn_windows()` (see associated
-# python module help).
+# Python module help).
 #
 # Arrival time shift: shifts the calculated arrival time of
 # each segment by the specified amount of time (in seconds). Negative values are allowed.
@@ -642,7 +635,7 @@ advanced_settings:
   num_processes: null
   # Although each segment is processed one at a time, loading segments in chunks from the
   # database is faster: the number below defines the chunk size. If multi_process is true,
-  # the chunk size also defines how many segments will be loaded in each python sub-process.
+  # the chunk size also defines how many segments will be loaded in each Python sub-process.
   # Increasing this number might speed up execution but increases the memory usage.
   # When null, the chunk size defaults to 1200 if the number N of
   # segments to be processed is > 1200, otherwise N/10.
