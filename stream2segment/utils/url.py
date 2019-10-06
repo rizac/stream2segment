@@ -74,7 +74,7 @@ def urlread(url, blocksize=-1, decode=None, wrap_exceptions=True,
     features added. Returns the tuple (content_read, status, message)
 
     :param url: (string or `Request` object) a valid url or an `urllib2.Request` object
-    :param blockSize: int, default: -1. The block size while reading, -1 means:
+    :param blocksize: int, default: -1. The block size while reading, -1 means:
         read entire content at once
     :param: decode: string or None, default: None. The string used for decoding to string
         (e.g., 'utf8'). If None, the result is returned as it is (type `bytes`, note that in
@@ -89,7 +89,7 @@ def urlread(url, blocksize=-1, decode=None, wrap_exceptions=True,
         exceptions. Otherwise, they will be treated as response object and the
         tuple (None, status, message) will be returned, where `status` (int) is the
         `HTTPError` status code (most likely in the range [400-599]) and `message`
-        (string) is the string denoting the status message, respectively
+        (string) is the string denoting the status message
     :param timeout: timeout parameter specifies a timeout in seconds for blocking operations
         like the connection attempt (if not specified, None or non-positive, the global
         default timeout setting will be used). This actually only works for HTTP, HTTPS
@@ -101,9 +101,9 @@ def urlread(url, blocksize=-1, decode=None, wrap_exceptions=True,
 
     :return: the tuple (content_read, status_code, status_message), where:
 
-        - content_read (bytes) is the response content (if `decode` is given,
+        - content_read (bytes) is the response content. If `decode` is given,
           it is a str (py3) / unicode (py2). If the response is issued from an HTTPError
-          and raise_http_err=False, it is None)
+          and `raise_http_err` is False, `content_read` is None
 
         - status_code (int) is the response HTTP status code
 
@@ -183,19 +183,20 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024, dec
     where:
 
       - `obj` is the element of `iterable` which originated the `urlread` call
-      - `result` is the result of `urlread`, it is None or the tuple
+      - `result` is the result of `urlread`, it is None in case of errors (see `exc` below).
+        Otherwise, it is the tuple
         ```(data, status_code, message)```
          where:
-         * `data` is the data read (as bytes or string if `decode != None`). It can be None,
-            e.g., when `raise_http_err=True` and an http-like exception has been raised
+         * `data` is the data read (as bytes or string if `decode != None`). It can be None
+            when `raise_http_err=False` and an HTTPException occurred
          * `status_code` is the integer denoting the status code (e.g. 200), and
          * `messsage` the string denoting the status message (e.g., 'OK').
-      - exc is the exception raised by `urlread`, if any. **Either `result` or `exc` are None,
-      but not both**. Note that `exc` is one of the following URL-related exceptions:
-      ```urllib2.URLError, httplib.HTTPException, socket.error```
-      Any other exception is raised and will stop the download
-      - url: the original url (either string or Request object). If `iterable` is an iterable
-      of `Request` objects or url strings, then `url` is equal to `obj`
+      - `exc` is the exception raised by `urlread`, if any. **Either `result` or `exc` are None,
+        but not both**. Note that `exc` is one of the following URL-related exceptions:
+        ```urllib2.URLError, httplib.HTTPException, socket.error```
+        Any other exception is raised and will stop the download
+      - `url` is the original url (either string or Request object). If `iterable` is an
+        iterable of `Request` objects or url strings, then `url` is equal to `obj`
 
     Note that if `raise_http_err=False` then `HTTPError`s are treated as 'normal'
     response and will be yielded in `result` as a tuple where `data=None` and `status_code`
@@ -253,7 +254,7 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024, dec
     killing threads / handling exceptions
     -------------------------------------
 
-    this function handles any kind of unexpected exception (particularly relevant in case of
+    This function handles any kind of unexpected exception (particularly relevant in case of
     e.g., `KeyboardInterrupt`) by canceling all worker threads before raising. As
     ThreadPoolExecutor returns (or raises) after all worker threads have finished, an internal
     boolean flag makes all remaining worker threads quit as soon as possible, making the
