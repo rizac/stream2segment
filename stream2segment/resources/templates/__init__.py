@@ -79,7 +79,7 @@ segment.data_seed_id                  str: same as 'segment.seed_id', but faster
                                       is that this value is null for segments with no waveform data
 segment.has_class                     boolean: tells if the segment has (at least one) class
                                       assigned
-segment.data                          bytes: the waveform (raw) bytes data. Used by `segment.stream()`
+segment.data                          bytes: the waveform (raw) data. Used by `segment.stream()`
 ------------------------------------- ------------------------------------------------
 segment.event                         object (attributes below)
 segment.event.id                      int
@@ -170,7 +170,7 @@ segment.download.program_version      str
 PROCESS_PY_BANDPASSFUNC = """
 Applies a pre-process on the given segment waveform by
 filtering the signal and removing the instrumental response.
-DOES modify the segment stream in-place (see below).
+Modifies the segment stream in-place (see below).
 
 The filter algorithm has the following steps:
 1. Sets the max frequency to 0.9 of the Nyquist frequency (sampling rate /2)
@@ -190,7 +190,7 @@ IMPORTANT NOTES:
 - In this implementation THIS FUNCTION DOES MODIFY `segment.stream()` IN-PLACE: from within
   `main`, further calls to `segment.stream()` will return the stream returned by this function.
   However, In any case, you can use `segment.stream().copy()` before this call to keep the
-  old "raw" stream
+  old unprocessed stream
 
 :return: a Trace object.
 """
@@ -200,7 +200,7 @@ PROCESS_PY_MAINFUNC = '''
 Main processing function. The user should implement here the processing for any given
 selected segment. Useful links for functions, libraries and utilities:
 
-- `stream2segment.analysis.mseeds` (small processing library implemented in this program,
+- `stream2segment.process.math.traces` (small processing library implemented in this program,
   most of its functions are imported here by default)
 - `obpsy <https://docs.obspy.org/packages/index.html>`_
 - `obspy Stream object <https://docs.obspy.org/packages/autogen/obspy.core.stream.Stream.html>_`
@@ -209,7 +209,7 @@ selected segment. Useful links for functions, libraries and utilities:
 IMPORTANT: Any exception raised by this routine will be logged to file for inspection.
     All exceptions will interrupt the whole exectution, only exceptions of type `ValueError`
     will interrupt the execution of the currently processed segment and continue to the
-    next segment, as they might not always denote critical code errors. This feature can
+    next segment, as ValueErrors might not always denote critical code errors. This feature can
     also be triggered programmatically to skip the currently processed segment
     and log the message for later inspection, e.g.:
     ```
@@ -282,7 +282,6 @@ and `config` is the python dictionary representing the given configuration file.
 After editing, this file can be invoked from the command line commands `s2s process` and `s2s show`
 with the `-p` / `--pyfile` option (type `s2s process --help` or `s2s show --help` for details).
 In the first case, see section 'Processing' below, otherwise see section 'Visualization (web GUI)'.
-In both cases, please read the remaining of this documentation.
 
 
 Processing
@@ -346,7 +345,7 @@ from the function's return type (see below) and in most cases defaults to 'date'
 date-times on the x values).
 
 Functions decorated with '@gui.plot' must return a numeric sequence y taken at successive
-qually spaced points in any of these forms:
+equally spaced points in any of these forms:
 
 - a Trace object
 
