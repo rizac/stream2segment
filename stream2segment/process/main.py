@@ -565,7 +565,7 @@ def get_slices(array, chunksize):
     by `chunksize` yielding the array slices until exaustion.
     If `array` is an integer, it denotes the length of the array and the tuples (start, end)
     will be yielded.
-    This method intelligently re-arranges the (start, end) indices in order to optimize the
+    This method intelligently re-arranges the (start, end) indices in order to minimize the
     number of iterations yielded. ``
     '''
     if hasattr(array, '__len__'):
@@ -574,13 +574,23 @@ def get_slices(array, chunksize):
         total = array
         array = None
     rem = total % chunksize
-    quot = int(total / chunksize)
-    if rem == 0:  # eg: total=6, chunksize=2:  rem=0, quot=3
+    quot = int(np.true_divide(total, chunksize))
+    if rem == 0:
+        # eg: total=6, chunksize=2:  rem=0, quot=3
+        # repeat 2 three times:
         iterable = repeat(chunksize, quot)
-    elif quot > rem:  # eg: total=7, chunksize=2: rem=1, quot=3
-        iterable = chain(repeat(chunksize+1, rem), repeat(chunksize, quot-rem))
-    else:  # eg: total=7, chunksize=5: rem=2, quot=1
-        iterable = chain(repeat(chunksize, quot), [rem])
+    elif quot > rem:
+        # eg: total=7, chunksize=2: rem=1, quot=3
+        # a) repeat 2 two times
+        # b) repeat 3 one time
+        # start with a) so that the 1st progressbar update might be slightly faster:
+        iterable = chain(repeat(chunksize, quot-rem), repeat(chunksize+1, rem))
+    else:
+        # eg: total=7, chunksize=5: rem=2, quot=1
+        # a) yield 2 (one time)
+        # b) repeat 5 one time
+        # start with a) so that the 1st progressbar update might be slightly faster:
+        iterable = chain([rem], repeat(chunksize, quot))
     start = end = 0
     for chunk in iterable:
         start = end
