@@ -327,8 +327,8 @@ def ascii_decorate(string):
     # note that top and bottom must be 1-length strings, and topleft+left=bottomleft must
     # have the same length, as well as topright+right+bottomright
 
-    # frame = "╔", "═", "╗", "║", "║", "╚" , "═", "╝"
-    frame = "###", "#", "###", "###", "###", "###", "#", "###"
+    frame = "╔", "═", "╗", "║", "║", "╚", "═", "╝"
+    # frame = "###", "#", "###", "###", "###", "###", "#", "###"
 
     linez = string.splitlines()
     maxlen = max(len(l) for l in linez)
@@ -370,12 +370,9 @@ def get_progressbar(show, **kw):
         yield Nop(**kw)
     else:
         # some custom setup if missing:
-        if 'fill_char' not in kw:
-            kw['fill_char'] = "●"
-        if 'empty_char' not in kw:
-            kw['empty_char'] = '○'
-        if 'bar_template' not in kw:
-            kw['bar_template'] = '%(label)s %(bar)s %(info)s'
+        kw.setdefault('fill_char', "●")
+        kw.setdefault('empty_char', "○")
+        kw.setdefault('bar_template', '%(label)s %(bar)s %(info)s')
         with click_progressbar(**kw) as pbar:
             yield pbar
 
