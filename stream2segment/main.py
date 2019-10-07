@@ -14,7 +14,6 @@ from builtins import range, round, open, input  # pylint: disable=redefined-buil
 
 import time
 import logging
-import warnings
 import re
 import sys
 import os
@@ -122,9 +121,7 @@ def download(config, log2file=True, verbose=False, **param_overrides):
                                                        Download.log.key))
 
         stime = time.time()
-        with warnings.catch_warnings():  # capture (ignore) warnings
-            warnings.simplefilter("ignore")
-            run_download(download_id=download_id, isterminal=verbose, **yaml_dict)
+        run_download(download_id=download_id, isterminal=verbose, **yaml_dict)
         logger.info("Completed in %s", str(totimedelta(stime)))
         if log2file:
             errs, warns = loghandlers[0].errors, loghandlers[0].warnings
@@ -245,10 +242,8 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None, log2file=Fa
 
         stime = time.time()
         writer_options = config_dict.get('advanced_settings', {}).get('writer_options', {})
-        with warnings.catch_warnings():  # capture (ignore) warnings
-            warnings.simplefilter("ignore")
-            run_process(session, pyfunc, get_writer(outfile, append, writer_options),
-                        config_dict, verbose)
+        run_process(session, pyfunc, get_writer(outfile, append, writer_options),
+                    config_dict, verbose)
         logger.info("Completed in %s", str(totimedelta(stime)))
         return 0  # contrarily to download, an exception should always raise and log as error
         # with the stack trace

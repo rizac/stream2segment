@@ -29,6 +29,7 @@ from builtins import (ascii, bytes, chr, dict, filter, hex, input,
 
 import sys
 import os
+import warnings
 from collections import OrderedDict
 
 import click
@@ -254,17 +255,9 @@ def download(config, dburl, eventws, starttime, endtime, network,  # pylint: dis
     try:
         overrides = {k: v for k, v in locals().items()
                      if v not in ((), {}, None) and k != 'config'}
-        # pre-process all event ws query arguments:
-#         eventws_dict = {par: overrides.pop(par) for par in ("minlatitude", "maxlatitude",
-#                                                             "minlongitude", "maxlongitude",
-#                                                             "latitude", "longitude", "minradius",
-#                                                             "maxradius", "mindepth", "maxdepth",
-#                                                             "minmagnitude", "maxmagnitude")
-#                         if par in overrides}
-#         if eventws_dict:
-#             overrides['eventws_query_args'] = eventws_dict
-
-        ret = main.download(config, log2file=True, verbose=True, **overrides)
+        with warnings.catch_warnings():  # capture (ignore) warnings
+            warnings.simplefilter("ignore")
+            ret = main.download(config, log2file=True, verbose=True, **overrides)
     except inputargs.BadArgument as aerr:
         print(aerr)
         ret = 2
@@ -341,8 +334,10 @@ def process(dburl, config, pyfile, funcname, append, no_prompt,
                 # if given, put these into 'advanced_settings' sub-dict. Note that
                 # nested dict will be merged with the values of the config
                 overrides = {'advanced_settings': overrides}
-            ret = main.process(dburl, pyfile, funcname, config, outfile, log2file=True,
-                               verbose=True, append=append, **overrides)
+            with warnings.catch_warnings():  # capture (ignore) warnings
+                warnings.simplefilter("ignore")
+                ret = main.process(dburl, pyfile, funcname, config, outfile, log2file=True,
+                                   verbose=True, append=append, **overrides)
     except inputargs.BadArgument as aerr:
         print(aerr)
         ret = 2  # exit with 1 as normal python exceptions
@@ -364,7 +359,9 @@ def process(dburl, config, pyfile, funcname, append, no_prompt,
               type=clickutils.ExistingPath, required=False)
 def show(dburl, configfile, pyfile):
     """Shows raw and processed downloaded waveform\'s plots in a browser"""
-    main.show(dburl, pyfile, configfile)
+    with warnings.catch_warnings():  # capture (ignore) warnings
+        warnings.simplefilter("ignore")
+        main.show(dburl, pyfile, configfile)
 
 
 @cli.group(short_help="Program utilities. Type --help to list available sub-commands")
@@ -402,8 +399,10 @@ def dstats(dburl, download_id, maxgap_threshold, html, outfile):
     print('Fetching data, please wait (this might take a while depending on the '
           'db size and connection)')
     try:
-        main.dstats(dburl, download_id or None, maxgap_threshold,
-                    html, outfile)
+        with warnings.catch_warnings():  # capture (ignore) warnings
+            warnings.simplefilter("ignore")
+            main.dstats(dburl, download_id or None, maxgap_threshold,
+                        html, outfile)
         if outfile is not None:
             print("download statistics written to '%s'" % outfile)
         sys.exit(0)
@@ -423,10 +422,10 @@ def dstats(dburl, download_id, maxgap_threshold, html, outfile):
               help="Returns only the config used (in YAML syntax) of the chosen download(s)")
 @click.option('-l', '--log', is_flag=True, default=None,
               help="Returns only the log messages of the chosen download(s)")
-# @click.option('-htm', '--html', is_flag=True, help="Generate an interactive "
-#               "dynamic web page where the download infos are visualized on a map, with statistics "
-#               "on a per-station and data-center basis. A working internet connection is needed to"
-#               "properly view the page")
+# @click.option('-htm', '--html', is_flag=True, help="Generate an interactive dynamic "
+#               "web page where the download infos are visualized on a map, with statistics "
+#               "on a per-station and data-center basis. A working internet connection "
+#               "is needed to properly view the page")
 @click.argument("outfile", required=False, type=click.Path(file_okay=True,
                                                            dir_okay=False, writable=True,
                                                            readable=True))
@@ -442,8 +441,10 @@ def dreport(dburl, download_id, config, log, outfile):
         # this is hacky but in case we want to restore the html
         # argument ...
         html = False
-        main.dreport(dburl, download_id or None,
-                     bool(config), bool(log), html, outfile)
+        with warnings.catch_warnings():  # capture (ignore) warnings
+            warnings.simplefilter("ignore")
+            main.dreport(dburl, download_id or None,
+                         bool(config), bool(log), html, outfile)
         if outfile is not None:
             print("download report written to '%s'" % outfile)
         sys.exit(0)
@@ -465,9 +466,9 @@ def ddrop(dburl, download_id):
     print('Fetching data, please wait (this might take a while depending on the '
           'db size and connection)')
     try:
-        # this is hacky but in case we want to restore the html
-        # argument ...
-        ret = main.ddrop(dburl, download_id, True)
+        with warnings.catch_warnings():  # capture (ignore) warnings
+            warnings.simplefilter("ignore")
+            ret = main.ddrop(dburl, download_id, True)
         if ret is None:
             sys.exit(1)
         elif not ret:
