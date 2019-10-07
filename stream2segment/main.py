@@ -231,13 +231,14 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None, log2file=Fa
 
     loghandlers = configlog4processing(logger, (outfile or pyfile) if log2file else None, verbose)
     try:
-
-        info = ["Processing function: %s:%s" % (pyfile, funcname),
-                "Input database:      %s" % secure_dburl(dburl),
-                "Config. file:        %s" % str('n/a' if not config else config),
-                "Log file:            %s" % str(loghandlers[0].baseFilename if log2file else 'n/a'),
-                "Output file:         %s" % (outfile or 'n/a')]
-
+        abp = os.path.abspath
+        info = [
+            "Input database:      %s" % secure_dburl(dburl),
+            "Processing function: %s:%s" % (abp(pyfile), funcname),
+            "Config. file:        %s" % (abp(config) if config else 'n/a'),
+            "Log file:            %s" % (abp(loghandlers[0].baseFilename) if log2file else 'n/a'),
+            "Output file:         %s" % (abp(outfile) if outfile else 'n/a')
+        ]
         logger.info(ascii_decorate("\n".join(info)))
 
         stime = time.time()
