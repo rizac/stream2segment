@@ -324,7 +324,9 @@ def process(dburl, config, pyfile, funcname, append, no_prompt,
     # REMEMBER: NO LOCAL VARIABLES OTHERWISE WE MESS UP THE CONFIG OVERRIDES ARGUMENTS
     try:
         if not append and outfile and os.path.isfile(outfile) and not no_prompt and \
-                not click.confirm("'%s' already exists in '%s'.\nOverwrite?"):
+                not click.confirm("'%s' already exists in '%s'.\nOverwrite?" %
+                                  (os.path.basename(os.path.abspath(outfile)),
+                                   os.path.dirname(os.path.abspath(outfile)))):
             ret = 1
         else:
             # override config values for multi_process and num_processes

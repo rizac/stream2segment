@@ -17,6 +17,7 @@ from builtins import (ascii, chr, dict, filter, hex, input, # int,
 # from future.utils import viewkeys
 
 import os
+import time
 import sys
 import logging
 from contextlib import contextmanager
@@ -103,6 +104,19 @@ def run(session, pyfunc, writer, config=None, show_progress=False):
         with create_processing_env(seg_len if show_progress else 0,
                                    redirect_stderr=True,
                                    warnings_filter=None) as pbar:
+            if show_progress and seg_len:
+                # if we are here we want to show the progressbar. Problem is, we can not
+                # know in how much time the progress bar will be rendered on the terminal
+                # (for heavy user-defined processing routines, this might happen in several
+                # minutes). Showing the progress bar immediately is therefore of help for
+                # the user (even if the bar has obviously no progress done yet). Is there a
+                # 'flush' method? Looking at click, it's 'render_progress()'. But the latter
+                # does not work if called within 'pbar.short_limit' seconds after the progress
+                # bar has been created. Therefore, let's force a progressabr flush. First wait:
+                time.sleep(pbar.short_limit)
+                # now render_progress will render:
+                pbar.render_progress()
+
             if multi_process:
                 process_mp(session, pyfunc, config, get_slices(seg_ids, chunksize), writer,
                            done_skipped_errors, pbar, num_processes)
