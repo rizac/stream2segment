@@ -122,16 +122,12 @@ def maxabs(trace, starttime=None, endtime=None):
     ```
 
     :param trace: the input obspy.core.Trace
-    :param starttime: (`obspy.UTCDateTime`) the start time (None or missing defaults to the trace
-        end): the maximum of the trace `abs` will be searched *from* this time. This argument,
-        if provided, does not affect the
+    :param starttime: (`obspy.UTCDateTime`, or None) the maximum will be searched from
+        this time on the trace (None or missing defaults to the trace
+        start): This argument, if provided, does not affect the
         returned `time` which will be always relative to the trace passed as argument
-    :param endtime: an obspy UTCDateTime object (or any value
-        `UTCDateTime` accepts, e.g. integer / `datetime` object) denoting
-        the end time (None or missing defaults to the trace end): the maximum of the trace `abs`
-        will be searched *until* this time
-        :return: the tuple (time, value) where `value = max(abs(trace.data))`, and time is
-        the value occurrence (`UTCDateTime`)
+    :param endtime: (`obspy.UTCDateTime`, or None) the maximum will be searched up to
+        this time on the trace (None or missing defaults to the trace end)
 
     :return: the tuple `(time_of_max_abs, trace_value)`. If the trace has no point
         (possibly after providing `starttime` or `endtime` out of bounds), returns
