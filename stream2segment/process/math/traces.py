@@ -109,9 +109,17 @@ def bandpass(trace, freq_min, freq_max, max_nyquist_ratio=0.9,
 
 def maxabs(trace, starttime=None, endtime=None):
     """
-    Returns the maximum of the absolute values of `trace`, and its occurrence time.
-    In other words, returns the point `(time, value)` where `value = max(abs(trace.data))`
-    and time (`UTCDateTime`) is the time occurrence of `value`
+    Converts the values of the given trace to their absolute values,
+    find the time occurrence of the maximum ('time_of_max_abs'), and returns
+    the tuple
+    ```
+    (time_of_max_abs, trace_value)
+    ```
+    where `trace_value` is the trace value at `time_of_max_abs`.
+    Note that `trace_value` might be negative. However, this function assures that:
+    ```
+    abs(trace_value) = max(abs(trace.data))
+    ```
 
     :param trace: the input obspy.core.Trace
     :param starttime: (`obspy.UTCDateTime`) the start time (None or missing defaults to the trace
@@ -125,10 +133,9 @@ def maxabs(trace, starttime=None, endtime=None):
         :return: the tuple (time, value) where `value = max(abs(trace.data))`, and time is
         the value occurrence (`UTCDateTime`)
 
-    :return: the tuple `(time_of_max_abs, max_abs)`. If the trace has no point
+    :return: the tuple `(time_of_max_abs, trace_value)`. If the trace has no point
         (possibly after providing `starttime` or `endtime` out of bounds), returns
-        the tuple (starttime, numpy.nan), where starttime is UTDDateTime(0) (1st January 1970):
-        which is arbitrarily chosen just to keep the returned value types consistent.
+        the tuple (starttime, numpy.nan), where starttime is UTDDateTime(0) (1st January 1970)
     """
     original_stime = None if starttime is None else trace.stats.starttime
     if starttime is not None or endtime is not None:
