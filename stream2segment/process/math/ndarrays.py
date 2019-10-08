@@ -230,7 +230,7 @@ def cumsumsq(signal, normalize=True):
     :return: the cumulative sum of the square of `signal` (numpy array)
     """
     ret = np.cumsum(np.square(signal), axis=None, dtype=None, out=None)
-    if normalize:
+    if normalize and len(ret):  # pylint: disable=len-as-condition
         # first check if any not nan, as np.nanmax issues warnings if computed on all-nan array:
         if not np.isnan(ret[0]):  # in a cumulative, 1st element nan => all nan
             min_ = ret[0]

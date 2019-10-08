@@ -85,6 +85,8 @@ def test_argtrim(y):
                            ([-1, 1], False, [1, 2]),
                            ([-2, 3], True, [0, 1]),
                            ([-2, 3], False, [4, 4+9]),
+                           ([], False, []),
+                           ([], True, []),
                            ])
 @mock.patch('stream2segment.process.math.ndarrays.np')
 def test_cumsum(mock_np, arr, normalize, expected_result):
@@ -99,8 +101,11 @@ def test_cumsum(mock_np, arr, normalize, expected_result):
     assert (r == np.array(expected_result)).all()
     assert mock_np.cumsum.called
     assert mock_np.square.called
-    
-    assert mock_np.isnan.called == normalize
+
+    if arr:
+        assert mock_np.isnan.called == normalize
+    else:
+        assert not mock_np.isnan.called
     assert mock_np.nanmax.called == (normalize and np.isnan(arr).any())
     assert mock_np.nanmin.called == False
 #     if normalize:
