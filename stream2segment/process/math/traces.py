@@ -170,16 +170,18 @@ def sn_split(trace, arrival_time, win_length, return_windows=False):
         signal window start and end will be the times where the cumulative reaches 5% and 95%
         of its maximum value. Once the signal window has been calculated, the noise window
         will be of the same length and ending at `arrival_time`.
-
-        **NOTE**: `trace` should most likely undergo some sort of
-        processing (e.g. remove response, bandpass filtering) in order to obtain a cumulative
-        (and thus, window intervals) without artifacts
-    :param return_windows: boolean, set to True if you want to get the jsut the time bounds
+        **NOTE**:
+        If `win_length` is a 2-element tuple, `trace` should most likely have undergone
+        some sort of processing (e.g. remove response, bandpass filtering) in order to obtain
+        a cumulative (and thus, window intervals) without artifacts
+    :param return_windows: boolean, set to True if you want to just get the time bounds
         of the signal and noise window (computationally faster). By default (False), this
         method trims the given trace and returns its signal and noise sub-traces
 
-    :return the tuple (start, end), (start, end) where all arguments are `UTCDateTime`s
-        and the first tuple refers to the noisy window, the latter to the signal window
+    :return the tuple (signal_trace, noise_trace) both sub-traces of the given `trace`.
+        If `return_windows` is True, returns the two tuples (s_start, s_end), (n_start, n_end)
+        where all arguments are `UTCDateTime`s and the first tuple refers to the signal window,
+        the latter to the noise one
     '''
     s_windows = _parse_sn_windows(win_length)
 
@@ -212,12 +214,12 @@ def _parse_sn_windows(window):
             cum0, cum1 = window
             if 0 <= cum0 < cum1 <= 1:
                 return float(cum0), float(cum1)
-            raise ValueError('sn window\'s `length` argument error: values '
-                             'must be increasing and both in [0, 1]')
+            # this actually goes to the 'except' below
+            raise ValueError('values must be increasing and both in [0, 1]')
         except TypeError:  # not a tuple/list? then it's a scalar:
             return float(window)
     except Exception as exc:
-        raise Exception('Invalid signal-noise window: %s' % str(exc))
+        raise Exception('Invalid sn window length: %s' % str(exc))
 
 
 def cumsumsq(trace, normalize=True, copy=True):
