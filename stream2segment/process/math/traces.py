@@ -152,20 +152,21 @@ def maxabs(trace, starttime=None, endtime=None):
 
 
 def sn_split(trace, arrival_time, win_length, return_windows=False):
-    '''Signal noise split: returns the signal and noise traces resulting from
-    splitting `trace` according to its signal and noise window. If `return_times=True`,
+    '''Signal-noise split: returns the traces obtained by trimming `trace` on its
+    signal and noise time windows, respectively. If `return_windows=True`,
     returns the windows instead (two tuples of UTCDateTimes):
     (signal_window_start, signal_window_end), (noise_window_start, noise_window_end).
     The passed `trace` object will not be modified.
 
-    :param arrival_time: UTCDateTime (or any argument UTCDateTime accepts) denoting the
-        P-wave arrival time, basically separating the noise part (before it)
-        and the signal part (after it). It should be within the segment time boundaries
-    :param win_length: float or 2-element tuple. If float, it sets both windows lengths
-        (in seconds): the noise window will end at 'arrival_time', where the signal window
-        starts.
-        If two elements tuple, denotes the start and end of the SIGNAL window
-        relative to the segment's waveform cumulative sum of squares,
+    :param arrival_time: UTCDateTime, datetime or any argument UTCDateTime accepts: the
+        P-wave arrival time of the event recorded by `trace`. This time is basically
+        the separator between the `trace` noise (before it)
+        and the `trace`  signal (after it), and should be within the segment time boundaries
+    :param win_length: float or 2-element tuple. If float, it simply sets both windows
+        lengths (in seconds): the noise window will end at 'arrival_time', the signal
+        window will start at `arrival_time'.
+        If `win_length` is a two elements tuple, it denotes the start and end of the SIGNAL
+        window relative to the segment's waveform cumulative sum of squares,
         calculated after the given `arrival time`. Thus if win_len = [0.05, 0.95], the
         signal window start and end will be the times where the cumulative reaches 5% and 95%
         of its maximum value. Once the signal window has been calculated, the noise window
@@ -173,10 +174,10 @@ def sn_split(trace, arrival_time, win_length, return_windows=False):
         **NOTE**:
         If `win_length` is a 2-element tuple, `trace` should most likely have undergone
         some sort of processing (e.g. remove response, bandpass filtering) in order to obtain
-        a cumulative (and thus, window intervals) without artifacts
+        a cumulative (and thus, windows) without artifacts
     :param return_windows: boolean, set to True if you want to just get the time bounds
-        of the signal and noise window (computationally faster). By default (False), this
-        method trims the given trace and returns its signal and noise sub-traces
+        of the signal and noise window, which is also computationally faster. By default
+        (False), this method trims the given trace and returns its signal and noise sub-traces
 
     :return the tuple (signal_trace, noise_trace) both sub-traces of the given `trace`.
         If `return_windows` is True, returns the two tuples (s_start, s_end), (n_start, n_end)
@@ -184,19 +185,14 @@ def sn_split(trace, arrival_time, win_length, return_windows=False):
         the latter to the noise one
     '''
     s_windows = _parse_sn_windows(win_length)
-
     a_time = utcdatetime(arrival_time)
-
     if hasattr(s_windows, '__len__'):
-        # cum0, cum1 = s_windows
         trim_trace = trace.copy().trim(starttime=a_time)
         mi_data = _cumsumsq(trim_trace.data, normalize=True)
         times = [timeof(trim_trace, i) for i in np.searchsorted(mi_data, s_windows)]
-        # times = timeswhere(cumsumsq(trim_trace, copy=False, normalize=True), cum0, cum1)
         nsy, sig = (a_time - (times[1]-times[0]), a_time), (times[0], times[1])
     else:
         nsy, sig = (a_time-s_windows, a_time), (a_time, a_time+s_windows)
-    # note: returns always tuples as they cannot be modified by the user (safer)
     if return_windows:
         return sig, nsy
     return (trace.copy().trim(*sig, pad=True, fill_value=0),
