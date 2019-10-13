@@ -390,6 +390,8 @@ def signal_noise_spectra(segment, config):
     :raise: an Exception if `segment.stream()` is empty or has more than one trace (possible
     gaps/overlaps)
     """
+    # get sn windows: remember that sn_windows might calculate the cumulative of segment.stream(),
+    # thus the latter should have been preprocessed (e.g. remove response, bandpass):
     signal_wdw, noise_wdw = segment.sn_windows(config['sn_windows']['signal_window'],
                                                config['sn_windows']['arrival_time_shift'])
     trace = segment.stream()[0]  # assumes stream has only one trace
