@@ -11,9 +11,6 @@ Created on 26 Mar 2019
 '''
 from io import BytesIO
 
-import numpy as np
-
-from obspy.core.utcdatetime import UTCDateTime
 from obspy.core.stream import _read
 # from sqlalchemy import event
 
@@ -22,8 +19,6 @@ from stream2segment.utils import _get_session
 from stream2segment.io.db.models import (Segment, Station, Base, object_session,
                                          Class, Event, Channel, DataCenter)
 from stream2segment.io.db.sqlevalexpr import exprquery
-from stream2segment.process.math.ndarrays import cumsumsq
-from stream2segment.process.math.traces import timeof
 
 
 def get_session(dburl, scoped=False):
