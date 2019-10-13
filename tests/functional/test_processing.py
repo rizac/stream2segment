@@ -13,7 +13,6 @@ import mock
 from mock import patch
 import pandas as pd
 import pytest
-import pandas as pd
 from pandas.errors import EmptyDataError
 from click.testing import CliRunner
 
@@ -21,9 +20,8 @@ from stream2segment.cli import cli
 from stream2segment.io.db.models import Event, Station, Segment,\
     Channel, Download, DataCenter
 from stream2segment.utils.resources import get_templates_fpath
-from stream2segment.process.db import get_inventory
 from stream2segment.utils.log import configlog4processing as o_configlog4processing
-from stream2segment.process.main import run as process_main_run, query4process
+from stream2segment.process.main import run as process_main_run
 from stream2segment.process.writers import BaseWriter, SEGMENT_ID_COLNAME
 
 
@@ -96,86 +94,6 @@ class Test(object):
 
 # ## ======== ACTUAL TESTS: ================================
 
-    # Recall: we have 6 segments, issued from all combination of
-    # station_inventory in [true, false] and segment.data in [ok, with_gaps, empty]
-    # use db4process(with_inventory, with_data, with_gap) to return sqlalchemy query for
-    # those segments in case. For info see db4process in conftest.py
-    @patch('stream2segment.process.db.get_inventory', side_effect=get_inventory)
-    def test_segwrapper(self, mock_getinv,
-                        # fixtures:
-                        db4process, data):
-        session = db4process.session
-        segids = query4process(session, {}).all()
-        seg_with_inv = \
-            db4process.segments(with_inventory=True, with_data=True, with_gap=False).one()
-        sta_with_inv_id = seg_with_inv.station.id
-        invcache = {}
-        prev_staid = None
-        for segid in [_[0] for _ in segids]:
-            segment = session.query(Segment).filter(Segment.id == segid).first()
-            sta = segment.station
-            staid = sta.id
-            assert prev_staid is None or staid >= prev_staid
-            staequal = prev_staid is not None and staid == prev_staid
-            prev_staid = staid
-            segment.station._inventory = invcache.get(sta.id, None)
-
-            mock_getinv.reset_mock()
-            if sta.id != sta_with_inv_id:
-                with pytest.raises(Exception):  # all inventories are None
-                    segment.inventory()
-                assert mock_getinv.called
-                # re-call it and assert we raise the previous Exception:
-                ccc = mock_getinv.call_count
-                with pytest.raises(Exception):  # all inventories are None
-                    segment.inventory()
-                assert mock_getinv.call_count == ccc
-            else:
-                invcache[sta.id] = segment.inventory()
-                if staequal:
-                    assert not mock_getinv.called
-                else:
-                    assert mock_getinv.called
-                assert len(segment.station.inventory_xml) > 0
-            segs = segment.siblings().all()
-            # as channel's channel is either 'ok' or 'err' we should never have
-            # other components
-            assert len(segs) == 0
-
-        # NOW TEST OTHER ORIENTATION PROPERLY. WE NEED TO ADD WELL FORMED SEGMENTS WITH CHANNELS
-        # WHOSE ORIENTATION CAN BE DERIVED:
-        staid = session.query(Station.id).first()[0]
-        dcid = session.query(DataCenter.id).first()[0]
-        eid = session.query(Event.id).first()[0]
-        dwid = session.query(Download.id).first()[0]
-        # add channels
-        c_1 = Channel(station_id=staid, location='ok', channel="AB1", sample_rate=56.7)
-        c_2 = Channel(station_id=staid, location='ok', channel="AB2", sample_rate=56.7)
-        c_3 = Channel(station_id=staid, location='ok', channel="AB3", sample_rate=56.7)
-        session.add_all([c_1, c_2, c_3])
-        session.commit()
-        # add segments. Create attributes (although not strictly necessary to have bytes data)
-        atts = data.to_segment_dict('trace_GE.APE.mseed')
-        # build three segments with data:
-        # "normal" segment
-        sg1 = Segment(channel_id=c_1.id, datacenter_id=dcid, event_id=eid, download_id=dwid,
-                      event_distance_deg=35, **atts)
-        sg2 = Segment(channel_id=c_2.id, datacenter_id=dcid, event_id=eid, download_id=dwid,
-                      event_distance_deg=35, **atts)
-        sg3 = Segment(channel_id=c_3.id, datacenter_id=dcid, event_id=eid, download_id=dwid,
-                      event_distance_deg=35, **atts)
-        session.add_all([sg1, sg2, sg3])
-        session.commit()
-        # start testing:
-        segids = query4process(session, {}).all()
-
-        for segid in [_[0] for _ in segids]:
-            segment = session.query(Segment).filter(Segment.id == segid).first()
-            # staid = segment.station.id
-            segs = segment.siblings()
-            if segs.all():
-                assert segment.id in (sg1.id, sg2.id, sg3.id)
-                assert len(segs.all()) == 2
 
     # Recall: we have 6 segments, issued from all combination of
     # station_inventory in [true, false] and segment.data in [ok, with_gaps, empty]

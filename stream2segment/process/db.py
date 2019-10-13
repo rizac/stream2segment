@@ -46,7 +46,7 @@ def _toggle_enhance_segment(value):
     if value:
         Station.inventory = classmeth_inventory
         Segment.stream = classmeth_stream
-        Segment.inventory = lambda self: self.station.inventory()
+        Segment.inventory = lambda self, *a, **kw: self.station.inventory(*a, **kw)
         Segment.dbsession = lambda self: object_session(self)  # pylint: disable=unnecessary-lambda
         Segment.siblings = classmeth_siblings
     else:
@@ -95,13 +95,15 @@ def _raiseifreturnsexception(func):
 
 
 @_raiseifreturnsexception
-def classmeth_inventory(self):
+def classmeth_inventory(self, reload=False):
     '''returns the inventory from self (a segment class)'''
     # inventory is lazy loaded. The output of the loading process
     # (or the Exception raised, if any) is stored in the self._inventory attribute.
     # When querying the inventory a further time, the stored value is returned,
     # or raised (if it is an Exception)
     inventory = getattr(self, "_inventory", None)
+    if reload and inventory is not None:
+        inventory = None
     if inventory is None:
         try:
             inventory = self._inventory = get_inventory(self)
@@ -123,13 +125,15 @@ def get_inventory(station):
 
 
 @_raiseifreturnsexception
-def classmeth_stream(self):
+def classmeth_stream(self, reload=False):
     '''returns the stream from self (a segment class)'''
     # stream is lazy loaded. The output of the loading process
     # (or the Exception raised, if any) is stored in the self._stream attribute.
     # When querying the stream a further time, the stored value is returned,
     # or raised (if it is an Exception)
     stream = getattr(self, "_stream", None)
+    if reload and stream is not None:
+        stream = None
     if stream is None:
         try:
             stream = self._stream = get_stream(self)

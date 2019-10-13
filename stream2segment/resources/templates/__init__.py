@@ -442,30 +442,37 @@ Each attribute can be considered as segment metadata: it reflects a segment colu
 segment methods:
 ----------------
 
-* segment.stream(): the `obspy.Stream` object representing the waveform data
+* segment.stream(reload=False): the `obspy.Stream` object representing the waveform data
   associated to the segment. Please remember that many obspy functions modify the
   stream in-place:
   ```
       stream_remresp = segment.stream().remove_response(segment.inventory())
-      # segment.stream() is now modified permanently! i.e., this is true:
-      segment.stream() is stream_remresp
+      # any call to segment.stream() returns from now on `stream_remresp`
   ```
-  Whereas this might be desirable sometimes (E.g., perform an FFT or compute the cumulative
-  sum of squares on `segment.stream()`), for any different use-case, copy the stream
-  (ot its traces) first, e.g.:
+  For any case where you do not want to modify `segment.stream()`, copy the stream
+  (or its traces) first, e.g.:
   ```
-      stream_remresp = segment.stream().copy().remove_response(segment.inventory())
-      # segment.stream() is NOT modified. I.e., this is true:
-      segment.stream() is not stream_remresp
+      stream_raw = segment.stream()
+      stream_remresp = stream_raw.copy().remove_response(segment.inventory())
+      # any call to segment.stream() will still return `stream_raw`
+  ```
+  You can also pass a boolean value (False by default when missing) to `stream` to force
+  reloading it from the database (this is less performant as it resets the cached value):
+  ```
+      stream_remresp = segment.stream().remove_response(segment.inventory())
+      stream_reloaded = segment.stream(True)
+      # any call to segment.stream() returns from now on `stream_reloaded`
   ```
   (In visualization functions, i.e. those decorated with '@gui', any modification
   to the segment stream will NOT affect the segment's stream in other functions)
 
   For info see https://docs.obspy.org/packages/autogen/obspy.core.stream.Stream.copy.html
 
-* segment.inventory(): the `obspy.core.inventory.inventory.Inventory`. This object is useful e.g.,
-  for removing the instrumental response from `segment.stream()`: note that it will be available
-  only if the inventories in xml format were downloaded in the downloaded subroutine
+* segment.inventory(reload=False): the `obspy.core.inventory.inventory.Inventory`.
+  This object is useful e.g., for removing the instrumental response from `segment.stream()`:
+  note that it will be available only if the inventories in xml format were downloaded in
+  the downloaded subroutine. As for `stream`, you can also pass a boolean value
+  (False by default when missing) to `inventory` to force reloading it from the database.
 
 * segment.siblings(parent=None, condition): returns an iterable of siblings of this segment.
   `parent` can be any of the following:
