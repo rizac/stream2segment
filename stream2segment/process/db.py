@@ -11,6 +11,8 @@ Created on 26 Mar 2019
 '''
 from io import BytesIO
 
+import numpy as np
+
 from obspy.core.utcdatetime import UTCDateTime
 from obspy.core.stream import _read
 # from sqlalchemy import event
@@ -20,7 +22,8 @@ from stream2segment.utils import _get_session
 from stream2segment.io.db.models import (Segment, Station, Base, object_session,
                                          Class, Event, Channel, DataCenter)
 from stream2segment.io.db.sqlevalexpr import exprquery
-from stream2segment.process.math.traces import cumsumsq, timeswhere
+from stream2segment.process.math.ndarrays import cumsumsq
+from stream2segment.process.math.traces import timeof
 
 
 def get_session(dburl, scoped=False):
@@ -45,7 +48,6 @@ def _toggle_enhance_segment(value):
         Segment.stream = classmeth_stream
         Segment.inventory = lambda self: self.station.inventory()
         Segment.dbsession = lambda self: object_session(self)  # pylint: disable=unnecessary-lambda
-        Segment.sn_windows = classmeth_sn_windows
         Segment.siblings = classmeth_siblings
     else:
         del Station.inventory
@@ -54,7 +56,6 @@ def _toggle_enhance_segment(value):
         del Segment._stream
         del Segment.inventory
         del Segment.dbsession
-        del Segment.sn_windows
         del Segment.siblings
 
 
@@ -172,60 +173,6 @@ def get_stream(segment, format="MSEED", headonly=False, **kwargs):  # @ReservedA
         # As some exceptions break the processing of all remaining segments, wrap here errors
         # and raise a ValueError which breaks only current segment in case
         raise ValueError(str(terr))
-
-
-def classmeth_sn_windows(self, win_length, atime_shift=0):
-    '''Computes time windows from the arguments.
-
-    :param win_length: float or 2-element tuple. If float, it is the window length,
-        in seconds. If two element tuple, denotes the start and end time of the window
-        length, relative to the segment waveform cumulative sum of the signal after the
-        arrival time. Thus if win_len = [0.05, 0.95], the segment waveform will be cut
-        and the cumulative sum C of the waveform after arrival time will be calculated.
-        The time where C reaches its 95% minus the time where C reaches its %% will
-        denote the window length
-
-    :return the tuple (start, end), (start, end) where all arguments are `UTCDateTime`s
-        and the first tuple refers to the noisy window, the latter to the signal window
-    '''
-    s_windows = parse_sn_windows(win_length)
-    stream_ = self.stream()
-
-    if len(stream_) != 1:
-        raise ValueError(("Unable to get sn-windows: %d traces in stream "
-                          "(possible gaps/overlaps)") % len(stream_))
-
-    a_time = UTCDateTime(self.arrival_time) + atime_shift
-    # Note above: UTCDateTime +float considers the latter in seconds
-    # we use UTcDateTime for consistency as the package functions
-    # work with that object type
-    if hasattr(s_windows, '__len__'):
-        cum0, cum1 = s_windows
-        trim_trace = stream_[0].copy().trim(starttime=a_time)
-        times = timeswhere(cumsumsq(trim_trace, copy=False, normalize=True), cum0, cum1)
-        nsy, sig = (a_time - (times[1]-times[0]), a_time), (times[0], times[1])
-    else:
-        nsy, sig = (a_time-s_windows, a_time), (a_time, a_time+s_windows)
-    # note: returns always tuples as they cannot be modified by the user (safer)
-    return sig, nsy
-
-
-def parse_sn_windows(window):
-    '''Returns the argument parsed to float (or with all its elements parsed to float).
-
-    :param window: either a string float or a iterable of two float elements
-        (by floats we mean also float parsable strings)
-    '''
-    try:
-        try:
-            cum0, cum1 = window
-            if cum0 < 0 or cum0 > 1 or cum1 < 0 or cum1 > 1:
-                raise ValueError('elements must be both in [0, 1]')
-            return float(cum0), float(cum1)
-        except TypeError:  # not a tuple/list? then it's a scalar:
-            return float(window)
-    except Exception as exc:
-        raise Exception('S/N Window error: %s' % str(exc))
 
 
 def classmeth_siblings(self, parent=None, conditions=None):

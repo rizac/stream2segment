@@ -41,6 +41,8 @@ from stream2segment.utils import iterfuncs
 from stream2segment.gui.webapp.mainapp.plots.jsplot import Plot
 from stream2segment.process import gui
 from stream2segment.io.db.models import Segment
+from obspy.core.utcdatetime import UTCDateTime
+from stream2segment.process.math.traces import sn_split
 
 
 def getseg(session, segment_id):  # , cols2load=None):
@@ -179,9 +181,18 @@ class SegmentPlotList(list):
             sn_windows = self.data.get('sn_windows', None)
             if sn_windows is None:
                 try:
+                    if len(segment.stream()) != 1:
+                        raise ValueError(("Unable to get sn-windows: %d traces in stream "
+                                          "(possible gaps/overlaps)") % len(segment.stream()))
                     wndw = config['sn_windows']
-                    self.data['sn_windows'] = segment.sn_windows(wndw['signal_window'],
-                                                                 wndw['arrival_time_shift'])
+                    arrival_time = \
+                        UTCDateTime(segment.arrival_time) + wndw['arrival_time_shift']
+                    self.data['sn_windows'] = sn_split(segment.stream()[0],
+                                                       arrival_time,
+                                                       wndw['signal_window'],
+                                                       return_windows=True)
+#                     self.data['sn_windows'] = segment.sn_windows(wndw['signal_window'],
+#                                                                  wndw['arrival_time_shift'])
                 except Exception as exc:
                     self.data['sn_windows'] = exc
 

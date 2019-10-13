@@ -397,16 +397,18 @@ Conventions and suggestions
 
 Handling exceptions, especially when launching a long processing routine, might be non trivial.
 There is a tradeoff to choose: just implement your code and run it (but the whole execution
-might stop days later, shortly after ending), or catch any potential exception
+might stop days later, just shortly before ending), or catch any potential exception
 and raise a `ValueError` to continue the execution to the next segment (but you might realise
 too late that no data has actually been written to file).
-As a rule of thumb, we suggest this latter approach, inspecting frequently the log
-file especially at the beginning, to see if everything is working as expected.
-But this it is really a matter of choice.
 
-What we strongly suggest on the other hand is to always run your routine on a smaller
-(and possibly heterogeneous) dataset first in order to test code and output more easily.
-Also, please spend some time ont eh configuration file's segment selection: you might find
+If you go for the former (the cleanest one), we suggest to run your routine on a smaller
+(and possibly heterogeneous) dataset first in order to test code and output more easily,
+and try-catch potential exceptions that you want to be just logged.
+If you go for the latter, try to inspect the log file (especially at the beginning of
+the whole execution) to be ready to stop the run if you see something suspicious, avoiding waste
+of time.
+
+In both cases, please spend some time ont eh configuration file's segment selection: you might find
 that your code runs smoothly as expected (and faster) by simply skipping certain segments in
 the first place.
 
@@ -448,8 +450,8 @@ segment methods:
       # segment.stream() is now modified permanently! i.e., this is true:
       segment.stream() is stream_remresp
   ```
-  Whereas this might be desirable sometimes (E.g., perform an FFT on `segment.stream()`.
-  See also note in `segment.sn_windows` below), for any different use-case, copy the stream
+  Whereas this might be desirable sometimes (E.g., perform an FFT or compute the cumulative
+  sum of squares on `segment.stream()`), for any different use-case, copy the stream
   (ot its traces) first, e.g.:
   ```
       stream_remresp = segment.stream().copy().remove_response(segment.inventory())
@@ -464,29 +466,6 @@ segment methods:
 * segment.inventory(): the `obspy.core.inventory.inventory.Inventory`. This object is useful e.g.,
   for removing the instrumental response from `segment.stream()`: note that it will be available
   only if the inventories in xml format were downloaded in the downloaded subroutine
-
-* segment.sn_windows(length, shift=0): returns the signal and noise time windows:
-  (s_start, s_end), (n_start, n_end) where all elements are obspy `UTCDateTime`s.
-  The windows are calculated as follows: the segment arrival time A is retrieved and shifted
-  by the given seconds (`shift` argument, float, defaults to 0).
-  Then, the length of the signal window is computed:
-  - if `length` is numeric, it is the window length in seconds: s_start = A, s_end = A + length
-  - If `length` is a list of two numbers (VAL0, VAL1) both in [0, 1], then the waveform's cumulative
-    sum of squares (CUMSS) is calculated from A and normalized in [0, 1]: s_start is the time
-    where CUMSS reaches VAL0, s_end is the time where CUMSS reaches VAL1.
-    NOTE: `segment.stream()` SHOULD HAVE BEEN PROCESSED FIRST (e.g., response removed, bandpass
-    filtered) TO AVOID CUMULATIVE ARTIFACTS AND THUS WRONG TIME WINDOWS (e.g., too short or too
-    long)
-  Once the signal window has been calculated, the noise window will have the same length L
-  and moved 'backwards' in order to end on A: n_start = A - L, n_end = A
-  In the YAML templates, you will see the parameter 'sn_windows': you can
-  tune it to configure your signal and noise window calculation. Example:
-  ```
-  snw = config['sn_windows']
-  sig_wdw, noise_wdw = segment.sn_windows(snw['signal_window'], snw['arrival_time_shift'])
-  stream_noise = segment.stream().copy().trim(*noise_wdw, ...)
-  stream_signal = segment.stream().copy().trim(*sig_wdw, ...)
-  ```
 
 * segment.siblings(parent=None, condition): returns an iterable of siblings of this segment.
   `parent` can be any of the following:
@@ -613,8 +592,6 @@ PROCESS_YAML_SNWINDOWS = '''
 Settings for computing the 'signal' and 'noise' time windows on a segment waveform.
 # From within the GUI, signal and noise windows will be visualized as shaded areas on the plot
 # of the currently selected segment. If this parameter is missing, the areas will not be shown.
-# This parameter can also be used to define the arguments of `segment.sn_windows()` (see associated
-# Python module help).
 #
 # Arrival time shift: shifts the calculated arrival time of
 # each segment by the specified amount of time (in seconds). Negative values are allowed.

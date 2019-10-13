@@ -25,8 +25,9 @@ from obspy.core import Trace, UTCDateTime  # , Stats
 
 # from obspy import read_inventory
 from stream2segment.process.math.ndarrays import fft as _fft, ampspec as _ampspec,\
-    powspec as _powspec, cumsumsq as _cumsum, dfreq, freqs, ResponseSpectrum as _ResponseSpectrum, \
-    NewmarkBeta as _NewmarkBeta, NigamJennings as _NigamJennings
+    powspec as _powspec, cumsumsq as _cumsumsq, dfreq, freqs, \
+    ResponseSpectrum as _ResponseSpectrum, NewmarkBeta as _NewmarkBeta, \
+    NigamJennings as _NigamJennings
 
 
 def _add_processing_info(trace, func_name, **kwargs):
@@ -150,6 +151,75 @@ def maxabs(trace, starttime=None, endtime=None):
     return (time, val)
 
 
+def sn_split(trace, arrival_time, win_length, return_windows=False):
+    '''Signal noise split: returns the signal and noise traces resulting from
+    splitting `trace` according to its signal and noise window. If `return_times=True`,
+    returns the windows instead (two tuples of UTCDateTimes):
+    (signal_window_start, signal_window_end), (noise_window_start, noise_window_end).
+    The passed `trace` object will not be modified.
+
+    :param arrival_time: UTCDateTime (or any argument UTCDateTime accepts) denoting the
+        P-wave arrival time, basically separating the noise part (before it)
+        and the signal part (after it). It should be within the segment time boundaries
+    :param win_length: float or 2-element tuple. If float, it sets both windows lengths
+        (in seconds): the noise window will end at 'arrival_time', where the signal window
+        starts.
+        If two elements tuple, denotes the start and end of the SIGNAL window
+        relative to the segment's waveform cumulative sum of squares,
+        calculated after the given `arrival time`. Thus if win_len = [0.05, 0.95], the
+        signal window start and end will be the times where the cumulative reaches 5% and 95%
+        of its maximum value. Once the signal window has been calculated, the noise window
+        will be of the same length and ending at `arrival_time`.
+
+        **NOTE**: `trace` should most likely undergo some sort of
+        processing (e.g. remove response, bandpass filtering) in order to obtain a cumulative
+        (and thus, window intervals) without artifacts
+    :param return_windows: boolean, set to True if you want to get the jsut the time bounds
+        of the signal and noise window (computationally faster). By default (False), this
+        method trims the given trace and returns its signal and noise sub-traces
+
+    :return the tuple (start, end), (start, end) where all arguments are `UTCDateTime`s
+        and the first tuple refers to the noisy window, the latter to the signal window
+    '''
+    s_windows = _parse_sn_windows(win_length)
+
+    a_time = utcdatetime(arrival_time)
+
+    if hasattr(s_windows, '__len__'):
+        # cum0, cum1 = s_windows
+        trim_trace = trace.copy().trim(starttime=a_time)
+        mi_data = _cumsumsq(trim_trace.data, normalize=True)
+        times = [timeof(trim_trace, i) for i in np.searchsorted(mi_data, s_windows)]
+        # times = timeswhere(cumsumsq(trim_trace, copy=False, normalize=True), cum0, cum1)
+        nsy, sig = (a_time - (times[1]-times[0]), a_time), (times[0], times[1])
+    else:
+        nsy, sig = (a_time-s_windows, a_time), (a_time, a_time+s_windows)
+    # note: returns always tuples as they cannot be modified by the user (safer)
+    if return_windows:
+        return sig, nsy
+    return (trace.copy().trim(*sig, pad=True, fill_value=0),
+            trace.copy().trim(*nsy, pad=True, fill_value=0))
+
+
+def _parse_sn_windows(window):
+    '''Returns the argument parsed to float (or with all its elements parsed to float).
+
+    :param window: either a string float or a iterable of two float elements
+        (by floats we mean also float parsable strings)
+    '''
+    try:
+        try:
+            cum0, cum1 = window
+            if 0 <= cum0 < cum1 <= 1:
+                return float(cum0), float(cum1)
+            raise ValueError('sn window\'s `length` argument error: values '
+                             'must be increasing and both in [0, 1]')
+        except TypeError:  # not a tuple/list? then it's a scalar:
+            return float(window)
+    except Exception as exc:
+        raise Exception('Invalid signal-noise window: %s' % str(exc))
+
+
 def cumsumsq(trace, normalize=True, copy=True):
     """
     Returns the cumulative sum of the squares of the trace's data, `trace.data**2`
@@ -158,7 +228,7 @@ def cumsumsq(trace, normalize=True, copy=True):
     :param normalize: boolean (default: True), whether to normalize the data in [0, 1]
     :return: a Trace representing the cumulative sum of the square of `trace.data`
     """
-    data = _cumsum(trace.data, normalize=normalize)
+    data = _cumsumsq(trace.data, normalize=normalize)
     if copy:
         trace = Trace(data, header=trace.stats.copy())
     else:
@@ -177,13 +247,10 @@ def timeswhere(mi_trace, *values):
     :param mi_trace: a **monotonically increasing** trace
     :param values: the values whose time occurrence has to be calculated
 
-    :return: a list of N `UtcDateTime`s (N = len(percentages)) denoting the occurrence of
+    :return: a tuple of N `UtcDateTime`s (N = len(percentages)) denoting the occurrence of
         the given percentages of the total signal in `mi_trace`
     """
-    starttime = mi_trace.stats.starttime
-    delta = mi_trace.stats.delta
-    tracedata = mi_trace.data
-    return [starttime + delta * np.searchsorted(tracedata, v) for v in values]
+    return tuple(timeof(mi_trace, i) for i in np.searchsorted(mi_trace.data, values))
 
 
 def fft(trace, starttime=None, endtime=None, taper_max_percentage=0.05, taper_type='hann',

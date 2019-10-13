@@ -32,7 +32,7 @@ from stream2segment.process import gui
 # strem2segment functions for processing obspy Traces. This is just a list of possible functions
 # to show how to import them:
 from stream2segment.process.math.traces import ampratio, bandpass, cumsumsq,\
-    timeswhere, fft, maxabs, utcdatetime, ampspec, powspec, timeof
+    timeswhere, fft, maxabs, utcdatetime, ampspec, powspec, timeof, sn_split
 # stream2segment function for processing numpy arrays:
 from stream2segment.process.math.ndarrays import triangsmooth, snr
 
@@ -390,17 +390,17 @@ def signal_noise_spectra(segment, config):
     :raise: an Exception if `segment.stream()` is empty or has more than one trace (possible
     gaps/overlaps)
     """
-    # get sn windows: remember that sn_windows might calculate the cumulative of segment.stream(),
+    # get sn windows: PLEASE NOTE!! sn_windows might calculate the cumulative of segment.stream(),
     # thus the latter should have been preprocessed (e.g. remove response, bandpass):
-    signal_wdw, noise_wdw = segment.sn_windows(config['sn_windows']['signal_window'],
-                                               config['sn_windows']['arrival_time_shift'])
-    trace = segment.stream()[0]  # assumes stream has only one trace
-    x0_sig, df_sig, sig = _spectrum(trace, config, *signal_wdw)
-    x0_noi, df_noi, noi = _spectrum(trace, config, *noise_wdw)
+    arrival_time = UTCDateTime(segment.arrival_time) + config['sn_windows']['arrival_time_shift']
+    signal_trace, noise_trace = sn_split(segment.stream()[0],  # assumes stream has only one trace
+                                         arrival_time, config['sn_windows']['signal_window'])
+    x0_sig, df_sig, sig = _spectrum(signal_trace, config)
+    x0_noi, df_noi, noi = _spectrum(noise_trace, config)
     return {'Signal': (x0_sig, df_sig, sig), 'Noise': (x0_noi, df_noi, noi)}
 
 
-def _spectrum(trace, config, starttime=None, endtime=None):
+def _spectrum(trace, config):
     '''Calculate the spectrum of a trace. Returns the tuple (0, df, values), where
     values depends on the config dict parameters.
     Does not modify the trace in-place
@@ -415,8 +415,7 @@ def _spectrum(trace, config, starttime=None, endtime=None):
         # raise TypeError so that if called from within main, the iteration stops
         raise TypeError("config['sn_spectra']['type'] expects either 'pow' or 'amp'")
 
-    df_, spec_ = func(trace, starttime, endtime,
-                      taper_max_percentage=taper_max_percentage, taper_type=taper_type)
+    df_, spec_ = func(trace, taper_max_percentage=taper_max_percentage, taper_type=taper_type)
 
     # if you want to implement your own smoothing, change the lines below before 'return'
     # and implement your own config variables, if any

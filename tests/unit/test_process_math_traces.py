@@ -69,6 +69,12 @@ class Test(object):
         t0, t1 = timeswhere(c1, 0.1, .9)
         assert t0 > c1.stats.starttime
         assert t1 < c1.stats.endtime
+        # test the old implementation, and check that values are the same:
+        starttime = c1.stats.starttime
+        delta = c1.stats.delta
+        tracedata = c1.data
+        tt0, tt1 = [starttime + delta * np.searchsorted(tracedata, v) for v in (0.1, .9)]
+        assert t0 == tt0 and t1 == tt1
 
         # padding with nans does not change the result:
         # left pad with nan
@@ -90,3 +96,14 @@ class Test(object):
         c1.data = np.array([np.nan] * len(c1.data))
         t0, t1 = timeswhere(c1, 0, 1)
         assert t0 == t1 == c1.stats.starttime
+
+
+def test_searchsorted():
+    '''this test is just a check to assure that the new implementation of timeswhere
+    works as the original code'''
+    arr = [1, 4.5, 6]
+    tosearch = [-1, 3, 4.5, 6.0, 8.1]
+    assert (np.array([np.searchsorted(arr, v) for v in tosearch]) \
+        == np.searchsorted(arr, tosearch)).all()
+
+
