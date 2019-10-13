@@ -61,7 +61,7 @@ def main(segment, config):
     except TypeError as type_error:
         raise ValueError("Error in 'bandpass_remresp': %s" % str(type_error))
 
-    spectra = signal_noise_spectra(segment, config, trace)
+    spectra = signal_noise_spectra(segment, config)
     normal_f0, normal_df, normal_spe = spectra['Signal']
     noise_f0, noise_df, noise_spe = spectra['Noise']
     evt = segment.event
@@ -379,7 +379,7 @@ def synth_wood_anderson(segment, config, trace):
     return trace.simulate(paz_remove=None, paz_simulate=config_wa)
 
 
-def signal_noise_spectra(segment, config, trace):
+def signal_noise_spectra(segment, config):
     """
     Computes the signal and noise spectra, as dict of strings mapped to tuples (x0, dx, y).
     Does not modify the segment's stream or traces in-place
@@ -392,6 +392,7 @@ def signal_noise_spectra(segment, config, trace):
     """
     signal_wdw, noise_wdw = segment.sn_windows(config['sn_windows']['signal_window'],
                                                config['sn_windows']['arrival_time_shift'])
+    trace = segment.stream()[0]  # assumes stream has only one trace
     x0_sig, df_sig, sig = _spectrum(trace, config, *signal_wdw)
     x0_noi, df_noi, noi = _spectrum(trace, config, *noise_wdw)
     return {'Signal': (x0_sig, df_sig, sig), 'Noise': (x0_noi, df_noi, noi)}
@@ -472,7 +473,7 @@ def sn_spectra(segment, config):
     """
     stream = segment.stream()
     assert1trace(stream)  # raise and return if stream has more than one trace
-    return signal_noise_spectra(segment, config, stream[0])
+    return signal_noise_spectra(segment, config)
 
 
 @gui.plot

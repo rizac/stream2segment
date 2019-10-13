@@ -392,11 +392,27 @@ any Exception raised will be handled this way:
     `raise ValueError("segment sample rate too low")`
   (thus, do not issue `print` statements for debugging as it's useless, and a bad practice overall)
 
-Conventions and suggestions:
+Conventions and suggestions
+---------------------------
+
+Handling exceptions, especially when launching a long processing routine, might be non trivial.
+There is a tradeoff to choose: just implement your code and run it (but the whole execution
+might stop days later, shortly after ending), or catch any potential exception
+and raise a `ValueError` to continue the execution to the next segment (but you might realise
+too late that no data has actually been written to file).
+As a rule of thumb, we suggest this latter approach, inspecting frequently the log
+file especially at the beginning, to see if everything is working as expected.
+But this it is really a matter of choice.
+
+What we strongly suggest on the other hand is to always run your routine on a smaller
+(and possibly heterogeneous) dataset first in order to test code and output more easily.
+Also, please spend some time ont eh configuration file's segment selection: you might find
+that your code runs smoothly as expected (and faster) by simply skipping certain segments in
+the first place.
 
 This module is designed to encourage the decoupling of code and configuration, so that you can
-easily and safely experiment different configurations on the same code of the same Python module,
-instead of having duplicated modules with different hard coded parameters.
+easily and safely experiment different configurations on the same code of the same Python module.
+Avoid having duplicated modules with different hard coded parameters.
 
 Functions arguments
 -------------------
@@ -429,15 +445,20 @@ segment methods:
   stream in-place:
   ```
       stream_remresp = segment.stream().remove_response(segment.inventory())
-      segment.stream() is stream_remresp  # == True: segment.stream() is modified permanently!
+      # segment.stream() is now modified permanently! i.e., this is true:
+      segment.stream() is stream_remresp
   ```
-  When visualizing plots, where efficiency is less important, each function is executed on a
-  copy of segment.stream(). However, from within the `main` function, the user has to handle when
-  to copy the segment's stream or not, e.g.:
+  Whereas this might be desirable sometimes (E.g., perform an FFT on `segment.stream()`.
+  See also note in `segment.sn_windows` below), for any different use-case, copy the stream
+  (ot its traces) first, e.g.:
   ```
       stream_remresp = segment.stream().copy().remove_response(segment.inventory())
-      segment.stream() is stream_remresp  # False: segment.stream() is still the original object
+      # segment.stream() is NOT modified. I.e., this is true:
+      segment.stream() is not stream_remresp
   ```
+  (In visualization functions, i.e. those decorated with '@gui', any modification
+  to the segment stream will NOT affect the segment's stream in other functions)
+
   For info see https://docs.obspy.org/packages/autogen/obspy.core.stream.Stream.copy.html
 
 * segment.inventory(): the `obspy.core.inventory.inventory.Inventory`. This object is useful e.g.,
@@ -453,6 +474,9 @@ segment methods:
   - If `length` is a list of two numbers (VAL0, VAL1) both in [0, 1], then the waveform's cumulative
     sum of squares (CUMSS) is calculated from A and normalized in [0, 1]: s_start is the time
     where CUMSS reaches VAL0, s_end is the time where CUMSS reaches VAL1.
+    NOTE: `segment.stream()` SHOULD HAVE BEEN PROCESSED FIRST (e.g., response removed, bandpass
+    filtered) TO AVOID CUMULATIVE ARTIFACTS AND THUS WRONG TIME WINDOWS (e.g., too short or too
+    long)
   Once the signal window has been calculated, the noise window will have the same length L
   and moved 'backwards' in order to end on A: n_start = A - L, n_end = A
   In the YAML templates, you will see the parameter 'sn_windows': you can
