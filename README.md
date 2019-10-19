@@ -16,11 +16,11 @@ The key aspects with respect to widely-used similar applications are:
   Graphical User Interface (GUI) by means of Python web framework and Javascript libraries.
   The user can also set class labels to make the GUI a hand-labelling tool for supervised classification 
   problems, or to simply label special segments for easy selection
-* Each segment is accessible in the user's code as a simple Python object with a list of attributes which
+* Each segment is exposed to the user's code as a simple Python object with a list of attributes which
   does not only make segment data and metadata very easily accessible, but also makes the selection of
-  suitable segments incredibly unique, powerful and easy to use. The selection can be performed on all
-  segments metadata, it exploits the efficiency of SQL 'select' syntax and its simplified for non-experienced
-  user with a documented and simplified custom syntax.
+  suitable segments to process incredibly unique, powerful and easy to use. The selection can be performed on all
+  segments attributes, it exploits the efficiency of SQL 'select' syntax and its simplified for non-experienced
+  users with a documented and simplified custom syntax.
 
 **Citation (Software):**
 > Zaccarelli, Riccardo (2018): Stream2segment: a tool to download, process and visualize event-based seismic waveform data. V. 2.7.3. GFZ Data Services.
