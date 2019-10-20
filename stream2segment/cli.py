@@ -121,19 +121,19 @@ def init(outdir):
     """
     helpdict = OrderedDict([
         ("download.yaml",
-         "Download configuration file ('s2s download -c' option)"),
+         "Download configuration file (option -c of 's2s download')"),
         ("paramtable.py",
          "Processing python file for creating a parametric table (HDF, CSV). "
-         "Option '-p' of 's2s process' and 's2s show'"),
+         "Option -p of 's2s process' and 's2s show'"),
         ("paramtable.yaml",
          "Processing configuration used in the associated Python file. "
-         "Option '-c' of 's2s process' and 's2s show'"),
+         "Option -c of 's2s process' and 's2s show'"),
         ("save2fs.py",
          "Processing python file for saving waveform to filesystem. "
-         "Option '-p' of 's2s process' and 's2s show'"),
+         "Option -p of 's2s process' and 's2s show'"),
         ("save2fs.yaml",
          "Processing configuration used in the associated Python file. "
-         "Option '-c' of 's2s process' and 's2s show'"),
+         "Option -c of 's2s process' and 's2s show'"),
         ("jupyter.example.ipynb",
          "Jupyter notebook illustrating how to "
          "access downloaded data and run custom code. "
