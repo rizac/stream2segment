@@ -295,7 +295,7 @@ def main(segment, config)
 the program will iterate over each selected segment (according to 'segment_select' parameter
 in the config) and execute the function, writing its output to the given file, if given.
 If you do not need to use this module for visualizing stuff, skip the section 'Visualization'
-below and go to the next one.
+below and go to "Functions implementation".
 
 
 Visualization (web GUI)
@@ -399,16 +399,17 @@ Handling exceptions, especially when launching a long processing routine, might 
 There is a tradeoff to choose: just implement your code and run it (but the whole execution
 might stop days later, just shortly before ending), or catch any potential exception
 and raise a `ValueError` to continue the execution to the next segment (but you might realise
-too late that no data has actually been written to file).
+too late that all segments raised errors and no data has actually been written to file).
 
 If you go for the former (the cleanest one), we suggest to run your routine on a smaller
-(and possibly heterogeneous) dataset first in order to test code and output more easily,
-and try-catch potential exceptions that you want to be just logged.
+(and possibly heterogeneous) dataset first (using the configuration file's segment selection):
+this not only allows you to handle potential unexpected exceptions, but also to inspect the
+output and debug your code.
 If you go for the latter, try to inspect the log file (especially at the beginning of
 the whole execution) to be ready to stop the run if you see something suspicious, avoiding waste
 of time.
 
-In both cases, please spend some time ont eh configuration file's segment selection: you might find
+In both cases, please spend some time on the configuration file's segment selection: you might find
 that your code runs smoothly as expected (and faster) by simply skipping certain segments in
 the first place.
 
