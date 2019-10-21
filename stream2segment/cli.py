@@ -151,9 +151,12 @@ def init(outdir):
         else:
             print("%d file(s) copied in '%s':" % (len(copied_files), outdir))
             frmt = "- {:<%d} {}" % max(len(f) for f in helpdict.keys())
-            for fcopied in copied_files:
+            for i, fcopied in enumerate(copied_files):
+                if i in (0, 1, 5):
+                    print("")
                 bname = os.path.basename(fcopied)
                 print(frmt.format(bname, helpdict.get(bname, "")))
+            print("")
             sys.exit(0)
     except Exception as exc:  # pylint: disable=broad-except
         print('')

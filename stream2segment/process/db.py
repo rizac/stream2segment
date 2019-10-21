@@ -36,8 +36,9 @@ def get_session(dburl, scoped=False):
 
 
 def _toggle_enhance_segment(value):
-    if value == hasattr(Segment, '_stream'):
+    if value == hasattr(Segment, 'dbsession'):
         return
+
     if value:
         Station.inventory = classmeth_inventory
         Segment.stream = classmeth_stream
@@ -46,9 +47,9 @@ def _toggle_enhance_segment(value):
         Segment.siblings = classmeth_siblings
     else:
         del Station.inventory
-        del Station._inventory
+        # del Station._inventory
         del Segment.stream
-        del Segment._stream
+        # del Segment._stream
         del Segment.inventory
         del Segment.dbsession
         del Segment.siblings

@@ -370,8 +370,11 @@ def get_progressbar(show, **kw):
         yield Nop(**kw)
     else:
         # some custom setup if missing:
-        kw.setdefault('fill_char', "●")
-        kw.setdefault('empty_char', "○")
+        # (note that progressbar characters render differently across Oss: after
+        # some attempts, I found out the best for mac - which is the default - and ubuntu):
+        is_linux = sys.platform.startswith('linux')
+        kw.setdefault('fill_char', "▮" if is_linux else "●")
+        kw.setdefault('empty_char', "▯" if is_linux else "○")
         kw.setdefault('bar_template', '%(label)s %(bar)s %(info)s')
         with click_progressbar(**kw) as pbar:
             yield pbar
