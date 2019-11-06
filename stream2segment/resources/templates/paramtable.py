@@ -81,18 +81,19 @@ def main(segment, config):
     # calculate cumulative
 
     cum_labels = [0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99]
-    cum_trace = cumsumsq(trace, normalize=True, copy=True)  #  copy=True prevent original trace from being modified
+    cum_trace = cumsumsq(trace, normalize=True, copy=True)  # copy=True prevent original trace from being modified
     cum_times = timeswhere(cum_trace, *cum_labels)
 
     # double event
-    pstart = 1
-    pend = -2
-    pref = 3
-    (score, t_double, tt1, tt2) = \
-        get_multievent_sg(cum_trace, cum_times[pstart], cum_times[pend], cum_times[pref],
-                          config['threshold_inside_tmin_tmax_percent'],
-                          config['threshold_inside_tmin_tmax_sec'],
-                          config['threshold_after_tmax_percent'])
+    try:
+        (score, t_double, tt1, tt2) = \
+            get_multievent_sg(cum_trace, cum_times[1], cum_times[-2],
+                              config['savitzky_golay'],
+                              config['threshold_inside_tmin_tmax_percent'],
+                              config['threshold_inside_tmin_tmax_sec'],
+                              config['threshold_after_tmax_percent'])
+    except IndexError as _ierr:
+        raise ValueError("Error in 'get_multievent_sg': %s" % str(_ierr))
     if score in {1, 3}:
         raise ValueError('Double event detected %d %s %s %s' % (score, t_double, tt1, tt2))
 
@@ -278,7 +279,7 @@ def savitzky_golay(y, window_size, order, deriv=0, rate=1):
     return np.convolve(m[::-1], y, mode='valid')
 
 
-def get_multievent_sg(cum_trace, tmin, tmax, tstart,
+def get_multievent_sg(cum_trace, tmin, tmax, sg_params,
                       threshold_inside_tmin_tmax_percent,
                       threshold_inside_tmin_tmax_sec, threshold_after_tmax_percent):
     """
@@ -292,7 +293,6 @@ def get_multievent_sg(cum_trace, tmin, tmax, tstart,
     """
     tmin = utcdatetime(tmin)
     tmax = utcdatetime(tmax)
-    tstart = utcdatetime(tstart)
 
     # split traces between tmin and tmax and after tmax
     traces = [cum_trace.slice(tmin, tmax), cum_trace.slice(tmax, None)]
@@ -301,8 +301,12 @@ def get_multievent_sg(cum_trace, tmin, tmax, tstart,
     second_derivs = []
     max_ = np.nan
     for ttt in traces:
-        ttt.taper(type='cosine', max_percentage=0.05)
-        sec_der = savitzky_golay(ttt.data, 31, 2, deriv=2)
+        sec_der = savitzky_golay(
+            ttt.data,
+            sg_params['wsize'],
+            sg_params['order'],
+            sg_params['deriv']
+        )
         sec_der_abs = np.abs(sec_der)
         idx = np.nanargmax(sec_der_abs)
         # get max (global) for normalization:
@@ -500,7 +504,8 @@ def derivcum2(segment, config):
     stream = segment.stream()
     assert1trace(stream)  # raise and return if stream has more than one trace
     cum = cumsumsq(stream[0], normalize=True, copy=False)
-    sec_der = savitzky_golay(cum.data, 31, 2, deriv=2)
+    cfg = config['savitzky_golay']
+    sec_der = savitzky_golay(cum.data, cfg['wsize'], cfg['order'], cfg['deriv'])
     sec_der_abs = np.abs(sec_der)
     sec_der_abs /= np.nanmax(sec_der_abs)
     # the stream object has surely only one trace (see 'cumulative')

@@ -45,6 +45,12 @@ paz_wa:
     - '-6.2832+4.7124j'
   gain: 1
 
+# savitzky_golay:
+savitzky_golay:
+  wsize: 31  # window size in pts
+  order: 4   # polynomial order to use to fit and smooth data
+  deriv: 2   # the derivative (1st, second, ...)
+
 # other custom parameters used in the associated python module
 amp_ratio_threshold: 0.8
 threshold_inside_tmin_tmax_percent: 0.90
