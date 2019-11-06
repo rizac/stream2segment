@@ -87,11 +87,10 @@ def main(segment, config):
     # double event
     try:
         (score, t_double, tt1, tt2) = \
-            get_multievent_sg(cum_trace, cum_times[1], cum_times[-2],
-                              config['savitzky_golay'],
-                              config['threshold_inside_tmin_tmax_percent'],
-                              config['threshold_inside_tmin_tmax_sec'],
-                              config['threshold_after_tmax_percent'])
+            get_multievent_sg(
+                cum_trace, cum_times[1], cum_times[-2],
+                config['savitzky_golay'], config['multievent_thresholds']
+            )
     except IndexError as _ierr:
         raise ValueError("Error in 'get_multievent_sg': %s" % str(_ierr))
     if score in {1, 3}:
@@ -279,9 +278,7 @@ def savitzky_golay(y, window_size, order, deriv=0, rate=1):
     return np.convolve(m[::-1], y, mode='valid')
 
 
-def get_multievent_sg(cum_trace, tmin, tmax, sg_params,
-                      threshold_inside_tmin_tmax_percent,
-                      threshold_inside_tmin_tmax_sec, threshold_after_tmax_percent):
+def get_multievent_sg(cum_trace, tmin, tmax, sg_params, multievent_thresholds):
     """
     Returns the tuple (or a list of tuples, if the first argument is a stream) of the
     values (score, UTCDateTime of arrival)
@@ -320,23 +317,24 @@ def get_multievent_sg(cum_trace, tmin, tmax, sg_params,
     result = 0
 
     # case A: see if after tmax we exceed a threshold
-    indices = np.where(second_derivs[1] >= threshold_after_tmax_percent)[0]
+    indices = np.where(second_derivs[1] >=
+                       multievent_thresholds['after_tmax_inpercent'])[0]
     if len(indices):
         result = 2
-    #   starttime = timeof(traces[0], indices[0])
 
     # case B: see if inside tmin tmax we exceed a threshold, and in case check the duration
     deltatime = 0
     starttime = tmin
     endtime = None
-    indices = np.where(second_derivs[0] >= threshold_inside_tmin_tmax_percent)[0]
+    indices = np.where(second_derivs[0] >=
+                       multievent_thresholds['inside_tmin_tmax_inpercent'])[0]
     if len(indices) >= 2:
         idx0 = indices[0]
         starttime = timeof(traces[0], idx0)
         idx1 = indices[-1]
         endtime = timeof(traces[0], idx1)
         deltatime = endtime - starttime
-        if deltatime >= threshold_inside_tmin_tmax_sec:
+        if deltatime >= multievent_thresholds['inside_tmin_tmax_insec']:
             result += 1
 
     return result, deltatime, starttime, endtime

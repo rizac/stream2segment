@@ -51,11 +51,14 @@ savitzky_golay:
   order: 4   # polynomial order to use to fit and smooth data
   deriv: 2   # the derivative (1st, second, ...)
 
+# thresholds for the multievent (heuristic) algorithm
+multievent_thresholds:
+  inside_tmin_tmax_inpercent: 0.90
+  inside_tmin_tmax_insec: 10.0
+  after_tmax_inpercent: 0.10
+
 # other custom parameters used in the associated python module
 amp_ratio_threshold: 0.8
-threshold_inside_tmin_tmax_percent: 0.90
-threshold_inside_tmin_tmax_sec: 10.0
-threshold_after_tmax_percent: 0.10
 snr_threshold: 3
 freqs_interp:
  - 0.1
