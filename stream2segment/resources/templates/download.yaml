@@ -138,16 +138,18 @@ location: '*'
 # Set to 0 or negative number to ignore the sampling rate
 min_sample_rate: 60
 
-# Update segments metadata, i.e. overwrite the data of already saved stations and channels.
-# Metadata include the station inventories (see 'inventory' for details).
-# This parameter does not affect new stations and channels, which will be saved on the db anyway
+# Update stations and channels metadata overwriting already saved stations or channels.
+# When false, only metadata of new stations and channels will be saved on the database
 update_metadata: false
 
-# Download station inventories (xml format). Inventories will be downloaded and saved on the db
-# for all stations that have saved segments with data. If the metadata should not be updated
-# (see 'update_metadata') already saved inventories will not be downloaded again. You can always
-# download inventories later by providing "only" as value (wihtout quotes): this will skip all other
-# download steps (and ignore all other parameters values except 'update_metadata')
+# Download station inventories (xml format). Downloading inventories with
+# update_metadata=false will not download again already saved inventories. Downloading
+# inventories with update_metadata=true will re-download the inventories of all stations.
+# You can always download inventories later by providing "only" as value (wihtout quotes)
+# which will download inventories only, i.e. skipping all other download steps and ignoring
+# all other parameters (except 'update_metadata').
+# Implementation details: inventories will in any case be downloaded and saved on the database
+# only for stations that have saved segments with data. 
 inventory: true
 
 # search radius: defines the criteria for selecting stations around events. It is a dict
@@ -179,10 +181,11 @@ search_radius:
 
 # ========================
 # Data (waveform segments) https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf#page=8
+# (reminder: inventory=only will skip waveform download, see 'inventory' above)
 # ========================
 
 # Dataselect web service to use (url). It *must* be FDSN compliant
-# otherwise the station query can not be retrieved automatically:
+# (so that the station URL can be retrieved automatically):
 #   <site>/fdsnws/dataselect/<majorversion>/query. Examples:
 #   https://service.iris.edu/fdsnws/dataselect/1/query or
 #   service.iris.edu/fdsnws/dataselect/1/query  (scheme will default to 'http://').
