@@ -58,11 +58,10 @@ sudo apt-get install git python-pip python2.7-dev  # python 2
 sudo apt-get install git python3-pip python3-dev  # python 3
 ```
 
-Optionally, you can install/upgrade the following programs (the instructions below
-are collected from several Ubuntu installations): run these commands if you want to
-have less chances of installation problems. Skip them if you want to control what to install and
-avoid upgrading already installed packages unnecessarily
-(for details, see also the [Installation Notes](#installation-notes)).
+Stream2segment needs also the following programs (collected from several Ubuntu installations):
+run these commands if you want to have less chances of installation problems.
+Skip them if you want to control what to install and avoid upgrading already installed packages unnecessarily
+(for details, see also the [Installation Notes](#installation-notes)):
 
 Upgrade `gcc` first:
 ```
