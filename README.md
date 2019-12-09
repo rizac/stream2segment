@@ -286,22 +286,22 @@ has been to update gcc and install python3-dev (python2.7-dev if you are using P
 
 ## Developer(s) notes:
 
-- The program can be also installed via the usual way:
+- The program can be also installed via the usual way by ignoring `requirements.txt` and just typing:
   ```
   pip install -e .
   ```
-  The command above will download and install the most recent versions of the
-  program dependencies: this is not as safe as using `requirements.txt` (see above)
-  which forces to install the specific versions used when running tests. From times to times, it is neverthless
-  necessary to update the dependencies, which would also make `pip install` more likely to work,
-  at least for some time. The procedure is:
+  The difference is that this way the newest version of all dependencies are downloaded, whereas with `requirements.txt`
+  (see above) all dependencies are installed with the specific version on which tests passed successfully. Therefore, the
+  latter approach is a lot safer.
+  From times to times, it is neverthless necessary to update the dependencies,
+  which would also make `pip install` more likely to work (at least for some time). The procedure is:
   ```
 	pip install -e .
 	pip freeze > ./requirements.tmp
 	pip install -e .[dev,test]
 	pip freeze > ./requirements.dev.tmp
   ```
-  Run tests (see above) with warnings on: if everything is fine you can replace the old `requirements.txt`
+  Run tests (see above) with warnings on: fix what might go wrong, and eventually you can replace the old `requirements.txt`
   and `requirements.dev.txt` with the `.tmp` file created. 
 
 <!--
