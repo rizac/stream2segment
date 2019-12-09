@@ -39,7 +39,7 @@ Please refer to the [github documentation](https://github.com/rizac/stream2segme
 
 ## Installation
 
-This program has been installed and tested on Ubuntu 14+ and macOS (El Capitan and Sierra)
+This program has been installed and tested on Ubuntu 14+ and macOS (El Capitan and Sierra). *Please note that the database software installation is not covered here. If you plan saving data to a local database, you will need also `sqlite3` or `postgres` (depending on your database choice) installed on your computer.*
 
 ### Prerequisites
 
