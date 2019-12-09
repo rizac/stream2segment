@@ -8,7 +8,7 @@ The key aspects with respect to widely-used similar applications are:
 * A database storage (sqlite or postgres) for downloaded data and metadata. We suggest to use sqlite for
   small to medium downloads (as a rule of thumb: up to hundreds of thousands of segments), and postgres
   otherwise. For massive downloads, we also suggest to use the program with at least 16GB of RAM:
-  if less, try to use postgres, although we experienced problems with any database, on machines with 8GB of RAM)
+  if less, try to use postgres, although we experienced problems with any database, on machines with 8GB of RAM
 * A highly customizable processing module to get any user-dependent output. Few templates (command `s2s init`)
   provide the user with editable examples for two typical scenarios: create tabular file outputs (e.g., csv, hdf5) 
   or store on the local file system the processed waveform segments
@@ -16,10 +16,9 @@ The key aspects with respect to widely-used similar applications are:
   Graphical User Interface (GUI) by means of Python web framework and Javascript libraries.
   The user can also set class labels to make the GUI a hand-labelling tool for supervised classification 
   problems, or to simply label special segments for easy selection
-* Each segment is exposed to the user's code as a simple Python object with a list of attributes which
-  does not only make segment data and metadata very easily accessible, but also makes the selection of
+* Each segment is exposed to the user's code as a simple Python object with a list of easily accessible attributes denoting data, metadata and related objects (segment's station, channel, event, and so on), which also makes the selection of
   suitable segments to process incredibly unique, powerful and easy to use. The selection can be performed on all
-  segments attributes, it exploits the efficiency of SQL 'select' syntax and its simplified for non-experienced
+  segments attributes, it exploits the efficiency of the SQL 'select' command and its simplified for non-experienced
   users with a documented and simplified custom syntax.
 
 **Citation (Software):**
