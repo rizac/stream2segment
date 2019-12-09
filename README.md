@@ -18,8 +18,7 @@ The key aspects with respect to widely-used similar applications are:
   problems, or to simply label special segments for easy selection
 * Each segment is exposed to the user's code as a simple Python object with a list of easily accessible attributes denoting data, metadata and related objects (segment's station, channel, event, and so on), which also makes the selection of
   suitable segments to process incredibly unique, powerful and easy to use. The selection can be performed on all
-  segments attributes, it exploits the efficiency of the SQL 'select' command and its simplified for non-experienced
-  users with a documented and simplified custom syntax.
+  segments attributes, it exploits the efficiency of the SQL `select` command and it does not require any specific database knowledge thanks to a simplified and custom syntax documented in the Usage section and in any generated template.
 
 **Citation (Software):**
 > Zaccarelli, Riccardo (2018): Stream2segment: a tool to download, process and visualize event-based seismic waveform data. V. 2.7.3. GFZ Data Services.
