@@ -34,7 +34,7 @@ The key aspects with respect to widely-used similar applications are:
 
 ## Usage
 
-Please refer to the [github documentation](https://github.com/rizac/stream2segment/wiki)
+Please refer to the **[github documentation](https://github.com/rizac/stream2segment/wiki)**
 
 
 ## Installation
