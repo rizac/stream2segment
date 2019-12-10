@@ -421,7 +421,7 @@ def dstats(dburl, download_id, maxgap_threshold, html, outfile):
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option('-did', '--download-id', multiple=True, type=int,
               help="Limit the download statistics to a specified set of download ids (integers) "
-                   "when missing, all downloads are shown. this option can be given multiple "
+                   "when missing, all downloads are shown. This option can be given multiple "
                    "times: .. -did 1 --download_id 2 ...")
 @click.option('-c', '--config', is_flag=True, default=None,
               help="Returns only the config used (in YAML syntax) of the chosen download(s)")
@@ -462,9 +462,9 @@ def dreport(dburl, download_id, config, log, outfile):
                context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option('-did', '--download-id', multiple=True, type=int, required=True,
-              help="Limit the download statistics to a specified set of download ids (integers) "
-                   "when missing, all downloads are shown. this option can be given multiple "
-                   "times: .. -did 1 --download_id 2 ...")
+              help="The id(s) of the download execution(s) to be deleted. "
+                   "This option can be given multiple "
+                   "times: ... -did 1 --download_id 2 ...")
 def ddrop(dburl, download_id):
     """Drops (deletes) download executions. WARNING: this command deletes also
        all segments, stations and channels downloaded with the given download execution"""
