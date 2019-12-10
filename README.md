@@ -134,7 +134,7 @@ or `source env/bin/activate.csh` (depending on your shell)
   env folder</sub>
 
 
-### Install and activate Python virtualenv (Anaconda)
+#### Install and activate Python virtualenv (Anaconda)
 
 **disclaimer: the lines below might be outdated.
 Please refer to the [Conda documentation](https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html)
@@ -156,7 +156,7 @@ Activate your virtual environment
   - To deactivate this environment, use ```$source deactivate```
 
 
-### Install and config packages
+### Install Stream2segment Python package
 
 **NOTE: From now on you are supposed to be in your activated Python virtualenv**
 
