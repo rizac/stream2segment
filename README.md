@@ -9,16 +9,25 @@ The key aspects with respect to widely-used similar applications are:
   small to medium downloads (as a rule of thumb: up to hundreds of thousands of segments), and postgres
   otherwise. For massive downloads, we also suggest to use the program with at least 16GB of RAM:
   if less, try to use postgres, although we experienced problems with any database, on machines with 8GB of RAM
-* A highly customizable processing module to get any user-dependent output. Few templates (command `s2s init`)
-  provide the user with editable examples for two typical scenarios: create tabular file outputs (e.g., csv, hdf5) 
-  or store on the local file system the processed waveform segments
-* A visualization tool to show downloded and optionally customized processed segments in a web browser 
-  Graphical User Interface (GUI) by means of Python web framework and Javascript libraries.
-  The user can also set class labels to make the GUI a hand-labelling tool for supervised classification 
-  problems, or to simply label special segments for easy selection
-* Each segment is exposed to the user's code as a simple Python object with a list of easily accessible attributes denoting data, metadata and related objects (segment's station, channel, event, and so on), which also makes the selection of
+* A completely customizable processing module to get any user-dependent output from the downloaded data.
+  Write your own code (following few simple instructions), run it with the `s2s process` command, and Stream2segment takes care of executing
+  your code on all selected segments, displaying progress bars, estimated available time and handling errors.
+  Few templates (command `s2s init`) provide the user with editable examples for two typical scenarios:
+  create tabular file outputs (e.g., csv, hdf5), or store on the local file system the processed waveform segments
+* In the processing module or any kind of custom code (e.g. Jupyter notebook), each segment is exposed to the user's code as a simple Python object with a list of easily accessible attributes denoting data, metadata and related objects (segment's station, channel, event, and so on), which also makes the selection of
   suitable segments to process incredibly unique, powerful and easy to use. The selection can be performed on all
-  segments attributes, it exploits under the hood the efficiency of the SQL `select` command but does not require any specific database knowledge thanks to a simplified and custom syntax documented in any generated template and in the Usage section.
+  segments attributes, it exploits under the hood the efficiency of the Object-relational mapping library to issue SQL `select` commands, but it does not require any specific database knowledge thanks to a simplified and custom syntax documented in any generated template and in the Usage section.
+* A visualization tool to show downloded and optionally customized processed segments in a web browser 
+  Graphical User Interface (GUI) by means of Python web framework and Javascript libraries. As for the processing module, write your own code (following few simple instructions) run it with the `s2s show` command, and Stream2segment takes care of showing the plots implemented therein. The user can also set class labels to make the GUI a hand-labelling tool for supervised classification 
+  problems, or to simply label special segments for easy selection
+  
+  | The GUI produced with the `show` command  | The dynamic HTML page produced with the `utils dstats` command  |
+  | --- | --- |
+  | ![](https://geofon.gfz-potsdam.de/software/stream2segment/processgui.png) | ![](https://geofon.gfz-potsdam.de/software/stream2segment/s2s_dinfogui.png)|
+  | (image linked from https://geofon.gfz-potsdam.de/software/stream2segment/) | (image linked from https://geofon.gfz-potsdam.de/software/stream2segment/) |
+
+
+  
 
 **Citation (Software):**
 > Zaccarelli, Riccardo (2018): Stream2segment: a tool to download, process and visualize event-based seismic waveform data. V. 2.7.3. GFZ Data Services.
@@ -26,7 +35,7 @@ The key aspects with respect to widely-used similar applications are:
 [http://doi.org/10.5880/GFZ.2.4.2019.002](http://doi.org/10.5880/GFZ.2.4.2019.002)
 
 
-**Citation (Research article):**:
+**Citation (Research article):**
 > Riccardo Zaccarelli, Dino Bindi, Angelo Strollo, Javier Quinteros and Fabrice Cotton. Stream2segment: An Open‐Source Tool for Downloading, Processing, and Visualizing Massive Event‐Based Seismic Waveform Datasets. *Seismological Research Letters* (2019)
 
 [https://doi.org/10.1785/0220180314](https://doi.org/10.1785/0220180314)
@@ -89,8 +98,6 @@ cd stream2segment
 ```
 
 ### Install and activate Python virtualenv
-
-(If using Anaconda, skip this section and go to the next one)
 
 We strongly recomend to use Python virtual environment,
 because by isolating all Python packages we are about to install,
