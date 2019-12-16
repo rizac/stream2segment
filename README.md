@@ -13,10 +13,10 @@ The key aspects with respect to widely-used similar applications are:
   Write your own code (following few simple instructions), run it with the `s2s process` command, and Stream2segment takes care of executing
   your code on all selected segments, displaying progress bars, estimated available time and handling errors.
   Few templates (command `s2s init`) provide the user with editable examples for two typical scenarios:
-  create tabular file outputs (e.g., csv, hdf5), or store on the local file system the processed waveform segments
+  create tabular file outputs (e.g., CSV, HDF), or store on the local file system the processed waveform segments
 * In the processing module or any kind of custom code (e.g. Jupyter notebook), each segment is exposed to the user's code as a simple Python object with a list of easily accessible attributes denoting data, metadata and related objects (segment's station, channel, event, and so on), which also makes the selection of
   suitable segments to process incredibly unique, powerful and easy to use. The selection can be performed on all
-  segments attributes, it exploits under the hood the efficiency of the Object-relational mapping library to issue SQL `select` commands, but it does not require any specific database knowledge thanks to a simplified and custom syntax documented in any generated template and in the Usage section.
+  segments attributes, it exploits under the hood the efficiency of the Object-relational mapping library to issue SQL `select` commands, but it does not require any specific database knowledge thanks to a simplified and custom syntax documented in any generated template and in the  [Usage](#usage) section.
 * A visualization tool to show downloded and optionally customized processed segments in a web browser 
   Graphical User Interface (GUI) by means of Python web framework and Javascript libraries. As for the processing module, write your own code (following few simple instructions) run it with the `s2s show` command, and Stream2segment takes care of showing the plots implemented therein. The user can also set class labels to make the GUI a hand-labelling tool for supervised classification 
   problems, or to simply label special segments for easy selection
@@ -67,12 +67,15 @@ sudo apt-get install git python-pip python2.7-dev  # python 2
 sudo apt-get install git python3-pip python3-dev  # python 3
 ```
 
-Stream2segment needs also the following programs (collected from several Ubuntu installations):
-run these commands if you want to have less chances of installation problems.
-Skip them if you want to control what to install and avoid upgrading already installed packages unnecessarily
-(for details, see also the [Installation Notes](#installation-notes)):
+Stream2segment needs also several programs (collected from several Ubuntu installations),
+which you can install beforehand by expanding the details below and have less chances of installation problems.
+You can also go to the next section and skip the step below: installation problems are more likely to happen (for details, see also the [Installation Notes](#installation-notes)) but you can control what to install and avoid upgrading already installed packages unnecessarily.
+
+<details>
+<summary>Show additional software installation details</summary>
 
 Upgrade `gcc` first:
+	
 ```
 sudo apt-get update
 sudo apt-get upgrade gcc
@@ -85,6 +88,7 @@ sudo apt-get update
 sudo apt-get install libpng-dev libfreetype6-dev \
 	build-essential gfortran libatlas-base-dev libxml2-dev libxslt-dev python-tk
 ```
+</details>
 
 ### Cloning repository
 
@@ -101,36 +105,39 @@ cd stream2segment
 
 We strongly recomend to use Python virtual environment,
 because by isolating all Python packages we are about to install,
-we won't create conflicts with already installed packages.
+we won't create conflicts with already installed packages. 
 
-#### Installation (recommended, but works for Python 3.5+ only)
-Python 3 (from version 5) has a built-in support for virtual environments - venv.
-Install it via:
-```
-sudo apt-get install python3-venv
-```
-Make virtual environment in an stream2segment/env directory (env is a convention,
-but it's ignored by git commits so better keeping it)
-```
-python3 -m venv ./env
-```
+* Installation (recommended, but works for Python 3.5+ only)
 
-#### Installation (all Python versions)
-To install Python virtual environment either use
-[Virtualenvwrapper](http://virtualenvwrapper.readthedocs.io/en/latest/install.html#basic-installation)
-or the more low-level approach `virtualenv`:
-```
-sudo pip install virtualenv
-```
-Make virtual environment in an stream2segment/env directory (env is a convention, but it's ignored by git
-commits so better keep it)
- ```
-virtualenv env
- ```
-(on ubuntu 16.04, we got the message 'virtualenv: Command not found.'.
-We just typed: `/usr/local/bin/virtualenv env`)
+	Python 3 (from version 5) has a built-in support for virtual environments - venv.
+	Install it via:
+	```
+	sudo apt-get install python3-venv
+	```
+	Make virtual environment in an stream2segment/env directory (env is a convention,
+	but it's ignored by git commits so better keeping it)
+	```
+	python3 -m venv ./env
+	```
 
-#### Activation
+* Installation (all Python versions)
+
+	To install Python virtual environment either use
+	[Virtualenvwrapper](http://virtualenvwrapper.readthedocs.io/en/latest/install.html#basic-installation)
+	or the more low-level approach `virtualenv`:
+	```
+	sudo pip install virtualenv
+	```
+	Make virtual environment in an stream2segment/env directory (env is a convention, but it's ignored by git
+	commits so better keep it)
+	 ```
+	virtualenv env
+	 ```
+	(on ubuntu 16.04, we got the message 'virtualenv: Command not found.'.
+	We just typed: `/usr/local/bin/virtualenv env`)
+
+To activate your virtual environment, type:
+
  ```
  source env/bin/activate
  ```
@@ -141,7 +148,8 @@ or `source env/bin/activate.csh` (depending on your shell)
   env folder</sub>
 
 
-#### Install and activate Python virtualenv (Anaconda)
+<details>
+	<summary>Installation and activation with Anaconda (click to expand)</summary>
 
 **disclaimer: the lines below might be outdated.
 Please refer to the [Conda documentation](https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html)
@@ -162,6 +170,7 @@ Activate your virtual environment
   - ```$source activate env```
   - To deactivate this environment, use ```$source deactivate```
 
+</details>
 
 ### Install Stream2segment Python package
 
@@ -173,34 +182,39 @@ then execute:
 pip install --upgrade pip
 ```
 
-#### Install using pre-built scripts ...
-
 Run `./installme` or `./installme-dev` (the latter if you want to contribute and/or
 run tests to check if the program will likely work in your system)
 
-#### ... or the old (longer) way:
+<details>
 
-Install numpy first (this is an obspy requirement): open the file `requirements.txt` and
-search for the line starting with "numpy". Copy it and
-pip-install numpy. For instance, supposing that the 
-line is `numpy==1.15.4`, then execute on the terminal: `pip install numpy==1.15.4`
+<summary>scripts details</summary>
 
-Install via requirements file:
-```
-pip install -r ./requirements.txt
-```
-Alternatively, if you want to run tests (recommended to check that everything works on your system):
-```
-pip install -r ./requirements.dev.txt
-```
-Install the current package
-```
-pip install -e .
-```
+The scripts above are a shorthand for the following commands, which you can always run by yourself
+to have more control on what is happening:
 
-(The `-e` options installs this package as editable, meaning that after making a change -
-e.g. a `git pull` to fetch a new version - you don't need to reinstall it but the new version will
-be already available for use)
+1. Install numpy first (this is an obspy requirement): open the file `requirements.txt` and
+   search for the line starting with "numpy". Copy it and pip-install numpy. For instance, supposing that the 
+   line is `numpy==1.15.4`, then execute on the terminal: `pip install numpy==1.15.4`
+
+2. Install via requirements file:
+    ```
+    pip install -r ./requirements.txt
+    ```
+    Alternatively, if you want to run tests (recommended to check that everything works on your system):
+    ```
+    pip install -r ./requirements.dev.txt
+    ```
+
+3. Install the current package
+   ```
+   pip install -e .
+   ```
+
+   (The `-e` options installs this package as editable, meaning that after making a change -
+   e.g. a `git pull` to fetch a new version - you don't need to reinstall it but the new version will
+   be already available for use)
+
+</details>
 
 ##### Install Jupyter (optional)
 
