@@ -15,7 +15,7 @@ from stream2segment.utils import open2writetext
 
 HDF_FILE_EXTENSIONS = ['.hdf', '.h5', '.hdf5']
 SEGMENT_ID_COLNAME = 'Segment.db.id'
-HDF_DEFAULT_CHUNKSIZE = 100000
+HDF_DEFAULT_CHUNKSIZE = 10000
 
 
 def get_writer(outputfile=None, append=False, options_dict=None):
