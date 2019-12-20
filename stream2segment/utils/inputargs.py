@@ -10,6 +10,7 @@ import os
 import sys
 import re
 from datetime import datetime, timedelta
+from itertools import chain
 
 from future.utils import string_types
 
@@ -85,8 +86,8 @@ class BadArgument(Exception):
 
 
 def parse_arguments(yaml_dic, *params):
-    '''Parses yaml_dic parameters according to `params`. Modifies in-place `yaml_dic` and
-    returns the set of `yaml_dic` parameters not parsed.
+    '''Parses yaml_dic parameters according to `params`.
+    WARNING: this method modifies in-place `yaml_dic`
 
     :param params: a list of dicts. Each dict defines how to parse the given parameter and can
         have the keys and values:
@@ -107,11 +108,7 @@ def parse_arguments(yaml_dic, *params):
         For each element of `params`, this function parses the given argument and raises the
         appropriate `BadArgument` exceptions
     :raise: BadArgument
-
-    :return: the set of names of `yaml_dic` not parsed
-
     '''
-    remainingkeys = set(yaml_dic)
     for param in params:
         names = param['names']
         if not isinstance(names, (list, tuple)):
@@ -130,9 +127,6 @@ def parse_arguments(yaml_dic, *params):
             yaml_dic.pop(name, None)
         # set new name and new (parsed) value:
         yaml_dic[newname] = newvalue
-        # remove the parsed keys from remainingkeys:
-        remainingkeys -= set(names)
-    return remainingkeys
 
 
 # to make None a passable argument to the next function
@@ -317,20 +311,17 @@ def create_auth(restricted_data, dataws, configfile=None):
     return ret
 
 
-def parse_inventory(inventory):
-    '''parses inventory returning True, False or 'only'
+def parse_update_metadata(value):
+    '''parses parse_update_metadata returning True, False or 'only'
     '''
-    inv = inventory
-    if isinstance(inventory, string_types):
-        if inventory.lower() == 'true':
-            inventory = True
-        elif inventory.lower() == 'false':
-            inventory = False
-        else:
-            inventory = inventory.lower()
-    if inventory not in (True, False, 'only'):
-        raise ValueError('value can be true, false or only, %s provided' % str(inv))
-    return inventory
+    val_str = str(value).lower()
+    if val_str == 'true':
+        return True
+    if val_str == 'false':
+        return False
+    if val_str == 'only':
+        return val_str
+    raise ValueError('value can be true, false or only, %s provided' % val_str)
 
 
 def load_tt_table(file_or_name):
@@ -545,8 +536,8 @@ def load_config_for_download(config, parseargs, **param_overrides):
              'defvalue': None
             },
             {
-             'names': ['inventory'],
-             'newvalue': parse_inventory
+             'names': ['update_metadata'],
+             'newvalue': parse_update_metadata
              },
             {
              'names': ['restricted_data'],
@@ -610,14 +601,42 @@ def load_config_for_download(config, parseargs, **param_overrides):
             }
         ]
 
-        remainingkeys = parse_arguments(config_dict, *params)
+        # store all keys now because we might change them (see below):
+        all_keys = set(config_dict)
+        # do the check (this MODIFIES config_dict in place!):
+        parse_arguments(config_dict, *params)
 
-        # check that we did not implement any conflicting arg in
-        # eventws_params
+        # Now check for:
+        # 1a. parameter supplied here NOT in the default config
+        # 1b. parameter supplied here with different type of the default config
+        # 2. Parameters in the default config not supplied here
 
-        # remove all event-related parameters (except starttime and endtime):
-        # and put them in the eventws_params dict:
-        # pop all stuff from 'eventws_params' and put it into 'event_query_params':
+        # First, create some sets of params names:
+        # the parsed keys (all names defined above):
+        parsed_keys = set(chain(*(_['names'] for _ in params)))
+        # load original configuration (default in this package):
+        orig_config = yaml_load(get_templates_fpath("download.yaml"))
+
+        # Check 1a. and 1b.:
+        for key in all_keys - parsed_keys:
+            try:
+                other_value = orig_config[key]
+            except KeyError:
+                raise BadArgument(key, '', 'No such option')
+            try:
+                typesmatch(config_dict[key], other_value)
+            except Exception as exc:
+                raise BadArgument(key, exc)
+
+        # Check 2. :
+        missing_keys = set(orig_config) - all_keys - parsed_keys
+        if missing_keys:
+            raise BadArgument(list(missing_keys), KeyError())
+
+        # At last, put all event-related parameters (except starttime and endtime):
+        # and in the eventws_params dict (the latter is an OPTIONAL dict
+        # which can be set in the config for ADDITIONAL eventws parameters)
+        # and check for conflicts:
         eventsearchparams = config_dict['eventws_params']
         # eventsearchparams might be none
         if not eventsearchparams:
@@ -629,19 +648,6 @@ def load_config_for_download(config, parseargs, **param_overrides):
             value = config_dict.pop(par, None)
             if value is not None:
                 eventsearchparams[par] = value
-
-        # For all remaining arguments, just check the type as it should match the
-        # default download config shipped with this package:
-        orig_config = yaml_load(get_templates_fpath("download.yaml"))
-        for key in remainingkeys:
-            try:
-                other_value = orig_config[key]
-            except KeyError:
-                raise BadArgument(key, '', 'No such option')
-            try:
-                typesmatch(config_dict[key], other_value)
-            except Exception as exc:
-                raise BadArgument(key, exc)
 
     return config_dict
 

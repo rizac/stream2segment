@@ -35,9 +35,8 @@ endtime: 2016-12-25T00:00:00
 # Events: https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf#page=14
 # =======
 
-# The event web service url to use. Supply
-# a *full* url (up to and not including the first query character '?')
-# or a path to a local file.
+# The event web service url to use. Supply a *full* url (up to and not including
+# the first query character '?') or a path to a local file.
 # The events list returned by the url or in the supplied file must be formatted as specified
 # in https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf#page=16
 # or as isf (http://www.isc.ac.uk/standards/isf/download/isf.pdf), although the latter
@@ -138,16 +137,17 @@ location: '*'
 # Set to 0 or negative number to ignore the sampling rate
 min_sample_rate: 60
 
-# Update stations and channels metadata overwriting already saved stations or channels.
-# When false, only metadata of new stations and channels will be saved on the database
+# Update segments metadata, i.e. when fetching stations and channels, save them
+# to the database overwriting already saved stations and channels, if present.
+# When false, only new stations and channels will be saved to the database.
+# On a subsequent download, you can also provide "only" as value (wihtout quotes)
+# to update metadata only skipping events and waveform download: in this case the *only*
+# parameters used will be 'dataws' (to get the station web service(s)) and 'inventory'
+# (to optionally re-download and save all station inventories).
 update_metadata: false
 
-# Download station inventories (xml format). Downloading inventories with
-# update_metadata=false will not download again already saved inventories. Downloading
-# inventories with update_metadata=true will re-download the inventories of all stations.
-# You can always download inventories later by providing "only" as value (wihtout quotes)
-# which will download inventories only, i.e. skipping all other download steps and ignoring
-# all other parameters (except 'update_metadata').
+# Download station inventories (xml format). When true, you can
+# control whether or not to overwrite already saved inventories with 'update_metadata'.
 # Implementation details: inventories will in any case be downloaded and saved on the database
 # only for stations that have saved segments with data. 
 inventory: true
@@ -181,7 +181,6 @@ search_radius:
 
 # ========================
 # Data (waveform segments) https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf#page=8
-# (reminder: inventory=only will skip waveform download, see 'inventory' above)
 # ========================
 
 # Dataselect web service to use (url). It *must* be FDSN compliant
@@ -216,8 +215,9 @@ traveltimes_model: 'ak135_ttp+'
 # The segment's time span (i.e., the data time window to download): specify two positive floats denoting 
 # the minutes to account for before and after the calculated arrival time. Note that 3.5 means
 # 3 minutes 30 seconds, and that each segment window will be eventually rounded to the nearest
-# second to avoid floating point errors when checking for segments to re-download because of a
-# changed window.
+# second.
+# Implementation details: the rounding is necessary to avoid floating point errors when checking
+# for segments to re-download because of a changed window.
 timespan:
  - 1.0 # start time of the waveform segment to download, in minutes *before* the calculated arrival time.
  - 3.0 # end time of the waveform segment to download, in minutes *after* the calculated arrival time
@@ -233,14 +233,13 @@ timespan:
 # - a list of two strings denoting username and password
 # when this parameter is null, or the empty string, only open (unrestricted) waveform data will
 # be downloaded. When provided, restricted segments previously downloaded with no credentials
-# (thus, with no waveform data) will be always re-downloaded regardless of the retry_* parameters.
+# (thus, with no waveform data) will be always re-downloaded ignoring all 'retry' settings.
 restricted_data: ""
 
 # Try to download again already saved segments with no waveform data because not found
 # in the response. This is NOT the case when the server returns no data with an appropriate
-# 'No Content' message, but when a successful response (usually '200: OK') does not contain
-# the expected segment data. E.g., a multi-segment request returns some but not all requested
-# segments.
+# 'No Content' message, but when a successfull multi-segment request returns some but not all
+# requested segments: missing segments will then belong to the "not found" category
 retry_seg_not_found: true
 
 # Try to download again already saved segments with no waveform data because of a

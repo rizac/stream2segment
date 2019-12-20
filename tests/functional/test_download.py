@@ -419,7 +419,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
     @patch('stream2segment.download.modules.segments.mseedunpack')
     @patch('stream2segment.io.db.pdsql.insertdf')
     @patch('stream2segment.io.db.pdsql.updatedf')
-    def test_cmdline(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
+    def tst_cmdline(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
                      mock_download_save_segments, mock_save_inventories, mock_get_channels_df,
                      mock_get_datacenters_df, mock_get_events_df,
                      # fixtures:
@@ -616,19 +616,20 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         mock_save_inventories.side_effect = \
             lambda *a, **v: self.save_inventories(inv_urlread_ret_val, *a, **v)
 
+        # SKIP THIS TEST (not valid anymore):
         # first check that we issue an error if we provide inventory as flag (old behaviour):
-        result = clirunner.invoke(cli, ['download', '-c', self.configfile,
-                                        '--dburl', db.dburl,
-                                        '--start', '2016-05-08T00:00:00',
-                                        '--end', '2016-05-08T9:00:00', '--inventory'])
-        assert not clirunner.ok(result)
-        assert '--inventory' in result.output
+        # result = clirunner.invoke(cli, ['download', '-c', self.configfile,
+        #                                '--dburl', db.dburl,
+        #                                '--start', '2016-05-08T00:00:00',
+        #                                '--end', '2016-05-08T9:00:00', '--inventory'])
+        # assert not clirunner.ok(result)
+        # assert '--inventory' in result.output
 
         # ok run now:
         result = clirunner.invoke(cli, ['download', '-c', self.configfile,
                                         '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
-                                        '--end', '2016-05-08T9:00:00', '--inventory', 'true'])
+                                        '--end', '2016-05-08T9:00:00', '--inventory'])
         assert clirunner.ok(result)
 
         stainvs = db.session.query(Station).filter(Station.has_inventory).all()
@@ -649,7 +650,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         result = clirunner.invoke(cli, ['download', '-c', self.configfile,
                                         '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
-                                        '--end', '2016-05-08T9:00:00', '--inventory', 'true'])
+                                        '--end', '2016-05-08T9:00:00', '--inventory'])
         assert clirunner.ok(result)
         stainvs = db.session.query(Station).filter(Station.has_inventory).all()
         # assert we still have one station (the one we saved before):
@@ -662,7 +663,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         result = clirunner.invoke(cli, ['download', '-c', self.configfile,
                                         '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
-                                        '--end', '2016-05-08T9:00:00', '--inventory', 'true'])
+                                        '--end', '2016-05-08T9:00:00', '--inventory'])
         assert clirunner.ok(result)
         ix = db.session.query(Station.id, Station.inventory_xml).filter(Station.has_inventory).all()
         assert len(ix) == num_expected_inventories_to_download
@@ -673,7 +674,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         result = clirunner.invoke(cli, ['download', '-c', self.configfile,
                                         '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
-                                        '--end', '2016-05-08T9:00:00', '--inventory', 'true'])
+                                        '--end', '2016-05-08T9:00:00', '--inventory'])
         assert clirunner.ok(result)
         stainvs2 = db.session.query(Station).filter(Station.has_inventory).all()
         assert len(stainvs2) == num_expected_inventories_to_download
@@ -706,7 +707,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         result = clirunner.invoke(cli, ['download', '-c', self.configfile,
                                         '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
-                                        '--end', '2016-05-08T9:00:00', '--inventory', 'true'])
+                                        '--end', '2016-05-08T9:00:00', '--inventory'])
         assert clirunner.ok(result)
 
         # try to get
@@ -762,7 +763,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         result = clirunner.invoke(cli, ['download', '-c', self.configfile,
                                         '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
-                                        '--end', '2016-05-08T9:00:00', '--inventory', 'true'])
+                                        '--end', '2016-05-08T9:00:00', '--inventory'])
         assert clirunner.ok(result)
 
         # update_metadata False: assert nothing has been updated:
@@ -776,10 +777,10 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         # NOW UPDATE METADATA
 
         result = clirunner.invoke(cli, ['download', '-c', self.configfile,
-                                        '--update-metadata',
+                                        '--update-metadata', 'true',
                                         '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
-                                        '--end', '2016-05-08T9:00:00', '--inventory', 'true'])
+                                        '--end', '2016-05-08T9:00:00', '--inventory'])
         assert clirunner.ok(result)
 
         # assert that we overwritten the values set above, so we
@@ -816,7 +817,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         result = clirunner.invoke(cli, ['download', '-c', self.configfile,
                                         '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
-                                        '--end', '2016-05-08T9:00:00', '--inventory', 'true'])
+                                        '--end', '2016-05-08T9:00:00', '--inventory'])
         assert result.exception
         assert result.exc_info[0] == SystemExit
         logmsg = self.log_msg()
@@ -852,11 +853,12 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         mock_updatedf.side_effect = lambda *a, **v: updatedf(*a, **v)
         # prevlen = len(db.session.query(Segment).all())
 
+        # NOTE: NOT SPECIFYING inventory uses the configfile value. IN THESE
+        # TESTS, HOWEVER, SETS THE inventory FLAG AS FALSE (see line 130)
         result = clirunner.invoke(cli, ['download', '-c', self.configfile,
                                         '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
-                                        '--end', '2016-05-08T9:00:00',
-                                        '--inventory', 'false'])
+                                        '--end', '2016-05-08T9:00:00'])
         assert clirunner.ok(result)
 
         # assert we called logger config with log2file rg not None (a file):
@@ -887,10 +889,12 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         result = clirunner.invoke(cli, ['download', '-c', self.configfile,
                                         '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
-                                        '--end', '2016-05-08T9:00:00', '--inventory', 'only'])
+                                        '--end', '2016-05-08T9:00:00',
+                                        '--update-metadata', 'only',
+                                        '--inventory'])
         assert clirunner.ok(result)
         assert not mock_download_save_segments.called
-        assert "STEP 1 of 1: Downloading 2 station inventories" in result.output
+        assert "STEP 3 of 3: Downloading 2 station inventories" in result.output
         # But assert the log message does contain the warning
         # (self.log_msg() is from a logger configured additionaly for these tests)
         new_log_msg = self.log_msg()[len(old_log_msg):]
@@ -916,7 +920,9 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         result = clirunner.invoke(cli, ['download', '-c', self.configfile,
                                         '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
-                                        '--end', '2016-05-08T9:00:00', '--inventory', 'only'])
+                                        '--end', '2016-05-08T9:00:00',
+                                        '--update-metadata', 'only',
+                                        '--inventory'])
         assert clirunner.ok(result)
         stainvs = db.session.query(Station).filter(Station.has_inventory).all()
         # assert we still have one station (the one we saved before):
@@ -930,7 +936,9 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         result = clirunner.invoke(cli, ['download', '-c', self.configfile,
                                         '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
-                                        '--end', '2016-05-08T9:00:00', '--inventory', 'only'])
+                                        '--end', '2016-05-08T9:00:00',
+                                        '--update-metadata', 'false',
+                                        '--inventory'])
         assert clirunner.ok(result)
         stainvs = db.session.query(Station).filter(Station.has_inventory).all()
         # assert we still have one station (the one we saved before):
@@ -940,6 +948,106 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         download_id_ = max(_[0] for _ in db.session.query(Download.id).all())
         assert download_id_ == download_id + 3
 
+        # Now, we want to simulate the case where we provide a different
+        # data center returning an already saved station. The saved station has
+        # been downloaded from a different data center
+
+        # id datacenter_id inventory_xml
+        # 1 1              b'...'
+        # 2 1              None
+        # 3 2              b'...'
+        # 4 2              None
+
+        # which is equivalent to the dataframe returned by this function
+        def get_stadf():
+            return pd.read_csv(
+                StringIO(
+                    dbquery2df(
+                        db.session.query(
+                            Station.id,
+                            Station.datacenter_id,
+                            Station.inventory_xml,
+                            Station.network,
+                            Station.station,
+                            Station.start_time)
+                        ).to_string(index=False)
+                    ),
+                sep='\s+').sort_values(by=['id']).reset_index(drop=True)
+        # i.e., this dataframe:
+        sta_df = get_stadf()
+
+        # run a download with no update metadata and no inventory download
+        mock_save_inventories.reset_mock()
+        new_dataselect = 'http://abc/fdsnws/dataselect/1/query'
+        result = clirunner.invoke(cli, ['download', '-c', self.configfile,
+                                        '--dburl', db.dburl,
+                                        '--start', '2016-05-08T00:00:00',
+                                        '--end', '2016-05-08T9:00:00',
+                                        '-ds', new_dataselect,
+                                        '--update-metadata', 'false',
+                                        '--inventory'])
+        assert clirunner.ok(result)
+        assert not mock_save_inventories.called
+        new_stadf = get_stadf()
+        pd.testing.assert_frame_equal(sta_df, new_stadf)
+
+        # run a download with update metadata and no inventory download
+        result = clirunner.invoke(cli, ['download', '-c', self.configfile,
+                                        '--dburl', db.dburl,
+                                        '--start', '2016-05-08T00:00:00',
+                                        '--end', '2016-05-08T9:00:00',
+                                        '-ds', new_dataselect,
+                                        '--update-metadata', 'true'])
+        assert clirunner.ok(result)
+        assert not mock_save_inventories.called
+        # according to self._sta_urlread_sideeffect (see above), the first
+        # station response is the GEOFON response, which now it is bound to
+        # another data center
+        # let's test it:
+        new_stadf = get_stadf()
+        expected_new_datacenter_id = sta_df.datacenter_id.max() + 1
+        ids_changed = sta_df[sta_df.datacenter_id == 1].id
+        assert (new_stadf[new_stadf.id.isin(ids_changed)].datacenter_id ==
+                expected_new_datacenter_id).all()
+        pd.testing.assert_frame_equal(
+            sta_df[sta_df.datacenter_id != 1],
+            new_stadf[new_stadf.datacenter_id != expected_new_datacenter_id]
+        )
+
+        # now run a final download with update metadata and inventory donwload:
+        for param in ['false', 'true', 'only']:
+            mock_get_events_df.reset_mock()
+            mock_get_datacenters_df.reset_mock()
+            mock_get_channels_df.reset_mock()
+            mock_save_inventories.reset_mock()
+            mock_download_save_segments.reset_mock()
+            result = clirunner.invoke(cli, ['download', '-c', self.configfile,
+                                            '--dburl', db.dburl,
+                                            '--start', '2016-05-08T00:00:00',
+                                            '--end', '2016-05-08T9:00:00',
+                                            '-ds', new_dataselect,
+                                            '--update-metadata', param,
+                                            '--inventory'])
+            assert clirunner.ok(result)
+            assert mock_get_events_df.called == (param != 'only')
+            assert mock_get_datacenters_df.called
+            assert mock_get_channels_df.called
+            assert mock_download_save_segments.called == (param != 'only')
+            alist = self.mock_urlopen.call_args_list
+            stainvs = []
+            # get all the urls used to fetch the inventories:
+            for call_ in alist:
+                arg0 = call_[0][0]
+                if b'level=response' in getattr(arg0, 'data', b'') \
+                        and hasattr(arg0, 'full_url'):
+                    stainvs.append(arg0.full_url)
+            # now check those urls:
+            if param == 'false':
+                # no call to station inventories:
+                assert not stainvs
+            else:
+                assert any(new_dataselect.replace('dataselect', 'station')
+                           in _ for _ in stainvs)
 
     @patch('stream2segment.main.run_download')
     def test_yaml_optional_params(self, mock_run,

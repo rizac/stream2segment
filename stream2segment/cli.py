@@ -173,22 +173,22 @@ def init(outdir):
 # * option help: the option help shown when issuing "--help" from the command line
 # * yaml param help: the help in the docstring immediately preceeding a yaml param name,
 #   (fetched from the default download.yaml file in the 'templates' folder)
-# 1. we want to set each option help from the corresponding yaml param help, so that we keep docs
+# 1. Option flags should all have default=None which lets us know that the flag is missing and use
+#    the corresponding yaml param values
+# 2. we want to set each option help from the corresponding yaml param help, so that we keep docs
 #    updated in only one place.
 #    This is done by the method `clickutils.set_help_from_yaml`, attached
 #    as callback to the option '--dburl' below, which has 'is_eager=True', meaning that the
 #    callback is executed before all other options, even when invoking the command with --help.
-# 2. Note: Don't set required = True with eager=True in a click option, as it forces that option
+# 3. Note: Don't set required = True with eager=True in a click option, as it forces that option
 #    to be always present, and thus raises if only --help is given
-# 3. For yaml param help, any string following "Implementation details:": will not be shown
+# 4. For yaml param help, any string following "Implementation details:": will not be shown
 #    in the corresponding option help.
-# 4. Some yaml params accepts different names (e.g., 'net' will
+# 5. Some yaml params accepts different names (e.g., 'net' will
 #    be recognized as 'networks'): by convention, these are provided as option long names.
 #    (Options short names can be changed without problems, in principle).
 #    For these options, you need also to provide an option default name which MUST MATCH
 #    the corresponding yaml param help, otherwise the option doc will not be found.
-# 5. Option flags should all have default=None which lets us know that the flag is missing and use
-#    the corresponding yaml param values
 @cli.command(short_help='Downloads waveform data segments',
              context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
 @click.option("-c", "--config",
@@ -209,14 +209,14 @@ def init(outdir):
 @click.option('-ds', '--dataws')
 @click.option('-t', '--traveltimes-model')
 @click.option('-w', '--timespan', nargs=2, type=float)
-@click.option('-u', '--update-metadata', is_flag=True, default=None)
+@click.option('-u', '--update-metadata', type=click.Choice(['true', 'false', 'only']), default=None)
 @click.option('-r1', '--retry-url-err', is_flag=True, default=None)
 @click.option('-r2', '--retry-mseed-err', is_flag=True, default=None)
 @click.option('-r3', '--retry-seg-not-found', is_flag=True, default=None)
 @click.option('-r4', '--retry-client-err', is_flag=True, default=None)
 @click.option('-r5', '--retry-server-err', is_flag=True, default=None)
 @click.option('-r6', '--retry-timespan-err', is_flag=True, default=None)
-@click.option('-i', '--inventory', type=click.Choice(['true', 'false', 'only']), default=None)
+@click.option('-i', '--inventory', is_flag=True, default=None)
 @click.option('-minlat', '--minlatitude', type=float,
               help=(clickutils.EQA + " Limit to events with a latitude larger than "
                     "or equal to the specified minimum"))

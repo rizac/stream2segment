@@ -52,10 +52,13 @@ def run(session, download_id, eventws, starttime, endtime, dataws, eventws_param
     # 2) a Faileddownload to stop the download immediately and raise the exception
 
     dbbufsize = advanced_settings['db_buf_size']
+    update_md_only = update_metadata == 'only'
+    if update_md_only:
+        update_metadata = True
 
     process = psutil.Process(os.getpid()) if isterminal else None
     # calculate steps (note that bool math works, e.g: 8 - True == 7):
-    __steps = 1 if inventory == 'only' else \
+    __steps = 3 if update_md_only else \
         (6 + inventory + (True if authorizer.token else False))
     stepiter = iter(range(1, __steps+1))
 
@@ -68,31 +71,33 @@ def run(session, download_id, eventws, starttime, endtime, dataws, eventws_param
             logger.warning("(%.1f%% memory used)", percent)
 
     try:
-        if inventory != 'only':
+        if not update_md_only:
 
             stepinfo("Fetching events")
             events_df = get_events_df(session, eventws, eventws_params, starttime, endtime,
                                       dbbufsize, advanced_settings['e_timeout'], isterminal)
 
-            # Get datacenters, store them in the db, returns the dc instances (db rows) correctly
-            # added
-            stepinfo("Fetching data-centers")
-            # get dacatanters (might raise FailedDownload):
-            datacenters_df, eidavalidator = \
-                get_datacenters_df(session, dataws, advanced_settings['routing_service_url'],
-                                   network, station, location, channel, starttime, endtime,
-                                   dbbufsize)
+        # Get datacenters, store them in the db, returns the dc instances (db rows) correctly
+        # added
+        stepinfo("Fetching data-centers")
+        # get dacatanters (might raise FailedDownload):
+        datacenters_df, eidavalidator = \
+            get_datacenters_df(session, dataws, advanced_settings['routing_service_url'],
+                               network, station, location, channel, starttime, endtime,
+                               dbbufsize)
 
-            stepinfo("Fetching stations and channels from %d %s", len(datacenters_df),
-                     "data-center" if len(datacenters_df) == 1 else "data-centers")
-            # get dacatanters (might raise FailedDownload):
-            channels_df = get_channels_df(session, datacenters_df, eidavalidator,
-                                          network, station, location, channel, starttime, endtime,
-                                          min_sample_rate, update_metadata,
-                                          advanced_settings['max_thread_workers'],
-                                          advanced_settings['s_timeout'],
-                                          advanced_settings['download_blocksize'], dbbufsize,
-                                          isterminal)
+        stepinfo("Fetching stations and channels from %d %s", len(datacenters_df),
+                 "data-center" if len(datacenters_df) == 1 else "data-centers")
+        # get dacatanters (might raise FailedDownload):
+        channels_df = get_channels_df(session, datacenters_df, eidavalidator,
+                                      network, station, location, channel, starttime, endtime,
+                                      min_sample_rate, update_metadata,
+                                      advanced_settings['max_thread_workers'],
+                                      advanced_settings['s_timeout'],
+                                      advanced_settings['download_blocksize'], dbbufsize,
+                                      isterminal)
+
+        if not update_md_only:
             # get channel id to mseed id dict and purge channels_df
             # the dict will be used to download the segments later, but we use it now to drop
             # unnecessary columns and save space (and time)

@@ -106,18 +106,17 @@ def _get_dtype(sqltype):
 
 
 def colnames(table, pkey=None, fkey=None, nullable=None):
-    """
-        Returns an iterator returning the attributes names (as string) reflecting database
-        columns with the given properties specified as argument.
+    """Returns an iterator returning the attributes names (as string) reflecting database
+    columns with the given properties specified as argument.
 
-        :param table: an ORM model class (python class)
-        :param pkey: boolean or None. If None, filter on primary keys is off. If True, only
-            primary key columns are yielded, if False, only non-primary key columns are yielded
-        :param fkey: boolean or None. If None, filter on foreign keys is off. If True, only
-            foreign key columns are yielded, if False, only non-foreign key columns are yielded
-        :param nullable: boolean or None. If None, filter on nullable columns is off.
-            If True, only columns where nullable=True are yielded, if False, only columns where
-            nullable=False are yielded
+    :param table: an ORM model class (python class)
+    :param pkey: boolean or None. If None, filter on primary keys is off. If True, only
+        primary key columns are yielded, if False, only non-primary key columns are yielded
+    :param fkey: boolean or None. If None, filter on foreign keys is off. If True, only
+        foreign key columns are yielded, if False, only non-foreign key columns are yielded
+    :param nullable: boolean or None. If None, filter on nullable columns is off.
+        If True, only columns where nullable=True are yielded, if False, only columns where
+        nullable=False are yielded
     """
     mapper = inspect(table)
     # http://docs.sqlalchemy.org/en/latest/orm/mapping_api.html#sqlalchemy.orm.mapper.Mapper.mapped_table
@@ -154,16 +153,17 @@ def shared_colnames(table, dataframe, pkey=None, fkey=None, nullable=None):
     instance or class) and the given pandas DataFrame. The table columns are its attribute names
     (as typed in the code in the class definition), the DataFrame should thus have string columns
     to avoid unexpected results in the comparison
+
     :param table: the ORM table instance or the ORM table model
     :param dataframe: a dataframe, with string columns
     :param pkey: boolean or None. If None, filter on primary keys is off. If True, only primary
-    key columns shared between table and dataframe are yielded, if False, only shared non-primary
-    key columns are yielded
+        key columns shared between table and dataframe are yielded, if False, only shared
+        non-primary key columns are yielded
     :param fkey: boolean or None. If None, filter on foreign keys is off. If True, only shared
-    foreign key columns are yielded, if False, only shared non-foreign key columns are yielded
+        foreign key columns are yielded, if False, only shared non-foreign key columns are yielded
     :param nullable: boolean or None. If None, filter on nullable columns is off.
-    If True, only shared columns where nullable=True are yielded, if False, only shared columns
-    where nullable=False are yielded
+        If True, only shared columns where nullable=True are yielded, if False, only shared columns
+        where nullable=False are yielded
     """
     dfcols = set(dataframe.columns)  # in operator is faster on sets
     for colname in colnames(table, pkey=pkey, fkey=fkey, nullable=nullable):

@@ -71,7 +71,7 @@ def download(config, log2file=True, verbose=False, **param_overrides):
 
         :param config: a valid path to a file in yaml format, or a dict of parameters reflecting
             a download config file
-        :param log2file: boolean (ignored and set to False if config['inventory'] == 'only').
+        :param log2file: boolean.
             if True (the default) configures a logger handler which redirects to
             a file named: `config.<now>.log`, where now is the current date-time in iso format.
             The file will be used to log all warning, error and critical messages and will write
