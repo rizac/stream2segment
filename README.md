@@ -290,20 +290,27 @@ Where the options denote:
 Move the file or create a link in the proper folder. The problem has been solved looking at
 http://phersung.blogspot.de/2013/06/how-to-compile-libxml2-for-lxml-python.html
 
-- On Ubuntu 14.04 
-All following issues should be solved by following the instructions in the section [Prerequisites](#prerequisites). However:
- - For numpy installation problems (such as `Cannot compile 'Python.h'`) , the fix
-has been to update gcc and install python3-dev (python2.7-dev if you are using Python2.7, discouraged): 
-	```sudo apt-get update
+All following issues should be solved by installing all dependencies as described in
+the section [Prerequisites](#prerequisites). If you did not install them, here the solutions
+to common problems you might have and that we collected from several Ubuntu installations:
+
+- For numpy installation problems (such as `Cannot compile 'Python.h'`) , the fix 
+  has been to update gcc and install python3-dev (python2.7-dev if you are using Python2.7, discouraged): 
+  ```
+  	sudo apt-get update
 	sudo apt-get upgrade gcc
-	sudo apt-get install python3-dev```
-	For details see http://stackoverflow.com/questions/18785063/install-numpy-in-python-virtualenv
- - For scipy problems, `build-essential gfortran libatlas-base-dev` are required for scipy
-   (see http://stackoverflow.com/questions/2213551/installing-scipy-with-pip/3865521#3865521)
- - For lxml problems, `libxml2-dev libxslt-dev` are required (see here: http://lxml.de/installation.html)
+	sudo apt-get install python3-dev
+   ```
+   For details see [here](http://stackoverflow.com/questions/18785063/install-numpy-in-python-virtualenv)
+ 
+ - For scipy problems, `build-essential gfortran libatlas-base-dev` are required for scipy.
+   For details see [here](http://stackoverflow.com/questions/2213551/installing-scipy-with-pip/3865521#3865521)
+ 
+ - For lxml problems, `libxml2-dev libxslt-dev` are required. For details see [here](http://lxml.de/installation.html)
+ 
  - For matplotlib problems (matplotlib is not used by the program but from imported libraries),
-   `libpng-dev libfreetype6-dev` are required
-   (see http://stackoverflow.com/questions/25593512/cant-install-matplotlib-using-pip and http://stackoverflow.com/questions/28914202/pip-install-matplotlib-fails-cannot-build-package-freetype-python-setup-py-e)
+   `libpng-dev libfreetype6-dev` are required. For details see
+   [here](http://stackoverflow.com/questions/25593512/cant-install-matplotlib-using-pip and http://stackoverflow.com/questions/28914202/pip-install-matplotlib-fails-cannot-build-package-freetype-python-setup-py-e)
 
 ## Developer(s) notes:
 

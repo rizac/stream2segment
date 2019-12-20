@@ -148,6 +148,7 @@ update_metadata: false
 
 # Download station inventories (xml format). When true, you can
 # control whether or not to overwrite already saved inventories with 'update_metadata'.
+# When false, update_metadata should also be false for data consistency.
 # Implementation details: inventories will in any case be downloaded and saved on the database
 # only for stations that have saved segments with data. 
 inventory: true
