@@ -297,10 +297,10 @@ to common problems you might have and that we collected from several Ubuntu inst
 - For numpy installation problems (such as `Cannot compile 'Python.h'`) , the fix 
   has been to update gcc and install python3-dev (python2.7-dev if you are using Python2.7, discouraged): 
   ```
-  	sudo apt-get update
-	sudo apt-get upgrade gcc
-	sudo apt-get install python3-dev
-   ```
+  sudo apt-get update
+  sudo apt-get upgrade gcc
+  sudo apt-get install python3-dev
+  ```
    For details see [here](http://stackoverflow.com/questions/18785063/install-numpy-in-python-virtualenv)
  
  - For scipy problems, `build-essential gfortran libatlas-base-dev` are required for scipy.
@@ -310,7 +310,7 @@ to common problems you might have and that we collected from several Ubuntu inst
  
  - For matplotlib problems (matplotlib is not used by the program but from imported libraries),
    `libpng-dev libfreetype6-dev` are required. For details see
-   [here](http://stackoverflow.com/questions/25593512/cant-install-matplotlib-using-pip and http://stackoverflow.com/questions/28914202/pip-install-matplotlib-fails-cannot-build-package-freetype-python-setup-py-e)
+   [here](http://stackoverflow.com/questions/25593512/cant-install-matplotlib-using-pip) and [here]( http://stackoverflow.com/questions/28914202/pip-install-matplotlib-fails-cannot-build-package-freetype-python-setup-py-e)
 
 ## Developer(s) notes:
 
