@@ -5,7 +5,7 @@ created to manage massive amounts of data.
 
 The key aspects with respect to widely-used similar applications are:
 
-* A database storage (sqlite or postgres) for downloaded data and metadata which, contrarily to standard file system storage, allows data consistency checks, a far more powerful and efficient data selection (see below) and, in many cases, improves performances. We suggest to use sqlite for
+* A database storage (sqlite or postgres) for downloaded data and metadata. For medium to massive amounts of data, a database is much more efficient than the standard file system, as it allows data consistency checks, a far more powerful and efficient data selection (see below) and, in many cases, improves download and processing performances. We suggest to use sqlite for
   small to medium downloads (as a rule of thumb: up to hundreds of thousands of segments), and postgres
   otherwise. For massive downloads, we also suggest to use the program with at least 16GB of RAM:
   if less, try to use postgres, although we experienced problems with any database, on machines with 8GB of RAM
@@ -16,7 +16,7 @@ The key aspects with respect to widely-used similar applications are:
   create tabular file outputs (e.g., CSV, HDF), or store on the local file system the processed waveform segments
 * In the processing module or any kind of custom code (e.g. Jupyter notebook), each segment is exposed to the user's code as a simple Python object with a list of easily accessible attributes denoting data, metadata and related objects (segment's station, channel, event, and so on), which also makes the selection of
   suitable segments to process incredibly unique, powerful and easy to use. The selection can be performed on all
-  segments attributes, it exploits under the hood the efficiency of the Object-relational mapping library to issue SQL `select` commands, but it does not require any specific database knowledge thanks to a simplified and custom syntax documented in any generated template and in the  [Usage](#usage) section.
+  segments attributes, it exploits under the hood the efficiency of the Object-relational mapping library to issue SQL `select` commands, but it does not require any specific database knowledge thanks to a simplified and custom syntax documented in any generated template and in the  [Usage](#usage) section
 * A visualization tool to show downloded and optionally customized processed segments in a web browser 
   Graphical User Interface (GUI) by means of Python web framework and Javascript libraries. As for the processing module, write your own code (following few simple instructions) run it with the `s2s show` command, and Stream2segment takes care of showing the plots implemented therein. The user can also set class labels to make the GUI a hand-labelling tool for supervised classification 
   problems, or to simply label special segments for easy selection
