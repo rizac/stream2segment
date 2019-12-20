@@ -5,11 +5,11 @@ created to manage massive amounts of data.
 
 The key aspects with respect to widely-used similar applications are:
 
-* A database storage (sqlite or postgres) for downloaded data and metadata. We suggest to use sqlite for
+* A database storage (sqlite or postgres) for downloaded data and metadata which, contrarily to standard file system storage, allows data consistency checks, a far more powerful and efficient data selection (see below) and, in many cases, improves performances. We suggest to use sqlite for
   small to medium downloads (as a rule of thumb: up to hundreds of thousands of segments), and postgres
   otherwise. For massive downloads, we also suggest to use the program with at least 16GB of RAM:
   if less, try to use postgres, although we experienced problems with any database, on machines with 8GB of RAM
-* A completely customizable processing module to get any user-dependent output from the downloaded data.
+* An integrated processing environment to get any user-dependent output from the downloaded data.
   Write your own code (following few simple instructions), run it with the `s2s process` command, and Stream2segment takes care of executing
   your code on all selected segments, displaying progress bars, estimated available time and handling errors.
   Few templates (command `s2s init`) provide the user with editable examples for two typical scenarios:
