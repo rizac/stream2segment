@@ -141,14 +141,14 @@ min_sample_rate: 60
 # to the database overwriting already saved stations and channels, if present.
 # When false, only new stations and channels will be saved to the database.
 # On a subsequent download, you can also provide "only" as value (wihtout quotes)
-# to update metadata only skipping events and waveform download: in this case the *only*
+# to update metadata only, skipping events and waveform download: in this case the *only*
 # parameters used will be 'dataws' (to get the station web service(s)) and 'inventory'
 # (to optionally re-download and save all station inventories).
 update_metadata: false
 
 # Download station inventories (xml format). When true, you can
-# control whether or not to overwrite already saved inventories with 'update_metadata'.
-# When false, update_metadata should also be false for data consistency.
+# control whether or not to overwrite already saved inventories with 'update_metadata'
+# (when false, update_metadata should also be false for data consistency).
 # Implementation details: inventories will in any case be downloaded and saved on the database
 # only for stations that have saved segments with data. 
 inventory: true
