@@ -5,16 +5,16 @@ created to manage massive amounts of data.
 
 The key aspects with respect to widely-used similar applications are:
 
-* A database storage (sqlite or postgres) for downloaded data and metadata. For medium to massive amounts of data, a database is much more efficient than the standard file system, as it allows data consistency checks, a far more powerful and efficient data selection (see below) and, in many cases, improves download and processing performances. We suggest to use sqlite for
+* A database storage (sqlite or postgres) for downloaded data and metadata. Downloading hundreds of thousand, if not millions, of waveform segments on your file system to inspect, select and process them accessing their metadata, is so unfeasible to be in most cases virtually impossible. For this kind of tasks a database is much more efficient, as it allows e.g., data consistency and integrity checks by design, a far more powerful and efficient data selection and accessibility (see below) and  allows several users to work on the same database remotely, if needed. We suggest to use sqlite for
   small to medium downloads (as a rule of thumb: up to hundreds of thousands of segments), and postgres
   otherwise. For massive downloads, we also suggest to use the program with at least 16GB of RAM:
   if less, try to use postgres, although we experienced problems with any database, on machines with 8GB of RAM
 * An integrated processing environment to get any user-dependent output from the downloaded data.
-  Write your own code (following few simple instructions), run it with the `s2s process` command, and Stream2segment takes care of executing
-  your code on all selected segments, displaying progress bars, estimated available time and handling errors.
+  Write your own code in a processing module (following few simple instructions), run it with the `s2s process` command, and Stream2segment takes care of executing
+  the code on all selected segments, interacting with the database for you while displaying progress bars, estimated available time, and handling errors.
   Few templates (command `s2s init`) provide the user with editable examples for two typical scenarios:
   create tabular file outputs (e.g., CSV, HDF), or store on the local file system the processed waveform segments
-* In the processing module or any kind of custom code (e.g. Jupyter notebook), each segment is exposed to the user's code as a simple Python object with a list of easily accessible attributes denoting data, metadata and related objects (segment's station, channel, event, and so on), which also makes the selection of
+* In any kind of custom code (processing module or Jupyter notebook), each segment is exposed to the user's code as a simple Python object with a list of easily accessible attributes denoting data, metadata and related objects (segment's station, channel, event, and so on), which also makes the selection of
   suitable segments to process incredibly unique, powerful and easy to use. The selection can be performed on all
   segments attributes, it exploits under the hood the efficiency of the Object-relational mapping library to issue SQL `select` commands, but it does not require any specific database knowledge thanks to a simplified and custom syntax documented in any generated template and in the  [Usage](#usage) section
 * A visualization tool to show downloded and optionally customized processed segments in a web browser 
