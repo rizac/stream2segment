@@ -216,9 +216,10 @@ def check_suspiciously_duplicated_segment(segments_df):
                           max_row_count=100)
 
 
-# For convenience and readability, define once the mapped column names representing the
-# dataframe columns that we need:
-class SEG(object):
+class SEG(object):  # pylint: disable=too-few-public-methods, useless-object-inheritance
+    '''Simple enum-like container of strings defining the segment's
+    related database/dataframe columns needed in this module
+    '''
     CHAID = Segment.channel_id.key  # pylint: disable=invalid-name
     EVID = Segment.event_id.key  # pylint: disable=invalid-name
     ATIME = Segment.arrival_time.key  # pylint: disable=invalid-name
@@ -238,6 +239,7 @@ class SEG(object):
     DOWNLID = Segment.download_id.key  # pylint: disable=invalid-name
     ATIME = Segment.arrival_time.key  # pylint: disable=invalid-name
     QAUTH = Segment.queryauth.key  # pylint: disable=invalid-name
+    # non-db column temporary set to get what segment has to be re-downloaded:
     RETRY = "__do.download__"  # pylint: disable=invalid-name
 
 
@@ -678,7 +680,8 @@ class DcDataselectManager(object):
 
 class SegmentLogger(set):
     '''A class handling segment errors and logging only once per error type
-    and datacenter to avoid polluting the log file/stream with hundreds of megabytes'''
+    and datacenter to avoid polluting the log file/stream with hundreds of megabytes
+    of redundant information'''
 
     def warn(self, request, url, code, exc):
         '''issues a logger.warn if the given error is not already reported
