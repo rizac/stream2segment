@@ -388,8 +388,8 @@ class Fdsnws(object):
     from a given service / method / majorversion
 
     Example: given an url in any of these formats:
-                https://www.mysite.org/fdsnws/<station>/<majorversion>
-                http://www.mysite.org/fdsnws/<station>/<majorversion>/<method>
+                https://www.mysite.org/fdsnws/<service>/<majorversion>
+                http://www.mysite.org/fdsnws/<service>/<majorversion>/<method>
 
         (the scheme 'https://' might be omitted and will default to 'http://'.
         An ending '/' or '?' will be ignored if present)

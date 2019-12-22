@@ -33,7 +33,7 @@ from stream2segment.cli import cli
 from stream2segment.download.main import get_events_df, get_datacenters_df, \
     get_channels_df, download_save_segments, save_inventories
 from stream2segment.io.db.models import Segment, Download, Station, Channel, \
-    withdata, Event
+    withdata, Event, DataCenter
 from stream2segment.io.db.pdsql import dbquery2df, insertdf, updatedf,\
     _get_max as _get_db_autoinc_col_max
 from stream2segment.download.utils import s2scodes
@@ -284,9 +284,9 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
             # to make this test work, dbbufsize (a[9]) must be=1
             # First do a check in order to catch if we changed dbbufsize position
             # of the default value in download.yaml:
-            assert a[9] == 100
+            assert a[10] == 100
             a2 = list(a)
-            a2[9] = 1
+            a2[10] = 1
             self.download_save_segments(None, *a2, **v)
         mock_download_save_segments.side_effect = dss
         mock_mseed_unpack.side_effect = lambda *a, **v: unpack(*a, **v)
@@ -1014,8 +1014,29 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
             new_stadf[new_stadf.datacenter_id != expected_new_datacenter_id]
         )
 
-        # now run a final download with update metadata and inventory donwload:
+        # now run a final download with update metadata and inventory donwload
+        # Create a new Datacenter and set all stations and segments with
+        # foreign key that datacenter:
+        dcn = DataCenter(station_url='http://zzz/fdsnws/station/1/query',
+                         dataselect_url='http://zzz/fdsnws/dataselect/1/query')
+        # the id must be set manually in postgres (why? do not know, see here
+        # for details: https://stackoverflow.com/a/40281835)
+        fake_dc_id = 1 + max(_[0] for _ in db.session.query(DataCenter.id))
+        dcn.id = fake_dc_id
+        db.session.add(dcn)
+        db.session.commit()
+        def reset_dc_ids():
+            stas = db.session.query(Station).all()
+            segs = db.session.query(Segment).all()
+            for sta in stas:
+                sta.datacenter_id = fake_dc_id
+            for seg in segs:
+                seg.datacenter_id = fake_dc_id
+            db.session.commit()
+        fake_dc_id = dcn.id
+        # now run the tests:
         for param in ['false', 'true', 'only']:
+            reset_dc_ids()
             mock_get_events_df.reset_mock()
             mock_get_datacenters_df.reset_mock()
             mock_get_channels_df.reset_mock()
@@ -1045,9 +1066,19 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
             if param == 'false':
                 # no call to station inventories:
                 assert not stainvs
+                # assert we did not change any datacenter:
+                assert all(_.datacenter_id == fake_dc_id for _ in db.session.query(Station))
+                assert all(_.datacenter_id == fake_dc_id for _ in db.session.query(Segment))
             else:
                 assert any(new_dataselect.replace('dataselect', 'station')
                            in _ for _ in stainvs)
+                assert any(_.datacenter_id == fake_dc_id for _ in db.session.query(Station))
+                assert any(_.datacenter_id != fake_dc_id for _ in db.session.query(Station))
+                if param == 'only':
+                    assert all(_.datacenter_id == fake_dc_id for _ in db.session.query(Segment))
+                else:
+                    assert any(_.datacenter_id == fake_dc_id for _ in db.session.query(Segment))
+                    assert any(_.datacenter_id != fake_dc_id for _ in db.session.query(Segment))
 
     @patch('stream2segment.main.run_download')
     def test_yaml_optional_params(self, mock_run,

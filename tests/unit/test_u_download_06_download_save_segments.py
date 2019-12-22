@@ -398,7 +398,8 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         ztatz = self.download_save_segments(urlread_sideeffect, db.session, segments_df,
                                             dc_dataselect_manager,
                                             chaid2mseedid,
-                                            self.run.id, request_timebounds_need_update,
+                                            self.run.id, False,
+                                            request_timebounds_need_update,
                                             1, 2, 3, db_bufsize=self.db_buf_size)
         # get columns from db which we are interested on to check
         cols = [Segment.id, Segment.channel_id, Segment.datacenter_id,
@@ -522,7 +523,8 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         ztatz = self.download_save_segments(urlread_sideeffect, db.session, segments_df,
                                             dc_dataselect_manager,
                                             chaid2mseedid,
-                                            self.run.id, request_timebounds_need_update,
+                                            self.run.id, False,
+                                            request_timebounds_need_update,
                                             1, 2, 3, db_bufsize=self.db_buf_size)
         # get columns from db which we are interested on to check
         cols = [Segment.download_code, Segment.channel_id]
@@ -719,7 +721,8 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         ztatz = self.download_save_segments(urlread_sideeffect, db.session, segments_df,
                                             dc_dataselect_manager,
                                             chaid2mseedid,
-                                            self.run.id, request_timebounds_need_update,
+                                            self.run.id, False,
+                                            request_timebounds_need_update,
                                             1, 2, 3, db_bufsize=self.db_buf_size)
         # get columns from db which we are interested on to check
         cols = [Segment.id, Segment.channel_id, Segment.datacenter_id,
@@ -763,8 +766,8 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # now modify the first row time bounds:
         # first we need to assign the database id to our segments_df, to prevent
         # db contraint error when writing to db:
-        # `download_save_segments` below needs toi UPDATE the segments and it does it by checking if an
-        # id is present
+        # `download_save_segments` below needs toi UPDATE the segments and it does it by
+        # checking if an id is present.
         # check that the channel_ids align:
         assert (segments_df[Segment.channel_id.key].values ==
                 db_segments_df[Segment.channel_id.key].values).all()
@@ -798,7 +801,8 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         ztatz = self.download_save_segments(urlread_sideeffect, db.session, new_segments_df,
                                             dc_dataselect_manager,
                                             chaid2mseedid,
-                                            self.run.id, request_timebounds_need_update,
+                                            self.run.id, False,
+                                            request_timebounds_need_update,
                                             1, 2, 3, db_bufsize=self.db_buf_size)
         db_segments_df = dbquery2df(db.session.query(*cols))
         # re-sort db_segments_df to match the segments_df:

@@ -136,6 +136,7 @@ def run(session, download_id, eventws, starttime, endtime, dataws, eventws_param
 
             d_stats = download_save_segments(session, segments_df, dc_dataselect_manager,
                                              chaid2mseedid, download_id,
+                                             update_metadata,
                                              request_timebounds_need_update,
                                              advanced_settings['max_thread_workers'],
                                              advanced_settings['w_timeout'],

@@ -13,7 +13,7 @@ from stream2segment.utils.url import read_async, Request, urlread
 
 def no_connection():
     try:
-        urlread("https://geofon.gfz-potsdam.de-/")
+        urlread("https://geofon.gfz-potsdam.de/")
         return False
     except:
         return True

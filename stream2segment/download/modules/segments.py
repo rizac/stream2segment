@@ -244,8 +244,9 @@ class SEG(object):  # pylint: disable=too-few-public-methods, useless-object-inh
 
 
 def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2mseedid,
-                           download_id, update_request_timebounds, max_thread_workers, timeout,
-                           download_blocksize, db_bufsize, show_progress=False):
+                           download_id, update_datacenters, update_request_timebounds,
+                           max_thread_workers, timeout, download_blocksize, db_bufsize,
+                           show_progress=False):
 
     """Downloads and saves the segments. segments_df MUST not be empty (this is not checked for)
 
@@ -266,7 +267,7 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
     else:
         segments_df[SEG.QAUTH] = False
 
-    segmanager = get_dbmanager(session, update_request_timebounds, db_bufsize)
+    segmanager = get_dbmanager(session, update_datacenters, update_request_timebounds, db_bufsize)
     stats = DownloadStats()
 
     # define the groupsby columns
@@ -381,7 +382,7 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
     return stats
 
 
-def get_dbmanager(session, update_request_timebounds, db_bufsize):
+def get_dbmanager(session, update_datacenter, update_request_timebounds, db_bufsize):
     '''Returns a DbManager for downloading waveform data'''
     colnames2update = [
         SEG.DOWNLID,
@@ -396,6 +397,8 @@ def get_dbmanager(session, update_request_timebounds, db_bufsize):
     ]
     if update_request_timebounds:
         colnames2update += [SEG.START, SEG.ATIME, SEG.END]
+    if update_datacenter:
+        colnames2update += [SEG.DCID]
 
     db_exc_logger = DbExcLogger([SEG.ID, SEG.CHAID, SEG.START, SEG.END, SEG.DCID])
 
