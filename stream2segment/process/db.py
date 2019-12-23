@@ -1,9 +1,10 @@
 '''
 ORM for processing. Enhances Segment and Station class with several methods.
 
-For functions called from within the processing rotuine (e.g., see the classmeth_*
-functions) remember that raising ValueError will block only the currently processed segment,
-all other exceptions will terminat ethe whole subroutine
+For any of those custom methods (e.g., see the classmeth_* functions) remember,
+when raising, that from the stream2segment processing routine,
+ValueError will block only the currently processed segment,
+all other exceptions will terminate the whole routine
 
 Created on 26 Mar 2019
 

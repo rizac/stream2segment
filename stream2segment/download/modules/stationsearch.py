@@ -1,5 +1,5 @@
 '''
-Download module for segments download
+Event-based station search functions
 
 :date: Dec 3, 2017
 
@@ -30,17 +30,17 @@ from itertools import cycle
 
 def merge_events_stations(events_df, channels_df, search_radius,
                           tttable, show_progress=False):
-    """
-        Merges `events_df` and `channels_df` by returning a new dataframe representing all
-        channels within a specific search radius. *Each row of the returned data frame is
-        basically a segment to be potentially donwloaded*.
-        The returned dataframe will be the same as `channels_df` with one or more rows repeated
-        (some channels might be in the search radius of several events), plus a column
-        "event_id" (`Segment.event_id`) representing the event associated to that channel
-        and two columns 'event_distance_deg', 'time' (representing the *event* time) and
-        'depth_km' (representing the event depth in km)
-        :param channels_df: pandas DataFrame resulting from `get_channels_df`
-        :param events_df: pandas DataFrame resulting from `get_events_df`
+    """Merges `events_df` and `channels_df` by returning a new dataframe representing all
+    channels within a specific search radius. *Each row of the returned data frame is
+    basically a segment to be potentially donwloaded*.
+    The returned dataframe will be the same as `channels_df` with one or more rows repeated
+    (some channels might be in the search radius of several events), plus a column
+    "event_id" (`Segment.event_id`) representing the event associated to that channel
+    and two columns 'event_distance_deg', 'time' (representing the *event* time) and
+    'depth_km' (representing the event depth in km)
+
+    :param channels_df: pandas DataFrame resulting from `get_channels_df`
+    :param events_df: pandas DataFrame resulting from `get_events_df`
     """
     # For convenience and readability, define once the mapped column names representing the
     # dataframe columns that we need:
@@ -143,10 +143,9 @@ def merge_events_stations(events_df, channels_df, search_radius,
 
 
 def locations2degrees(lat1, lon1, lat2, lon2):
-    """
-    Same as obspy `locations2degree` but works with numpy arrays. NOTE: thanks to our PR ;)
-    the current obspy version supports this function, but we prefer to decouple obspy from
-    the download package
+    """Same as obspy `locations2degree` but works with numpy arrays.
+    (Note: this function, exactly this one, is now in obspy, thanks to a PR we issued long ago.
+    We still have it here because prefer to decouple obspy from the download package
 
     From the doc:
     Convenience function to calculate the great circle distance between two
@@ -156,17 +155,12 @@ def locations2degrees(lat1, lon1, lat2, lon2):
     Earth. For more accurate values use the geodesic distance calculations of
     geopy (https://github.com/geopy/geopy).
 
-    :type lat1: numpy numeric array
-    :param lat1: Latitude(s) of point 1 in degrees
-    :type lon1: numpy numeric array
-    :param lon1: Longitude(s) of point 1 in degrees
-    :type lat2: numpy numeric array
-    :param lat2: Latitude(s) of point 2 in degrees
-    :type lon2: numpy numeric array
-    :param lon2: Longitude(s) of point 2 in degrees
-    :rtype: numpy numeric array
-    :return: Distance in degrees as a floating point number.
+    :param lat1: (numpy numeric array). Latitude(s) of point 1 in degrees
+    :param lon1: (numpy numeric array). Longitude(s) of point 1 in degrees
+    :param lat2: (numpy numeric array). Latitude(s) of point 2 in degrees
+    :param lon2: (numpy numeric array). Longitude(s) of point 2 in degrees
 
+    :return: Distance in degrees as a numpy numeric array.
     """
     # Convert to radians.
     lat1 = np.radians(np.asarray(lat1))

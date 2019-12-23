@@ -1,5 +1,5 @@
 '''
-Download module for segments download
+Segments download functions
 
 :date: Dec 3, 2017
 
@@ -7,11 +7,12 @@ Download module for segments download
 '''
 # make the following(s) behave like python3 counterparts if running from python2.7.x
 # (http://python-future.org/imports.html#explicit-imports):
-from builtins import map, next, zip, range, object
-import os
+from builtins import zip, object
+# import os
+# import sys
 from datetime import timedelta
-import sys
-from collections import OrderedDict, defaultdict
+
+from collections import OrderedDict
 # import logging
 
 import numpy as np
@@ -37,30 +38,33 @@ from stream2segment.utils.url import get_opener
 def prepare_for_download(session, segments_df, dc_dataselect_manager, timespan,
                          retry_seg_not_found, retry_url_err, retry_mseed_err, retry_client_err,
                          retry_server_err, retry_timespan_err, retry_timespan_warn=False):
-    """
-        Drops the segments which are already present on the database and updates the primary
-        keys for those not present (adding them to the db).
-        Adds three new columns to the returned Data frame:
-        `Segment.id` and `Segment.download_status_code`
+    """Drops the segments which are already present on the database and updates the primary
+    keys for those not present (adding them to the db). Adds new columns to the returned
+    Data frame
 
-        :param session: the sql-alchemy session bound to an existing database
-        :param segments_df: pandas DataFrame resulting from `get_arrivaltimes`
+    :param session: the sql-alchemy session bound to an existing database
+    :param segments_df: pandas DataFrame resulting from `get_arrivaltimes`
     """
     opendataonly = dc_dataselect_manager.opendataonly
+    # fetch  already downloaded segments and return the corresponding dataframe.
+    # which will have also the boolean column SEG.RETRY, which is True for suspiciously
+    # restricted (SR) segments, i.e. segments whose download code MIGHT denote that they
+    # are restricted (see `s2scodes.restricted_data`):
     db_seg_df = fetch_already_downloaded_segments_df(session, segments_df, opendataonly)
-    # store now the ids of the segments which are suspiciously restricted and must be always
-    # re-downloaded (we will use it later). If open data, set to a pd DataFrame so that
-    # dataframe.empty returns true
+    # store now the ids of the SR segments, we will use them later. If open data, `db_seg_df`
+    # does not have the column SEG.RETRY so set the ids to a (empty) DataFrame for consistency:
     force_retry_ids = pd.DataFrame() if opendataonly else db_seg_df[SEG.ID][db_seg_df[SEG.RETRY]]
+    # Now update the SEG.RETRY column (or create it) according to the flags set:
     set_segments_to_retry(db_seg_df, opendataonly, retry_seg_not_found, retry_url_err,
                           retry_mseed_err, retry_client_err, retry_server_err,
                           retry_timespan_err, retry_timespan_warn)
 
-    # update existing dataframe:
-    # 1) set columns and defaults (for int types, set np.nan):
+    # Now merge/update existing dataframe (`segments_df`) with the db values (`db_seg_df`).
+    # Do it in two steps, 1) and 2):
+    # 1) set columns and defaults (for int types, sets np.nan).
     # Note that if we have something to retry (db_seg_df[SEG_RETRY].any()), we add also
-    # a None download code as default. Merged with db_seg_df later, we will know when we can skip
-    # the download (doiwnload code did not change):
+    # a column SEG.DSCODE with None/nan as default: checking if that column exists
+    # will be the way later to know if we need to update rows or only insert new rows.
     cols2set = OrderedDict([(SEG.ID, np.nan), (SEG.RETRY, True), (SEG.REQSTIME, pd.NaT),
                             (SEG.REQETIME, pd.NaT)] +
                            ([(SEG.DSCODE, np.nan)] if db_seg_df[SEG.RETRY].any() else []))
@@ -87,10 +91,17 @@ def prepare_for_download(session, segments_df, dc_dataselect_manager, timespan,
 
     check_suspiciously_duplicated_segment(segments_df)
 
-    # Now set the download code for 204 and 404 with none download code to force rewrite
-    # A None download code will force rewrite (SQL update) because the response code will
-    # never be equal to None. Do this if there is something to retry
-    # (SEG_DSC in segments_df.columns) and we have ids suspiciously downloaded as open:
+    # Last step: the policy later will be to UPDATE (=overwrite existing segments on the database)
+    # only segments whose download code changed (see comment on line 354)  because yes, it might
+    # save a lot of time. E.g., suppose retry_server_error=true and a segment
+    # on the db with download code=500 => update it only if the server returns some code != 500.
+    # However, if we are downloading with credentials, we need to force updating SR segments which
+    # were downloaded with no credentials, by definition of SR (suspiciously restricted).
+    # Thus, if we have those segments (`not force_retry_ids.empty`) and we are
+    # performing a download on an already existing database (`SEG.DSCODE in segments_df.columns`),
+    # for those SR segments we will set the value of the column `SEG.DSCODE` to None/nan:
+    # as we will never get any response code = None from the server, those SR segments
+    # will always be updated
     if not force_retry_ids.empty and SEG.DSCODE in segments_df.columns:
         segments_df.loc[segments_df[SEG.ID].isin(force_retry_ids), SEG.DSCODE] = np.nan
 
@@ -243,6 +254,8 @@ class SEG(object):  # pylint: disable=too-few-public-methods, useless-object-inh
     RETRY = "__do.download__"  # pylint: disable=invalid-name
 
 
+
+
 def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2mseedid,
                            download_id, update_datacenters, update_request_timebounds,
                            max_thread_workers, timeout, download_blocksize, db_bufsize,
@@ -257,7 +270,7 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
         has to be forced, whatever code is obtained (e.g., queryauth when previously a simple
         query was used)
     :param chaid2mseedid: dict of channel ids (int) mapped to mseed ids
-    (strings in "Network.station.location.channel" format)
+        (strings in "Network.station.location.channel" format)
     """
     # set queryauth column here, outside the loop:
     restricted_enable_dcids = dc_dataselect_manager.restricted_enabled_ids
@@ -340,13 +353,16 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
                     # here we are if: exc is not None OR data = b''
                     url_stats[code] += num_segments
                     if toupdate and code is not None and (dframe[col_dscode] == code).sum():
-                        # if there are rows to update and response has no data, then
-                        # discard those for which the code is the same. If we requested a different
+                        # if there are rows to update, then discard those for which
+                        # the code is the same in the database. If we requested a different
                         # time window, we should update the time windows but there is no point in
-                        # this overhead. The last condition (`code is not None`)
-                        # should never happen but for safety we put it, otherwise we risk to skip
-                        # segments with download_code NA (which means exactly the opposite: force
-                        # insert/update them to the db. See comment on line 90):
+                        # this overhead. The condition `code is not None`
+                        # should never happen but for safety we put it, because we have set the
+                        # download code column of `dframe` to None/nan to mark segments to update
+                        # neverthless, on the assumption that we never get response code = None
+                        # (see comment L.94).
+                        # Thus, if for some weird reason the response code is None, then update the
+                        # segment anyway (as we wanted to)
                         dframe = dframe[dframe[col_dscode] != code]
                         skipped_same_code += num_segments - len(dframe)
                         if dframe.empty:  # nothing to update on the db
@@ -412,8 +428,8 @@ def get_responses(seg_groups, dc_dataselect_manager, chaid2mseedid,
                   max_thread_workers, timeout, download_blocksize):
     '''Downloads segments and yields results
 
-        :param seg groups: is an iterable of 2 element tuples. The first element is the tuple
-             of the 'groupby' values, and the second element is the dataframe
+    :param seg groups: is an iterable of 2 element tuples. The first element is the tuple
+        of the 'groupby' values, and the second element is the dataframe
     '''
     def req(group_element):
         '''calls get_seg_request from an item of Pandas groupby. Used in read_async below
@@ -474,18 +490,12 @@ def get_seg_request(segments_df, datacenter_url, chaid2mseedid):
     :param chaid2mseedid: dict of channel ids (int) mapped to mseed ids
         (strings in "Network.station.location.channel" format)
     """
-    # For convenience and readability, define once the mapped column names representing the
-    # dataframe columns that we need:
-    SEG_START = Segment.request_start.key  # pylint: disable=invalid-name
-    SEG_END = Segment.request_end.key  # pylint: disable=invalid-name
-    CHA_ID = Segment.channel_id.key  # pylint: disable=invalid-name
-
-    stime = segments_df[SEG_START].iloc[0].isoformat()
-    etime = segments_df[SEG_END].iloc[0].isoformat()
+    stime = segments_df[SEG.START].iloc[0].isoformat()
+    etime = segments_df[SEG.END].iloc[0].isoformat()
 
     post_data = "\n".join("{} {} {}".format(*(chaid2mseedid[chaid].replace("..", ".--.").
                                               replace(".", " "), stime, etime))
-                          for chaid in segments_df[CHA_ID] if chaid in chaid2mseedid)
+                          for chaid in segments_df[SEG.CHAID] if chaid in chaid2mseedid)
     return Request(url=datacenter_url, data=post_data.encode('utf8'))
 
 

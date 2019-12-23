@@ -1,5 +1,5 @@
 '''
-Download module for data-centers download
+Data center(s) download functions
 
 :date: Dec 3, 2017
 
@@ -204,7 +204,6 @@ class EidaValidator(object):
         NOTE: If the channel is associated to more than one data center, the id of
         the first matching is returned
         '''
-
         # return the first data center that matches. The case where the routing service
         # might return several data centers should never happen, and even if it does
         # (and it probably will from our experience) is not up to this program
@@ -220,7 +219,8 @@ class ItemMatcher(object):
     channel'''
     def __init__(self, net, sta, loc, cha, stime, etime):
         '''Initializes this Matcher with the components of the eida routing
-        service channel (which might contain wildcards)'''
+        service channel (which might contain wildcards)
+        '''
         regex_ = "\\.".join([strconvert.wild2re(net),
                              strconvert.wild2re(sta),
                              '' if loc == '--' else strconvert.wild2re(loc),
@@ -232,7 +232,8 @@ class ItemMatcher(object):
     def match(self, net, sta, loc, cha, stime, etime):
         '''Returns True if the given Matcher matches the channel
         identified by the function arguments (all strings except stime and etime
-        which must be datetime or None).'''
+        which must be datetime or None)
+        '''
         if stime is not None and self.etime is not None and stime >= self.etime:
             return None
         if etime is not None and self.stime is not None and etime <= self.stime:

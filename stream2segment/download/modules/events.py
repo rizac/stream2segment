@@ -1,5 +1,5 @@
 '''
-Events download module
+Events download functions
 
 :date: Dec 3, 2017
 

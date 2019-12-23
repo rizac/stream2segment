@@ -1,5 +1,5 @@
 '''
-Download module for stations download
+Stations (inventory) download functions
 
 :date: Dec 3, 2017
 

@@ -1,5 +1,5 @@
 '''
-Download module for stations (level=channel) download
+Stations/Channels download functions
 
 :date: Dec 3, 2017
 
@@ -7,10 +7,9 @@ Download module for stations (level=channel) download
 '''
 # make the following(s) behave like python3 counterparts if running from python2.7.x
 # (http://python-future.org/imports.html#explicit-imports):
-from builtins import map, next, zip, range, object
+from builtins import zip, object
 
 import re
-import logging
 from itertools import cycle
 
 import numpy as np
@@ -47,10 +46,10 @@ def get_channels_df(session, datacenters_df, eidavalidator,  # <- can be none
     :param datacenters_df: the first item resulting from `get_datacenters_df` (pandas DataFrame)
     :param post_data: the second item resulting from `get_datacenters_df` (string)
     :param channels: a list of string denoting the channels, or None for no filtering
-    (all channels). Each string follows FDSN specifications (e.g. 'BHZ', 'H??'). This argument
-    is not used if `post_data` is given (not None)
+        (all channels). Each string follows FDSN specifications (e.g. 'BHZ', 'H??'). This argument
+        is not used if `post_data` is given (not None)
     :param min_sample_rate: minimum sampling rate, set to negative value for no-filtering
-    (all channels)
+        (all channels)
     """
     postdata = get_post_data(net, sta, loc, cha, starttime, endtime)
 
@@ -229,6 +228,7 @@ def filter_channels_df(channels_df, net, sta, loc, cha, min_sample_rate):
 
 def get_channels_df_from_db(session, datacenters_df, net, sta, loc, cha, starttime, endtime,
                             min_sample_rate):
+    '''Returns a dataframe of the database channels according to the arguments'''
     # Build sql-alchemy binary expressions
     # _be means "binary expression" (sql alchemy object reflecting a sql clause)
     srate_be = Channel.sample_rate >= min_sample_rate if min_sample_rate > 0 else True
@@ -337,12 +337,11 @@ class CH(object):  # pylint: disable=too-few-public-methods, useless-object-inhe
 
 
 def save_stations_and_channels(session, channels_df, eidavalidator, update, db_bufsize):
-    """
-        Saves to db channels (and their stations) and returns a dataframe with only channels saved
-        The returned data frame will have the column 'id' (`Station.id`) renamed to
-        'station_id' (`Channel.station_id`) and a new 'id' column referring to the Channel id
-        (`Channel.id`)
-        :param channels_df: pandas DataFrame resulting from `get_channels_df`
+    """Saves to db channels (and their stations) and returns a dataframe with only channels saved
+    The returned data frame will have the column 'id' (`Station.id`) renamed to
+    'station_id' (`Channel.station_id`) and a new 'id' column referring to the Channel id
+    (`Channel.id`)
+    :param channels_df: pandas DataFrame resulting from `get_channels_df`
     """
     # first drop channels of same station:
     sta_df = channels_df.drop_duplicates(subset=[ST.NET, ST.STA, ST.STIME, ST.DCID]).copy()
