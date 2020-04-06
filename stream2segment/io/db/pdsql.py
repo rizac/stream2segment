@@ -29,27 +29,20 @@ from __future__ import division
 # (http://python-future.org/imports.html#explicit-imports):
 from builtins import range
 
+from datetime import datetime, date
 # Returns a list over dictionary values (and keys)
 # with the same list-like behaviour on Py2.7 as on Py3:
 # (scroll at the end of imports for other custom implementations of iterkeys and listkeys)
 from future.utils import listvalues
 
-
-from datetime import datetime, date
 import numpy as np
 import pandas as pd
 
 from pandas import to_datetime
-# from pandas.types.api import DatetimeTZDtype
-# pandas zip seems a wrapper around itertools.izip (generator instead than list):
-from pandas.compat import (lzip, map, zip, raise_with_traceback,
-                           string_types, text_type)
+
 # is this below the same as pd.isnull? For safety we leave it like it is (the line is imported
 # from pandas.io.sql and used in one of the copied methods below)
 from pandas.core.common import isnull
-# drop import for DatetimeTZDtype, as we do not support TIMESTAMPs in sql (all datetimes are
-# assumed in UTC). So comment out line below:
-# from pandas.core.dtypes.dtypes import DatetimeTZDtype
 
 # Sql-alchemy:
 from sqlalchemy.exc import SQLAlchemyError
@@ -63,13 +56,20 @@ try:
     dict.iteritems
 except AttributeError:
     # Python 3
+    text_type = str
+
     def listkeys(d):
         return list(d.keys())
 
     def iterkeys(d):
         return d.keys()
 else:
-    # Python 2
+    # Python 2:
+    text_type = unicode  # @UndefinedVariable @ReservedAssignment
+    import itertools
+    zip = itertools.izip  # @UndefinedVariable @ReservedAssignment
+    map = itertools.imap  # @UndefinedVariable @ReservedAssignment
+
     def listkeys(d):
         return d.keys()
 
@@ -323,6 +323,7 @@ def _handle_date_column(col, format=None):  # @ReservedAssignment
     return to_datetime(col, errors='coerce', format=format)
 
 
+
 def _insert_data(dataframe):
     """Copied to pandas.io.sql.SqlTable: basically converts dataframe to a numpy array of arrays
     for insertion inside a db table.
@@ -348,9 +349,31 @@ def _insert_data(dataframe):
     for i in range(len(blocks)):
         b = blocks[i]
         if b.is_datetime:
-            # convert to microsecond resolution so this yields
-            # datetime.datetime
-            d = b.values.astype('M8[us]').astype(object)
+            # in pandas versions before 1.0, b.values is a numpy ndarray of
+            # dtype datetime64[ns]
+            # After, it might be a DatetimeArray IF ALL items are all not
+            # pd NaT (so we might jump in any case to the else below)
+            # Looking at the code
+            # (https://github.com/pandas-dev/pandas/blob/master/pandas/io/sql.py#L700)
+            # we can do like this:
+            if b.is_datetimetz:
+                # this is equivalent to say: we have a DatetimeArray
+                # (or DatetimeIndex?). Why we will never be here in pd < 0.24
+                # using the same tests is also a mystery. However, we use
+                # the code provided at the link above with a single addition:
+                # remove the timezone as we do not work with timezone aware
+                # datetimes and also make the objects returned by this "if"
+                # branch and the "else" below the same
+                # (tz_convert(tz) convert tz-aware Datetime Array/Index from
+                # one time zone to another. A `tz` of None will
+                # convert to UTC and remove the timezone information)
+                d = b.values.tz_convert(None).to_pydatetime()
+                # Need to return 2-D data; DatetimeArray is 1D
+                d = np.atleast_2d(d)
+            else:
+                # convert to microsecond resolution so this yields
+                # datetime.datetime
+                d = b.values.astype('M8[us]').astype(object)
         else:
             d = np.array(b.get_values(), dtype=object)
 

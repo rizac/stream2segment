@@ -1085,7 +1085,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
                                   # fixtures:
                                   pytestdir, clirunner):
         with open(self.configfile) as fp:
-            _yaml_dict = yaml.load(fp)
+            _yaml_dict = yaml.safe_load(fp)
 
         # do not provide trailing spaces for easier comparison here below
         vals = [None, ['*'], ['HH?', 'AB']]

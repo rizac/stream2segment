@@ -26,6 +26,9 @@ from stream2segment.utils import ascii_decorate
 from stream2segment.download.utils import s2scodes
 
 
+def readfile(outfile):
+    with open(outfile) as _:
+        return _.read()
 
 
 class Test(object):
@@ -135,7 +138,7 @@ class Test(object):
         result = runner.invoke(cli, ['utils', self.CMD_NAME, '--dburl', db.dburl, outfile])
 
         assert not result.exception
-        content = open(outfile).read()
+        content = readfile(outfile)
         assert """
                               OK        OK         Time                 Segment           Internal       
                               Gaps      Partially  Span   MSeed  Url    Not      Bad      Server         
@@ -190,7 +193,7 @@ TOTAL                      3         1          2      1      1      1        1 
         result = runner.invoke(cli, ['utils', self.CMD_NAME, '--html',  '--dburl', db.dburl, outfile])
 
         assert not result.exception
-        content = open(outfile).read()
+        content = readfile(outfile)
 
         sta_data = jsonloads('sta_data', content)
         networks = jsonloads('networks', content)
@@ -253,7 +256,7 @@ download statistics written to """)
 
         assert not result.exception
 
-        content = open(outfile).read()
+        content = readfile(outfile)
         # parse the sta_data content into dict and check stuff:
         sta_data = jsonloads('sta_data', content)
         networks = jsonloads('networks', content)
@@ -337,7 +340,7 @@ download statistics written to """)
         result = runner.invoke(cli, ['utils', self.CMD_NAME, '--dburl', db.dburl, outfile])
 
         assert not result.exception
-        content = open(outfile).read()
+        content = readfile(outfile)
         assert """
                               OK        OK         Time                 Segment           Internal       
                               Gaps      Partially  Span   MSeed  Url    Not      Bad      Server         

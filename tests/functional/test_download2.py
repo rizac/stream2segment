@@ -8,6 +8,7 @@ from __future__ import print_function
 from builtins import str
 import os
 import sys
+from datetime import datetime
 # this can apparently not be avoided neither with the future package:
 # The problem is io.StringIO accepts unicodes in python2 and strings in python3:
 from io import BytesIO
@@ -27,7 +28,7 @@ import pandas as pd
 from stream2segment.cli import cli
 from stream2segment.download.main import get_events_df, get_datacenters_df, \
     save_inventories, get_channels_df, download_save_segments
-from stream2segment.io.db.models import Segment, Download
+from stream2segment.io.db.models import Segment, Download, Station, Channel
 from stream2segment.io.db.pdsql import insertdf, updatedf
 from stream2segment.download.utils import s2scodes
 from stream2segment.download.modules.mseedlite import unpack
@@ -377,6 +378,14 @@ BS|VETAM||HNZ|43.0805|25.6367|224.0|0.0|0.0|-90.0|200|427475.0|0.02|M/S**2|100.0
                                         '--start', '2016-05-08T00:00:00',
                                         '--end', '2016-05-08T9:00:00'])
         assert clirunner.ok(result)
+        
+        # check datetimes are correctly written (pd > 1.0 and DatetimeArrays):
+        # BS|BLKB||BHE|43.6227|22.675|650.0|0.0|90.0|0.0|Seismometer/Basalt|926787000.0|0.2|M/S|20.0|2012-11-20T00:00:00|
+        qry = db.session.query(Station).\
+            filter((Station.network == 'BS') &
+                   (Station.station == 'BLKB') &
+                   (Station.start_time == datetime(2012, 11, 20))).all()
+        assert len(qry) == 1
 
         assert len(db.session.query(Download.id).all()) == runs + 1
         runs += 1
