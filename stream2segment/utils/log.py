@@ -60,7 +60,8 @@ class DbStreamHandler(logging.FileHandler):
         super(DbStreamHandler, self).emit(record)  # logging.FileHandler flushes every emit
 
     def finalize(self, session, download_id, removefile=True):
-        '''writes to db, closes and optionally removes the underlying file'''
+        '''writes to db, closes this handler
+        and optionally removes the underlying file'''
         # the super-class sets the stream to None when closing, so we might check this to
         # see if we closed it already:
         if self.stream is None:
@@ -222,3 +223,11 @@ def logfilepath(basefilepath):
     """
     _now = datetime.utcnow().replace(microsecond=0).isoformat()
     return basefilepath + (".%s.log" % _now)
+
+
+def closelogger(logger):
+    '''closes all logger handlers and removes them from logger'''
+    handlers = logger.handlers[:]
+    for handler in handlers:
+        handler.close()
+        logger.removeHandler(handler)

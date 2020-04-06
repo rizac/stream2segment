@@ -191,7 +191,7 @@ segment (id=3): 4 traces (probably gaps/overlaps)
 segment (id=2): Station inventory (xml) error: no data
 
 1 of 3 segment(s) successfully processed
-2 of 3 segment(s) skipped with error message (check log or details)""")
+2 of 3 segment(s) skipped with error message reported in the log file""")
         # assert logfile exists:
         assert os.path.isfile(self._logfilename)
 
@@ -235,7 +235,7 @@ segment (id=4): Station inventory (xml) error: no data
 segment (id=5): 4 traces (probably gaps/overlaps)
 
 0 of 4 segment(s) successfully processed
-4 of 4 segment(s) skipped with error message (check log or details)""")
+4 of 4 segment(s) skipped with error message reported in the log file""")
 
     # Recall: we have 6 segments, issued from all combination of
     # station_inventory in [true, false] and segment.data in [ok, with_gaps, empty]
@@ -285,7 +285,7 @@ segment (id=4): Station inventory (xml) error: no data
 segment (id=5): 4 traces (probably gaps/overlaps)
 
 0 of 2 segment(s) successfully processed
-2 of 2 segment(s) skipped with error message (check log or details)""")
+2 of 2 segment(s) skipped with error message reported in the log file""")
         else:
             assert self.inlogtext("""3 segment(s) found to process
 
@@ -294,7 +294,7 @@ segment (id=5): 4 traces (probably gaps/overlaps)
 segment (id=6): MiniSeed error: no data
 
 0 of 3 segment(s) successfully processed
-3 of 3 segment(s) skipped with error message (check log or details)""")
+3 of 3 segment(s) skipped with error message reported in the log file""")
 
     # Recall: we have 6 segments, issued from all combination of
     # station_inventory in [true, false] and segment.data in [ok, with_gaps, empty]
@@ -368,7 +368,7 @@ segment (id=4): Station inventory (xml) error: no data
 segment (id=5): 4 traces (probably gaps/overlaps)
 
 1 of 4 segment(s) successfully processed
-3 of 4 segment(s) skipped with error message (check log or details)""")
+3 of 4 segment(s) skipped with error message reported in the log file""")
         # assert logfile exists:
         assert os.path.isfile(self._logfilename)
 
@@ -539,7 +539,7 @@ def main(""")
                 (r"0 segment\(s\) found to process\n"
                  r"\n+"
                  r"0 of 0 segment\(s\) successfully processed\n"
-                 r"0 of 0 segment\(s\) skipped with error message \(check log or details\)")
+                 r"0 of 0 segment\(s\) skipped with error message reported in the log file")
             assert re.search(str2check, stdout)
             assert re.search(str2check, logfilecontent)
         else:
@@ -551,7 +551,7 @@ def main(""")
                 (r'4 segment\(s\) found to process\n'
                  r'\n+'
                  r'0 of 4 segment\(s\) successfully processed\n'
-                 r'4 of 4 segment\(s\) skipped with error message \(check log or details\)')
+                 r'4 of 4 segment\(s\) skipped with error message reported in the log file')
             assert re.search(str2check, stdout)
 
             # logfile has also the messages of what was wrong. Note that
@@ -575,5 +575,5 @@ def main(""")
                  r"segment \([^\)]+\)\: invalid literal for .* with base 10: '4d'\n"
                  r"\n+"
                  r"0 of 4 segment\(s\) successfully processed\n"
-                 r"4 of 4 segment\(s\) skipped with error message \(check log or details\)")
+                 r"4 of 4 segment\(s\) skipped with error message reported in the log file")
             assert re.search(str2check, logfilecontent)

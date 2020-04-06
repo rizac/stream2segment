@@ -380,11 +380,21 @@ def valid_fdsn(url, is_eventws, configfile=None):
     return Fdsnws(url).url()
 
 
+def dict_or_none(value):
+    '''Checks that value is a dict and returns `value`.
+    Returns {} if the value is None. In any other cases, it raises'''
+    if value is None:
+        value = {}
+    if isinstance(value, dict):
+        return value
+    raise ValueError('dict/None required, found: %s' % str(type(value)))
+
+
 def between(min, max, include_start=True, include_end=True, pass_if_none=True):
     def func(val):
         if val is None:
             if pass_if_none:
-                return True
+                return val
             raise ValueError('value is None/null')
         is_ok = min is None or val > min or (include_start and val >= min)
         if not is_ok:
@@ -500,104 +510,113 @@ def load_config_for_download(config, parseargs, **param_overrides):
         #           needed if the parameter is invalid, and returning the correct parameter value
         params = [
             {
-             'names': def_evt_params[:2],  # ['minlatitude', 'minlat'],
-             'defvalue': None,
-             'newvalue': between(-90.0, 90.0)
+                'names': def_evt_params[:2],  # ['minlatitude', 'minlat'],
+                'defvalue': None,  # None: param not added (see below)
+                'newvalue': between(-90.0, 90.0)
             },
             {
-             'names': def_evt_params[2:4],  # ['maxlatitude', 'maxlat'],
-             'defvalue': None,
-             'newvalue': between(-90.0, 90.0)
+                'names': def_evt_params[2:4],  # ['maxlatitude', 'maxlat'],
+                'defvalue': None,  # None: param not added (see below)
+                'newvalue': between(-90.0, 90.0)
             },
             {
-             'names': def_evt_params[4:6],  # ['minlongitude', 'minlon'],
-             'defvalue': None,
-             'newvalue': between(-180.0, 180.0)
+                'names': def_evt_params[4:6],  # ['minlongitude', 'minlon'],
+                'defvalue': None,  # None: param not added (see below)
+                'newvalue': between(-180.0, 180.0)
             },
             {
-             'names': def_evt_params[6:8],  # ['maxlongitude', 'maxlon'],
-             'defvalue': None,
-             'newvalue': between(-180.0, 180.0)
+                'names': def_evt_params[6:8],  # ['maxlongitude', 'maxlon'],
+                'defvalue': None,  # None: param not added (see below)
+                'newvalue': between(-180.0, 180.0)
             },
             {
-             'names': def_evt_params[8:10],  # ['minmagnitude', 'minmag'],
-             'defvalue': None
+                'names': def_evt_params[8:10],  # ['minmagnitude', 'minmag'],
+                'defvalue': None  # None: param not added (see below)
             },
             {
-             'names': def_evt_params[10:12],  # ['maxmagnitude', 'maxmag'],
-             'defvalue': None
+                'names': def_evt_params[10:12],  # ['maxmagnitude', 'maxmag'],
+                'defvalue': None  # None: param not added (see below)
             },
             {
-             'names': def_evt_params[12:13],  # ['mindepth'],
-             'defvalue': None
+                'names': def_evt_params[12:13],  # ['mindepth'],
+                'defvalue': None  # None: param not added (see below)
             },
             {
-             'names': def_evt_params[13:14],  # ['maxdepth'],
-             'defvalue': None
+                'names': def_evt_params[13:14],  # ['maxdepth'],
+                'defvalue': None  # None: param not added (see below)
             },
             {
-             'names': ['update_metadata'],
-             'newvalue': parse_update_metadata
+                'names': ['update_metadata'],
+                'newvalue': parse_update_metadata
              },
             {
-             'names': ['restricted_data'],
-             'newname': 'authorizer',
-             'newvalue': lambda val: create_auth(val, config_dict['dataws'], configfile)
+                'names': ['restricted_data'],
+                'newname': 'authorizer',
+                'newvalue': lambda val: create_auth(val, config_dict['dataws'], configfile)
             },
             {
-             'names': ['dburl'],
-             'newname': 'session',
-             'newvalue': get_session
+                 'names': ['dburl'],
+                 'newname': 'session',
+                 'newvalue': get_session
             },
             {
-             'names': ['traveltimes_model'],
-             'newname': 'tt_table',
-             'newvalue': load_tt_table
+                 'names': ['traveltimes_model'],
+                 'newname': 'tt_table',
+                 'newvalue': load_tt_table
             },
             {
-             'names': ('starttime', 'start'),
-             'newvalue': valid_date
+                 'names': ('starttime', 'start'),
+                 'newvalue': valid_date
             },
             {
-             'names': ('endtime', 'end'),
-             'newvalue': valid_date
+                 'names': ('endtime', 'end'),
+                 'newvalue': valid_date
             },
             {
-             'names': ['eventws'],
-             'newvalue': lambda url: valid_fdsn(url, is_eventws=True, configfile=configfile)
+                 'names': ['eventws'],
+                 'newvalue': lambda url: valid_fdsn(url, is_eventws=True, configfile=configfile)
             },
             {
-             'names': ['dataws'],
-             'newvalue': lambda url: valid_fdsn(url, is_eventws=False)
+                 'names': ['dataws'],
+                 'newvalue': lambda url: valid_fdsn(url, is_eventws=False)
             },
             {
-             'names': ('network', 'net', 'networks'),
-             'defvalue': [],
-             'newvalue': nslc_param_value_aslist
+                 'names': ('network', 'net', 'networks'),
+                 'defvalue': [],
+                 'newvalue': nslc_param_value_aslist
             },
             {
-             'names': ('station', 'sta', 'stations'),
-             'defvalue': [],
-             'newvalue': nslc_param_value_aslist
+                 'names': ('station', 'sta', 'stations'),
+                 'defvalue': [],
+                 'newvalue': nslc_param_value_aslist
             },
             {
-             'names': ('location', 'loc', 'locations'),
-             'defvalue': [],
-             'newvalue': nslc_param_value_aslist
+                 'names': ('location', 'loc', 'locations'),
+                 'defvalue': [],
+                 'newvalue': nslc_param_value_aslist
             },
             {
-             'names': ('channel', 'cha', 'channels'),
-             'defvalue': [],
-             'newvalue': nslc_param_value_aslist
-            },
-            {'names': ['eventws_params', 'eventws_query_args']},
-            {
-             'names': ['advanced_settings'],
-             'newvalue': parse_download_advanced_settings
+                 'names': ('channel', 'cha', 'channels'),
+                 'defvalue': [],
+                 'newvalue': nslc_param_value_aslist
             },
             {
-             'names': ['search_radius'],
-             'newvalue': check_search_radius
+                'names': ['eventws_params', 'eventws_query_args'],
+                'defvalue': {},
+                'newvalue': dict_or_none
+            },
+            {
+                 'names': ['advanced_settings'],
+                 'newvalue': parse_download_advanced_settings
+            },
+            {
+                 'names': ['search_radius'],
+                 'newvalue': check_search_radius
+            },
+            {
+                'names': ['min_sample_rate'],
+                'defvalue': 0,
+                'newvalue': int
             }
         ]
 
@@ -637,14 +656,12 @@ def load_config_for_download(config, parseargs, **param_overrides):
         # and in the eventws_params dict (the latter is an OPTIONAL dict
         # which can be set in the config for ADDITIONAL eventws parameters)
         # and check for conflicts:
-        eventsearchparams = config_dict['eventws_params']
-        # eventsearchparams might be none
-        if not eventsearchparams:
-            config_dict['eventws_params'] = eventsearchparams = {}
+        # IF A PRAMETER IS NONE IT IS NOT ADDED
+        _esp = 'eventws_params'
+        eventsearchparams = config_dict[_esp]
         for par in def_evt_params:
             if par in eventsearchparams:  # conflict:
-                raise BadArgument('eventws_params',
-                                  'conflicting parameter "%s"' % par)
+                raise BadArgument(_esp, 'conflicting parameter "%s"' % par)
             value = config_dict.pop(par, None)
             if value is not None:
                 eventsearchparams[par] = value

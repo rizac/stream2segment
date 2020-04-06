@@ -131,7 +131,7 @@ def run(session, pyfunc, writer, config=None, show_progress=False):
     if skipped:  # this is the case when ondone is provided AND pyfunc returned None
         logger.info("%d of %d segment(s) skipped without messages", skipped, seg_len)
     logger.info("%d of %d segment(s) skipped with error message "
-                "(check log or details)", errors, seg_len)
+                "reported in the log file", errors, seg_len)
     logger.info('')
 
 

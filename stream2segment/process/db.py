@@ -1,15 +1,28 @@
 '''
-ORM for processing. Enhances Segment and Station class with several methods.
+Object Relationa Models (ORM) for processing.
 
-For any of those custom methods (e.g., see the classmeth_* functions) remember,
-when raising, that from the stream2segment processing routine,
-ValueError will block only the currently processed segment,
-all other exceptions will terminate the whole routine
+**This is the module to use FOR IMPORTING database stuff when processing
+downloaded segments**. Example:
+
+```
+from stream2segment.process.db import get_session, Station, Segment
+
+sess = get_session(dburl)
+
+sess.query(Segment.id).join(Segment.station).filter(...).all()
+```
 
 Created on 26 Mar 2019
 
 @author: riccardo
 '''
+
+# IMPORTANT DEVELOPER NOTES:
+# For any of those custom methods (e.g., see the classmeth_* functions) remember,
+# when raising, that from the stream2segment processing routine,
+# ValueError will block only the currently processed segment,
+# all other exceptions will terminate the whole routine
+
 from io import BytesIO
 
 from obspy.core.stream import _read
@@ -18,22 +31,41 @@ from obspy.core.stream import _read
 from stream2segment.io.utils import loads_inv
 from stream2segment.utils import _get_session
 from stream2segment.io.db.models import (Segment, Station, Base, object_session,
-                                         Class, Event, Channel, DataCenter)
+                                         Class, Event, Channel, DataCenter,
+                                         WebService)
 from stream2segment.io.db.sqlevalexpr import exprquery
 
 
-def get_session(dburl, scoped=False):
-    '''Returns an SQLALchemy session object for **processing** downloaded Segments'''
-    # We want to enhance the Segment class with new (processing-related) methods.
-    # We might write a new class Segment2 extending 'models.Segment' (as usual) but SQLAlchemy
+def get_session(dburl, scoped=False, **engine_args):
+    """
+    Create and returns an sql alchemy session for IO db operations aiming to
+    **process downloaded**
+
+    :param dbpath: the path to the database, e.g. sqlite:///path_to_my_dbase.sqlite
+    :param scoped: boolean (False by default) if the session must be scoped session
+    :param create_engine_args: optional keyword argument values for the
+        `create_engine` method. E.g.:
+        ```
+        _get_session(dbpath, db_url, connect_args={'connect_timeout': 10})
+        ```
+        other options are e.g., encoding='latin1', echo=True etcetera
+    """
+    # We want to enhance the Segment class with new (processing-related) obspy
+    # methods.
+    # Solution 1: we might do it already in the io.db.models module, but there we do not
+    # want to keep things clean and avoid importing anything so that the module
+    # can be portable (in case) to new projects.
+    # Solution 2: we might then write here a new class Segment2 extending
+    # 'models.Segment' but SQLAlchemy
     # is not designed to handle conditional ORMs like this, and also this implementation
     # might introduce bugs due to the 'wrong' Segment class used.
     # We need thus to programmatically toggle on/off the new methods:
     # What we found here is maybe not the cleanest solution, but it's currently the only one
     # with no overhead: simply attach methods to the Segment class. Call manually
-    # '_toggle_enhance_segment(False) to detach the methods when and if you need to.
+    # '_toggle_enhance_segment(False) to detach the methods when and if you need to
+    # (it should never be the case)
     _toggle_enhance_segment(True)
-    return _get_session(dburl, Base, scoped)
+    return _get_session(dburl, Base, scoped, **engine_args)
 
 
 def _toggle_enhance_segment(value):

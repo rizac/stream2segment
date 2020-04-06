@@ -273,19 +273,25 @@ def strptime(obj):
     return dtime
 
 
-def _get_session(dbpath, base=None, scoped=False):  # , enable_fk_if_sqlite=True):
+def _get_session(dbpath, base=None, scoped=False, **engine_args):
     """
     Create an sql alchemy session for IO db operations
     :param dbpath: the path to the database, e.g. sqlite:///path_to_my_dbase.sqlite
     :param base: a declarative base. If None, defaults to the default declarative base
         used in this package for downloading
     :param scoped: boolean (False by default) if the session must be scoped session
+    :param create_engine_args: optional keyword argument values for the
+        `create_engine` method. E.g.:
+        ```
+        _get_session(dbpath, db_url, connect_args={'connect_timeout': 10})
+        ```
+        other options are e.g., encoding='latin1', echo=True etcetera
     """
     if base is None:
         base = Base  # default declarative base, withour obspy methods
 
     # init the session:
-    engine = create_engine(dbpath)
+    engine = create_engine(dbpath, **engine_args)
     base.metadata.create_all(engine)  # @UndefinedVariable
 
     # enable fkeys if sqlite. This can be added also as event listener as outlined here:
@@ -297,10 +303,9 @@ def _get_session(dbpath, base=None, scoped=False):  # , enable_fk_if_sqlite=True
         session = sessionmaker(bind=engine)
         # create a Session
         return session()
-    # return session
-    else:
-        session_factory = sessionmaker(bind=engine)
-        return scoped_session(session_factory)
+
+    session_factory = sessionmaker(bind=engine)
+    return scoped_session(session_factory)
 
 
 def secure_dburl(dburl):

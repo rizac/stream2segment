@@ -33,7 +33,8 @@ from sqlalchemy.sql.expression import func
 
 from stream2segment.utils.inputargs import load_config_for_process, load_config_for_download,\
     load_session_for_dinfo
-from stream2segment.utils.log import configlog4download, configlog4processing
+from stream2segment.utils.log import configlog4download, configlog4processing,\
+    closelogger
 from stream2segment.io.db.models import Download, Segment
 from stream2segment.process.main import run as run_process
 from stream2segment.download.main import run as run_download, new_db_download
@@ -149,7 +150,11 @@ def download(config, log2file=True, verbose=False, **param_overrides):
         if log2file:
             # remove file if no exceptions occurred:
             loghandlers[0].finalize(session, download_id, removefile=noexc_occurred)
+            # the method above closes the logger, let's remove it manually
+            # before calling closelogger below to avoid closing loghandlers[0] twice:
+            logger.removeHandler(loghandlers[0])
         closesession(session)
+        closelogger(logger)
 
     return ret
 
@@ -257,6 +262,7 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None, log2file=Fa
         raise
     finally:
         closesession(session)
+        closelogger(logger)
 
 
 def totimedelta(t0_sec, t1_sec=None):

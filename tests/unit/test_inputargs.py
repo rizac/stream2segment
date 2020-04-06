@@ -34,9 +34,13 @@ from stream2segment.utils.resources import get_templates_fpath, yaml_load, get_t
 
 @pytest.fixture
 def run_cli_download(pytestdir, db):
-    '''returns a function(*arg, **kw) where each arg is the command line parameters
-    to be overridden, and **kw the yaml config to be overrridden'''
-    def func(*args, **yaml_overrides):
+    '''returns a function(*arg, removals=None, **kw) where each arg is the
+    COMMAND LINE parameter to be overridden, removals is a list of pyaml
+    parameters TO BE REMOVED, and **kw the YAML CONFIG PARAMETERS TO BE
+    overridden.
+    Uses fixture pytestdir defined in conftest
+    '''
+    def func(*args, removals=None, **yaml_overrides):
         args = list(args)
         nodburl = False
         # override the db path with our currently tested one:
@@ -46,6 +50,7 @@ def run_cli_download(pytestdir, db):
         # if -c or configfile is not specified, add it:
         if "-c" not in args and "--configfile" not in args:
             args.extend(['-c', pytestdir.yamlfile(get_templates_fpath("download.yaml"),
+                                                  removals=removals,
                                                   **yaml_overrides)])
         elif nodburl:
             args += ['-d', str(db.dburl)]
@@ -120,13 +125,39 @@ class Test(object):
                                  # fixtures:
                                  db, run_cli_download):
         '''test different scenarios where the value in the dwonload.yaml are not well formatted'''
+
+        # INCREMENT THIS VARIABLE EVERY TIME YOU RUN A SUCCESSFUL DOWNLOAD
+        dcount = 0
+
+        # test that eventws_params is optional if not provided
+        result = run_cli_download(removals=['eventws_params'])  # conflict
+        assert result.exit_code == 0
+        dcount += 1
+
+        eventswparams = ['minlat', 'minlatitude', 'maxlat', 'maxlatitude',
+                         'minlon', 'minlongitude', 'maxlon', 'maxlongitude']
+        result = run_cli_download(removals=eventswparams)  # conflict
+        assert all(_ not in result.output for _ in eventswparams)
+        assert result.exit_code == 0
+        dcount += 1
+
+        result = run_cli_download(min_sample_rate='abc')  # conflict
+        assert result.exit_code != 0
+        assert '"min_sample_rate"' in result.output
+
+        result = run_cli_download(removals=['min_sample_rate'])  # conflict
+        assert self.mock_run_download.call_args_list[-1][1]['min_sample_rate'] == 0
+        assert result.exit_code == 0
+        dcount += 1
+
         result = run_cli_download(networks={'a': 'b'})  # conflict
         assert result.exit_code != 0
         assert 'Error: Conflicting names "network" / "networks"' in result.output
         result = run_cli_download(network={'a': 'b'})
         assert result.exit_code == 0
+        dcount += 1
         # thus providing dict is actually fine and will iterate over its keys:
-        assert self.mock_run_download.call_args_list[0][1]['network'] == ['a']
+        assert self.mock_run_download.call_args_list[-1][1]['network'] == ['a']
         # do some asserts only for this case to test how we print the arguments to string:
         # assert "tt_table: <TTTable object, " in result.output
         assert "starttime: 2006-01-01 00:00:00" in result.output
@@ -140,25 +171,25 @@ class Test(object):
 
         # check the session:
         # assert we did write to the db:
-        assert db.session.query(Download).count() == 1
+        assert db.session.query(Download).count() == dcount
 
         result = run_cli_download(networks='!*')  # conflicting names
         assert result.exit_code != 0
         assert 'Error: Conflicting names "network" / "networks"' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == 1
+        assert db.session.query(Download).count() == dcount
 
         result = run_cli_download(network='!*')  # invalid value
         assert result.exit_code != 0
         assert 'Error: Invalid value for "network": ' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == 1
+        assert db.session.query(Download).count() == dcount
 
         result = run_cli_download(net='!*')  # conflicting names
         assert result.exit_code != 0
         assert 'Error: Conflicting names "network" / "net"' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == 1
+        assert db.session.query(Download).count() == dcount
 
         # test error from the command line. Result is the same as above as the check is made
         # AFTER click
@@ -166,21 +197,21 @@ class Test(object):
         assert result.exit_code != 0
         assert 'Error: Invalid value for "network": ' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == 1
+        assert db.session.query(Download).count() == dcount
 
         # no such option:
         result = run_cli_download('--zrt', '!*')
         assert result.exit_code != 0
         assert 'Error: no such option: --zrt' in result.output  # why -z and not -zz? whatever...
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == 1
+        assert db.session.query(Download).count() == dcount
 
         # no such option from within the yaml:
         result = run_cli_download(zz='!*')
         assert result.exit_code != 0
         assert 'Error: No such option "zz"' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == 1
+        assert db.session.query(Download).count() == dcount
 
         # what about conflicting arguments?
         result = run_cli_download(networks='!*', net='opu')  # invalid value
@@ -188,20 +219,20 @@ class Test(object):
         assert 'Conflicting names "network" / "net" / "networks"' in result.output or \
             'Conflicting names "network" / "networks" / "net"' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == 1
+        assert db.session.query(Download).count() == dcount
 
         result = run_cli_download(starttime=[])  # invalid type
         assert result.exit_code != 0
         assert 'Error: Invalid type for "starttime":' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == 1
+        assert db.session.query(Download).count() == dcount
 
         # mock implementing conflicting names in the yaml file:
         result = run_cli_download(start='wat')  # invalid value
         assert result.exit_code != 0
         assert 'Error: Conflicting names "starttime" / "start"' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == 1
+        assert db.session.query(Download).count() == dcount
 
         # mock implementing bad value in the cli: (cf with the previous test):
         # THE MESSAGE BELOW IS DIFFERENT BECAUSE WE PROVIDE A CLI VALIDATION FUNCTION
@@ -211,119 +242,121 @@ class Test(object):
         assert result.exit_code != 0
         assert 'Error: Invalid value for "-s" / "--start" / "--starttime": wat' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == 1
+        assert db.session.query(Download).count() == dcount
 
         # This should work:
         result = run_cli_download('--start', '2006-03-14')  # invalid value
         assert result.exit_code == 0
+        dcount += 1
         run_download_kwargs = self.mock_run_download.call_args_list[-1][1]
         assert run_download_kwargs['starttime'] == datetime(2006, 3, 14)
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == 2
+        assert db.session.query(Download).count() == dcount
 
         # now test the same as above BUT with a cli-only argument (-t0):
         result = run_cli_download('-s', 'wat')  # invalid value typed from the command line
         assert result.exit_code != 0
         assert 'Error: Invalid value for "-s" / "--start" / "--starttime":' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == 2
+        assert db.session.query(Download).count() == dcount
 
         result = run_cli_download(endtime='wat')  # try with end
         assert result.exit_code != 0
         assert 'Error: Invalid value for "endtime":' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == 2
+        assert db.session.query(Download).count() == dcount
 
         result = run_cli_download(end='wat')  # try with end
         assert result.exit_code != 0
         assert 'Error: Conflicting names "endtime" / "end"' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == 2
+        assert db.session.query(Download).count() == dcount
 
         # now test the same as above BUT with the wrong value from the command line:
         result = run_cli_download('-e', 'wat')  # invalid value typed from the command line
         assert result.exit_code != 0
         assert 'Error: Invalid value for "-e" / "--end" / "--endtime":' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == 2
+        assert db.session.query(Download).count() == dcount
 
         result = run_cli_download(traveltimes_model=[])  # invalid type
         assert result.exit_code != 0
         assert 'Error: Invalid type for "traveltimes_model":' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == 2
+        assert db.session.query(Download).count() == dcount
 
         result = run_cli_download(traveltimes_model='wat')  # invalid value
         assert result.exit_code != 0
         assert 'Error: Invalid value for "traveltimes_model":' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == 2
+        assert db.session.query(Download).count() == dcount
 
         # same as above but with error from the cli, not from within the config yaml:
         result = run_cli_download('--traveltimes-model', 'wat')  # invalid value
         assert result.exit_code != 0
         assert 'Error: Invalid value for "traveltimes_model":' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == 2
+        assert db.session.query(Download).count() == dcount
 
         result = run_cli_download(removals=['inventory'])  # invalid value
         assert result.exit_code != 0
         assert 'Error: Missing value for "inventory"' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == 2
+        assert db.session.query(Download).count() == dcount
 
         d_yaml_file = get_templates_fpath("download.yaml")
 
         result = run_cli_download(dburl=d_yaml_file)  # existing file, invalid db url
         assert result.exit_code != 0
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == 2
+        assert db.session.query(Download).count() == dcount
 
         result = run_cli_download(dburl="sqlite:/whatever")  # invalid db url
         assert result.exit_code != 0
         assert 'Error: Invalid value for "dburl":' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == 2
+        assert db.session.query(Download).count() == dcount
 
         result = run_cli_download(dburl="sqlite://whatever")  # invalid db url
         assert result.exit_code != 0
         assert 'Error: Invalid value for "dburl":' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == 2
+        assert db.session.query(Download).count() == dcount
 
         result = run_cli_download(dburl=[])  # invalid type
         assert result.exit_code != 0
         assert 'Error: Invalid type for "dburl":' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == 2
+        assert db.session.query(Download).count() == dcount
 
         # Test an invalif configfile. This can be done only via command line
         result = run_cli_download('-c', 'frjkwlag5vtyhrbdd_nleu3kvshg w')
         assert result.exit_code != 0
         assert 'Error: Invalid value for "-c" / "--config":' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == 2
+        assert db.session.query(Download).count() == dcount
 
         result = run_cli_download(removals=['maxmagnitude'])  # remove an opt. param.
         assert result.exit_code == 0
+        dcount += 1
         # check maxmagnitude is NOT in the eventws params:
         eventws_params = self.mock_run_download.call_args_list[-1][1]['eventws_params']
         assert 'maxmagnitude' not in eventws_params
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == 3
+        assert db.session.query(Download).count() == dcount
 
         result = run_cli_download(removals=['advanced_settings'])  # remove an opt. param.
         assert result.exit_code != 0
         assert 'Error: Missing value for "advanced_settings"' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == 3
+        assert db.session.query(Download).count() == dcount
 
         result = run_cli_download(advanced_settings={})  # remove an opt. param.
         assert result.exit_code != 0
         assert ('Error: Invalid value for "advanced_settings": '
                 'Missing value for "download_blocksize"') in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == 3
+        assert db.session.query(Download).count() == dcount
 
         # search radius:
         for search_radius in [{'min': 5}, {'min': 5, 'max': 6, 'minmag': 7}]:
