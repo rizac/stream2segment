@@ -25,32 +25,52 @@ class MockSegment(object):
         self.data = data
 
 
-@patch('obspy.core.stream.NamedTemporaryFile', return_value=NamedTemporaryFile())
-def test_get_stream(mock_ntf, data):
-    mseeddata = data.read('trace_GE.APE.mseed')
+def test_get_stream(data):  # <- data is a pytest fixture
+    '''test our get_stream calling obspy._read, and obspy.read:
+    Rationale: process.db.get_stream reads a stream from a sequence of
+    bytes (fetched our database). obspy read supports filelike object such as
+    BytesIO, great right? no, because on error it tries to write to file and
+    retry. This is absolutely insane. To avoid this, process.db.get_stream
+    calls obspy._read instead.
+    In this test, we want to assure that obpsy has still this weird
+    implementation and that our get_stream is correct (_read is private it
+    might be moved in the future)
+    '''
+    # PLEASE NOTE: we want to mock NamedTemporaryFile as used in obspy,
+    # to check that it's called. Problem is, from obpsy version 1.2 whatever
+    # they refactored and moved the packages. Thus, try-catch:
+    try:
+        from obspy.core.stream import NamedTemporaryFile
+        patch_str = 'obspy.core.stream.NamedTemporaryFile'
+    except ImportError:
+        from obspy.core.util.base import NamedTemporaryFile
+        patch_str = 'obspy.core.util.base.NamedTemporaryFile'
 
-    segment = MockSegment(mseeddata)
-    tobspy = time.time()
-    stream_obspy = read(BytesIO(mseeddata))
-    tobspy = time.time() - tobspy
-    tme = time.time()
-    stream_me = get_stream(segment)
-    tme = time.time() - tme
-    # assert we are faster (actually that calling read with format='MSEED' is faster than
-    # calling with format=None)
-    assert tme < tobspy
-    assert (stream_obspy[0].data == stream_me[0].data).all()
-    assert not mock_ntf.called
+    with patch(patch_str, return_value=NamedTemporaryFile()) as mock_ntf:
+        mseeddata = data.read('trace_GE.APE.mseed')
 
-    with pytest.raises(TypeError):
-        stream_obspy = read(BytesIO(mseeddata[:5]))
-    assert mock_ntf.called
-
-    mock_ntf.reset_mock()
-    segment = MockSegment(mseeddata[:5])
-    with pytest.raises(ValueError):
+        segment = MockSegment(mseeddata)
+        tobspy = time.time()
+        stream_obspy = read(BytesIO(mseeddata))
+        tobspy = time.time() - tobspy
+        tme = time.time()
         stream_me = get_stream(segment)
-    assert not mock_ntf.called
+        tme = time.time() - tme
+        # assert we are faster (actually that calling read with format='MSEED' is faster than
+        # calling with format=None)
+        assert tme < tobspy
+        assert (stream_obspy[0].data == stream_me[0].data).all()
+        assert not mock_ntf.called
+
+        with pytest.raises(TypeError):
+            stream_obspy = read(BytesIO(mseeddata[:5]))
+        assert mock_ntf.called
+
+        mock_ntf.reset_mock()
+        segment = MockSegment(mseeddata[:5])
+        with pytest.raises(ValueError):
+            stream_me = get_stream(segment)
+        assert not mock_ntf.called
 
 
 @pytest.mark.parametrize('input, expected_result, ',

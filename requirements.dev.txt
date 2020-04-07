@@ -24,8 +24,8 @@ mccabe==0.6.1
 mock==2.0.0
 more-itertools==4.3.0
 numexpr==2.7.0
-numpy==1.15.4
-obspy==1.1.1
+numpy==1.18.1
+obspy==1.2.1
 pandas==1.0.3
 pbr==5.1.1
 pep8==1.7.1
