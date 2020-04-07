@@ -15,7 +15,7 @@ from mock import patch
 
 import pytest
 import pandas as pd
-from pandas.util.testing import assert_frame_equal
+from pandas.testing import assert_frame_equal
 
 from stream2segment.cli import cli
 from stream2segment.io.db.models import Segment

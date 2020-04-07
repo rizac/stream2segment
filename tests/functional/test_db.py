@@ -453,8 +453,6 @@ class Test(object):
         def COPY(self):
             cls = self.__class__
             mapper = inspect(cls)
-            # http://docs.sqlalchemy.org/en/latest/orm/mapping_api.html#sqlalchemy.orm.mapper.Mapper.mapped_table
-            table = mapper.mapped_table
             return cls(**{c: getattr(self, c) for c in list(mapper.columns.keys())})
 
         seg__1 = COPY(seg)

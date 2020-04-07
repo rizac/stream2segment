@@ -53,9 +53,6 @@ from stream2segment.utils.url import URLError, HTTPError, responses
 from stream2segment.utils.resources import get_templates_fpath
 from stream2segment.utils.log import configlog4download
 
-# when debugging, I want the full dataframe with to_string(), not truncated
-pd.set_option('display.max_colwidth', -1)
-
 
 @pytest.fixture
 def yamlfile(pytestdir):

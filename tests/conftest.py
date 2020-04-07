@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 import yaml
 
 import pytest
+import pandas as pd
 from sqlalchemy.engine import create_engine
 from sqlalchemy.orm.session import sessionmaker
 from obspy.core.stream import read as read_stream
@@ -53,6 +54,32 @@ def pytest_generate_tests(metafunc):
         metafunc.parametrize('db', dburls,
                              ids=ids,
                              indirect=True, scope='module')
+
+
+_PDOPT = {_: pd.get_option(_) for _ in ['display.max_colwidth']}
+
+
+def pytest_sessionstart(session):  # pylint: disable=unused-argument
+    """
+    Called after the Session object has been created and
+    before performing collection and entering the run test loop.
+    """
+
+    # https://stackoverflow.com/a/35394239
+    pd.set_option('display.max_colwidth', 500)  # do not set to -1: it messes
+    # alignement. Also, pandas 1.0+ wants None
+
+
+def pytest_sessionfinish(session,  # pylint: disable=unused-argument
+                         exitstatus):  # pylint: disable=unused-argument
+    """
+    Called after whole test run finished, right before
+    returning the exit status to the system.
+    """
+    # we shouldn;t care about restoring pandas stuff because pytest exit to
+    # the system. However:
+    for k, v in _PDOPT.items():
+        pd.set_option(k, v)
 
 
 @pytest.fixture(scope="session")

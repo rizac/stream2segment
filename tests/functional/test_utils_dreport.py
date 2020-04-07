@@ -24,6 +24,9 @@ from stream2segment.utils import ascii_decorate
 from stream2segment.download.utils import s2scodes
 
 
+def readfile(outfile):
+    with open(outfile) as _:
+        return _.read()
 
 
 class Test(object):
@@ -139,7 +142,7 @@ class Test(object):
         if PY2:
             expected_string = expected_string.decode('utf8')
 
-        content = open(outfile).read()
+        content = readfile(outfile)
         assert expected_string.strip() == content.strip()
 
         # test "normal" case:
@@ -161,7 +164,7 @@ Log messages: N/A"""
         if PY2:
             expected_string = expected_string.decode('utf8')
 
-        content = open(outfile).read()
+        content = readfile(outfile)
         assert expected_string in content
         assert result.output.startswith("""Fetching data, please wait (this might take a while depending on the db size and connection)
 download report written to """)

@@ -80,12 +80,6 @@ class Test(object):
         # if closing sets a different level, but for the moment who cares
         query_logger.addHandler(self.loghandler)
 
-        # when debugging, I want the full dataframe with to_string(), not truncated
-        # NOTE: this messes up right alignment of numbers in DownloadStats (see utils.py)
-        # FIRST, remember current settings and restore them in cleanup:
-        _pd_display_maxcolwidth = pd.get_option('display.max_colwidth')
-        pd.set_option('display.max_colwidth', -1)
-
         # define class level patchers (we do not use a yiled as we need to do more stuff in the
         # finalizer, see below
         patchers = []
@@ -118,7 +112,6 @@ class Test(object):
 
         # add finalizer:
         def delete():
-            pd.set_option('display.max_colwidth', _pd_display_maxcolwidth)
 
             for patcher in patchers:
                 patcher.stop()
