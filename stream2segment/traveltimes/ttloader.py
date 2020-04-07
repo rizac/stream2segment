@@ -86,6 +86,11 @@ class TTTable(object):
         # Handle the case some arguments are scalars and some arrays:
         source_depths, receiver_depths, distances = \
             np.broadcast_arrays(source_depths, receiver_depths, distances)
+        # copy arrays as numpy after 1.15 (I guess) issues warnings when
+        # writing on a view (similar to pandas set with copy warning):
+        source_depths = np.copy(source_depths)
+        receiver_depths = np.copy(receiver_depths)
+        distances = np.copy(distances)
         # handle the case all arguments scalars. See
         # https://stackoverflow.com/questions/29318459/python-function-that-handles-scalar-or-arrays
         allscalars = all(_.ndim == 0 for _ in (source_depths, receiver_depths, distances))
