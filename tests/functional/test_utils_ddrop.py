@@ -131,7 +131,9 @@ class Test(object):
         assert result.exception
         assert result.exit_code != 0
         assert not mock_input.called
-        assert 'Missing option "-did" / "--download-id"' in result.output
+        # click outputs slightly different messages depending on version:
+        assert ('Missing option "-did" / "--download-id"' in result.output) \
+            or ("Missing option '-did' / '--download-id'" in result.output)
 
         # text output, to file
         result = runner.invoke(cli, ['utils', self.CMD_NAME, '--dburl', db.dburl, '-did', 4])
