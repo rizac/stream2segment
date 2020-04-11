@@ -557,7 +557,7 @@ class Test(object):
             assert ('No event found. If you supplied a file, the file was not found: '
                     'check path and typos. Otherwise, try to change your search parameters: '
                     'check also that the service returns parsable data (FDSN-compliant)') \
-                in str(fdl)
+                in str(fdl.value)
             assert self.mock_urlopen.called
             self.mock_urlopen.reset_mock()
 
@@ -581,7 +581,7 @@ class Test(object):
                                    start=datetime(2010, 1, 1),
                                    end=datetime(2011, 1, 1),
                                    db_bufsize=self.db_buf_size)
-        assert "No event found, try to change your search parameters" in str(fld)
+        assert "No event found, try to change your search parameters" in str(fld.value)
         assert mock_isf_to_text.called
         mock_isf_to_text.reset_mock()
         assert not mock_isf_to_text.called
