@@ -77,6 +77,9 @@ def get_config(asstr=False):
         return config_dict
     config_dict = dict(config_dict)
     config_dict.pop('segment_select', None)
+    if not config_dict:  # if dict is empty,
+        # avoid returning: "{}\n", instead return emtpy string:
+        return ''
     sio = StringIO()
     try:
         yaml.safe_dump(config_dict, sio, default_flow_style=False,
@@ -106,6 +109,11 @@ def get_segments_count(session, conditions):
     return num_segments
 
 
+def get_segment_select():
+    defval = {}
+    return get_plot_manager().config.get('segment_select', defval) or defval
+
+
 def get_segment_id(session, seg_index):
     if np.isnan(SEG_IDS[seg_index]):
         # segment id not queryed yet: load chunks of segment ids:
@@ -120,7 +128,7 @@ def get_segment_id(session, seg_index):
         offset = int(seg_index / float(SEG_QUERY_BLOCK)) * SEG_QUERY_BLOCK
         limit = min(len(SEG_IDS) - offset, SEG_QUERY_BLOCK)
         segids = get_segment_ids(session,
-                                 get_plot_manager().config['segment_select'] or {},
+                                 get_segment_select(),
                                  offset=offset, limit=limit)
         SEG_IDS[offset:offset+limit] = segids
     return int(SEG_IDS[seg_index])

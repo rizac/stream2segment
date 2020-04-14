@@ -199,6 +199,9 @@ class Test(object):
                 or "'hasPreprocessFunc': true" in response_data
             assert '"config": {}' not in response_data and "'config': {}" not in response_data
 
+        # ------------------------
+        # TEST NOW WITH NO CONFIG:
+        # ------------------------
         def mock_plot_manager_se_empty(pyfile, configfile):
             pmg = create_plot_manager(None, {})
             return pmg
@@ -215,6 +218,37 @@ class Test(object):
                 or "'hasPreprocessFunc': false" in response_data
             # we do not inject the config in the html anymore:
             assert "config:" not in response_data
+            
+            rv = app.post("/set_selection",
+                          data=json.dumps({}),
+                          headers={'Content-Type': 'application/json'})
+            #    rv = app.get("/get_segments")
+            data = self.jsonloads(rv.data)
+            assert not data['error_msg'] and data['num_segments']
+            
+            
+            rv = app.post("/get_config",
+                          data=json.dumps({'asstr': True}),
+                          headers={'Content-Type': 'application/json'})
+            #    rv = app.get("/get_segments")
+            data = self.jsonloads(rv.data)
+            assert not data['error_msg'] and not data['data']
+            
+            d = dict(seg_index=1,
+                     pre_processed=True,
+                     # zooms = data['zooms']
+                     plot_indices=[0],  # data['plotIndices']
+                     metadata=True,
+                     classes=True,
+                     all_components=True)
+            rv = app.post("/get_segment", data=json.dumps(d),
+                          headers={'Content-Type': 'application/json'})
+            # https: 
+            data = self.jsonloads(rv.data)
+            assert ['classes', 'metadata', 'plot_types', 'plots',
+                    'seg_id', 'sn_windows'] == sorted(data.keys())
+            
+            
             # assert '"config": {}' in response_data or "'config': {}" in response_data
 
 

@@ -56,7 +56,7 @@ def get_config():
     asstr = (request.get_json() or {}).get('asstr', False)
     try:
         return jsonify({'error_msg': '', 'data': core.get_config(asstr)})
-    except Exception as exc:
+    except Exception as exc:  # pylint: disable=broad-except
         return jsonify({'error_msg': str(exc), 'data': {}})
 
 
@@ -65,7 +65,7 @@ def validate_config_str():
     data = request.get_json()
     try:
         return jsonify({'error_msg': '', 'data': core.validate_config_str(data['data'])})
-    except Exception as exc:
+    except Exception as exc:  # pylint: disable=broad-except
         return jsonify({'error_msg': str(exc), 'data': {}})
 
 
@@ -73,20 +73,23 @@ def validate_config_str():
 def set_selection():
     try:
         data = request.get_json()
-        segment_select_conditions = data.get('segment_select', None)
-        # Note: data.get('segment_orderby', None) is not anymore implemented in the config
-        # it will default to None (order by event time desending and by event_distance ascending)
+        writeback = True
+        segselect = data.get('segment_select', None)
+        # segselect is a dict, or None
+        if segselect is None:
+            writeback = False
+            segselect = core.get_segment_select()
+
         num_segments = core.get_segments_count(get_session(current_app),
-                                               core.get_plot_manager().config['segment_select']
-                                               if segment_select_conditions is None else
-                                               segment_select_conditions)
+                                               segselect)
         # set the plot manager new condition at the end (if provided): in case of errors
         # (e.g. overflow integer in 'id') we do not change the previous selection condition
         # with a erroneous one
-        if segment_select_conditions is not None:
-            core.get_plot_manager().config['segment_select'] = segment_select_conditions
+        if writeback:
+            core.get_plot_manager().config['segment_select'] = segselect
         return jsonify({'num_segments': num_segments, 'error_msg': ''})
-    except Exception as exc:
+
+    except Exception as exc:  # pylint: disable=broad-except
         return jsonify({'num_segments': 0, 'error_msg': str(exc)})
 
 
