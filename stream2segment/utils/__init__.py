@@ -280,7 +280,7 @@ def _get_session(dbpath, base=None, scoped=False, **engine_args):
     :param base: a declarative base. If None, defaults to the default declarative base
         used in this package for downloading
     :param scoped: boolean (False by default) if the session must be scoped session
-    :param create_engine_args: optional keyword argument values for the
+    :param engine_args: optional keyword argument values for the
         `create_engine` method. E.g.:
         ```
         _get_session(dbpath, db_url, connect_args={'connect_timeout': 10})

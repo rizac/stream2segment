@@ -177,8 +177,19 @@ div.metadata > div.panel-body{
 /* help stuff (including tooltips) */
 
 .select-highlighted{
-	font-weight: bold;
-	color: ForestGreen;
+	border-radius: 5px;
+    background-color: #009688;
+    color: white;
+    font-weight: bold;
+    padding: 1px 5px;
+}
+
+.select-highlighted-err{
+	border-radius: 5px;
+    background-color: #f44336;
+    color: white;
+    font-weight: bold;
+    padding: 1px 5px;
 }
 
 div.metadata-header{

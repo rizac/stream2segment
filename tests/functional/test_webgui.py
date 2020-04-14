@@ -23,7 +23,7 @@ from stream2segment.utils.resources import get_templates_fpaths
 from stream2segment.gui.webapp.mainapp.plots.core import PlotManager
 from stream2segment.gui.webapp import get_session
 from stream2segment.gui.main import create_s2s_show_app
-from stream2segment.gui.webapp.mainapp.core import flatten_dict, create_plot_manager,\
+from stream2segment.gui.webapp.mainapp.core import create_plot_manager,\
     get_plot_manager, get_segment_id
 
 class Test(object):
@@ -166,6 +166,9 @@ class Test(object):
     def index_of(self, segment_id):
         '''Returns the index of the segment with given id. 
         The web application gets data from segment index'''
+#         segids = [_[0] for _ in self.session.query(Segment.id)]
+#         return segids.index(segment_id)
+        
         seg_index = 0
         while True:
             sid = get_segment_id(self.session, seg_index)
@@ -210,7 +213,9 @@ class Test(object):
             response_data = req.data.decode('utf-8')
             assert '"hasPreprocessFunc": false' in response_data \
                 or "'hasPreprocessFunc': false" in response_data
-            assert '"config": {}' in response_data or "'config': {}" in response_data
+            # we do not inject the config in the html anymore:
+            assert "config:" not in response_data
+            # assert '"config": {}' in response_data or "'config': {}" in response_data
 
 
     @patch('stream2segment.gui.webapp.mainapp.core.create_plot_manager')
@@ -233,12 +238,17 @@ class Test(object):
             clz = self.session.query(Class).all()
             assert len(clz) == 1 and clz[0].label == 'wtf' and clz[0].description == 'abc'
 
-            # assert global yaml config vars are injected as javascript from jinja rendering:
-            # (be relaxed, if we change the template yaml file we do not want to fail)
-            expected_str = """var __SETTINGS = {"config": {"""
-            # https://github.com/pallets/flask/issues/716 is bytes in python3. Fix for both 2 and 3:
             response_data = rv.data.decode('utf-8')
-            assert expected_str in response_data
+            # we do not inject the config in the html anymore:
+#             # assert global yaml config vars are injected as javascript from jinja rendering:
+#             # (be relaxed, if we change the template yaml file we do not want to fail)
+#             expected_str = """var __SETTINGS = {"config": {"""
+#             # https://github.com/pallets/flask/issues/716 is bytes in python3. Fix for both 2 and 3:
+#             assert expected_str in response_data
+
+            # simple test:
+            assert '"hasPreprocessFunc": true' in response_data \
+                or "'hasPreprocessFunc': true" in response_data
 
             expected_str = ["""<div class='plot-wrapper' ng-show='plots[{0:d}].visible'>""",
                             """<div data-plot='time-series' data-plotindex={0:d} class='plot'></div>"""]
@@ -302,7 +312,7 @@ class Test(object):
         with self.app.test_request_context():
             app = self.app.test_client()
             app.get('/')  # initializes plot manager
-            app.post("/set_selection", data=json.dumps(get_plot_manager().config['segment_select']),
+            app.post("/set_selection", data=json.dumps(dict(segment_select={'has_data':'true'})),
                                headers={'Content-Type': 'application/json'})
             segid = 1
             segment = self.session.query(Segment).filter(Segment.id == segid).first()
@@ -339,6 +349,8 @@ class Test(object):
         with self.app.test_request_context():
             app = self.app.test_client()
             app.get('/')  # initializes plot manager
+            app.post("/set_selection", data=json.dumps(dict(segment_select={'has_data':'true'})),
+                               headers={'Content-Type': 'application/json'})
             self._tst_get_seg(app)
 
     def _tst_get_seg(self, app):
@@ -438,23 +450,27 @@ class Test(object):
 
         with self.app.test_request_context():
             app = self.app.test_client()
+            # initializes plotmanager
+#             app.post("/set_selection", data=json.dumps(dict(segment_select={'has_data':'true'})),
+#                                headers={'Content-Type': 'application/json'})
+            
             d = dict(seg_index=self.index_of(1),
                      pre_processed=False,
                      # zooms = data['zooms']
                      plot_indices=plot_indices,  # data['plotIndices']
                      metadata=metadata,
                      classes=classes,
-                     all_components=True)
+                     all_components=False)
             rv1 = app.post("/get_segment", data=json.dumps(d),
                            headers={'Content-Type': 'application/json'})
 
             # now change the config:
             config = dict(get_plot_manager().config)
             config['sn_windows']['arrival_time_shift'] += .2  # shift by .2 second
-            d['config'] = flatten_dict(config)
-            # the dict passed from the client to the server has only strings, thus:
-            for key in list(d['config'].keys()):
-                d['config'][key] = json.dumps(d['config'][key])
+            d['config'] = config
+#             # the dict passed from the client to the server has only strings, thus:
+#             for key in list(d['config'].keys()):
+#                 d['config'][key] = json.dumps(d['config'][key])
             rv2 = app.post("/get_segment", data=json.dumps(d),
                            headers={'Content-Type': 'application/json'})
 
@@ -514,8 +530,8 @@ class Test(object):
                                       db):
         '''test that the PlotManager stores at most one value at a time.
         The size_limit of 1 is set as patch in the init method of this class'''
-        pm = get_plot_manager()
-        pm.size_limit = 1
+        # pm = get_plot_manager()
+        # pm.size_limit = 1
         plot_indices = [0]
         metadata = False
         classes = False
@@ -528,6 +544,9 @@ class Test(object):
         for (seg_id, location) in data:
             with self.app.test_request_context():
                 app = self.app.test_client()
+                app.get('/')  # initializes plot manager
+                pm = get_plot_manager() 
+                pm.size_limit=1
                 d = dict(seg_index=self.index_of(seg_id),
                          pre_processed=True,
                          # zooms = data['zooms']

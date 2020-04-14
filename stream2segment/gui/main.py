@@ -14,7 +14,7 @@ import threading
 from webbrowser import open as open_in_browser
 
 from stream2segment.gui.webapp import create_app
-from stream2segment.gui.webapp.mainapp.plots.core import PlotManager
+# from stream2segment.gui.webapp.mainapp.plots.core import PlotManager
 
 
 def create_s2s_show_app(dbpath, pyfile=None, configfile=None):

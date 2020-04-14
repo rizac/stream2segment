@@ -6,14 +6,15 @@ Views for the web app (processing)
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 '''
 from flask import render_template, request, jsonify, Blueprint, current_app
+from io import StringIO
 
-import numpy as np
+import yaml
 
 from stream2segment.gui.webapp import get_session
 from stream2segment.gui.webapp.mainapp import core
 from stream2segment.utils import secure_dburl
 from stream2segment.process.db import configure_classes
-from stream2segment.gui.webapp.mainapp.plots.core import PlotManager
+
 
 # http://flask.pocoo.org/docs/0.12/patterns/appfactories/#basic-factories:
 main_app = Blueprint('main_app', __name__, template_folder='templates')
@@ -26,13 +27,10 @@ def main():
     config = plotmanager.config or {}
     configure_classes(get_session(current_app), config.get('class_labels', []))
     ud_plots = plotmanager.userdefined_plots
-    settings = {'segment_select': config.get('segment_select', {}),
-                'hasPreprocessFunc': plotmanager.has_preprocessfunc}
+    settings = {'hasPreprocessFunc': plotmanager.has_preprocessfunc}
     # pop keys not to be shown in the gui config form (either already processed, or not
     # regarding plot settings:
     config.pop('class_labels', None)
-    # create a flatten dict by joining nested dict keys with the dot:
-    settings['config'] = core.flatten_dict(config)
     # filterfunc_doc = current_app.config['PLOTMANAGER'].get_filterfunc_doc.replace("\n", "<p>")
     return render_template('mainapp.html', title=secure_dburl(current_app.config["DATABASE"]),
                            settings=settings,
@@ -44,15 +42,31 @@ def main():
 @main_app.route("/init", methods=['POST'])
 def init():
     data = request.get_json()
-    segment_select_conditions = data.get('segment_select', None)
     # Note: data.get('segment_orderby', None) is not anymore implemented in the config
     # it will default to None (order by event time desending and by event_distance ascending)
     dic = core.init(get_session(current_app),
-                    segment_select_conditions,
                     data.get('segment_orderby', None),
                     data.get('metadata', False),
                     data.get('classes', False))
     return jsonify(dic)
+
+
+@main_app.route("/get_config", methods=['POST'])
+def get_config():
+    asstr = (request.get_json() or {}).get('asstr', False)
+    try:
+        return jsonify({'error_msg': '', 'data': core.get_config(asstr)})
+    except Exception as exc:
+        return jsonify({'error_msg': str(exc), 'data': {}})
+
+
+@main_app.route("/validate_config_str", methods=['POST'])
+def validate_config_str():
+    data = request.get_json()
+    try:
+        return jsonify({'error_msg': '', 'data': core.validate_config_str(data['data'])})
+    except Exception as exc:
+        return jsonify({'error_msg': str(exc), 'data': {}})
 
 
 @main_app.route("/set_selection", methods=['POST'])
@@ -62,11 +76,15 @@ def set_selection():
         segment_select_conditions = data.get('segment_select', None)
         # Note: data.get('segment_orderby', None) is not anymore implemented in the config
         # it will default to None (order by event time desending and by event_distance ascending)
-        num_segments = core.get_segments_count(get_session(current_app), segment_select_conditions)
-        # set the plot manager new condition at the end: in case of errors
+        num_segments = core.get_segments_count(get_session(current_app),
+                                               core.get_plot_manager().config['segment_select']
+                                               if segment_select_conditions is None else
+                                               segment_select_conditions)
+        # set the plot manager new condition at the end (if provided): in case of errors
         # (e.g. overflow integer in 'id') we do not change the previous selection condition
         # with a erroneous one
-        core.get_plot_manager().config['segment_select'] = segment_select_conditions or {}
+        if segment_select_conditions is not None:
+            core.get_plot_manager().config['segment_select'] = segment_select_conditions
         return jsonify({'num_segments': num_segments, 'error_msg': ''})
     except Exception as exc:
         return jsonify({'num_segments': 0, 'error_msg': str(exc)})

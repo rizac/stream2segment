@@ -4,23 +4,23 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	$scope.segId = null;  // segment identifier
 	$scope.segIdx = -1;  // current segment index (position)
 	$scope.segmentsCount = 0;
-	$scope.metadata = []; // array of 3-element arrays. Each element represents a select expression
-						  // and is: [key, type, expr] (all elements as string)
-						  // example: [('has_data', 'bool', 'true'), ('id', 'int, ''), ('event.id', 'int', ''), ...]
+	$scope.metadata = []; // array of 2-element arrays [key, type] (all elements as string):
+						  // example: [('has_data', 'bool'), ('id', 'int'), ...]
 	$scope.classes = []; // Array of dicts. Each dict represents a class and is: {count: <int>, id: <int>, label:<string>}
 						 // example: [{count:1, id:1, label'Ok'}, {count:0, id:2, label'Bad'}, ...]
+
 	// selection "window" handling:
 	$scope.selection = {
 	    showForm: false,
-	    errorMsg: ""
+	    selExpr: {}  // will be populated when clicking the Select button
 	};
-	// config: 
+	$scope.closeSelectionForm = function(){$scope.setWarning('');$scope.selection.showForm=false;}
+
+	// config "window" handling:
 	$scope.config = {
-	    showForm: false,
-	    data: $window.__SETTINGS.config,
-	    changed: false,
-	    errorMsg:''
+	    showForm: false
 	};
+	$scope.closeConfigForm = function(){$scope.setWarning('');$scope.config.showForm=false;}
 	
 	// init the $scope.plots data:
 	$scope.plots = new Array($window.__SETTINGS.bottomPlots.length + $window.__SETTINGS.rightPlots.length + 1);
@@ -36,6 +36,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		};
 		$scope.plots[element.index] = data;
 	});
+
 	$window.__SETTINGS.rightPlots.forEach(function(element, idx){
 		var data = {
 		    visible: idx == 0,
@@ -69,7 +70,6 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	};
 	
 	$scope.hasPreprocessFunc = $window.__SETTINGS.hasPreprocessFunc;
-	$scope.hasConfig = !!Object.keys($scope.config.data).length;
 	$scope.showPreProcessed = $scope.hasPreprocessFunc;
 	$scope.showAllComponents = false;
 
@@ -77,9 +77,16 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
         // a non empty `msg` shows up the progress bar and `msg`
         // an empty `msg` hides both. Set $scope.warnMsg = string and
         // $scope.loading=true|false to control message and progress bar separately
+        // see also 'setWarning' below
         $scope.loading = !!msg;
         $scope.warnMsg = msg;
     };
+
+    $scope.setWarning = function(msg){
+    	$scope.setLoading('');
+    	$scope.warnMsg = msg;
+    };
+
     $scope.setLoading("Initializing ...");
 
 	$scope.snColors = ['#2ca02c', '#d62728']  // signal, noise
@@ -87,45 +94,35 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	$scope.snColors.arrivalTimeLine = '#777777';  // arrival time line
 	
 	$scope.init = function(){
-		// send the current settings as data. settings are written in the main page
-		// by means of global js variables
-		var data = {segment_select: $window.__SETTINGS['segment_select'] || null,
-					segment_orderby: $window.__SETTINGS['segment_orderby'] || null,
-					classes: true, metadata: true};
+		var data = {classes: true, metadata: true};
 		// note on data dict above: the server expects also 'metadata' and 'classes' keys which we do provide otherwise
 		// they are false by default
 		$http.post("/init", data, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
 	        $scope.classes = response.data.classes;
-	        $scope.metadata = response.data.metadata.map(elm => {
-	            return {
-	                name: elm[0],
-	                type: elm[1],
-	                selExpr: elm[2]
-	            }
-	        });
+	        $scope.metadata = response.data.metadata;
 	        $scope.selectSegments();
 	    });
 	};
 	
-	$scope.selectSegments = function(){
-		// build the dict for the json request: Currently supported only selection, not order-by
-		// (order-by is given in the config once)
-		var data = {segment_select: {}};
-		var selectionEmpty = true;
-		$scope.metadata.forEach(function(mdata){
-			if (mdata.selExpr){
-				data['segment_select'][mdata.name] = mdata.selExpr;
-				selectionEmpty = false;
-			}
-		});
-		$scope.selection.errorMsg = "";
+	$scope.selectSegments = function(selExprObject){
+		// sets selExprObject as 'segment_select' in the config, and refreshes the
+		// current view with the first of such selected segments.
+		// If the argument is undefined, the current selection on the server config
+		// is used
+		if (typeof selExprObject === 'object'){
+			var data = {segment_select: selExprObject};
+			var selectionEmpty = Object.keys(selExprObject).length == 0;
+		}else{
+			var data = {segment_select: null};
+			var selectionEmpty = false;
+		}
 		$scope.setLoading("Selecting segments (please wait, it might take a while for large databases)");
 		$http.post("/set_selection", data, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
 		    $scope.setLoading("");
 		    var segmentsCount = response.data.num_segments;
 		    var errMsg = '';
 		    if (response.data.error_msg){
-		        errMsg = "Server error: " + response.data.error_msg + ". Check the segment selection (if the problem persists, contact the software maintainers) ";
+		        errMsg = response.data.error_msg + ". Check the segment selection (if the problem persists, contact the software maintainers) ";
 		    }
 		    if (!errMsg && segmentsCount <= 0){
 		        if (selectionEmpty){
@@ -135,11 +132,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		        }
 		    }
 		    if (errMsg){
-		        if ($scope.selection.showForm){
-		            $scope.selection.errorMsg = errMsg;
-		        }else{
-		            $scope.warnMsg = errMsg;
-		        }
+		    	$scope.setWarning(errMsg);
 		        return;
 		    }
 		    $scope.segmentsCount = segmentsCount;
@@ -160,18 +153,59 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	
 	$scope.setSegment = function(index){
 		$scope.segIdx = index;
-		//FIXME: here we should get the id from the index!
 		$scope.refreshView(undefined, true);
 	};
 	
-	$scope.updateConfig = function(){
-		if (!$scope.config.changed){
-			$scope.config.errorMsg = 'no change detected, nothing to update';
+	$scope.showSelectForm = function(){
+		if ($scope.config.showForm){
 			return;
 		}
-		$scope.config.errorMsg = '';
-		$scope.refreshView(undefined, false);
-		$scope.config.showForm = false;
+		$scope.setLoading("Fetching config");
+		$http.post("/get_config", {asstr: false}, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
+		    $scope.setLoading("");
+		    var errMsg = response.data.error_msg || '';
+		    if (errMsg){
+		    	$scope.setWarning(errMsg);
+		        return false;
+		    }
+		    $scope.selection.selExpr = {};
+		    var segSelect = response.data.data.segment_select;
+		    for (var key of Object.keys(segSelect || {})){
+		    	$scope.selection.selExpr[key] = segSelect[key];
+		    }
+		    $scope.selection.showForm = true;
+	    });
+	}
+	
+	$scope.showConfigForm = function(){
+		if ($scope.config.showForm){
+			return;
+		}
+		$scope.setLoading("Fetching config");
+		$http.post("/get_config", {asstr: true}, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
+		    $scope.setLoading("");
+		    var errMsg = response.data.error_msg || '';
+		    if (errMsg){
+		        $scope.setWarning(errMsg);
+		        return false;
+		    }
+		    $window.configEditor.setValue(response.data.data);
+		 	$window.configEditor.clearSelection();
+		 	$scope.config.showForm = true;
+	    });
+	}
+
+	$scope.updateConfig = function(){
+		$http.post("/validate_config_str", {data: $window.configEditor.getValue()}, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
+		    $scope.setLoading("");
+		    var errMsg = response.data.error_msg || '';
+		    if (errMsg){
+		        $scope.setWarning(errMsg);
+		        return false;
+		    }
+		 	$scope.config.showForm = false;
+		 	$scope.refreshView(undefined, false,  response.data.data);
+	    });
 	};
 
 	$scope.setPlotVisible = function(index){
@@ -193,9 +227,10 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		$scope.refreshView([0]);
 	}
 	
-	$scope.refreshView = function(indices, refreshMetadata){
+	$scope.refreshView = function(indices, refreshMetadata, config){
 		/**
 		 * Main function that updates the plots and optionally updates the segment metadata
+		 * config is a dict of the new config
 		 */
 		var index = $scope.segIdx;
 		if (index < 0){
@@ -207,17 +242,8 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		var zooms = $scope.getAndClearZooms();
 		var param = {seg_index: $scope.segIdx, pre_processed: $scope.showPreProcessed, zooms:zooms,
 					 plot_indices: indices, all_components: $scope.showAllComponents};
-		// NOTE: The value in $scope.config are taken from the server as js values
-		// As soon as we modify it in the form control, they became strings.
-		// So to be consistent, pass always string with toString(): the server knows we will
-		// always pass strings that have to be parsed back
-		param.config = {};
-		if ($scope.config.changed){
-			for(var key in $scope.config.data){
-				param.config[key] = $scope.config.data[key].toString(); 
-			}
-			$scope.config.changed = false;
-		}
+
+		param.config = config || {};
 		if(refreshMetadata){
 			param.metadata = true;
 			param.classes = true
@@ -343,7 +369,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 					type: 'scatter',
 		            opacity: 0.95,  // set to zero and uncomment the "use animations" below if you wish,
 		            line: {
-		            	  width: 1.5
+		            	  width: 2
 		            }
 				};
 				// push data:

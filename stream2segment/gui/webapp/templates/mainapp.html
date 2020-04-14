@@ -43,7 +43,7 @@
 					</button>
 				</div>
 				
-				<button class='btn btn-default' ng-click="selection.showForm=true">
+				<button class='btn btn-default' ng-click="showSelectForm()">
 					Select
 				</button>
 				
@@ -57,11 +57,11 @@
 					</label>
 				</div>
 	
-				<button class='btn btn-default' ng-click="config.showForm=true" ng-show="hasConfig">
+				<button class='btn btn-default' ng-click="showConfigForm()">
 					Config
 				</button>
 
-				<div class="flexible" ng-show='warnMsg || loading'>{{ warnMsg }} <div ng-show='loading' class='loader'></div></div>
+				<div class="flexible" ng-show='warnMsg || loading' ng-class="warnMsg && !loading ? 'select-highlighted-err' : ''">{{ warnMsg }} <div ng-show='loading' class='loader'></div></div>
 			</div>
 		</div>
 		<div class="center flexible flex-direction-row">
@@ -164,12 +164,12 @@
 	<div id="select-form" ng-show="selection.showForm" class="popup alert">
 		<!-- Select segments where: -->
 		<a href="#" class="close" data-dismiss="alert" aria-label="close" onclick="return false;"
-			ng-click="selection.showForm=!selection.showForm">&times;</a>
+			ng-click="closeSelectionForm()" style="font-size: xx-large;">&times;</a>
 		<div class="center">
 			<table>
 				<tr>
 					<th>Attribute</th>
-					<th>"Select" expression
+					<th><i>Select</i> expression
 					    <table class='note'>
 					    		<tr><td>a b c</td><td>select segments whose attribute value is a, b or c</td></tr>
     							<tr><td>[a, b]</td><td>select segments whose attribute value is between a and b (including endpoints)</td></tr>
@@ -180,43 +180,31 @@
 					</th>
 				</tr>
 				<tr ng-repeat="mdata in metadata">
-					<td ng-class="mdata.selExpr ? 'select-highlighted' : ''">{{ mdata.name }}</td>
+				<!--NOTE: mdata is an Array of segment attributes, each attribute is an Array of the form [name, type]
+				    (both strings) -->
+					<td><span ng-class="selection.selExpr[mdata[0]] ? 'select-highlighted' : ''">{{ mdata[0] }}</span></td>
 					<td style='width:100%'>
-						<input style='width:100%' type=text ng-model="mdata.selExpr" placeholder="({{ mdata.type }})"/>
+						<input style='width:100%' type=text ng-model="selection.selExpr[mdata[0]]" placeholder="({{ mdata[1] }})"/>
 					</td>
 				</tr>
 			</table>
 		</div>
-		<div>
-			<button class='btn btn-default' ng-click="selectSegments()">Select</button>
-			<span>{{ selection.errorMsg }}</span>
+		<div style='text-align:center'>
+			<button class='btn btn-default' ng-click="selectSegments(selection.selExpr)">Select</button>
 		</div>
 	</div>
 	
 	<div id="config-form" ng-show="config.showForm" class="popup alert">
 		<!-- Config (.yaml file) -->
 		<a href="#" class="close" data-dismiss="alert" aria-label="close" onclick="return false;"
-			ng-click="config.showForm=!config.showForm">&times;</a>
-		<div class="center">
-			<table>
-				<tr>
-					<th>Parameter name</th>
-					<th>Value
-					    <div class='note'>
-					    Commas are interpreted as array / list separators, brakets optional in case
-					    	</div>
-				</tr>
-				<tr ng-repeat="(key, value) in config.data">
-					<td>{{ key }}</td>
-					<td style='width:100%'>
-						<input style='width:100%' type=text ng-change="config.changed=true" ng-model="config.data[key]"/>
-					</td>
-				</tr>
-			</table>
-		</div>
+			ng-click="closeConfigForm()" style="font-size: xx-large;">&times;</a>
 		<div>
+		Configuration editor (YAML syntax):
+		</div>
+		<div class="center" id='configEditor'>
+		</div>
+		<div style='text-align:center'>
 			<button class='btn btn-default' ng-click="updateConfig()">Update</button>
-			<span>{{ config.errorMsg }}</span>
 		</div>
 	</div>
 	{% endraw %}
@@ -225,4 +213,30 @@
 	{{ super() }}
 	<!-- load angular and init it (IN THIS ORDER!) -->
 	<script src="static/js/mainapp/ng-app.js" defer></script>
+	
+	<!-- <script src="https://pagecdn.io/lib/ace/1.4.8/ace.min.js" crossorigin="anonymous"
+    	integrity="sha256-2vrgUWyhDF1A6gCwYj0YcNWMoEdeJNuj0G3MHPLP9RE=" ></script> -->
+    <script src="https://pagecdn.io/lib/ace/1.4.8/ace.js" crossorigin="anonymous"
+    	integrity="sha256-+svOVB1WmhKhTy7N21gWvtyXn91qF0r52P2hIArRRug=" ></script>
+    <!-- <script src="https://pagecdn.io/lib/ace/1.4.8/theme-monokai.min.js" crossorigin="anonymous">
+    </script>
+    <script src="https://pagecdn.io/lib/ace/1.4.8/mode-yaml.min.js" crossorigin="anonymous">
+    </script> -->
+	
+	<script type="text/javascript">
+		var configEditor = ace.edit("configEditor");
+		ace.config.set('basePath', 'https://pagecdn.io/lib/ace/1.4.8');
+		// instead of doing so:
+	    // configEditor.setTheme("ace/theme/idle_fingers");
+	    // configEditor.session.setMode("ace/mode/yaml");
+	    // we set everything in the options dict
+	    // (for infor see: https://codepen.io/ryancat/pen/mMyvpx)
+	    configEditor.setOptions({
+	    	wrap: true,
+	    	fontSize: 12,
+	    	mode: "ace/mode/yaml",
+	    	theme: "ace/theme/idle_fingers",
+	    	showLineNumbers: true,
+	    });
+	</script>
 {% endblock %}

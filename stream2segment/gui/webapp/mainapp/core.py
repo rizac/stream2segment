@@ -11,6 +11,7 @@ Core functionalities for the GUI web application (processing)
 from builtins import map, zip
 
 from itertools import cycle
+from io import StringIO
 import json
 
 import numpy as np
@@ -23,6 +24,7 @@ from stream2segment.utils.resources import yaml_load
 from stream2segment.io.db.sqlevalexpr import exprquery, Inspector
 from stream2segment.gui.webapp.mainapp.plots.core import getseg, PlotManager
 from stream2segment.gui.webapp.mainapp.plots.jsplot import isoformat
+import yaml
 
 
 NPTS_WIDE = 900  # FIXME: automatic retrieve by means of Segment class relationships?
@@ -55,27 +57,45 @@ def get_plot_manager():
     return PLOT_MANAGER
 
 
-def init(session, conditions, orderby, metadata, classes):
+def init(session, orderby, metadata, classes):
     classes = get_classes(session) if classes else []
-    _metadata = []
-    if metadata:
-        _metadata = [[n, t, conditions.get(n, '')] for n, t in get_metadata(session)]
+    _metadata = get_metadata(session) if metadata else []
     # qry = query4gui(session, conditions=conditions, orderby=None)
     return {'classes': classes,
             'metadata': _metadata}
 
-# This is an option to load low level stuff, but it does not help with millions
-# of rows:
-#     from sqlalchemy.dialects import postgresql, sqlite
-#     qry_ = _query4gui(session.query(Segment.id), conditions, orderby)
-#     engine = session.bind.engine
-#     dialect = (sqlite if str(engine.url).startswith('sqlite://')
-#                else postgresql).dialect()
-#     sql_statement = str(qry_.statement.compile(dialect=dialect))
-#     conn = engine.raw_connection()
-#     cursor = conn.cursor()
-#     cursor.execute(sql_statement)
-#     return np.array([_[0] for _ in cursor.fetchall()], dtype=int)
+
+def get_config(asstr=False):
+    '''Returns the current config as YAML formatted string (if `asstr` is True)
+    or as dict. In the former case, the parameter 'segment_select' is not
+    included, becaue the configuration is itnended to be displayed in a
+    browser editor (and the 'segment selection is handled separately in
+    another form dialog)
+    '''
+    config_dict = get_plot_manager().config or {}
+    if not asstr:
+        return config_dict
+    config_dict = dict(config_dict)
+    config_dict.pop('segment_select', None)
+    sio = StringIO()
+    try:
+        yaml.safe_dump(config_dict, sio, default_flow_style=False,
+                       sort_keys=False)
+    except TypeError:  # in case yaml version is not >= 5.1:
+        yaml.safe_dump(config_dict, sio, default_flow_style=False)
+    return sio.getvalue()
+
+
+def validate_config_str(string_data):
+    '''Validates the YAML formatted string and returns the corresponding
+    Python dict. Raises ValueError if 'segment_select' is in the parsed config
+    (there is a dedicated button in the page)
+    '''
+    sio = StringIO(string_data)
+    ret = yaml.safe_load(sio.getvalue())
+    if 'segment_select' in ret:
+        raise ValueError('invalid segment_select parameter: use the dedicated button')
+    return ret
 
 
 def get_segments_count(session, conditions):
@@ -175,7 +195,7 @@ def get_classes(session, seg_id=None):
 
 
 def get_segment_data(session, seg_id, plotmanager, plot_indices, all_components, preprocessed,
-                     zooms, metadata=False, classes=False, config=False):
+                     zooms, metadata=False, classes=False, config=None):
     """Returns the segment data, depending on the arguments
     :param session: a flask sql-alchemy session object
     :param seg_id: the segment id (int)
@@ -204,7 +224,7 @@ def get_segment_data(session, seg_id, plotmanager, plot_indices, all_components,
     sn_windows = []
     if config:
         # set_sn_windows(self, session, a_time_shift, signal_window):
-        plotmanager.update_config(**deflatten_dict(config, parsevals=True))
+        plotmanager.update_config(**config)
     # segment = getseg(session, seg_id)
 
     if plot_indices:
@@ -244,50 +264,6 @@ def parse_zooms(zooms, plot_indices):
             zoom = [None, None]
         _zooms.append(zoom)
     return _zooms  # set zooms to None if length is not enough
-
-
-def flatten_dict(config, prefix=''):
-    '''flattens a dict, returning a one level dict where nested keys are joined with the dot
-    Example:
-    flatten_dict({'a': {'a1':5, 'a2': 6}, 'b': 7}) = {'a.a1':5, 'a.a2': 6, 'b': 7}
-    '''
-    ret = {}
-
-    def concat(prefix, key):
-        '''concat function for nested keys'''
-        return key if not prefix else '%s.%s' % (prefix, key)
-
-    for key, val in config.items():
-        if isinstance(val, dict):
-            ret.update(flatten_dict(val, concat(prefix, key)))
-        else:
-            ret[concat(prefix, key)] = val
-    return ret
-
-
-def deflatten_dict(dic, parsevals=True):
-    '''de-flattens a dict, nesting dicts for those keys with dot, using the dot as separator.
-
-    Example:
-    flatten_dict({'a.a1':'5 6', 'a.a2': 6, 'b': 7}) = {'a': {'a1':[5, 6], 'a2': 6}, 'b': 7}
-
-    :param parsevals: boolean (default True), parses each dict key using json and being flexible
-    about how arrays can be input (i.e., wothout brakets, or with spaces as separators).
-    Defaults to true as `dic` might be returned form a browser where currently arrays are
-    rendered in the input box without brakets, and thus might be returned here as they are
-    '''
-    ret = {}
-    for key, val in dic.items():
-        if parsevals:
-            val = parse_inputtag_value(val)
-        keys = key.split('.')
-        dic2add = ret
-        for kkk in keys[:-1]:
-            if kkk not in dic2add:
-                dic2add[kkk] = {}
-            dic2add = dic2add[kkk]
-        dic2add[keys[-1]] = val
-    return ret
 
 
 def parse_inputtag_value(string):
