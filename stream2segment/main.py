@@ -92,27 +92,27 @@ def download(config, log2file=True, verbose=False, **param_overrides):
     # When 1 is returned, a FailedDownload is raised and logged to error.
     # Other exceptions are caught, logged with the stack trace as critical, and raised
 
-    # check and parse config values (modify in place):
-    yaml_dict = load_config_for_download(config, True, **param_overrides)
-    # get the session object and the tt_table object (needed separately, see below):
-    session = yaml_dict['session']
-    # print yaml_dict to terminal if needed. Do not use input_yaml_dict as
-    # params needs to be shown as expanded/converted so the user can check their correctness
-    # Do no use loggers yet:
-    if verbose:
-        print(_to_pretty_str(yaml_dict,
-                             load_config_for_download(config, False, **param_overrides)))
-
-    # configure logger and habdlers:
-    loghandlers = configlog4download(logger, config if log2file else None, verbose)
-
-    # create download row with unprocessed config (yaml_load function)
-    # Note that we call again load_config with parseargs=False:
-    download_id = new_db_download(session,
-                                  load_config_for_download(config, False, **param_overrides))
     ret = 0
     noexc_occurred = True
     try:
+        # check and parse config values (modify in place):
+        yaml_dict = load_config_for_download(config, True, **param_overrides)
+        # get the session object and the tt_table object (needed separately, see below):
+        session = yaml_dict['session']
+        # print yaml_dict to terminal if needed. Do not use input_yaml_dict as
+        # params needs to be shown as expanded/converted so the user can check their correctness
+        # Do no use loggers yet:
+        if verbose:
+            print(_to_pretty_str(yaml_dict,
+                                 load_config_for_download(config, False, **param_overrides)))
+
+        # configure logger and habdlers:
+        loghandlers = configlog4download(logger, config if log2file else None, verbose)
+
+        # create download row with unprocessed config (yaml_load function)
+        # Note that we call again load_config with parseargs=False:
+        download_id = new_db_download(session,
+                                      load_config_for_download(config, False, **param_overrides))
         if log2file and verbose:  # (=> loghandlers not empty)
             print("Log file:\n'%s'\n"
                   "(if the program does not quit for unexpected exceptions,\n"
