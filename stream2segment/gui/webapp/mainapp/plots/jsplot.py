@@ -200,7 +200,7 @@ class Plot(object):
         # same id:
         for i, lbl in enumerate(labels):
             chunk = 1
-            for j, lbl2 in enumerate(labels[i+1:]):
+            for j, lbl2 in enumerate(labels[i+1:], i+1):
                 if lbl == lbl2:
                     chunk += 1
                     labels[j] = lbl2 + ('[#%d]' % chunk)

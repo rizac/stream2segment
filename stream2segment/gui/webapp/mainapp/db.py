@@ -48,8 +48,9 @@ _session = _getsess(os.environ['S2SSHOW_DATABASE'], scoped=True)
 def get_session():
     return _session
 
+
 def get_db_url(safe=True):
-    return secure_dburl(str(_session.bind.engine)) 
+    return secure_dburl(str(_session.bind.engine.url)) 
 
 
 def get_segments_count(conditions):
