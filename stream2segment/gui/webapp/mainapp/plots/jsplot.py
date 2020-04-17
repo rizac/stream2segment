@@ -13,6 +13,7 @@ from __future__ import division
 from builtins import object
 
 from datetime import datetime, timedelta
+from collections import defaultdict
 
 import numpy as np
 from obspy.core import UTCDateTime  # , Stream, Trace, read
@@ -64,8 +65,6 @@ class Plot(object):
             if isinstance(warnings, text_type):  # str in python3, unicode in python2
                 warnings = [warnings]
         self.warnings = warnings or []
-        if not isinstance(warnings, list):
-            dfg = 9
 
     def add(self, x0=None, dx=None, y=None, label=None):
         """Adds a new series (scatter line) to this plot.
@@ -195,15 +194,26 @@ class Plot(object):
 
     @staticmethod
     def fromstream(stream, title=None, warnings=None):
-        p = Plot(title, warnings)
-        same_trace = len(set([t.get_id() for t in stream])) == 1
-        for i, t in enumerate(stream, 1):
-            p.addtrace(t, 'chunk %d' % i if same_trace else t.get_id())
+        plt = Plot(title, warnings)
+        labels = [t.get_id() for t in stream]
+        # add trace.get_id() + "[#1]", "[#2]" etcetera if some traces have
+        # same id:
+        for i, lbl in enumerate(labels):
+            chunk = 1
+            for j, lbl2 in enumerate(labels[i+1:]):
+                if lbl == lbl2:
+                    chunk += 1
+                    labels[j] = lbl2 + ('[#%d]' % chunk)
+            if chunk > 1:
+                labels[i] = lbl + '[#1]'
+        for trace, label in zip(stream, labels):
+            plt.addtrace(trace, label)
+        same_trace = len(set(t.get_id() for t in stream)) == 1
         if title is None and same_trace:
-            p.title = stream[0].get_id()
+            plt.title = stream[0].get_id()
         if same_trace and len(stream) > 1:
-            p.warnings += ['gaps/overlaps']
-        return p
+            plt.warnings += ['gaps/overlaps']
+        return plt
 
     @staticmethod
     def fromtrace(trace, title=None, label=None, warnings=None):

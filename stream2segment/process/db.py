@@ -31,7 +31,8 @@ from obspy.core.stream import _read
 from stream2segment.io.utils import loads_inv
 from stream2segment.utils import _get_session
 from stream2segment.io.db.models import (Segment, Station, Base, object_session,
-                                         Class, Event, Channel, DataCenter,
+                                         Class, ClassLabelling, Download,
+                                         Event, Channel, DataCenter,
                                          WebService)
 from stream2segment.io.db.sqlevalexpr import exprquery
 
@@ -208,7 +209,7 @@ def get_stream(segment, format="MSEED", headonly=False, **kwargs):  # @ReservedA
         raise ValueError(str(terr))
 
 
-def classmeth_siblings(self, parent=None, conditions=None):
+def classmeth_siblings(self, parent=None, conditions=None, colname=None):
     '''returns a SQLAlchemy query yielding the siblings of this segments according to `parent`
     Refer to the method Segment.get_siblings in :module:`models.py`.
 
@@ -217,7 +218,7 @@ def classmeth_siblings(self, parent=None, conditions=None):
         a subset of siblings. None (the defaults) means: empty dict (no additional slection
         condition)
     '''
-    sblngs = self.get_siblings(parent, colname=None)  # returns a Segment object
+    sblngs = self.get_siblings(parent, colname=colname)  # returns a Segment object
     if conditions:
         sblngs = exprquery(sblngs, conditions, orderby=None)
     return sblngs
