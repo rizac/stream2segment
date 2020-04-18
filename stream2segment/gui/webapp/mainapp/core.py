@@ -23,7 +23,6 @@ from sqlalchemy.orm import load_only
 from obspy import Stream, Trace
 from obspy.core.utcdatetime import UTCDateTime
 
-from stream2segment.gui.webapp.mainapp.plots.jsplot import Plot
 from stream2segment.process import gui
 # from stream2segment.io.db.models import Segment, Station, Download, Class,\
 #     ClassLabelling
@@ -31,14 +30,15 @@ from stream2segment.utils import load_source, iterfuncs
 from stream2segment.utils.resources import yaml_load
 # from stream2segment.io.db.sqlevalexpr import Inspector
 # from stream2segment.gui.webapp.mainapp.plots.core import getseg, PlotManager
-from stream2segment.gui.webapp.mainapp.plots.jsplot import isoformat
+from stream2segment.gui.webapp.mainapp.jsplot import Plot, isoformat
 from stream2segment.gui.webapp.mainapp import db
 from stream2segment.process.math.traces import sn_split
 
-
 NPTS_WIDE = 900  # FIXME: automatic retrieve by means of Segment class relationships?
 NPTS_SHORT = 900  # FIXME: see above
+SEL_STR = 'segment_select'
 # LIMIT = 50
+
 
 def _escapedoc(string):
     if not string or not string.strip():
@@ -50,7 +50,6 @@ def _escapedoc(string):
     string = string.strip()
     return string.replace('{', '&#123;').replace('}', '&#125;').replace("\"", "&quot;").\
         replace("'", '&amp;').replace("<", "&lt;").replace(">", "&gt;")
-    
 
 # The variables below are actually not a great idea for production. We should
 # investigate some persistence storage (not during a request, but during all app
@@ -64,7 +63,6 @@ def _escapedoc(string):
 # # populated on demand witht the block below:
 # SEG_QUERY_BLOCK = 50
 
-
 # def create_plot_manager(pyfile, configfile):
 #     pymodule = None if pyfile is None else load_source(pyfile)
 #     configdict = {} if configfile is None else yaml_load(configfile)
@@ -76,27 +74,22 @@ def _escapedoc(string):
 # def get_plot_manager():
 #     return PLOT_MANAGER
 
-
 # Note that the use of global variables like this should be investigted
-# in production (which is not the case for the moment):
-_pymodule = None
-if os.environ.get('S2SSHOW_pyfile', None):
-    _pymodule = load_source(os.environ['S2SSHOW_pyfile'])
-
-g_config = {}
-if os.environ.get('S2SSHOW_configfile', None):
-    with open(os.environ['S2SSHOW_configfile']) as _opn:
-        g_config = yaml.safe_load(_opn)
-
-if 'segment_select' not in g_config:
-    g_config['segment_select'] = {}
-
-# define default functions if not found:
-
-has_preprocess_func = False
+# in production (the web GUI is not intended to be used as web app in
+# production for the moment):
 
 
-def _preprocessfunc(*args, **kwargs):
+g_config = {
+    SEL_STR: {}
+}
+
+
+def _reset_global_config():
+    g_config.clear()
+    g_config[SEL_STR] = {}
+
+
+def _default_preprocessfunc(*args, **kwargs):
     '''No function decorated with '@gui.preprocess'
 
     REAL DOC: (the string above is meaningless, it's just what we will be
@@ -107,23 +100,53 @@ def _preprocessfunc(*args, **kwargs):
     raise Exception("No function decorated with '@gui.preprocess'")
 
 
+_preprocessfunc = _default_preprocessfunc
+
 g_functions = [lambda segment, config: segment.stream()]
 
 userdefined_plots = []
 
-if _pymodule is not None:
-    for func in iterfuncs(_pymodule):
-        att, pos, xaxis, yaxis = gui.get_func_attrs(func)
-        if att == 'gui.preprocess':
-            _preprocessfunc = func
-            has_preprocess_func = True
-        elif att == 'gui.plot':
-            userdefined_plots.append({'name': func.__name__,
-                                      'index': len(g_functions),  # index >=1
-                                      'position': pos, 'xaxis': xaxis,
-                                      'yaxis': yaxis,
-                                      'doc': _escapedoc(func.__doc__)})
-            g_functions.append(func)
+def _reset_global_functions():
+    global _preprocessfunc
+    _preprocessfunc = _default_preprocessfunc
+    del g_functions[1:]
+    del userdefined_plots[:]
+
+
+def init(app, pyfile=None, configfile=None):
+    
+    if pyfile:
+        _pymodule = load_source(pyfile)
+        _reset_global_functions()
+        for function in iterfuncs(_pymodule):
+            att, pos, xaxis, yaxis = gui.get_func_attrs(function)
+            if att == 'gui.preprocess':
+                global _preprocessfunc
+                _preprocessfunc = function
+            elif att == 'gui.plot':
+                userdefined_plots.append(
+                    {
+                        'name': function.__name__,
+                        'index': len(g_functions),  # index >=1
+                        'position': pos,
+                        'xaxis': xaxis,
+                        'yaxis': yaxis,
+                        'doc': _escapedoc(function.__doc__)
+                    }
+                )
+                g_functions.append(function)
+
+    if configfile:
+        with open(configfile) as _opn:
+            newconfig = yaml.safe_load(_opn)
+            _reset_global_config()
+            g_config.update(newconfig)
+#         if SEL_STR not in g_config:
+#             g_config[SEL_STR] = {}
+
+
+def has_preprocess_func():
+    return _preprocessfunc is not _default_preprocessfunc
 
 
 def get_func_doc(self, index=-1):
@@ -137,7 +160,7 @@ def get_func_doc(self, index=-1):
     return userdefined_plots[index]['doc']
 
 
-def init(metadata=True, classes=True):
+def get_init_data(metadata=True, classes=True):
     classes = db.get_classes() if classes else []
     _metadata = db.get_metadata() if metadata else []
     # qry = query4gui(session, conditions=conditions, orderby=None)
@@ -146,15 +169,15 @@ def init(metadata=True, classes=True):
 
 def get_config(asstr=False):
     '''Returns the current config as YAML formatted string (if `asstr` is True)
-    or as dict. In the former case, the parameter 'segment_select' is not
-    included, becaue the configuration is itnended to be displayed in a
+    or as dict. In the former case, the parameter SEL_STR ('segment_select')
+    is not included, becaue the configuration is itnended to be displayed in a
     browser editor (and the 'segment selection is handled separately in
     another form dialog)
     '''
     config_dict = dict(g_config)
     if not asstr:
         return config_dict
-    config_dict.pop('segment_select', None)  # for safety
+    config_dict.pop(SEL_STR, None)  # for safety
     if not config_dict:  # if dict is empty,
         # avoid returning: "{}\n", instead return emtpy string:
         return ''
@@ -169,15 +192,15 @@ def get_config(asstr=False):
 
 def validate_config_str(string_data):
     '''Validates the YAML formatted string and returns the corresponding
-    Python dict. Raises ValueError if 'segment_select' is in the parsed config
-    (there is a dedicated button in the page)
+    Python dict. Raises ValueError if SEL_STR ('segment_select') is in the
+    parsed config (there is a dedicated button in the page)
     '''
     sio = StringIO(string_data)
     ret = yaml.safe_load(sio.getvalue())
-    if 'segment_select' in ret:
-        raise ValueError('invalid segment_select parameter: use the dedicated button')
+    if SEL_STR in ret:
+        raise ValueError('invalid parameter %s: use the dedicated button' % 
+                         SEL_STR)
     return ret
-
 
 # def get_segments_count(session, conditions):
 #     num_segments = _query4gui(session.query(func.count(Segment.id)), conditions).scalar()
@@ -188,12 +211,11 @@ def validate_config_str(string_data):
 
 
 def get_select_conditions():
-    return dict(g_config['segment_select'])
+    return dict(g_config[SEL_STR])
 
 
 def set_select_conditions(newdict):
-    g_config['segment_select'] = newdict
-
+    g_config[SEL_STR] = newdict
 
 # def get_segment_id(session, seg_index):
 #     if np.isnan(SEG_IDS[seg_index]):
@@ -222,14 +244,12 @@ def set_select_conditions(newdict):
 #     return [_[0] for _ in _query4gui(session.query(Segment.id),
 #                                      conditions, orderby).limit(limit).offset(offset)]
 
-
 # def _query4gui(what2query, conditions, orderby=None):
 #     return exprquery(what2query, conditions=conditions, orderby=orderby)
 
 
 def get_segment(segment_id):
     return db.get_segment(segment_id)
-
 
 # def get_metadata(seg_id=None):
 #     '''Returns a list of tuples (column, column_type) if `seg_id` is None or
@@ -267,6 +287,10 @@ def set_class_id(seg_id, class_id, value):
     else:
         segment.del_classes(class_id)
     return {}
+
+
+def get_segment_id(segment_index):
+    return db.get_segment_id(segment_index, get_select_conditions())
 
 
 def get_segment_data(seg_id, plot_indices, all_components, preprocessed,
@@ -372,7 +396,7 @@ def get_plot(segment, preprocessed, func_index):
         title = segment.seed_id
         func_name = str('' if func_index == 0 else
                         g_functions[func_index].__name__)
-        sep = ' - ' if title or func_name else ''
+        sep = ' - ' if title and func_name else ''
         plt.title = '%s%s%s' % (title, sep, func_name)
 
     except Exception as exc:  # pylint: disable=broad-except
@@ -394,20 +418,24 @@ def exec_func(segment, preprocessed, function):
 
 @contextlib.contextmanager
 def prepare_for_function(segment, preprocessed=False):
+    ''''''
+    # side note: we might cache the stream, the preprocessed stream and so
+    # on, so that each time we do not need to read por process the mseed
+    # but this has no big impact. Caching ALL subplots is a pain (we already
+    # tried ending up with unmaintainable code). Note however that
+    # within the same web request, in case the same segment stream is needed,
+    # it is cached inside the Segment object (same holds for the inventory
+    # as response object as member of the Station object)
     tmpstream = None
     try:
-        tmpstream = getattr(segment, '_stream', None)
-        if isinstance(tmpstream, Exception):
-            tmpstream = None
-            raise tmpstream  # pylint: disable=raising-bad-type
-
-        if tmpstream is not None:
-            segment.stream(True)  # reload stream from bytes data, so that
-            # any function works on the unmodified source obspy Stream
+        tmpstream = segment.stream().copy()
         if not preprocessed:
             yield
         else:
-            if not hasattr(segment, '_p_p_stream'):
+            stream = getattr(segment, '_p_p_stream', None)
+            if isinstance(stream, Exception):
+                raise stream
+            elif stream is None:
                 stream = \
                     _preprocessfunc(segment, g_config)
                 if isinstance(stream, Trace):
@@ -417,7 +445,7 @@ def prepare_for_function(segment, preprocessed=False):
                                     "'gui.preprocess' must return "
                                     "a Trace or Stream object")
                 segment._p_p_stream = stream
-            segment._stream = segment._p_p_stream
+            segment._stream = segment._p_p_stream.copy()
             yield
     except Exception as exc:
         segment._p_p_stream = exc
@@ -425,6 +453,40 @@ def prepare_for_function(segment, preprocessed=False):
     finally:
         if tmpstream is not None:
             segment._stream = tmpstream
+
+# @contextlib.contextmanager
+# def prepare_for_function(segment, preprocessed=False):
+#     tmpstream = None
+#     try:
+#         tmpstream = getattr(segment, '_stream', None)
+#         if isinstance(tmpstream, Exception):
+#             tmpstream = None
+#             raise tmpstream  # pylint: disable=raising-bad-type
+# 
+#         if tmpstream is not None:
+#             segment.stream(True)  # reload stream from bytes data, so that
+#             # any function works on the unmodified source obspy Stream
+#         if not preprocessed:
+#             yield
+#         else:
+#             if not hasattr(segment, '_p_p_stream'):
+#                 stream = \
+#                     _preprocessfunc(segment, g_config)
+#                 if isinstance(stream, Trace):
+#                     stream = Stream([stream])
+#                 elif not isinstance(stream, Stream):
+#                     raise Exception("The function decorated with "
+#                                     "'gui.preprocess' must return "
+#                                     "a Trace or Stream object")
+#                 segment._p_p_stream = stream
+#             segment._stream = segment._p_p_stream
+#             yield
+#     except Exception as exc:
+#         segment._p_p_stream = exc
+#         raise exc
+#     finally:
+#         if tmpstream is not None:
+#             segment._stream = tmpstream
 
 
 def convert2plot(funcres):
@@ -467,7 +529,7 @@ def convert2plot(funcres):
                 for trace in obj:
                     plt.addtrace(trace, label)
             else:
-                raise ValueError(("Cannot create plot from %s (length=%d): ") %
+                raise ValueError(("Cannot create plot from %s (length=%d): ") % 
                                  str(type(obj)))
     return plt
 

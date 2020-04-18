@@ -9,12 +9,13 @@ import os
 import numpy as np
 from sqlalchemy import func
 
+from flask import g
 from stream2segment.process.db import (Segment, Class, ClassLabelling,
                                        Station, Download,
-                                       get_session as _getsess,
-                                       _raiseifreturnsexception)
+                                       get_session as _getsess)
 from stream2segment.io.db.sqlevalexpr import exprquery, Inspector
 from stream2segment.utils import secure_dburl
+import atexit
 
 
 SEG_IDS = []  # numpy array of segments ids (for better storage): filled with NaNs,
@@ -22,35 +23,58 @@ SEG_IDS = []  # numpy array of segments ids (for better storage): filled with Na
 SEG_QUERY_BLOCK = 50
 
 
-@_raiseifreturnsexception
-def classmeth_preprocessed_stream(self, preproc_func, config):
-    if not hasattr(self, '_preprocessed_stream'):
-        tmpstream = getattr(self, "_stream", None)
-        try:
-            if tmpstream is not None:
-                self.stream(True)  # reload, so we pass to the preprocess func
-                # the REAL stream (might have been modified)
-            self._preprocessed_stream = preproc_func(self, config)
-        except Exception as exc:
-            self._preprocessed_stream = exc
-        finally:
-            if tmpstream is not None:
-                self._stream = tmpstream
+# @_raiseifreturnsexception
+# def classmeth_preprocessed_stream(self, preproc_func, config):
+#     if not hasattr(self, '_preprocessed_stream'):
+#         tmpstream = getattr(self, "_stream", None)
+#         try:
+#             if tmpstream is not None:
+#                 self.stream(True)  # reload, so we pass to the preprocess func
+#                 # the REAL stream (might have been modified)
+#             self._preprocessed_stream = preproc_func(self, config)
+#         except Exception as exc:
+#             self._preprocessed_stream = exc
+#         finally:
+#             if tmpstream is not None:
+#                 self._stream = tmpstream
+#
+#     return self._preprocessed_stream
+#
+#
+# # https://nestedsoftware.com/2018/06/11/flask-and-sqlalchemy-without-the-flask-sqlalchemy-extension-3cf8.34704.html
+# Segment.preprocessed_stream = classmeth_preprocessed_stream
 
-    return self._preprocessed_stream
 
+_dbpath = None
 
-# https://nestedsoftware.com/2018/06/11/flask-and-sqlalchemy-without-the-flask-sqlalchemy-extension-3cf8.34704.html
-Segment.preprocessed_stream = classmeth_preprocessed_stream
-_session = _getsess(os.environ['S2SSHOW_DATABASE'], scoped=True)
+def init(app, dbpath):
+    # https://nestedsoftware.com/2018/06/11/flask-and-sqlalchemy-without-the-flask-sqlalchemy-extension-3cf8.34704.html
+    # and
+    # https://flask.palletsprojects.com/en/1.1.x/appcontext/#storing-data
+
+    # we store _dbpath globally
+    global _dbpath
+    _dbpath = dbpath
+    
+    # we add a listener that whn a request is ended, the session should be
+    # removed (see get_session below)
+    @app.teardown_appcontext
+    def close_db(error):
+        """Closes the database again at the end of the request."""
+        if hasattr(g, 'session'):
+            g.session.remove()
 
 
 def get_session():
-    return _session
+    
+    # (see init above)
+    if not hasattr(g, 'session'):
+        g.session = _getsess(_dbpath, scoped=True)
+    return g.session
 
 
 def get_db_url(safe=True):
-    return secure_dburl(str(_session.bind.engine.url)) 
+    return secure_dburl(str(_dbpath))
 
 
 def get_segments_count(conditions):
@@ -80,14 +104,13 @@ def get_segment_id(seg_index, conditions):  # get_segment_select()
         limit = SEG_QUERY_BLOCK
         offset = int(seg_index / float(SEG_QUERY_BLOCK)) * SEG_QUERY_BLOCK
         limit = min(len(SEG_IDS) - offset, SEG_QUERY_BLOCK)
-        segids = get_segment_ids(session,
-                                 conditions,
+        segids = get_segment_ids(conditions,
                                  offset=offset, limit=limit)
         SEG_IDS[offset:offset+limit] = segids
     return int(SEG_IDS[seg_index])
 
 
-def get_segment_ids(session, conditions, limit=50, offset=0):
+def get_segment_ids(conditions, limit=50, offset=0):
     session = get_session()
     # querying all segment ids is faster later when selecting a segment
     orderby = [('event.time', 'desc'), ('event_distance_deg', 'asc'),
@@ -97,24 +120,45 @@ def get_segment_ids(session, conditions, limit=50, offset=0):
 
 
 def get_segment(segment_id):  # , cols2load=None):
-    '''Returns the segment identified by id `segment_id`, inspecting the identity map to avoid
-    issuing SQL query if not needed'''
-    # qe could simply execute the last line, but we want to know beforehand
-    # if the segment is in the session because if not, we want to release
-    # and reopen a new one, to fetch the updated data from the db (just in case) 
+    '''Returns the segment identified by id `segment_id`'''
+    # Rationale: we would like to use some sort of cache, because displaying
+    # several plots might be time consuming. We ended up focusing on simplicity
+    # (avoid everything more complex, we already tried and it's a pain):
+    # cache a segment at a time. When a new segment is requested,
+    # discard the previously cached (if any), and cache the new segment,
+    # so that when e.g., a user chooses a different
+    # user defined plot in the GUI (or checks/unchecks the 'preprocessing'
+    # button) we do not need to reload the segment from the DB, neither we
+    # need to re-open the segment stream from the Bytes sequence.
+    # Now, we might user the session identity_map (https://stackoverflow.com/a/48988010)
+    # but it seems that the identity_map will always be empty, as it is
+    # cleared automatically at the end of each method using a db session
+    # (i.e., the method sqlalchemy.orm.state.InstanceState._cleanup is called)
+    # Thus, we avoid any form of caching, also in account of the fact that
+    # most applications suggest to release the session after each request
+    # (which is what we implemented): just use query.get which is implemented
+    # to avoid querying the db if the instance is in the session (as we saw,
+    # this should be never happen, but just in case). If you want to
+    # implement some caching, use a different storage for a Segment instance
+    # and add it back to the session (session.add)
+
     session = get_session()
-    remove_session = True
-    for obj in session.identity_map.values():
-        if isinstance(obj, Segment) and obj.id == segment_id:
-            remove_session = False
-            break
-    if remove_session:
-        # clear the session and release all connections, we have in any case
-        # to query the database:
-        session.remove()
+    # for obj in session.identity_map.values():
+    #     if isinstance(obj, Segment) and obj.id == segment_id:
+    #         break
+    # else:  # no break found (see above)
+    #     # clear the session and release all connections, we have in any case
+    #     # to query the database:
+    #     session.remove()
     seg = session.query(Segment).get(segment_id)
     # session.add(seg)
     return seg
+
+
+# @atexit.register
+# def remove_session():
+#     get_session().remove()
+    # print('Db session removed')
 
 
 def get_classes(segment_id=None):

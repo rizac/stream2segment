@@ -24,7 +24,7 @@ def main():
     config = core.get_config()
     configure_classes(db.get_session(), config.get('class_labels', []))
     ud_plots = core.userdefined_plots
-    settings = {'hasPreprocessFunc': core.has_preprocess_func}
+    settings = {'hasPreprocessFunc': core.has_preprocess_func()}
     # pop keys not to be shown in the gui config form (either already processed, or not
     # regarding plot settings:
     config.pop('class_labels', None)
@@ -41,9 +41,9 @@ def init():
     data = request.get_json()
     # Note: data.get('segment_orderby', None) is not anymore implemented in the config
     # it will default to None (order by event time desending and by event_distance ascending)
-    dic = core.init( # data.get('segment_orderby', None),
-                    data.get('metadata', False),
-                    data.get('classes', False))
+    dic = core.get_init_data( # data.get('segment_orderby', None),
+                              data.get('metadata', False),
+                              data.get('classes', False))
     return jsonify(dic)
 
 
@@ -93,7 +93,7 @@ def get_segment_data():
     '''view returning the response for the segment data (and/or metadata)'''
     data = request.get_json()
     seg_index = data['seg_index']  # this must be present
-    seg_id = db.get_segment_id(seg_index, core.get_select_conditions())
+    seg_id = core.get_segment_id(seg_index)
     plot_indices = data.get('plot_indices', [])
     preprocessed = data.get('pre_processed', False)
     zooms = data.get('zooms', None)

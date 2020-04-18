@@ -24,13 +24,19 @@ def create_s2s_show_app(dbpath, pyfile=None, configfile=None):
         Creates a new app for processing. Note that config_py_file is the stream2segment gui
         config, not the config passed to Flask `app.config.from_pyfile`.
     """
-    os.environ['S2SSHOW_DATABASE'] = dbpath
-    os.environ['S2SSHOW_pyfile'] = pyfile
-    os.environ['S2SSHOW_configfile'] = configfile
+#     os.environ['S2SSHOW_DATABASE'] = dbpath
+#     if pyfile:
+#         os.environ['S2SSHOW_pyfile'] = pyfile
+#     if configfile:
+#         os.environ['S2SSHOW_configfile'] = configfile
 
     from stream2segment.gui import webapp
     # http://flask.pocoo.org/docs/0.12/patterns/appfactories/#basic-factories
     app = Flask(webapp.__name__)
+
+    from stream2segment.gui.webapp.mainapp import db, core
+    db.init(app, dbpath)
+    core.init(app, pyfile, configfile)
 
 #    app = mainapp.app
 #     app.config['DATABASE'] = dbpath

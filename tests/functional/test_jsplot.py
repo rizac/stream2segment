@@ -4,7 +4,7 @@ Created on Apr 2, 2019
 @author: riccardo
 '''
 import numpy as np
-from stream2segment.gui.webapp.mainapp.plots import jsplot
+from stream2segment.gui.webapp.mainapp import jsplot
 from obspy.core.utcdatetime import UTCDateTime
 
 
