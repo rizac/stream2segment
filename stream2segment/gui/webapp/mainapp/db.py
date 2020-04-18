@@ -57,7 +57,7 @@ def init(app, dbpath):
         """Closes the database again at the end of the request."""
         # if hasattr(g, 'session'):
         #     g.session.remove()
-        _session.remove()
+        get_session().remove()
 
 
 def get_session():
