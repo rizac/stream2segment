@@ -103,8 +103,6 @@ def init(app, pyfile=None, configfile=None):
             newconfig = yaml.safe_load(_opn)
             _reset_global_config()
             g_config.update(newconfig)
-#         if SEL_STR not in g_config:
-#             g_config[SEL_STR] = {}
 
 
 def has_preprocess_func():
@@ -177,13 +175,6 @@ def validate_config_str(string_data):
         raise ValueError('invalid parameter %s: use the dedicated button' %
                          SEL_STR)
     return ret
-
-# def get_segments_count(session, conditions):
-#     num_segments = _query4gui(session.query(func.count(Segment.id)), conditions).scalar()
-#     if num_segments > 0:
-#         global SEG_IDS  # pylint: disable=global-statement
-#         SEG_IDS = np.full(num_segments, np.nan)
-#     return num_segments
 
 
 def get_select_conditions():
@@ -325,7 +316,7 @@ def get_plots(seg_id, plot_indices, preprocessed, all_components):
 def get_plot(segment, preprocessed, func_index):
     '''Returns a jsplot.Plot object corresponding to the given function
     applied on the given segment
-    
+
     :param segment: a Segment instance
     :param preprocessed: boolean, whether the function has to be applied on
         the pre-processed trace of the segment
@@ -333,7 +324,7 @@ def get_plot(segment, preprocessed, func_index):
         implemented in the python module with the relative decorator, and must
         have signature: func(segment, config)
     '''
-    try:        
+    try:
         plt = convert2plot(exec_func(segment, preprocessed,
                                      g_functions[func_index]))
         # set title:
