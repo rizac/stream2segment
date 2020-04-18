@@ -9,75 +9,73 @@ import os
 import numpy as np
 from sqlalchemy import func
 
-from flask import g
+# from flask import g
 from stream2segment.process.db import (Segment, Class, ClassLabelling,
                                        Station, Download,
                                        get_session as _getsess)
 from stream2segment.io.db.sqlevalexpr import exprquery, Inspector
 from stream2segment.utils import secure_dburl
-import atexit
+# import atexit
 
-
+# rationale: Remember that from the GUI the user can navigate back and forward
+# with the button, not by typing segment ids (there is the selection <form>
+# for that). So, when th GUI shows up we need a fast way to know the number
+# of total segments, and later load somehow efficiently the 'next' or 'previous'
+# queried segment.
+# Loading once all segment ids into SEG_IDS below might be the best solutions,
+# but for huge database is inefficient. So when the page shows up,
+# we query only the number N of segments to show via `get_segments_count`, and
+# we set SEG_IDS as a numpy array of N NaNs (the method should be relatively
+# fast as it issues  an SQL count). After that, When querying for a segment
+# at given index (position), if SEG_IDS[index] is NaN, a block of
+# SEG_QUERY_BLOCK segment ids (only ids, to speed up things) is loaded
+# into SEG_IDS at the right position, and then with the segment id we can
+# query the desired Segment.
 SEG_IDS = []  # numpy array of segments ids (for better storage): filled with NaNs,
 # populated on demand witht the block below:
 SEG_QUERY_BLOCK = 50
 
+_session = None  # pylint: disable=invalid-name
 
-# @_raiseifreturnsexception
-# def classmeth_preprocessed_stream(self, preproc_func, config):
-#     if not hasattr(self, '_preprocessed_stream'):
-#         tmpstream = getattr(self, "_stream", None)
-#         try:
-#             if tmpstream is not None:
-#                 self.stream(True)  # reload, so we pass to the preprocess func
-#                 # the REAL stream (might have been modified)
-#             self._preprocessed_stream = preproc_func(self, config)
-#         except Exception as exc:
-#             self._preprocessed_stream = exc
-#         finally:
-#             if tmpstream is not None:
-#                 self._stream = tmpstream
-#
-#     return self._preprocessed_stream
-#
-#
-# # https://nestedsoftware.com/2018/06/11/flask-and-sqlalchemy-without-the-flask-sqlalchemy-extension-3cf8.34704.html
-# Segment.preprocessed_stream = classmeth_preprocessed_stream
-
-
-_dbpath = None
 
 def init(app, dbpath):
+    '''Initializes the database. this method must be called after the Flask
+    app has been created nd before using it
+    '''
     # https://nestedsoftware.com/2018/06/11/flask-and-sqlalchemy-without-the-flask-sqlalchemy-extension-3cf8.34704.html
     # and
     # https://flask.palletsprojects.com/en/1.1.x/appcontext/#storing-data
 
     # we store _dbpath globally
-    global _dbpath
-    _dbpath = dbpath
-    
+    global _session  # pylint: disable=global-statement, invalid-name
+    _session = _getsess(dbpath, scoped=True)
+
     # we add a listener that whn a request is ended, the session should be
     # removed (see get_session below)
     @app.teardown_appcontext
     def close_db(error):
         """Closes the database again at the end of the request."""
-        if hasattr(g, 'session'):
-            g.session.remove()
+        # if hasattr(g, 'session'):
+        #     g.session.remove()
+        _session.remove()
 
 
 def get_session():
-    
+    '''Returns a sqlalchemy scoped session for interacting with the database'''
     # (see init above)
-    if not hasattr(g, 'session'):
-        g.session = _getsess(_dbpath, scoped=True)
-    return g.session
+    return _session
 
 
 def get_db_url(safe=True):
-    return secure_dburl(str(_dbpath))
+    '''Returns the db url (with password hidden, if present in the url)'''
+    return secure_dburl(str(get_session().bind.engine.url))
 
 
 def get_segments_count(conditions):
+    '''Returns the number of segments to show (int) according to the given
+    `conditions` (dict of selection expressions usually resulting from the
+    'segment_select' parameter in the YAML config)
+    '''
     session = get_session()
     num_segments = _query4gui(session.query(func.count(Segment.id)), conditions).scalar()
     if num_segments > 0:
@@ -90,8 +88,8 @@ def _query4gui(what2query, conditions, orderby=None):
     return exprquery(what2query, conditions=conditions, orderby=orderby)
 
 
-def get_segment_id(seg_index, conditions):  # get_segment_select()
-    session = get_session()
+def get_segment_id(seg_index, conditions):
+    '''Returns the segment id (int) at a given index (position) in the GUI'''
     if np.isnan(SEG_IDS[seg_index]):
         # segment id not queryed yet: load chunks of segment ids:
         # Note that this is the best compromise between
@@ -111,6 +109,8 @@ def get_segment_id(seg_index, conditions):  # get_segment_select()
 
 
 def get_segment_ids(conditions, limit=50, offset=0):
+    '''Fetches from the database a block of segments ids and returns them
+    as list of integers'''
     session = get_session()
     # querying all segment ids is faster later when selecting a segment
     orderby = [('event.time', 'desc'), ('event_distance_deg', 'asc'),

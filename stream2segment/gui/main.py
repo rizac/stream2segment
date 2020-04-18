@@ -7,16 +7,13 @@ Functions for launching the web app
 '''
 from __future__ import print_function
 
+import os
 import uuid
 from webbrowser import open as open_in_browser
-import os
 import random
 import threading
 
 from flask import Flask
-
-# from stream2segment.gui.webapp import create_app
-# from stream2segment.gui.webapp.mainapp.plots.core import PlotManager
 
 
 def create_s2s_show_app(dbpath, pyfile=None, configfile=None):
@@ -24,12 +21,6 @@ def create_s2s_show_app(dbpath, pyfile=None, configfile=None):
         Creates a new app for processing. Note that config_py_file is the stream2segment gui
         config, not the config passed to Flask `app.config.from_pyfile`.
     """
-#     os.environ['S2SSHOW_DATABASE'] = dbpath
-#     if pyfile:
-#         os.environ['S2SSHOW_pyfile'] = pyfile
-#     if configfile:
-#         os.environ['S2SSHOW_configfile'] = configfile
-
     from stream2segment.gui import webapp
     # http://flask.pocoo.org/docs/0.12/patterns/appfactories/#basic-factories
     app = Flask(webapp.__name__)
@@ -38,12 +29,9 @@ def create_s2s_show_app(dbpath, pyfile=None, configfile=None):
     db.init(app, dbpath)
     core.init(app, pyfile, configfile)
 
-#    app = mainapp.app
-#     app.config['DATABASE'] = dbpath
-#     app.config['pyfile'] = pyfile
-#     app.config['configfile'] = configfile
-    # app.config['PLOTMANAGER'] = PlotManager(pymodule, configdict)
-    # app.config['CONFIG.YAML'] = configdict
+    # Note that the templae_folder of the Blueprint and the static paths in
+    # the HTML are relative to the path of THIS MODULE, so execute the lines
+    # below HERE or good luck changing all static paths in the html:
     from stream2segment.gui.webapp.mainapp.views import main_app
     app.register_blueprint(main_app)
 

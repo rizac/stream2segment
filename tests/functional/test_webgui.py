@@ -136,25 +136,8 @@ class Test(object):
 
             session.commit()
 
-#             segcount = session.query(Segment.id).count()
-#             self.indexesof = {}
-#             for _ in range(segcount):
-#                 segid = get_segment_id(_, None)
-#                 self.indexesof[segid] = _
-#             session.close()
-
             # set inventory
             self.inventory = data.read_inv("GE.FLT1.xml")
-            
-            
-
-
-
-#     @property
-#     def session(self):
-#         '''returns the db session by using the same function used from the Flask app
-#         i.e., DO NOT CALL `db.session` in the tests methods but `self.session`'''
-#         return get_session(self.app)
 
 
     def jsonloads(self, _data, encoding='utf8'):  
@@ -173,30 +156,17 @@ class Test(object):
     def index_of(self, segment_id):
         '''Returns the index of the segment with given id. 
         The web application gets data from segment index'''
-#         segids = [_[0] for _ in self.session.query(Segment.id)]
-#         return segids.index(segment_id)
 
-        segsids = db_module.get_segment_ids(core_module.get_select_conditions(), limit=1000, offset=0)
+        segsids = db_module.get_segment_ids(core_module.get_select_conditions(),
+                                            limit=1000, offset=0)
         for i, _ in enumerate(segsids):
             if _ == segment_id:
                 return i
         raise ValueError('segment id %d not found' % segment_id)
-#         seg_index = 0
-#         while True:
-#             sid = get_segment_id(self.session, seg_index)
-#             if sid == segment_id:
-#                 break
-#             seg_index += 1
-#         return seg_index
 
-
-    # @patch('stream2segment.gui.webapp.mainapp.core.create_plot_manager')
     def test_root_no_config_and_pyfile_and_classes(self,
                                                    # fixtures:
                                                    db):
-#         def mock_plot_manager_se(pyfile, configfile):
-#             return create_plot_manager(pyfile, configfile)
-#         mock_create_plot_manager.side_effect = mock_plot_manager_se
 
         # assure this function is run once for each given dburl
         with self.app.test_request_context():
@@ -216,10 +186,6 @@ class Test(object):
         # ------------------------
         core_module._reset_global_config()
         core_module._reset_global_functions()
-#         def mock_plot_manager_se_empty(pyfile, configfile):
-#             pmg = create_plot_manager(None, {})
-#             return pmg
-#         mock_create_plot_manager.side_effect = mock_plot_manager_se_empty
 
         # assure this function is run once for each given dburl
         with self.app.test_request_context():
@@ -267,15 +233,9 @@ class Test(object):
             # assert '"config": {}' in response_data or "'config': {}" in response_data
 
 
-    #@patch('stream2segment.gui.webapp.mainapp.core.create_plot_manager')
-    def test_root(self, #mock_create_plot_manager,
+    def test_root(self,
                   # fixtures:
                   db):
-#         def mock_plot_manager_se(pyfile, configfile):
-#             pmgr = create_plot_manager(pyfile, configfile)
-#             pmgr.config['class_labels'] = {'wtf': 'abc'}
-#             return pmgr
-#         mock_create_plot_manager.side_effect = mock_plot_manager_se
 
         core_module.g_config['class_labels'] = {'wtf': 'abc'}
         # assure this function is run once for each given dburl
@@ -435,10 +395,6 @@ class Test(object):
                      metadata=metadata,
                      classes=classes,
                      all_components=all_components)
-                     # conf = data.get('config', {})
-                     # plotmanager = current_app.config['PLOTMANAGER']
-    #         if conf:
-    #             current_app.config['CONFIG.YAML'].update(conf)
 
             resp = app.post("/get_segment", data=json.dumps(d),
                           headers={'Content-Type': 'application/json'})
@@ -506,14 +462,6 @@ class Test(object):
             # [title, data, warnings, is_timeserie]
             assert all("Station inventory (xml) error" in p[2] for p in plots)
 
-        # assert we have exceptions:
-#         pm = get_plot_manager()
-#         for plotlists in pm.values():
-#             plots = plotlists[1]
-#             if plots is None:  # not calculated, skip
-#                 continue
-#             for i in plot_indices:
-#                 assert "Station inventory (xml) error" in plots[i].warnings[0]
 
     @pytest.mark.parametrize('calculate_sn_spectra', [True, False])
     def test_change_config(self, calculate_sn_spectra,
@@ -612,47 +560,3 @@ class Test(object):
                         # too hard to test, skip this:
                         # assert dxa == dxb
                         assert not np.allclose(ya, yb)
-
-#     def test_limited_size_plotmanager(self,
-#                                       # fixtures:
-#                                       db):
-#         '''test that the PlotManager stores at most one value at a time.
-#         The size_limit of 1 is set as patch in the init method of this class'''
-#         # pm = get_plot_manager()
-#         # pm.size_limit = 1
-#         plot_indices = [0]
-#         metadata = False
-#         classes = False
-# 
-#         # assert len(pm) == 0
-# 
-#         with self.app.test_request_context():
-#             data = self.session.query(Segment.id, Channel.location).join(Segment.channel).all()
-# 
-#         for (seg_id, location) in data:
-#             with self.app.test_request_context():
-#                 app = self.app.test_client()
-#                 app.get('/')  # initializes plot manager
-#                 pm = get_plot_manager() 
-#                 pm.size_limit=1
-#                 d = dict(seg_index=self.index_of(seg_id),
-#                          pre_processed=True,
-#                          # zooms = data['zooms']
-#                          plot_indices=plot_indices,
-#                          metadata=metadata,
-#                          classes=classes,
-#                          all_components=False)
-#                 rv1 = app.post("/get_segment", data=json.dumps(d),
-#                                headers={'Content-Type': 'application/json'})
-# 
-#             assert list(pm.keys()) == [seg_id]
-#             # inventory is updated only if read, i.e. if the segment does not have gaps/overlaps:
-#             try:
-#                 # locations '01', '02', .. are streams with no errors/gaps,
-#                 # locations like '04err' '04gaps' have erros gaps: these
-#                 # last cases raise before querying the inventory thus inventory cache is not updated
-#                 int(location)
-#                 # did not raise, segment has no errors, thus:
-#                 assert list(pm.inv_cache.keys()) == [seg_id]
-#             except ValueError:
-#                 pass

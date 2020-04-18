@@ -1,5 +1,5 @@
 '''
-Core functionalities for the GUI web application (processing)
+Core functionalities for the main GUI web application (show command)
 
 :date: Jul 31, 2016
 
@@ -9,70 +9,27 @@ import os
 
 # make the following(s) behave like python3 counterparts if running from python2.7.x
 # (http://python-future.org/imports.html#explicit-imports):
-from builtins import map, zip
+from builtins import zip
 
 from itertools import cycle
 from io import StringIO
 import contextlib
-import json
 
-import numpy as np
 import yaml
-from sqlalchemy import func
-from sqlalchemy.orm import load_only
 from obspy import Stream, Trace
 from obspy.core.utcdatetime import UTCDateTime
 
 from stream2segment.process import gui
-# from stream2segment.io.db.models import Segment, Station, Download, Class,\
-#     ClassLabelling
 from stream2segment.utils import load_source, iterfuncs
-from stream2segment.utils.resources import yaml_load
-# from stream2segment.io.db.sqlevalexpr import Inspector
-# from stream2segment.gui.webapp.mainapp.plots.core import getseg, PlotManager
 from stream2segment.gui.webapp.mainapp.jsplot import Plot, isoformat
 from stream2segment.gui.webapp.mainapp import db
 from stream2segment.process.math.traces import sn_split
 
+
 NPTS_WIDE = 900  # FIXME: automatic retrieve by means of Segment class relationships?
 NPTS_SHORT = 900  # FIXME: see above
 SEL_STR = 'segment_select'
-# LIMIT = 50
 
-
-def _escapedoc(string):
-    if not string or not string.strip():
-        return "No function doc found in GUI's Python file"
-    for char in ('.\n', '. ', '\n\n'):
-        if char in string:
-            string = string[:string.index(char)]
-            break
-    string = string.strip()
-    return string.replace('{', '&#123;').replace('}', '&#125;').replace("\"", "&quot;").\
-        replace("'", '&amp;').replace("<", "&lt;").replace(">", "&gt;")
-
-# The variables below are actually not a great idea for production. We should
-# investigate some persistence storage (not during a request, but during all app
-# lifecycle until it's kind of "closed"). This is a typical tpoic for which
-# the web is full of untested / unexplained dogmas (do not use of globals,
-# memcache or db for persistent cache, thread/process safety issues) and thus
-# just keep in mind: if you want to use this app for production, you might need to
-# get your hands dirty...
-# PLOT_MANAGER = None
-# SEG_IDS = []  # numpy array of segments ids (for better storage): filled with NaNs,
-# # populated on demand witht the block below:
-# SEG_QUERY_BLOCK = 50
-
-# def create_plot_manager(pyfile, configfile):
-#     pymodule = None if pyfile is None else load_source(pyfile)
-#     configdict = {} if configfile is None else yaml_load(configfile)
-#     global PLOT_MANAGER  # pylint: disable=global-statement
-#     PLOT_MANAGER = PlotManager(pymodule, configdict)
-#     return PLOT_MANAGER
-# 
-# 
-# def get_plot_manager():
-#     return PLOT_MANAGER
 
 # Note that the use of global variables like this should be investigted
 # in production (the web GUI is not intended to be used as web app in
@@ -85,6 +42,7 @@ g_config = {
 
 
 def _reset_global_config():
+    '''mainly used for testing purposes and within the init method'''
     g_config.clear()
     g_config[SEL_STR] = {}
 
@@ -100,13 +58,15 @@ def _default_preprocessfunc(*args, **kwargs):
     raise Exception("No function decorated with '@gui.preprocess'")
 
 
-_preprocessfunc = _default_preprocessfunc
+_preprocessfunc = _default_preprocessfunc  # pylint: disable=invalid-name
 
-g_functions = [lambda segment, config: segment.stream()]
+g_functions = [lambda seg, cfg: seg.stream()]  # pylint: disable=invalid-name
 
-userdefined_plots = []
+userdefined_plots = []  # pylint: disable=invalid-name
+
 
 def _reset_global_functions():
+    '''mainly used for testing purposes and within the init method'''
     global _preprocessfunc
     _preprocessfunc = _default_preprocessfunc
     del g_functions[1:]
@@ -114,14 +74,16 @@ def _reset_global_functions():
 
 
 def init(app, pyfile=None, configfile=None):
-    
+    '''Initializes global variables. This method must be called once
+    after the Flask app has been created and before using it
+    '''
     if pyfile:
         _pymodule = load_source(pyfile)
         _reset_global_functions()
         for function in iterfuncs(_pymodule):
             att, pos, xaxis, yaxis = gui.get_func_attrs(function)
             if att == 'gui.preprocess':
-                global _preprocessfunc
+                global _preprocessfunc  # pylint: disable=invalid-name, global-statement
                 _preprocessfunc = function
             elif att == 'gui.plot':
                 userdefined_plots.append(
@@ -146,10 +108,12 @@ def init(app, pyfile=None, configfile=None):
 
 
 def has_preprocess_func():
+    '''Returns true if a custom pre-process function has been defined in
+    the user defined python file'''
     return _preprocessfunc is not _default_preprocessfunc
 
 
-def get_func_doc(self, index=-1):
+def get_func_doc(index=-1):
     '''Returns the documentation for the given custom function.
     :param index: if negative, returns the doc for the preprocess function, otherwise
     is the index of the i-th function (index 0 refers to the main function plotting the
@@ -158,6 +122,18 @@ def get_func_doc(self, index=-1):
     if index < 0:
         return _escapedoc(getattr(_preprocessfunc, "__doc__", ''))
     return userdefined_plots[index]['doc']
+
+
+def _escapedoc(string):
+    if not string or not string.strip():
+        return "No function doc found in GUI's Python file"
+    for char in ('.\n', '. ', '\n\n'):
+        if char in string:
+            string = string[:string.index(char)]
+            break
+    string = string.strip()
+    return string.replace('{', '&#123;').replace('}', '&#125;').replace("\"", "&quot;").\
+        replace("'", '&amp;').replace("<", "&lt;").replace(">", "&gt;")
 
 
 def get_init_data(metadata=True, classes=True):
@@ -198,7 +174,7 @@ def validate_config_str(string_data):
     sio = StringIO(string_data)
     ret = yaml.safe_load(sio.getvalue())
     if SEL_STR in ret:
-        raise ValueError('invalid parameter %s: use the dedicated button' % 
+        raise ValueError('invalid parameter %s: use the dedicated button' %
                          SEL_STR)
     return ret
 
@@ -211,75 +187,37 @@ def validate_config_str(string_data):
 
 
 def get_select_conditions():
+    '''Returns a dict representing the current select conditions (parameter
+    'segment_select' of the YAML file)
+    '''
     return dict(g_config[SEL_STR])
 
 
 def set_select_conditions(newdict):
+    '''Sets a new a dict representing the current select conditions (parameter
+    'segment_select' of the YAML file)
+
+    :param newdict: a dict of new select expressions all in str format
+    '''
+    # FIXME: handle concurrency with locks?
     g_config[SEL_STR] = newdict
-
-# def get_segment_id(session, seg_index):
-#     if np.isnan(SEG_IDS[seg_index]):
-#         # segment id not queryed yet: load chunks of segment ids:
-#         # Note that this is the best compromise between
-#         # 1) Querying by index, limiting by 1 and keeping track of the
-#         # offset: FAST at startup, TOO SLOW for each segment request
-#         # 2) Load all ids at once at the beginning: TOO SLOW at startup, FAST for each
-#         # segment request
-#         # (fast and slow refer to a remote db with 10millions row without config
-#         # and pyfile)
-#         limit = SEG_QUERY_BLOCK
-#         offset = int(seg_index / float(SEG_QUERY_BLOCK)) * SEG_QUERY_BLOCK
-#         limit = min(len(SEG_IDS) - offset, SEG_QUERY_BLOCK)
-#         segids = get_segment_ids(session,
-#                                  get_segment_select(),
-#                                  offset=offset, limit=limit)
-#         SEG_IDS[offset:offset+limit] = segids
-#     return int(SEG_IDS[seg_index])
-# 
-# 
-# def get_segment_ids(session, conditions, limit=50, offset=0):
-#     # querying all segment ids is faster later when selecting a segment
-#     orderby = [('event.time', 'desc'), ('event_distance_deg', 'asc'),
-#                ('id', 'asc')]
-#     return [_[0] for _ in _query4gui(session.query(Segment.id),
-#                                      conditions, orderby).limit(limit).offset(offset)]
-
-# def _query4gui(what2query, conditions, orderby=None):
-#     return exprquery(what2query, conditions=conditions, orderby=orderby)
 
 
 def get_segment(segment_id):
+    '''returns  the Segment object of the given segment id'''
     return db.get_segment(segment_id)
 
-# def get_metadata(seg_id=None):
-#     '''Returns a list of tuples (column, column_type) if `seg_id` is None or
-#     (column, column_value) if segment is not None. In the first case, `column_type` is the
-#     string representation of the column python type (str, datetime,...), in the latter,
-#     it is the value of `segment` for that column'''
-#     excluded_colnames = set([Station.inventory_xml, Segment.data, Download.log,
-#                              Download.config, Download.errors, Download.warnings,
-#                              Download.program_version, Class.description])
-# 
-#     segment = None
-#     if seg_id is not None:
-#         # exclude all classes attributes (returned in get_classes):
-#         excluded_colnames |= {Class.id, Class.label}
-#         segment = get_segment(seg_id)
-#         if not segment:
-#             return []
-# 
-#     insp = Inspector(segment or Segment)
-#     attnames = insp.attnames(Inspector.PKEY | Inspector.QATT | Inspector.REL | Inspector.COL,
-#                              sort=True, deep=True, exclude=excluded_colnames)
-#     if seg_id is not None:
-#         # return a list of (attribute name, attribute value)
-#         return [(_, insp.attval(_)) for _ in attnames]
-#     # return a list of (attribute name, str(attribute type))
-#     return [(_, getattr(insp.atttype(_), "__name__"))
-#             for _ in attnames if insp.atttype(_) is not None]
+
+def get_segment_id(segment_index):
+    '''Returns the segment id corresponding to the given segment index in
+    the GUI'''
+    return db.get_segment_id(segment_index, get_select_conditions())
 
 
 def set_class_id(seg_id, class_id, value):
+    '''Sets the given class to the given segment (value=True), or removes it
+    from the given segment (value=False)
+    '''
     segment = get_segment(seg_id)
     annotator = 'web app labeller'  # in the future we might use a session or computer username
     if value:
@@ -287,10 +225,6 @@ def set_class_id(seg_id, class_id, value):
     else:
         segment.del_classes(class_id)
     return {}
-
-
-def get_segment_id(segment_index):
-    return db.get_segment_id(segment_index, get_select_conditions())
 
 
 def get_segment_data(seg_id, plot_indices, all_components, preprocessed,
@@ -370,7 +304,7 @@ def parse_zooms(zooms, plot_indices):
 def get_plots(seg_id, plot_indices, preprocessed, all_components):
     '''Returns the plots
 
-    :param all_components: if 0 is in plot_indices, it is ingored. Otherwise
+    :param all_components: if 0 is not in plot_indices, it is ingored. Otherwise
         returns in plot[I] all components (where I =
         argwhere(plot_indices == 0)
     '''
@@ -389,6 +323,16 @@ def get_plots(seg_id, plot_indices, preprocessed, all_components):
 
 
 def get_plot(segment, preprocessed, func_index):
+    '''Returns a jsplot.Plot object corresponding to the given function
+    applied on the given segment
+    
+    :param segment: a Segment instance
+    :param preprocessed: boolean, whether the function has to be applied on
+        the pre-processed trace of the segment
+    :param func_index: the index of the function to be called. It is one
+        implemented in the python module with the relative decorator, and must
+        have signature: func(segment, config)
+    '''
     try:        
         plt = convert2plot(exec_func(segment, preprocessed,
                                      g_functions[func_index]))
@@ -418,7 +362,9 @@ def exec_func(segment, preprocessed, function):
 
 @contextlib.contextmanager
 def prepare_for_function(segment, preprocessed=False):
-    ''''''
+    '''contextmanager to be used before applying a custom function on a
+    segment
+    '''
     # side note: we might cache the stream, the preprocessed stream and so
     # on, so that each time we do not need to read por process the mseed
     # but this has no big impact. Caching ALL subplots is a pain (we already
@@ -453,40 +399,6 @@ def prepare_for_function(segment, preprocessed=False):
     finally:
         if tmpstream is not None:
             segment._stream = tmpstream
-
-# @contextlib.contextmanager
-# def prepare_for_function(segment, preprocessed=False):
-#     tmpstream = None
-#     try:
-#         tmpstream = getattr(segment, '_stream', None)
-#         if isinstance(tmpstream, Exception):
-#             tmpstream = None
-#             raise tmpstream  # pylint: disable=raising-bad-type
-# 
-#         if tmpstream is not None:
-#             segment.stream(True)  # reload stream from bytes data, so that
-#             # any function works on the unmodified source obspy Stream
-#         if not preprocessed:
-#             yield
-#         else:
-#             if not hasattr(segment, '_p_p_stream'):
-#                 stream = \
-#                     _preprocessfunc(segment, g_config)
-#                 if isinstance(stream, Trace):
-#                     stream = Stream([stream])
-#                 elif not isinstance(stream, Stream):
-#                     raise Exception("The function decorated with "
-#                                     "'gui.preprocess' must return "
-#                                     "a Trace or Stream object")
-#                 segment._p_p_stream = stream
-#             segment._stream = segment._p_p_stream
-#             yield
-#     except Exception as exc:
-#         segment._p_p_stream = exc
-#         raise exc
-#     finally:
-#         if tmpstream is not None:
-#             segment._stream = tmpstream
 
 
 def convert2plot(funcres):
@@ -529,12 +441,18 @@ def convert2plot(funcres):
                 for trace in obj:
                     plt.addtrace(trace, label)
             else:
-                raise ValueError(("Cannot create plot from %s (length=%d): ") % 
+                raise ValueError(("Cannot create plot from %s (length=%d): ") %
                                  str(type(obj)))
     return plt
 
 
 def get_sn_windows(segment, config):
+    '''Returns returns the two tuples (s_start, s_end), (n_start, n_end)
+    where all arguments are `UTCDateTime`s and the first tuple refers to the
+    signal window, the latter to the noise window. Both windows are
+    calculated on the given segment, according to the given config
+    (dict)
+    '''
     if len(segment.stream()) != 1:
         raise ValueError(("Unable to get sn-windows: %d traces in stream "
                           "(possible gaps/overlaps)") % len(segment.stream()))
@@ -543,28 +461,3 @@ def get_sn_windows(segment, config):
         UTCDateTime(segment.arrival_time) + wndw['arrival_time_shift']
     return sn_split(segment.stream()[0], arrival_time, wndw['signal_window'],
                     return_windows=True)
-
-# def parse_inputtag_value(string):
-#     '''Tries to parse string into a python object guessing it and running
-#     some json loads functions. `string` is supposed to be returned from the browser
-#     where angular converts arrays to a list of elements separated by comma without enclosing
-#     brackets. This method first tries to load string as json. If it does not succeed, it checks
-#     for commas: if any present, and the string does not start nor ends with square brakets,
-#     it inserts the brakets and tries to run again json.loads. If it fails, splits the
-#     string using the comma ',' and returns an array of strings. This makes array of complex
-#     numbers and date-time returning the correct type (lists, it is then the caller responsible
-#     of parsing them), at least most likely as they were input in the yaml.
-#     If nothing succeeds, then string is returned
-#     '''
-#     string = string.strip()
-#     try:
-#         return json.loads(string)
-#     except:  #  @IgnorePep8 pylint: disable=bare-except
-#         if ',' in string:
-#             if string[:1] != '[' and string[-1:] != ']':
-#                 try:
-#                     return json.loads('[%s]' % string)
-#                 except:  # @IgnorePep8 pylint: disable=bare-except
-#                     pass
-#             return [str_.strip() for str_ in string.split(',')]
-#         return string

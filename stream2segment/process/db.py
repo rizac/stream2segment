@@ -66,7 +66,7 @@ def get_session(dburl, scoped=False, **engine_args):
     # '_toggle_enhance_segment(False) to detach the methods when and if you need to
     # (it should never be the case)
     _toggle_enhance_segment(True)
-    return _get_session(dburl, Base, scoped, **engine_args)
+    return _get_session(dburl, Base, scoped, create_all=False, **engine_args)
 
 
 def _toggle_enhance_segment(value):

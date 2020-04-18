@@ -5,22 +5,21 @@ Views for the web app (processing)
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 '''
-from flask import (render_template, request, jsonify, Blueprint,
-                   current_app)
+from flask import (render_template, request, jsonify, Blueprint)
 
-from stream2segment.utils import secure_dburl
 from stream2segment.process.db import configure_classes
 from stream2segment.gui.webapp.mainapp import core, db
 
 
 # http://flask.pocoo.org/docs/0.12/patterns/appfactories/#basic-factories:
+# Note that the templae_folder and the static paths in the HTML are relative
+# to the path of the module WHERE we register this blueprint
+# (stream2segment.gui.main)
 main_app = Blueprint('main_app', __name__, template_folder='templates')
 
 
 @main_app.route("/")
 def main():
-#     plotmanager = core.create_plot_manager(current_app.config['pyfile'],
-#                                            current_app.config['configfile'])
     config = core.get_config()
     configure_classes(db.get_session(), config.get('class_labels', []))
     ud_plots = core.userdefined_plots
@@ -41,7 +40,7 @@ def init():
     data = request.get_json()
     # Note: data.get('segment_orderby', None) is not anymore implemented in the config
     # it will default to None (order by event time desending and by event_distance ascending)
-    dic = core.get_init_data( # data.get('segment_orderby', None),
+    dic = core.get_init_data(  # data.get('segment_orderby', None),
                               data.get('metadata', False),
                               data.get('classes', False))
     return jsonify(dic)

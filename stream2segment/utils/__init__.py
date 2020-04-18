@@ -273,13 +273,16 @@ def strptime(obj):
     return dtime
 
 
-def _get_session(dbpath, base=None, scoped=False, **engine_args):
+def _get_session(dbpath, base=None, scoped=False, create_all=True, **engine_args):
     """
     Create an sql alchemy session for IO db operations
     :param dbpath: the path to the database, e.g. sqlite:///path_to_my_dbase.sqlite
     :param base: a declarative base. If None, defaults to the default declarative base
         used in this package for downloading
     :param scoped: boolean (False by default) if the session must be scoped session
+    :param create_all: If True (the default), this method will issue queries that
+        first check for the existence of each individual table, and if not found
+        will issue the CREATE statements
     :param engine_args: optional keyword argument values for the
         `create_engine` method. E.g.:
         ```
@@ -292,7 +295,8 @@ def _get_session(dbpath, base=None, scoped=False, **engine_args):
 
     # init the session:
     engine = create_engine(dbpath, **engine_args)
-    base.metadata.create_all(engine)  # @UndefinedVariable
+    if create_all:
+        base.metadata.create_all(engine)  # @UndefinedVariable
 
     # enable fkeys if sqlite. This can be added also as event listener as outlined here:
     # http://stackoverflow.com/questions/13712381/how-to-turn-on-pragma-foreign-keys-on-in-sqlalchemy-migration-script-or-conf

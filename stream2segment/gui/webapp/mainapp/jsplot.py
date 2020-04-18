@@ -13,7 +13,6 @@ from __future__ import division
 from builtins import object
 
 from datetime import datetime, timedelta
-from collections import defaultdict
 
 import numpy as np
 from obspy.core import UTCDateTime  # , Stream, Trace, read
