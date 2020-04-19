@@ -20,6 +20,7 @@ from obspy.core.stream import read
 from stream2segment.io.db.models import Event, WebService, Channel, Station, \
     DataCenter, Segment, Class, Download, ClassLabelling
 from stream2segment.utils.resources import get_templates_fpaths
+from stream2segment.process.db import get_stream as original_get_stream
 
 # from stream2segment.gui.webapp import get_session
 from stream2segment.gui.main import create_s2s_show_app
@@ -355,39 +356,69 @@ class Test(object):
             assert resp.status_code == 200
 
             # toggle again and run test_get_seg with a class set
-            resp = app.post("/set_class_id", data=json.dumps({'segment_id':segid, 'class_id':cid,
-                                                               'value': True}),
-                                   headers={'Content-Type': 'application/json'})
-            # need to remove the session and query again from a new one (WHY?):
-            self.session.remove()
-            segment = self.session.query(Segment).filter(Segment.id == segid).first()
-            # check the segment has classes:
-            assert len(segment.classes) == 1
-            assert resp.status_code == 200
-            self._tst_get_seg(app)
+#             resp = app.post("/set_class_id", data=json.dumps({'segment_id':segid, 'class_id':cid,
+#                                                                'value': True}),
+#                                    headers={'Content-Type': 'application/json'})
+#             # need to remove the session and query again from a new one (WHY?):
+#             self.session.remove()
+#             segment = self.session.query(Segment).filter(Segment.id == segid).first()
+#             # check the segment has classes:
+#             assert len(segment.classes) == 1
+#             assert resp.status_code == 200
+#             self._tst_get_seg(app)
 
-    def test_get_seg(self,
-                     # fixtures:
-                     db):
+    @pytest.mark.parametrize('has_labellings', [True, False])
+    @patch('stream2segment.process.db.get_stream',
+          side_effect=original_get_stream)
+    def test_get_segment(self,
+                         mock_get_stream,
+                         has_labellings,
+                         # fixtures:
+                         db):
         # assure this function is run once for each given dburl
-        with self.app.test_request_context():
+        # with self.app.test_request_context():
+        with self.app.app_context():
             app = self.app.test_client()
-            app.get('/')
+            
+            if has_labellings:
+                c = Class(label='label')
+                self.session.add(c)
+                self.session.commit()
+                cid = c.id
+
+                segid = 1
+                # has labellings, so we set a labelling manually before proceeding:
+                resp = app.post("/set_class_id",
+                                data=json.dumps({'segment_id': segid, 'class_id':cid,
+                                                 'value': True}),
+                                headers={'Content-Type': 'application/json'})
+                # need to remove the session and query again from a new one (WHY?):
+                # self.session.remove()
+                # segment = self.session.query(Segment).filter(Segment.id == segid).first()
+                # check the segment has classes:
+                # assert len(segment.classes) == 1
+            
+                # app.get('/')
+
             # change selection to be more relaxed (by default it should have
             # maxgap_numsamples within (-0.5, 0.5) in the selection,
             # but we built a test dataset with all maxgap_numsamples = None,
             # thus keep only has_data':'true' in the selection):
             app.post("/set_selection", data=json.dumps(dict(segment_select={'has_data':'true'})),
                                headers={'Content-Type': 'application/json'})
-            self._tst_get_seg(app)
+            # self._tst_get_seg(app)
 
-    def _tst_get_seg(self, app):
-
-        has_labellings = self.session.query(ClassLabelling).count() > 0        
-            
-        for _ in product([[0, 1, 2], [], [0]], [True, False], [True, False], [True, False], [True, False]):
-            plot_indices, preprocessed, metadata, classes, all_components = _
-
+        # do not ue pytest parametrize, as it causes hundreds of db creation
+        # destruction (see init) and is inefficient. Also  postgres complains about
+        # too many connections (but FIXME: this should never happen,
+        # as the session should be removed after each request)
+        for plot_indices,preprocessed,metadata,classes,all_components in \
+            product([[0, 1, 2], [], [0]],
+                         [True, False],
+                         [True, False],
+                         [True, False],
+                         [True, False]):
+            mock_get_stream.reset_mock()
             d = dict(seg_index=self.index_of(1),
                      pre_processed=preprocessed,
                      # zooms = data['zooms']
@@ -398,6 +429,12 @@ class Test(object):
 
             resp = app.post("/get_segment", data=json.dumps(d),
                           headers={'Content-Type': 'application/json'})
+            expected_stream_call_count = 1 if len(plot_indices) else 0
+            if 0 in plot_indices and all_components:
+                expected_stream_call_count += 3  # we should actually check
+                # if we have components on the db, we actually have for the
+                # segment id 1 so it's fine
+            assert mock_get_stream.call_count == expected_stream_call_count
             # https: 
             data = self.jsonloads(resp.data)
             assert len(data['plots']) == len(d['plot_indices'])
@@ -407,7 +444,7 @@ class Test(object):
             if 0 in plot_indices:
                 traces_in_first_plot = len(data['plots'][plot_indices.index(0)][1])
                 assert (traces_in_first_plot == 1 and not all_components) or traces_in_first_plot >= 1
-            # we should add a a test for the pre_processed case also, but we should inspect the plotmanager defined as app['PLOTMANAGER'] 
+            # we should add a a test for the pre_processed case also 
             # we should add a test for the zooms, too
 
     def test_segment_sa_station_inv_errors_in_preprocessed_traces(self,
