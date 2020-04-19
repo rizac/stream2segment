@@ -20,7 +20,7 @@ from obspy import Stream, Trace
 from obspy.core.utcdatetime import UTCDateTime
 
 from stream2segment.process import gui
-from stream2segment.utils import load_source, iterfuncs
+from stream2segment.utils import load_source, iterfuncs, yaml_safe_dump
 from stream2segment.gui.webapp.mainapp.jsplot import Plot, isoformat
 from stream2segment.gui.webapp.mainapp import db
 from stream2segment.process.math.traces import sn_split
@@ -155,13 +155,7 @@ def get_config(asstr=False):
     if not config_dict:  # if dict is empty,
         # avoid returning: "{}\n", instead return emtpy string:
         return ''
-    sio = StringIO()
-    try:
-        yaml.safe_dump(config_dict, sio, default_flow_style=False,
-                       sort_keys=False)
-    except TypeError:  # in case yaml version is not >= 5.1:
-        yaml.safe_dump(config_dict, sio, default_flow_style=False)
-    return sio.getvalue()
+    return yaml_safe_dump(config_dict)
 
 
 def validate_config_str(string_data):

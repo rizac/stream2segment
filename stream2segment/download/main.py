@@ -13,7 +13,6 @@ import os
 import logging
 
 import psutil
-import yaml
 
 from stream2segment.io.db.pdsql import dbquery2df
 from stream2segment.utils.resources import version
@@ -25,7 +24,7 @@ from stream2segment.download.modules.stationsearch import merge_events_stations
 from stream2segment.download.modules.segments import prepare_for_download,\
     download_save_segments, DcDataselectManager
 from stream2segment.download.modules.stations import save_inventories, query4inventorydownload
-from stream2segment.utils import tounicode
+from stream2segment.utils import tounicode, yaml_safe_dump
 from stream2segment.io.db.models import Download
 
 
@@ -204,8 +203,7 @@ def new_db_download(session, params=None):
         params = {}
     # print local vars: use safe_dump to avoid python types. See:
     # http://stackoverflow.com/questions/1950306/pyyaml-dumping-without-tags
-    download_inst = Download(config=tounicode(yaml.safe_dump(params,
-                                                             default_flow_style=False)),
+    download_inst = Download(config=tounicode(yaml_safe_dump(params)),
                              # log by default shows error. If everything works fine, we replace
                              # the content later
                              log=('N/A: either logger not configured, or '

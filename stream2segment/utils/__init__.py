@@ -471,3 +471,26 @@ def open2writetext(file, **kw):
     if append:
         kw['mode'] = kw['mode'].replace('w', 'a')
     return compatible_open(file, **kw)
+
+
+def yaml_safe_dump(data, stream=None, default_flow_style=False, sort_keys=False,
+                   **kwds):
+    '''Wrapper around `yaml.safe_dump` with conventient defaults:
+    specifically, tries to dump dicts preserving the dict keys order, and
+    handles PyYaml versions (< 5.1) where sort_keys was not supported and
+    defaulted to True (the passed `sort_keys` value will be ignored in case)
+
+    :return: None (if stream is not None). **If stream is None, returns
+        the produced string instead**
+    """
+    '''
+    kwds['default_flow_style'] = default_flow_style
+    kwds['sort_keys'] = sort_keys
+    try:
+        return yaml.safe_dump(data, stream, **kwds)
+    except TypeError:
+        # we might have a PyYaml version < 5.1 where sort_keys was not
+        # supported: try to remove the argument. Note however that in that
+        # case safe_dump will sort dict keys
+        kwds.pop('sort_keys', None)
+        return yaml.safe_dump(data, stream, **kwds)

@@ -26,7 +26,6 @@ from tempfile import gettempdir
 
 from future.utils import PY2
 
-import yaml
 import jinja2
 
 from sqlalchemy.sql.expression import func
@@ -38,7 +37,8 @@ from stream2segment.utils.log import configlog4download, configlog4processing,\
 from stream2segment.io.db.models import Download, Segment
 from stream2segment.process.main import run as run_process
 from stream2segment.download.main import run as run_download, new_db_download
-from stream2segment.utils import secure_dburl, strconvert, iterfuncs, open2writetext, ascii_decorate
+from stream2segment.utils import secure_dburl, strconvert, iterfuncs, \
+    open2writetext, ascii_decorate, yaml_safe_dump
 from stream2segment.utils.resources import get_templates_dirpath
 from stream2segment.gui.main import create_s2s_show_app, run_in_browser
 from stream2segment.process import math as s2s_math
@@ -94,6 +94,9 @@ def download(config, log2file=True, verbose=False, **param_overrides):
 
     ret = 0
     noexc_occurred = True
+    loghandlers = None
+    session = None
+    download_id = None
     try:
         # check and parse config values (modify in place):
         yaml_dict = load_config_for_download(config, True, **param_overrides)
@@ -146,14 +149,16 @@ def download(config, log2file=True, verbose=False, **param_overrides):
         logger.critical("Download aborted", exc_info=True)
         raise
     finally:
-        # write log to db if default handlers are provided:
-        if log2file:
-            # remove file if no exceptions occurred:
-            loghandlers[0].finalize(session, download_id, removefile=noexc_occurred)
-            # the method above closes the logger, let's remove it manually
-            # before calling closelogger below to avoid closing loghandlers[0] twice:
-            logger.removeHandler(loghandlers[0])
-        closesession(session)
+        if session is not None:
+            closesession(session)
+            # write log to db if default handlers are provided:
+            if log2file and loghandlers is not None and download_id is not None:
+                # remove file if no exceptions occurred:
+                loghandlers[0].finalize(session, download_id, removefile=noexc_occurred)
+                # the method above closes the logger, let's remove it manually
+                # before calling closelogger below to avoid closing loghandlers[0] twice:
+                logger.removeHandler(loghandlers[0])
+
         closelogger(logger)
 
     return ret
@@ -169,7 +174,9 @@ def _to_pretty_str(yaml_dict, unparsed_yaml_dict):
     '''
 
     # the idea is: get the param value from yaml_dict, if not present get it from
-    # unparsed_yaml_dict. Use this list of params (so we can control order):
+    # unparsed_yaml_dict. Use this list of params so we can control order
+    # (this works only in PyYaml>=5.1 and Python 3.6+, otherwise yaml_dict
+    # keys order can not be known):
     params = ['dburl', 'starttime', 'endtime', 'eventws',
               # These variables are merged into eventws_params in yaml_dict,
               # so do not show them:
@@ -182,21 +189,19 @@ def _to_pretty_str(yaml_dict, unparsed_yaml_dict):
               'retry_client_err', 'retry_server_err', 'retry_timespan_err',
               'advanced_settings']
 
-    newdic = OrderedDict()
+    newdic = {}
     for k in params:  # add yaml_dic[k] or unparsed_yaml_dict[k]:
         if k in yaml_dict:
             newdic[k] = yaml_dict[k]
         elif k in unparsed_yaml_dict:
             newdic[k] = unparsed_yaml_dict[k]
     newdic['dburl'] = secure_dburl(newdic['dburl'])  # don't show passowrd, if present
-    ret = []
-    for key, val in newdic.items():
-        ret.append(yaml.safe_dump({key: val},
-                                  default_flow_style=False).strip())
-    # create a yaml string from the yaml_safe and print/log the string:
-    ret.insert(0, "Parsed input parameters")
-    ret.insert(1, '-' * len(ret[0]))
-    return "%s\n" % ('\n'.join(ret))
+    ret = [
+        "Parsed input parameters",
+        "-----------------------",
+        yaml_safe_dump(newdic)
+    ]
+    return "%s\n" % ('\n'.join(ret)).strip()
 
 
 def process(dburl, pyfile, funcname=None, config=None, outfile=None, log2file=False,

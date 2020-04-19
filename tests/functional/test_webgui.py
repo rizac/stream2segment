@@ -13,6 +13,8 @@ from itertools import product
 from datetime import datetime, timedelta
 
 from mock.mock import patch
+from sqlalchemy.ext.hybrid import hybrid_property
+from sqlalchemy import func
 import pytest
 import numpy as np
 from obspy.core.stream import read
@@ -233,7 +235,56 @@ class Test(object):
 
             # assert '"config": {}' in response_data or "'config': {}" in response_data
 
+    def test_init(self,
+                  # fixtures:
+                  db):
+        
+        # attach a fake method to Segment where the type is unknown:
+        defval = 'a'
+        Segment._fake_method = \
+            hybrid_property(lambda self: defval,
+                            expr=lambda cls: func.substr(cls.download_code, 1, 1))
 
+        with self.app.test_request_context():
+            app = self.app.test_client()
+            resp = app.post("/init",
+                          data=json.dumps({'metadata': True, 'classes': True}),
+                          headers={'Content-Type': 'application/json'})
+            
+            assert resp.status_code == 200
+            data = self.jsonloads(resp.data)
+            
+            a2 = data['metadata']
+            
+            # a2 = None  get_metadata(db.session, None)
+            # Station.inventory_xml, Segment.data, Download.log,
+            # Download.config, Download.errors, Download.warnings,
+            # Download.program_version, Class.description
+            for excluded in ['station.inventory_xml', 'data', 'download.log',
+                             'download.config', 'download.errors', 'download.warnings',
+                             'download.program_version', 'class.description']:
+                assert not any(_[0] == excluded for _ in a2)
+            assert sum(_[0].startswith('download.') for _ in a2) > 1
+            assert sum(_[0].startswith('channel.') for _ in a2) > 1
+            assert sum(_[0].startswith('event.') for _ in a2) > 1
+            assert sum(_[0].startswith('station.') for _ in a2) > 1
+            assert sum(_[0].startswith('classes.') for _ in a2) > 1
+            # fake method does not have a python type, not returned:
+            assert not any(_[0] == '_fake_method' for _ in a2)
+    
+            # too long to count how many attributes should be missing, launched a test and put the
+            # number here (17):
+            seg = db.session.query(Segment).first()
+            b = db_module.get_metadata(1)
+            # just test it does not raise FIXME: better tests maybe?
+            # b = get_metadata(db.session, seg.id)
+            assert sum("class" in _[0] for _ in b) == 1  # has_class (see below)
+            assert any(_[0] == 'has_class' for _ in b)
+            assert any(_[0] == '_fake_method' and _[1] == 'a' for _ in b)
+            
+            delattr(Segment, "_fake_method")
+            assert not hasattr(Segment, '_fake_method')
+            
     def test_root(self,
                   # fixtures:
                   db):
