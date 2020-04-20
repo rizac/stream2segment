@@ -288,10 +288,11 @@ def get_session(dburl, for_process=False):
         _sess_func = _get_session
 
     sess = _sess_func(dburl)
-    # do a check because if we get_session function above does not call
-    # SqAlchemy engine's 'create_all' (which is the case for processing),
-    # we will know the database has some sort of error at the first connection
-    # attempt later. This seems to do what we need:
+    # If the session function above does not call SqAlchemy engine's 'create_all'
+    # (which is the case for processing), we need to manually check if we can
+    # connect to the db. Among other methods (https://stackoverflow.com/a/3670000
+    # https://stackoverflow.com/a/59736414) this seems to do what we need (we might
+    # also not check if that the tables length > 0 sometime):
     sess.bind.engine.table_names()
     return sess
 
