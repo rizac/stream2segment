@@ -32,11 +32,10 @@ SEL_STR = 'segment_select'
 
 
 # Note that the use of global variables like this should be investigted
-# in production (the web GUI is not intended to be used as web app in
-# production for the moment):
+# in production (which is not the intended goal of the web GUI for the moment):
 
 
-g_config = {
+g_config = {  # pylint: disable=invalid-name
     SEL_STR: {}
 }
 
@@ -67,7 +66,7 @@ userdefined_plots = []  # pylint: disable=invalid-name
 
 def _reset_global_functions():
     '''mainly used for testing purposes and within the init method'''
-    global _preprocessfunc
+    global _preprocessfunc  # pylint: disable=global-statement, invalid-name
     _preprocessfunc = _default_preprocessfunc
     del g_functions[1:]
     del userdefined_plots[:]
@@ -351,12 +350,12 @@ def prepare_for_function(segment, preprocessed=False):
     segment
     '''
     # side note: we might cache the stream, the preprocessed stream and so
-    # on, so that each time we do not need to read por process the mseed
+    # on, so that each time we do not need to read or process the mseed,
     # but this has no big impact. Caching ALL subplots is a pain (we already
     # tried ending up with unmaintainable code). Note however that
-    # within the same web request, in case the same segment stream is needed,
-    # it is cached inside the Segment object (same holds for the inventory
-    # as response object as member of the Station object)
+    # within the same request timespan, in case the same segment stream is needed,
+    # it is cached inside the Segment object (same holds for the segment's
+    # inventory (obspy Response object)
     tmpstream = None
     try:
         tmpstream = segment.stream().copy()

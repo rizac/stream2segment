@@ -20,13 +20,13 @@ from stream2segment.utils import secure_dburl
 # rationale: Remember that from the GUI the user can navigate back and forward
 # with the button, not by typing segment ids (there is the selection <form>
 # for that). So, when th GUI shows up we need a fast way to know the number
-# of total segments, and later load somehow efficiently the 'next' or 'previous'
-# queried segment.
+# of total segments, load the first one and later load somehow efficiently
+# the 'next' or 'previous' queried segment.
 # Loading once all segment ids into SEG_IDS below might be the best solutions,
 # but for huge database is inefficient. So when the page shows up,
 # we query only the number N of segments to show via `get_segments_count`, and
 # we set SEG_IDS as a numpy array of N NaNs (the method should be relatively
-# fast as it issues  an SQL count). After that, When querying for a segment
+# fast as it issues an SQL count). After that, When querying for a segment
 # at given index (position), if SEG_IDS[index] is NaN, a block of
 # SEG_QUERY_BLOCK segment ids (only ids, to speed up things) is loaded
 # into SEG_IDS at the right position, and then with the segment id we can
@@ -121,26 +121,25 @@ def get_segment_ids(conditions, limit=50, offset=0):
 
 def get_segment(segment_id):  # , cols2load=None):
     '''Returns the segment identified by id `segment_id`'''
-    # Rationale: we would like to use some sort of cache, because displaying
-    # several plots might be time consuming. We ended up focusing on simplicity
-    # (avoid everything more complex, we already tried and it's a pain):
-    # cache a segment at a time. When a new segment is requested,
+    # Some history: we initially wanted to use some sort of cache, because displaying
+    # several plots might be time consuming. Solution 1: complex caching
+    # mechanism, with ad hoc classes and methods: it's a pain to test and maintain
+    # 2. Simpler approach: cache a segment at a time. When a new segment is requested,
     # discard the previously cached (if any), and cache the new segment,
-    # so that when e.g., a user chooses a different
-    # user defined plot in the GUI (or checks/unchecks the 'preprocessing'
+    # so that when e.g., a user chooses only a different
+    # custom plot in the GUI (or checks/unchecks the 'preprocessing'
     # button) we do not need to reload the segment from the DB, neither we
     # need to re-open the segment stream from the Bytes sequence.
-    # Now, we might user the session identity_map (https://stackoverflow.com/a/48988010)
+    # Now, we might use the session identity_map (https://stackoverflow.com/a/48988010)
     # but it seems that the identity_map will always be empty, as it is
     # cleared automatically at the end of each method using a db session
     # (i.e., the method sqlalchemy.orm.state.InstanceState._cleanup is called)
-    # Thus, we avoid any form of caching, also in account of the fact that
-    # most applications suggest to release the session after each request
-    # (which is what we implemented): just use query.get which is implemented
-    # to avoid querying the db if the instance is in the session (as we saw,
-    # this should be never happen, but just in case). If you want to
-    # implement some caching, use a different storage for a Segment instance
-    # and add it back to the session (session.add)
+    # Thus, we opted for solution 3: avoid any form of caching, also in account
+    # of the fact that most Flask example suggest to release the db session after
+    # each request. We followed this pattern (see 'init' function) and we
+    # just use query.get (see below) which avoids querying the db if the
+    # segment instance is already in the session. As we saw,
+    # this should never happen, but just in case.
 
     session = get_session()
     # for obj in session.identity_map.values():
