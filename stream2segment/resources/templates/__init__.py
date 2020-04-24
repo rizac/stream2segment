@@ -169,13 +169,16 @@ segment.download.program_version      str
 
 
 PROCESS_PY_BANDPASSFUNC = """
-Applies a pre-process on the given segment waveform by
-filtering the signal and removing the instrumental response.
-Modifies the segment stream in-place (see below).
+Applies a pre-process on the given segment waveform by filtering the signal and
+removing the instrumental response. When using this function during processing
+(see e.g. the `main` function) remember that it modifies the segment stream
+in-place: further calls to `segment.stream()` will return the pre-processed stream.
+You can change this behaviour by implementing your own code, or store the
+raw stream beforehand, e.g.: `raw_trace=segment.stream().copy()`
 
 The filter algorithm has the following steps:
 1. Sets the max frequency to 0.9 of the Nyquist frequency (sampling rate /2)
-(slightly less than Nyquist seems to avoid artifacts)
+   (slightly less than Nyquist seems to avoid artifacts)
 2. Offset removal (subtract the mean from the signal)
 3. Tapering
 4. Pad data with zeros at the END in order to accommodate the filter transient
@@ -183,15 +186,11 @@ The filter algorithm has the following steps:
 6. Remove padded elements
 7. Remove the instrumental response
 
-IMPORTANT NOTES:
-- Being decorated with '@gui.preprocess', this function:
-  * returns the *base* stream used by all plots whenever the relative check-box is on
-  * must return either a Trace or Stream object
-
-- In this implementation THIS FUNCTION DOES MODIFY `segment.stream()` IN-PLACE: from within
-  `main`, further calls to `segment.stream()` will return the stream returned by this function.
-  However, In any case, you can use `segment.stream().copy()` before this call to keep the
-  old unprocessed stream
+Side notes for uses with the Graphical User Interface (GUI): being decorated with
+'@gui.preprocess', this function must return either a Trace or Stream object that
+will be used as input for all visualized plots whenever the "pre-process" check-box is on.
+The GUI always passes here segments with a copy of the raw stream, so it will
+never incur in the "in-place modification" potential problems described above.
 
 :return: a Trace object.
 """
@@ -203,12 +202,12 @@ selected segment. Useful links for functions, libraries and utilities:
 
 - `stream2segment.process.math.traces` (small processing library implemented in this program,
   most of its functions are imported here by default)
-- `obpsy <https://docs.obspy.org/packages/index.html>`_
-- `obspy Stream object <https://docs.obspy.org/packages/autogen/obspy.core.stream.Stream.html>_`
-- `obspy Trace object <https://docs.obspy.org/packages/autogen/obspy.core.trace.Trace.html>_`
+- `ObpPy <https://docs.obspy.org/packages/index.html>`_
+- `ObsPy Stream object <https://docs.obspy.org/packages/autogen/obspy.core.stream.Stream.html>_`
+- `ObsPy Trace object <https://docs.obspy.org/packages/autogen/obspy.core.trace.Trace.html>_`
 
 IMPORTANT: Any exception raised by this routine will be logged to file for inspection.
-    All exceptions will interrupt the whole exectution, only exceptions of type `ValueError`
+    All exceptions will interrupt the whole execution, only exceptions of type `ValueError`
     will interrupt the execution of the currently processed segment and continue to the
     next segment, as ValueErrors might not always denote critical code errors. This feature can
     also be triggered programmatically to skip the currently processed segment
@@ -218,7 +217,7 @@ IMPORTANT: Any exception raised by this routine will be logged to file for inspe
         raise ValueError('SNR ratio too low')
     ```
 
-:param: segment (ptyhon object): An object representing a waveform data to be processed,
+:param: segment (Python object): An object representing a waveform data to be processed,
     reflecting the relative database table row. See above for a detailed list
     of attributes and methods
 
@@ -247,7 +246,7 @@ IMPORTANT: Any exception raised by this routine will be logged to file for inspe
       suggest to use only strings or numbers: any other object will be converted to string
       via `str(object)`: if this is not what you want, convert it to the numeric or string
       representation of your choice. E.g., for Python `datetime`s you might want to set
-      `datetime.isoformat()` (string), for obspy's `UTCDateTime`s `float(utcdatetime)` (numeric)
+      `datetime.isoformat()` (string), for ObsPy's `UTCDateTime`s `float(utcdatetime)` (numeric)
 
    * For HDF output, this function must return a dict, pandas Series or pandas DataFrame
      that will be written as a row of the resulting file (or rows, in case of DataFrame).
@@ -306,9 +305,7 @@ to 'segment_select' parameter in the config), and open a web page where the user
 visualize each segment one at a time.
 The page shows by default on the upper left corner a plot representing the segment trace(s).
 The GUI can be customized by providing here functions decorated with
-"@gui.preprocess" or "@gui.plot".
-Functions decorated this way (Plot functions) can return only special 'plottable' values
-(see 'Plot functions' below for details).
+"@gui.preprocess" (pre-process function) or "@gui.plot" (plot function).
 
 Pre-process function
 --------------------
@@ -320,7 +317,7 @@ def applybandpass(segment, config)
 ```
 will be associated to a check-box in the GUI. By clicking the check-box,
 all plots of the page will be re-calculated with the output of this function,
-which **must thus return an obspy Stream or Trace object**.
+which **must thus return an ObsPy Stream or Trace object**.
 
 Plot functions
 --------------
@@ -341,16 +338,15 @@ def spectra(segment, config)
 The 'position' argument controls where the plot will be placed in the GUI ('b' means bottom,
 the default, 'r' means next to the main plot, on its right) and the other two, `xaxis` and
 `yaxis`, are dict (defaulting to the empty dict {}) controlling the x and y axis of the plot
-(for info, see: https://plot.ly/python/axes/). When not given, axis types will be inferred
-from the function's return type (see below) and in most cases defaults to 'date' (i.e.,
-date-times on the x values).
+(for info, see: https://plot.ly/python/axes/).
 
-Functions decorated with '@gui.plot' must return a numeric sequence y taken at successive
-equally spaced points in any of these forms:
+When not given, axis types (e.g., date time vs numeric) will be inferred from the
+function's returned value which *must* be a numeric sequence (y values) taken at successive
+equally spaced points (x values) in any of these forms:
 
-- a obspy Trace object
+- ObsPy Trace object
 
-- a obspy Stream object
+- ObsPy Stream object
 
 - the tuple (x0, dx, y) or (x0, dx, y, label), where
 
@@ -388,34 +384,36 @@ any Exception raised will be handled this way:
   the routine, with one special case: `ValueError`s will interrupt the currently processed segment
   only (the exception message will be logged) and continue the execution to the next segment.
   This feature can also be triggered programmatically to skip the currently processed segment and
-  log the error for later insopection, e.g.:
+  log the error for later inspection, e.g.:
     `raise ValueError("segment sample rate too low")`
   (thus, do not issue `print` statements for debugging as it's useless, and a bad practice overall)
 
 Conventions and suggestions
 ---------------------------
 
-Handling exceptions, especially when launching a long processing routine, might be non trivial.
-There is a tradeoff to choose: just implement your code and run it (but the whole execution
-might stop days later, just shortly before ending), or catch any potential exception
-and raise a `ValueError` to continue the execution to the next segment (but you might realise
-too late that all segments raised errors and no data has actually been written to file).
+Handling exceptions at any point of the processing, especially when launching a very long routine,
+is non trivial: you might want the execution to skip a segment and continue
+smoothly if, e.g., its inventory is malformed and could not be read. But at the same time you want
+the routine to stop if your code has bugs, to let you fix them.
 
-If you go for the former (the cleanest one), we suggest to run your routine on a smaller
-(and possibly heterogeneous) dataset first (using the configuration file's segment selection):
-this not only allows you to handle potential unexpected exceptions, but also to inspect the
-output and debug your code.
-If you go for the latter, try to inspect the log file (especially at the beginning of
-the whole execution) to be ready to stop the run if you see something suspicious, avoiding waste
-of time.
+We therefore suggest to run your code on a smaller and possibly heterogeneous dataset
+first (changing temporarily the segment selection in the configuration file) in order
+to check 1. bugs to fix and 2. errors to be ignored by means of `raise ValueError` statements whose
+message will be logged to file. A faster solution (which we do not recommend) is to wrap all your
+code into a try-except that always raises a ValueError (with the exception message), but remember
+that this will hide your code bugs: you will then need to inspect the log file often, especially at
+the beginning of the whole execution, and be be ready to stop it, if you see some error message
+indicating a bug or unexpected result.
 
-In both cases, please spend some time on the configuration file's segment selection: you might find
-that your code runs smoothly as expected (and faster) by simply skipping certain segments in
+In any case, please spend some time on the configuration file's segment selection: you might find
+that your code runs smoothly and faster by simply skipping certain segments in
 the first place.
 
-This module is designed to encourage the decoupling of code and configuration, so that you can
-easily and safely experiment different configurations on the same code of the same Python module.
-Avoid having duplicated modules with different hard coded parameters.
+This module is designed to encourage the decoupling of code and configuration.
+Avoid having e.g., several almost identical Python modules which differ only for a small set of
+hard coded parameters: implement a single Python module and write different parameter sets in
+several YAML configurations in case.
+
 
 Functions arguments
 -------------------
@@ -444,7 +442,7 @@ segment methods:
 ----------------
 
 * segment.stream(reload=False): the `obspy.Stream` object representing the waveform data
-  associated to the segment. Please remember that many obspy functions modify the
+  associated to the segment. Please remember that many ObsPy functions modify the
   stream in-place:
   ```
       stream_remresp = segment.stream().remove_response(segment.inventory())
@@ -624,7 +622,7 @@ If you want to use the GUI as hand labelling tool (for e.g. supervised classific
 # check boxes. If missing, no class labels will show up in the GUI, unless already set by a
 # previous config. Example:
 #class_labels:
-#  Discarded: "Segment which does not fall in any other cathegory (e.g., unknown artifacts)"
+#  Discarded: "Segment which does not fall in any other category (e.g., unknown artifacts)"
 #  Unknown: "Segment which is either: unlabeled (not annotated) or unclassified"
 #  Ok: "Segment with no artifact"
 #  LowS2N: "Segment has a low signal-to-noise ratio"
