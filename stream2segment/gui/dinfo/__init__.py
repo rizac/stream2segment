@@ -170,7 +170,7 @@ def infoquery(session, download_ids=None, config=True, log=True):
     qry = session.query(*attrs)
     if download_ids is not None:
         qry = qry.filter(Download.id.in_(download_ids))
-    for res in qry.group_by(Download.id):
+    for res in qry.order_by(Download.run_time.asc()):  # .group_by(Download.id):
         if not config and not log:  # False
             res = list(res) + ['', '']
         elif not log:
@@ -335,7 +335,7 @@ def get_downloads(sess, download_ids=None):
     the first element is a string, the second a dict
     '''
     query = filterquery(sess.query(Download.id, Download.run_time, Download.config),
-                        download_ids)
+                        download_ids).order_by(Download.run_time.asc())
     return {did: (time.isoformat(), yaml_get(cfg))
             for (did, time, cfg) in query}
 
