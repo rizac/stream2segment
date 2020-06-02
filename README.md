@@ -3,7 +3,7 @@
 A Python project to download, process and visualize event-based seismic waveform segments, specifically
 created to manage massive amounts of data.
 
-<sub>**Hint**: for massive downloads (as a rule of thumb: >= 1 million segments) we suggest to use postgres and we **strongly** suggest to run the program on computers with at least **16GB** of RAM.</sub>
+<sub>**Hint**: for massive downloads (as a rule of thumb: >= 1 million segments) we suggest to use postgres as database, and we **strongly** suggest to run the program on computers with at least **16GB** of RAM.</sub>
 
 The key aspects with respect to widely-used similar applications are:
 
