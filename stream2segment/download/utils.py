@@ -178,7 +178,6 @@ def dbsyncdf(dataframe, session, matching_columns, autoincrement_pkey_col, updat
              buf_size=10, keep_duplicates=False, return_df=True, cols_to_print_on_err=None):
     """Calls `syncdf` and writes to the logger before returning the new dataframe.
     Raises a :class:`FailedDownload` if the returned dataframe is empty (no row saved)"""
-
     db_exc_logger = DbExcLogger(cols_to_print_on_err)
 
     inserted, not_inserted, updated, not_updated, dfr = \

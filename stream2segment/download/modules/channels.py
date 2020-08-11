@@ -367,9 +367,9 @@ def save_stations_and_channels(session, channels_df, eidavalidator, update, db_b
         exc_msg = ("Found %d duplicated channel(s) to be discarded "
                    "as a result of duplicated stations") % len(channels_df_dupes)
         logger.info(exc_msg)
-        # If you want to print the duplicated channels, see `drop_station_duplicates`
-        # (don't do it as it's redundant info), and type e.g.:
-        # DbExcLogger(columns_to_print).failed_insert(channels_df_dupes, Exception(exc_msg))
+        # If you want to print the duplicated channels, see DbExcLogger and
+        # logwarn_dataframe both in `stream2segment.download.utils` rop_station_duplicates`
+        # and their usage here in this module
         channels_df.dropna(axis=0, subset=[CH.STAID], inplace=True)
 
     # add channels to db:

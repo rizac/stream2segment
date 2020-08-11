@@ -201,7 +201,7 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024, dec
     Note that if `raise_http_err=False` then `HTTPError`s are treated as 'normal'
     response and will be yielded in `result` as a tuple where `data=None` and `status_code`
     is most likely greater or equal to 400.
-    Finally, this function can cleanly cancel yet-to-be-processed *worker threads* via Ctrl+C
+    Finally, this function can cleanly cancel *worker threads* (still to be processed) via Ctrl+C
     if executed from the command line. In the following we will simply refer to `urlread`
     to indicate the `urllib2.urlopen.read` function.
 

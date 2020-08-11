@@ -128,7 +128,7 @@ def merge_events_stations(events_df, channels_df, search_radius,
     # sum np.datetime64 and np.float). Convert traveltimes to np.timedelta: we first multiply by
     # 1000000 to preserve the millisecond resolution and then we write traveltimes.astype("m8[us]")
     # which means: 8bytes timedelta with microsecond resolution (10^-6)
-    # Side note: that all numpy timedelta constructors (as well as "astype") round to int
+    # Side note: all numpy timedelta constructors (as well as "astype") round to int
     # argument, at least in numpy13.
     ret[SEG_ATIME] = eventtimes + (traveltimes*1000000).astype("m8[us]")
     # drop nat values

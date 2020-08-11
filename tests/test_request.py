@@ -22,8 +22,8 @@ def no_connection():
 @pytest.mark.skipif(no_connection(),
                     reason="no internet connection")
 def test_request():
-    '''This test performs a REAL connection to test a real case. It should be removed
-    in case of no connection'''
+    '''This tests `read_async` in case of a REAL connection. Ignored if the computer
+    is not online'''
 
     post_data_str = """* * * HH?,HL?,HN? 2017-01-01T00:00:00 2017-06-01T00:00:00
 format=text
