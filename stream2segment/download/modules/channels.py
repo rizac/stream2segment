@@ -18,7 +18,7 @@ from sqlalchemy import or_, and_
 
 from stream2segment.io.db.models import DataCenter, Station, Channel
 from stream2segment.download.utils import read_async, response2normalizeddf, FailedDownload,\
-    DbExcLogger, dbsyncdf, to_fdsn_arg, formatmsg
+    DbExcLogger, dbsyncdf, to_fdsn_arg, formatmsg, logwarn_dataframe
 from stream2segment.utils import get_progressbar, strconvert
 from stream2segment.io.db.pdsql import dbquery2df, shared_colnames, mergeupdate
 
@@ -220,7 +220,7 @@ def filter_channels_df(channels_df, net, sta, loc, cha, min_sample_rate):
 
     discarded_sr = len(channels_df) - len(ret)
     if discarded_sr:
-        logger.warning(("%d channel(s) discarded according to current config. filters "
+        logger.warning(("%d channel(s) discarded according to current configuration filters "
                         "(network, channel, sample rate, ...)"), discarded_sr)
 
     return ret
@@ -343,87 +343,165 @@ def save_stations_and_channels(session, channels_df, eidavalidator, update, db_b
     (`Channel.id`)
     :param channels_df: pandas DataFrame resulting from `get_channels_df`
     """
-    # first drop channels of same station:
-    sta_df = channels_df.drop_duplicates(subset=[ST.NET, ST.STA, ST.STIME, ST.DCID]).copy()
-    sta_df = drop_station_duplicates(session, sta_df, eidavalidator)
+    channels_df, conflict_between, conflict_within = \
+        drop_duplicates(session, channels_df, eidavalidator)
+
+    if channels_df.empty:
+        raise FailedDownload('No channel left after cleanup (e.g., drop duplicates)')
 
     # remember: dbsyncdf raises a FailedDownload, so no need to check for empty(dataframe). Also,
     # if update is True, for stations only it must NOT update inventories HERE (handled later)
     _update_stations = update
     if _update_stations:
-        _update_stations = [_ for _ in shared_colnames(Station, sta_df, pkey=False)
+        _update_stations = [_ for _ in shared_colnames(Station, channels_df, pkey=False)
                             if _ != Station.inventory_xml.key]
-    sta_df = dbsyncdf(sta_df, session, [Station.network, Station.station, Station.start_time],
-                      Station.id, _update_stations, buf_size=db_bufsize, keep_duplicates=True,
+    sta_df = dbsyncdf(channels_df.drop_duplicates(subset=[ST.NET, ST.STA, ST.STIME, ST.DCID]),
+                      session, [Station.network, Station.station, Station.start_time],
+                      Station.id, _update_stations, buf_size=db_bufsize, keep_duplicates=False,
                       cols_to_print_on_err=ST.ERRCOLS)
     # sta_df will have the STA_ID columns, channels_df not: set it from the former to the latter:
     channels_df = mergeupdate(channels_df, sta_df, [ST.NET, ST.STA, ST.STIME, ST.DCID],
                               [ST.ID])
     # rename now 'id' to 'station_id' before writing the channels to db:
     channels_df.rename(columns={ST.ID: CH.STAID}, inplace=True)
-    # check dupes and warn:
-    channels_df_dupes = channels_df[channels_df[CH.STAID].isnull()]
-    if not channels_df_dupes.empty:
-        exc_msg = ("Found %d duplicated channel(s) to be discarded "
-                   "as a result of duplicated stations") % len(channels_df_dupes)
-        logger.info(exc_msg)
-        # If you want to print the duplicated channels, see DbExcLogger and
-        # logwarn_dataframe both in `stream2segment.download.utils` rop_station_duplicates`
-        # and their usage here in this module
-        channels_df.dropna(axis=0, subset=[CH.STAID], inplace=True)
+
+    # check channels with empty station id (should never happen, let's be picky):
+    null_sta_id = channels_df[CH.STAID].isnull()
+    conflict_null_sta_id = pd.DataFrame()
+    if null_sta_id.any():
+        conflict_null_sta_id = channels_df[null_sta_id]
+        channels_df = channels_df[~null_sta_id]
 
     # add channels to db:
     channels_df = dbsyncdf(channels_df, session,
                            [Channel.station_id, Channel.location, Channel.channel],
-                           Channel.id, update, buf_size=db_bufsize, keep_duplicates=True,
+                           Channel.id, update, buf_size=db_bufsize, keep_duplicates=False,
                            cols_to_print_on_err=CH.ERRCOLS)
+
+    log_unsaved_channels(conflict_between, conflict_within, conflict_null_sta_id,
+                         eidavalidator is not None)
+
     return channels_df
 
 
-def drop_station_duplicates(session, sta_df, eidavalidator):
-    '''Drops station duplicates from the Station Data frame `sta_df`
-    using eidavalidator or the database accessible via
-    the session object, if eidavalidator is None.
-    If no duplicates are found, returns `sta_df`
+def drop_duplicates(session, channels_df, eidavalidator):
     '''
-    # then check dupes. Same network, station, starttime but different datacenter:
-    duplicated = sta_df.duplicated(subset=[ST.NET, ST.STA, ST.STIME],
-                                   keep=False)  # keep=False => Mark all duplicates as True
-    if duplicated.any():
-        sta_df_dupes = sta_df[duplicated].copy()
-        sta_df_dupes.rename(columns={ST.DCID: ST.DCID2}, inplace=True)
-        sta_df_dupes[ST.DCID] = np.nan
+    Drops from channels_df duplicates (same station between or within data centers).
+    For duplicates between data centers, uses `eidavalidator` or the database
+    accessible via the session object, if eidavalidator is None.
 
-        if eidavalidator is not None:
-            for i, net, sta, loc, cha, stime, etime in \
-                zip(sta_df_dupes.index, sta_df_dupes[ST.NET], sta_df_dupes[ST.STA],
-                    sta_df_dupes[CH.LOC], sta_df_dupes[CH.CHA],
-                    sta_df_dupes[ST.STIME], sta_df_dupes[ST.ETIME]):
-                sta_df_dupes.at[i, ST.DCID] = \
-                    eidavalidator.get_dc_id(net, sta, loc, cha,
-                                            None if pd.isnull(stime) else stime,
-                                            None if pd.isnull(etime) else etime)
-        else:
-            sta_db = dbquery2df(session.query(Station.network, Station.station, Station.start_time,
-                                              Station.datacenter_id))
-            mergeupdate(sta_df_dupes, sta_db, [ST.NET, ST.STA, ST.STIME], [ST.DCID])
+    :return: the dataframes (ok, bad_between, bad_within), where ok is a subset of
+        `channels_df` and the other two dataframes contain duplicates
+    '''
+    # List of datframes representing channels conflicting between data centers,
+    # i.e. mopre data centers returning the same channels.
+    # (eidavalitator or current db will be used to resolve conflicts):
+    conflict_between_dc = []
+    # List of datframes representing channels conflicting within data centers,
+    # these kind of problems are unresolvable and put here:
+    conflict_within_dc = []
+    # list of ok channels (not falling in any category above):
+    oks = []
+    # station_datacenters_from_db = None  # dataframe lazy loaded (see below)
 
-        sta_df_dupes = sta_df_dupes[sta_df_dupes[ST.DCID] != sta_df_dupes[ST.DCID2]]
+    # first drop duplicates (all columns the same):
+    channels_df = channels_df.drop_duplicates()
 
-        if not sta_df_dupes.empty:
-            exc_msg = "Found %d duplicated station(s) to be discarded (checked against %s)" % \
-                (len(sta_df_dupes),
-                 ("already saved stations" if eidavalidator is None else "eida routing service"))
-            logger.info(exc_msg)
-            # print the removed dataframe to log.warning (showing
-            # [STA_NET, STA_STA, STA_STIME, STA_DCID2] columns only):
-            db_exc_logger = DbExcLogger([ST.NET, ST.STA, ST.STIME, ST.DCID2])
-            db_exc_logger.failed_insert(sta_df_dupes.sort_values(by=[ST.NET, ST.STA, ST.STIME]),
-                                        '', )
-            # https://stackoverflow.com/questions/28901683/pandas-get-rows-which-are-not-in-other-dataframe:
-            sta_df = sta_df.loc[~sta_df.index.isin(sta_df_dupes.index)]
+    # From now on do not use anymore duplicated or drop_duplicates: the removal of
+    # duplicates now is more tricky. Let's  group by (net, sta, starttime)
+    # which is a unique constraints of the station table:
+    for (net, sta, stime), df_ in channels_df.groupby([ST.NET, ST.STA, ST.STIME], sort=False):
+        if len(pd.unique(df_[ST.DCID])) > 1:
 
-    return sta_df
+            real_dc_ids = set()
+            for etime in pd.unique(df_[ST.ETIME]):
+                if eidavalidator is not None:
+                    # get the datacenter id(s) at a station level (pass
+                    # cha and loc as None):
+                    dcids = \
+                        eidavalidator.get_dc_id(net, sta, loc=None, cha=None,
+                                                stime=None if pd.isnull(stime) else stime,
+                                                etime=None if pd.isnull(etime) else etime)
+                    # if len(dcids) != 1, then more than one datacenter is
+                    # returned, the channel will be discarded because the
+                    # relative station is mapped to more than one datacenter
+                    # and thus the station cannnot be saved (unique cosntraint
+                    # violated):
+                    real_dc_ids.update(dcids)
+                else:
+                    dcids = session.query(Station.datacenter_id).\
+                        filter((Station.network == net) &
+                               (Station.station == sta) &
+                               (Station.start_time == stime) &
+                               (Station.end_time == None if pd.isnull(etime) else etime)).all()
+                    real_dc_ids.update(dcids)
+
+            if len(real_dc_ids) != 1:
+                conflict_between_dc.append(df_)
+                df_ = df_[0:0]  # simply empty dataframe, with same columns
+            else:
+                dcid = list(real_dc_ids)[0]
+                conflicting = df_[ST.DCID] != dcid
+                conflict_between_dc.append(df_[conflicting])
+                df_ = df_[~conflicting]
+
+        if not df_.empty:
+            dupes = df_.duplicated(subset=[CH.LOC, CH.CHA], keep=False)
+            if dupes.any():
+                conflict_within_dc.append(df_[dupes])
+                df_ = df_[~dupes]
+
+        if not df_.empty:
+            oks.append(df_)
+
+    oks = pd.DataFrame() if not oks else \
+        pd.concat(oks, axis=0, sort=False, ignore_index=True, copy=True)
+    conflict_between_dc = pd.DataFrame() if not conflict_between_dc else \
+        pd.concat(conflict_between_dc, axis=0, sort=False)
+    conflict_within_dc = pd.DataFrame() if not conflict_within_dc else \
+        pd.concat(conflict_within_dc, axis=0, sort=False)
+
+    return oks, conflict_between_dc, conflict_within_dc
+
+
+def log_unsaved_channels(conflict_between, conflict_within, conflict_null_sta_id,
+                         eida_routing_service_was_used=False):
+    '''logs the results of channels and station saving.
+    The arguments are all dataframes issued from `save_stations_and_channels`
+    conflict_between: channels conflicts between datacenters (duplicated stations returned
+    by more than one datacenter), conflict_within: conflicts within channels of the same
+    datacenter violating channels unique constraints, conflict_null_sta_id: channels
+    that did not have a matching station is after station saving and before channel
+    saving (this should never happen, but we checkit for safety otherwise some db error
+    occurs)
+    '''
+    max_row_count = 50
+    # log non inserted data. Inserted stations and channels inserted are already
+    # logged in `dbsyncdf` (see above) which uses `logwarn_dataframe` internally
+    cols2show = [ST.NET, ST.STA, ST.STIME, ST.ETIME, ST.DCID]
+    if not conflict_between.empty:
+        # conflict_between happen at a station level, thius we can show only stations
+        # _ is the data frame to show (only at station level, avoid unnecessary channel details)
+        _ = conflict_between.drop_duplicates(subset=[ST.NET, ST.STA, ST.STIME], keep='first')
+        msg = (f'{len(_)} station(s) and {len(conflict_between)} channel(s) not saved to db. '
+               'Reason: wrong datacenter (checked with %s)') % \
+            ("eida routing service" if eida_routing_service_was_used else "already saved stations")
+        logwarn_dataframe(_, msg, cols2show, max_row_count)
+
+    cols2show = [ST.NET, ST.STA, CH.LOC, CH.CHA, ST.STIME, ST.ETIME, ST.DCID]
+    if not conflict_within.empty:
+        # Do not count stations here, as some of those stations might have been saved as part
+        # of other correct channels
+        msg = (f'{len(conflict_within)} channel(s) not saved to db. '
+               f'Reason: conflicting data (e.g. unique constraint failed) from same data center')
+        logwarn_dataframe(conflict_within, msg, cols2show, max_row_count)
+
+    if not conflict_null_sta_id.empty:
+        # Do not count stations here, as some of those stations might have been saved as part
+        # of other correct channels
+        msg = (f'{len(conflict_null_sta_id)} channel(s) not saved to db. '
+               f'Reason: station id not found (possible database error)')
+        logwarn_dataframe(conflict_null_sta_id, msg, cols2show, max_row_count)
 
 
 def chaid2mseedid_dict(channels_df, drop_mseedid_columns=True):

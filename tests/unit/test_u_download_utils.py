@@ -526,31 +526,35 @@ http:wrong
 
     tests = {
         ('Z3', 'A001A', '01', 'HLLL', None, None): None,
-        ('Z3', 'A001A', '01', 'HLL', None, None): 1,
+        ('Z3', 'A001A', '01', 'HLL', None, None): [1],
         ('', '', '', '', None, None): None,
         ('', '', '', '', None, None): None,
         ('Z3', 'A002a', '01', 'HLL', None, None): None,
-        ('Z3', 'A001A', '01', 'HLO', None, None): 1,
-        ('Z3', 'A001A', '', 'HLL', None, None): 1,
-        ('Z3', 'A291A', '01', 'HHL', None, None): 2,
+        ('Z3', 'A001A', '01', 'HLO', None, None): [1],
+        ('Z3', 'A001A', '', 'HLL', None, None): [1],
+        ('Z3', 'A291A', '01', 'HHL', None, None): [2],
         ('Z3', 'A291A', '01', 'HH', None, None): None,
-        ('Z3', 'A291A', '01', 'HH?', None, None): 2,
-        ('YF', '*', '01', 'HH?', None, None): 1,
+        ('Z3', 'A291A', '01', 'HH?', None, None): [2],
+        ('YF', '*', '01', 'HH?', None, None): [1],
         ('YF', '*', '01', 'abc', None, None): None,
-        ('YF', '*', '01', 'HLW', None, None): 1,
-        ('YF', '*fwe', 'bla', 'HL?', None, None): 1,
-        ('YF', 'aewf*', '', 'HDF', None, None): 1,
+        ('YF', '*', '01', 'HLW', None, None): [1],
+        ('YF', '*fwe', 'bla', 'HL?', None, None): [1],
+        ('YF', 'aewf*', '', 'HDF', None, None): [1],
         ('YFA', 'aewf*', '', 'HHH', None, None): None,
         ('YFA', 'aewf*', '', 'HHH', None, None): None,
         # time bounds:
+        ('ZE', 'ABC', None, None, None, None): [1, 2],
+        ('ZE', 'ABC', None, None,  None, datetime(2000, 4, 1)): [1],
         ('ZE', 'ABC', '01', 'HLL', datetime(2020, 1, 1), None): None,
-        ('ZE', 'ABC', '02', 'ABC', datetime(1990, 1, 1), None): 1,
+        ('ZE', 'ABC', '02', 'ABC', datetime(1990, 1, 1), None): [1, 2],
         ('ZE', 'ABC', '02', 'ABC', None, datetime(1990, 1, 1)): None,
-        ('ZE', 'ABC', '03', 'XYZ', datetime(2000, 6, 1), None): 1,
-        ('ZE', 'ABC', '04', 'ELE', datetime(2001, 4, 1), None): 2,
+        ('ZE', 'ABC', '03', 'XYZ', datetime(2000, 6, 1), None): [1, 2],
+        ('ZE', 'ABC', '04', 'ELE', datetime(2001, 4, 1), None): [2],
         }
 
     for k, expected in tests.items():
+        # convert to new values:
+        expected = set() if expected is None else set(expected)
         assert eidavalidator.get_dc_id(*k) == expected
 
 # (any, ['A','D','C','B'])   ['A', 'B', 'C', 'D']  # note result is sorted

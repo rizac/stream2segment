@@ -191,27 +191,25 @@ class EidaValidator(object):
                     net, sta, loc, cha, stime, etime = \
                         match.group(1), match.group(2), match.group(3), match.group(4),\
                         match.group(5), match.group(6)
+                    # 
                     self.dic[dc_id].add(ItemMatcher(net, sta, loc, cha, stime, etime))
                 except IndexError:
                     continue
 
     def get_dc_id(self, net, sta, loc, cha, stime, etime):
-        '''Returns an int denoting the data center id associated to the given
+        '''Returns a set of unique ints denoting the data center id associated to the given
         channel identified by the function arguments (all strings except stime and etime
-        which must be datetime or None).
+        which must be datetime. Any argument which is None will be ignored).
         Returns None if the channel is not associated to any data center.
 
         NOTE: If the channel is associated to more than one data center, the id of
         the first matching is returned
         '''
-        # return the first data center that matches. The case where the routing service
-        # might return several data centers should never happen, and even if it does
-        # (and it probably will from our experience) is not up to this program
-        # to discard potentially downloadable data
+        ret = set()
         for dcid, itemmacthers in self.dic.items():
             if any(_.match(net, sta, loc, cha, stime, etime) for _ in itemmacthers):
-                return dcid
-        return None
+                ret.add(dcid)
+        return ret
 
 
 class ItemMatcher(object):
@@ -221,24 +219,33 @@ class ItemMatcher(object):
         '''Initializes this Matcher with the components of the eida routing
         service channel (which might contain wildcards)
         '''
-        regex_ = "\\.".join([strconvert.wild2re(net),
-                             strconvert.wild2re(sta),
-                             '' if loc == '--' else strconvert.wild2re(loc),
-                             strconvert.wild2re(cha)])
-        self.reg = re.compile("^%s$" % regex_)
+        self.regs = tuple(re.compile("^%s$" % _)
+                          for _ in [strconvert.wild2re(net),
+                                    strconvert.wild2re(sta),
+                                    '' if loc == '--' else strconvert.wild2re(loc),
+                                    strconvert.wild2re(cha)])
+#         regex_ = "\\.".join([strconvert.wild2re(net),
+#                              strconvert.wild2re(sta),
+#                              '' if loc == '--' else strconvert.wild2re(loc),
+#                              strconvert.wild2re(cha)])
+#         self.reg = re.compile("^%s$" % regex_)
         self.stime = None if stime == '*' else strptime(stime)
         self.etime = None if etime == '*' else strptime(etime)
 
     def match(self, net, sta, loc, cha, stime, etime):
         '''Returns True if the given Matcher matches the channel
         identified by the function arguments (all strings except stime and etime
-        which must be datetime or None)
+        which must be datetime). Any argument which is None will be ingored.
         '''
         if stime is not None and self.etime is not None and stime >= self.etime:
-            return None
+            return False
         if etime is not None and self.stime is not None and etime <= self.stime:
-            return None
-        return self.reg.match(".".join([net, sta, loc, cha]))
+            return False
+        for reg, txt in zip(self.regs, [net, sta, loc, cha]):
+            if txt is not None and not reg.match(txt):
+                return False
+        return True
+        # return self.reg.match(".".join([net, sta, loc, cha]))
 
 
 def eidarsiter(responsetext):

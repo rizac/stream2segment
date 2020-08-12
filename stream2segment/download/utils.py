@@ -243,16 +243,23 @@ class DbExcLogger(object):
             logwarn_dataframe(dataframe, msg, self.cols_to_print_on_err, self.max_row_count)
 
 
-def logwarn_dataframe(dataframe, msg, cols_to_print_on_err, max_row_count=30):
-    '''prints (using log.warning) the current dataframe. Does not check if dataframe is empty'''
+def logwarn_dataframe(dataframe, msg, columns=None, max_row_count=30):
+    '''prints (using log.warning) the current dataframe. Does not check if dataframe is empty
+    :param columns: the columns to print, if None writes all columns
+    '''
     len_df = len(dataframe)
     if len_df > max_row_count:
         footer = "\n... (showing first %d rows only)" % max_row_count
         dataframe = dataframe.iloc[:max_row_count]
     else:
         footer = ""
-    msg = "{}:\n{}{}".format(msg, dataframe.to_string(columns=cols_to_print_on_err,
-                                                      index=False), footer)
+
+    if columns is not None and len(columns) < len(dataframe.columns):
+        dataframe = dataframe.copy()
+        dataframe['...'] = pd.Categorical(('...' for _ in range(len(dataframe))))
+
+    df_str = dataframe.to_string(columns=list(columns) + ['...'], na_rep='', index=False)
+    msg = "{}:\n{}{}".format(msg, df_str, footer)
     logger.warning(msg)
 
 

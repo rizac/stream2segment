@@ -358,7 +358,7 @@ level=channel
                                        net, sta, loc, cha, None, None,  100,
                                        False, None, None, -1, self.db_buf_size)
         assert len(cha_df3) == len(cha_df)-2
-        assert "2 channel(s) discarded according to current config. filters" in self.log_msg()
+        assert "2 channel(s) discarded according to current configuration filters" in self.log_msg()
 
         # now change this:
 
@@ -567,33 +567,31 @@ YY yy * DE? 2013-08-01T00:00:00 2017-04-25
                                     net, sta, loc, cha, db_bufsize=self.db_buf_size)
 
         # MOCK THE CASE OF DUPLICATED STATIONS (I.E., RETURNED BY MORE THAN ONE DATACENTER)
-        # TLDR: look at the Sensor description (starting with "OK: " or "NO: " 
+        # Look at the Sensor description (starting with "OK: " or "NO: " 
         # to know if the given channel should be taken or not
-        #
-        # To test what we just said, we write here the datacenters station query responses.
-        # LEGEND. In the channel:
-        # First letter: D=has dupes, N=no dupes. If N, the channel is always added
-        # Second letter: E=expected (is in the eida routing service of this datacenter),
-        #      N: not expected
-        # Third letter: No meaning, (left free to be able play with regexps)
-        # 
+        # EXCEPT the first two channels (IV.BOTM)
+        # because they are real cases of conflicts that should NOT be saved
         urlread_sideeffect  = ["""#Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|Azimuth|Dip|SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|StartTime|EndTime
-A1|aa||DEZ|3|4|6|0|0|0|OK:                                                |8|0.1|M/S|50.0|2008-02-12T00:00:00|
+IV|BOTM||HNZ|45.5416|10.3213|157|0|0|-90|KINEMETRICS EPISENSOR-FBA-ES-T-CL-2G-FS-40-VPP|320770|0.2|M/S**2|100|2014-11-14T14:00:00|2014-11-14T14:00:00
+IV|BOTM||HNZ|45.5416|10.3213|157|0|0|-90|KINEMETRICS EPISENSOR-FBA-ES-T-CL-2G-FS-40-VPP|320770|0.2|M/S**2|100|2014-11-14T14:00:00|2019-08-30T15:01:00
 A1|aa||DEL|3|4|6|0|0|0|OK:                                                |8|0.1|M/S|50.0|2008-02-12T00:00:00|
 A2|ww||NNL|3|4|6|0|0|0|OK:                                                |8|0.1|M/S|50.0|2008-02-12T00:00:00|
-A2|xx||DNL|3|4|6|0|0|0|NO: we cannot guess                                |8|0.1|M/S|50.0|2008-02-12T00:00:00|
-XX|xx||DEL|3|4|6|0|0|0|OK: it's the first                                 |8|0.1|M/S|50.0|2008-02-12T00:00:00|
-YY|yy||DEL|3|4|6|0|0|0|NO: channel check done cause it's dupe: no match   |8|0.1|M/S|50.0|2008-02-12T00:00:00|
+A2|xx||DNL|3|4|6|0|0|0|NO: station also in other dc, eida_rs says not found      |8|0.1|M/S|50.0|2008-02-12T00:00:00|
+XX|xx||DEL|3|4|6|0|0|0|NO: station also in other dc, eida_rs says should be in both (conflict)        |8|0.1|M/S|50.0|2008-02-12T00:00:00|
+YY|yy||DEL|3|4|6|0|0|0|NO: station also in other dc, eida_rs says this dc is wrong  |8|0.1|M/S|50.0|2008-02-12T00:00:00|
 """,
 """#Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|Azimuth|Dip|SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|StartTime|EndTime
-B1|bb||NEZ|3|4|6|0|0|0|OK: channel check not done: taken                  |8|0.1|M/S|50.0|2008-02-12T00:00:00|
-A1|aa||DNZ|3|4|6|0|0|0|NO:                                                |8|0.1|M/S|50.0|2008-02-12T00:00:00|
-A1|aa||NNZ|3|4|6|0|0|0|OK: starttime changed -> new station               |8|0.1|M/S|50.0|2018-02-12T00:00:00|
-A2|xx||DNL|3|4|6|0|0|0|NO: we cannot guess                                |8|0.1|M/S|50.0|2008-02-12T00:00:00|
-A2|a2||NNL|3|4|6|0|0|0|OK:                                                |8|0.1|M/S|50.0|2008-02-12T00:00:00|
-XX|xx||DEL|3|4|6|0|0|0|NO: it's not the first                             |8|0.1|M/S|50.0|2008-02-12T00:00:00|
-YY|yy||DEL|3|4|6|0|0|0|OK: channel check done cause it's dupe: matches    |8|0.1|M/S|50.0|2008-02-12T00:00:00|
-"""]
+A1|aa||DNZ|3|4|6|0|0|0|NO: station also in other dc, eida_rs says this dc is wrong |8|0.1|M/S|50.0|2008-02-12T00:00:00|
+A1|aa||NNZ|3|4|6|0|0|0|OK: station also in other dc, but starttime changed -> new station               |8|0.1|M/S|50.0|2018-02-12T00:00:00|
+B1|bb||NEZ|3|4|6|0|0|0|OK:                                                                 |8|0.1|M/S|50.0|2008-02-12T00:00:00|
+A2|xx||DNL|3|4|6|0|0|0|NO: station also in other dc, eida_rs says not found       |8|0.1|M/S|50.0|2008-02-12T00:00:00|
+A2|a2||NNL|3|4|6|0|0|0|OK: note that eida_rs says this dc is wrong but we ignore eida rs because we dont have conflicts                                               |8|0.1|M/S|50.0|2008-02-12T00:00:00|
+XX|xx||DEL|3|4|6|0|0|0|NO: station also in other dc, eida_rs says should be in both (conflict)       |8|0.1|M/S|50.0|2008-02-12T00:00:00|
+YY|yy||DEL|3|4|6|0|0|0|NO: station also in other dc, eida_rs says this dc is ok but station cannot be saved (some channels in one dc, some not) |8|0.1|M/S|50.0|2008-02-12T00:00:00|
+B1|bb||NEZ|3|4|6|0|0|0|OK:                                                                 |8|0.1|M/S|50.0|2008-02-12T00:00:00|
+"""]  # NOTE: the last line (B1|bb...) is ON PURPOSE THE SAME AS THE THIRD, IT SHOULD BE IGNORED
+
+        EXPECTED_SAVED_CHANNELS = 5
 
         # get channels with the above implemented urlread_sideeffect:
         cha_df = self.get_channels_df(urlread_sideeffect, db.session,
@@ -604,9 +602,13 @@ YY|yy||DEL|3|4|6|0|0|0|OK: channel check done cause it's dupe: matches    |8|0.1
         # str(dbquery2df(db.session.query(Channel.id, Station.network, Station.station,
         # Channel.channel, Channel.station_id, Station.datacenter_id).join(Station)))
         csd = dbquery2df(db.session.query(Channel.sensor_description))
-        assert len(csd) == 8
+        assert len(csd) == EXPECTED_SAVED_CHANNELS
         logmsg = self.log_msg()
-        assert "5 database row(s) not inserted" in logmsg
+        assert "4 station(s) and 7 channel(s) not saved to db. Reason: wrong datacenter" \
+            in logmsg
+        assert "2 channel(s) not saved to db. Reason: conflicting data" \
+            in logmsg
+        assert "BOTM" in logmsg[logmsg.index("2 channel(s) not saved to db"):]
         # assert that the OK string is in the sensor description
         assert all(c[:3] == "OK:" for c in csd[Channel.sensor_description.key])
 
@@ -634,7 +636,7 @@ YY|yy||DEL|3|4|6|0|0|0|OK: channel check done cause it's dupe: matches    |8|0.1
         # str(dbquery2df(db.session.query(Channel.id, Station.network, Station.station,
         # Channel.channel, Channel.station_id, Station.datacenter_id).join(Station)))
         # we might add some more specific assert here
-        assert len(cha_df3) == 7
+        assert len(cha_df3) == EXPECTED_SAVED_CHANNELS
 
         # get channels with the above implemented urlread_sideeffect:
         cha_df4 = self.get_channels_df(urlread_sideeffect, db.session,
@@ -649,4 +651,3 @@ YY|yy||DEL|3|4|6|0|0|0|OK: channel check done cause it's dupe: matches    |8|0.1
         # sort them by id, reset dataframes indices... and they should be the same:
         assert cha_df3.sort_values(by=['id']).\
             reset_index(drop=True).equals(cha_df4.sort_values(by=['id']).reset_index(drop=True))
-        # FIXME: test save inventories!!!!
