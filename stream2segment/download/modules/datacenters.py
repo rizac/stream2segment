@@ -224,11 +224,7 @@ class ItemMatcher(object):
                                     strconvert.wild2re(sta),
                                     '' if loc == '--' else strconvert.wild2re(loc),
                                     strconvert.wild2re(cha)])
-#         regex_ = "\\.".join([strconvert.wild2re(net),
-#                              strconvert.wild2re(sta),
-#                              '' if loc == '--' else strconvert.wild2re(loc),
-#                              strconvert.wild2re(cha)])
-#         self.reg = re.compile("^%s$" % regex_)
+
         self.stime = None if stime == '*' else strptime(stime)
         self.etime = None if etime == '*' else strptime(etime)
 
@@ -245,7 +241,6 @@ class ItemMatcher(object):
             if txt is not None and not reg.match(txt):
                 return False
         return True
-        # return self.reg.match(".".join([net, sta, loc, cha]))
 
 
 def eidarsiter(responsetext):

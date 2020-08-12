@@ -319,8 +319,6 @@ class ST(object):  # pylint: disable=too-few-public-methods, useless-object-inhe
     DCID = Station.datacenter_id.key  # pylint: disable=invalid-name
     # set columns to show in the log on error ("no row written"):
     ERRCOLS = [NET, STA, STIME, DCID]  # pylint: disable=invalid-name
-    # non-db column temporary set in `drop_station_duplicates`:
-    DCID2 = 'invalid_' + DCID  # pylint: disable=invalid-name
 
 
 class CH(object):  # pylint: disable=too-few-public-methods, useless-object-inheritance
