@@ -308,8 +308,9 @@ to common problems you might have and that we collected from several Ubuntu inst
 ## Developer(s) notes:
 
 - Although PEP8 recommends 79 character length, the program uses a 100 characters
-  max line width. It seems that among new features planned for Python 4 there is
-  an increment to 89.5 cgharacters. If true, we will stick to that in the future 
+  max line width. It seems that [among new features planned for Python 4 there is
+  an increment to 89.5 characters](https://charlesleifer.com/blog/new-features-planned-for-python-4-0/).
+  If true, we will stick to that in the future 
   
 - The program can be also installed via the usual way by ignoring `requirements.txt` and just typing:
   ```
