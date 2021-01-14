@@ -70,7 +70,7 @@ def download(config, log2file=True, verbose=False, **param_overrides):
     from FDSN web services and saving it in an SQL database
 
     :param config: str or dict: If str, it is valid path to a configuration file in
-        YAML syntax, or a dict of parameters reflecting a download configuration file
+        YAML syntax representing the `dict` of the download configuration parameters
     :param log2file: bool or str (default: True). If string, it is the path to the
         log file (whose parent directory must exist). If True, `config` can not be a
         `dict` (raise `ValueError` otherwise) and the log file path will be built as
@@ -85,10 +85,11 @@ def download(config, log2file=True, verbose=False, **param_overrides):
         estimated remaining time for each sub task. This option is set to True when
         this function is invoked from the command line interface (`cli.py`)
     :param param_overrides: additional parameter(s) for the YAML `config`. The value
-        of existing config parameters will be overwritten (if not `dict`) or updated
-        (if `dict`). Example: `config` is `{'a': 1}`, `param_overrides` is `a=2`,
-        the result is: `{'a': 2}`. But if config is `{'a': {'b': 1}}` and
-        `param_overrides` is `a={'c': 1}`, the result is `{'a': {'b': 1, 'c': 1}}`)
+        of existing config parameters will be overwritten, e.g. if `config` is {'a': 1}
+        and `param_overrides` is `a=2`, the result is {'a': 2}. Note however that
+        when both parameters are dictionaries, the result will be merged. E.g. if
+        `config` is {'a': {'b': 1, 'c': 1}} and `param_overrides` is
+        `a={'c': 2, 'd': 2}`, the result is {'a': {'b': 1, 'c': 2, 'd': 2}}
     """
     # implementation details: this function can return 0 on success and 1 on failure.
     # First, it can raise ValueError for a bad parameter (checked before starting db session and
@@ -224,11 +225,11 @@ def _to_pretty_str(yaml_dict, unparsed_yaml_dict):
 
 def process(dburl, pyfile, funcname=None, config=None, outfile=None, log2file=False,
             verbose=False, append=False, **param_overrides):
-    """Start a processing routine, fetching segments saved in the database at the
-    given URL and optionally saving the results into `outfile`.
+    """Start a processing routine, fetching segments from the database at the
+    given URL and optionally saving the processed data into `outfile`.
     See the doc-strings in stream2segment templates (command `s2s init`) for
-    implementing a process module and configuration (arguments `pyfile`, `func`
-    and `config`).
+    implementing a process module and configuration (arguments `pyfile` and
+    `config`).
 
     :param dburl: str. The URL of the database where data has been previously
         downloaded. It can be the path of the YAML config file used for
@@ -254,10 +255,11 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None, log2file=Fa
         process unprocessed segments only (checking the segment id), and append to the
         given file, without replacing existing data.
     :param param_overrides: additional parameter(s) for the YAML `config`. The value
-        of existing config parameters will be overwritten (if not `dict`) or updated
-        (if `dict`). Example: `config` is `{'a': 1}`, `param_overrides` is `a=2`,
-        the result is: `{'a': 2}`. But if config is `{'a': {'b': 1}}` and
-        `param_overrides` is `a={'c': 1}`, the result is `{'a': {'b': 1, 'c': 1}}`)
+        of existing config parameters will be overwritten, e.g. if `config` is {'a': 1}
+        and `param_overrides` is `a=2`, the result is {'a': 2}. Note however that
+        when both parameters are dictionaries, the result will be merged. E.g. if
+        `config` is {'a': {'b': 1, 'c': 1}} and `param_overrides` is
+        `a={'c': 2, 'd': 2}`, the result is {'a': {'b': 1, 'c': 2, 'd': 2}}
     """
     # implementation details: this function returns 0 on success and raises otherwise.
     # First, it can raise ValueError for a bad parameter (checked before starting db session and
