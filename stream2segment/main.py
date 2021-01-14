@@ -66,24 +66,24 @@ logger = logging.getLogger("stream2segment")  # pylint: disable=invalid-name
 
 
 def download(config, log2file=True, verbose=False, **param_overrides):
-    """Download the given segment providing a set of keyword arguments to match those of
-    the config file `config`
+    """Start an event-based download routine, fetching segment data and metadata
+    from FDSN web services and saving it in an SQL database
 
-    :param config: str or dict: If str, it is valid path to a configuration file in YAML
-        syntax, or a dict of parameters reflecting a download configuration file
-    :param log2file: bool or str. If string, it is the path to the log file (whose
-        parent directory must exist). If True (the default), `config` can not be a
+    :param config: str or dict: If str, it is valid path to a configuration file in
+        YAML syntax, or a dict of parameters reflecting a download configuration file
+    :param log2file: bool or str (default: True). If string, it is the path to the
+        log file (whose parent directory must exist). If True, `config` can not be a
         `dict` (raise `ValueError` otherwise) and the log file path will be built as
         `config` + ".[now].log" (where [now] = current date and time in ISO format).
         If False, logging is disabled.
         When logging is enabled, the file will be used to catch all warnings, errors and
         critical messages (=Python exceptions): if the download routine exits with no
-        exception, the file content is written in the database (`Download` table) and
+        exception, the file content is written to the database (`Download` table) and
         the file deleted. Otherwise, the file will be left on the system for inspection
-    :param verbose: if True (False by default) print some log information also on the
-        screen (messages of level info and critical), as well as a progress-bar showing
-        also the estimated remaining time will be printed on screen. This option is set
-        to True when this function is invoked from the command line interface (`cli.py`)
+    :param verbose: if True (default: False) print some log information also on the
+        standard output (usually the screen), as well as progress bars  showing the
+        estimated remaining time for each sub task. This option is set to True when
+        this function is invoked from the command line interface (`cli.py`)
     """
     # implementation details: this function can return 0 on success and 1 on failure.
     # First, it can raise ValueError for a bad parameter (checked before starting db session and
@@ -219,26 +219,31 @@ def _to_pretty_str(yaml_dict, unparsed_yaml_dict):
 
 def process(dburl, pyfile, funcname=None, config=None, outfile=None, log2file=False,
             verbose=False, append=False, **param_overrides):
-    """Process the segment saved in the database at the given URL and optionally
-    saves the results into `outfile`. See docstrings in stream2segment templates
-    (command `s2s init`) for implementing a process module and configuration.
+    """Start a processing routine, fetching segments saved in the database at the
+    given URL and optionally saving the results into `outfile`.
+    See the doc-strings in stream2segment templates (command `s2s init`) for
+    implementing a process module and configuration (arguments `pyfile`, `func`
+    and `config`).
 
-    :param pyfile: string (path to the processing module)
-    :param funcname: str or None: the function name in `pyfile` to be used
-        (None, the default means: use default name, currently "main")
-    :param config: str path of the configuration file in YAML syntax
+    :param dburl: str. The URL of the database where data has been previously
+        downloaded. It can be the path of the YAML config file used for
+        downloading data, in that case the file parameter 'dburl' will be taken
+    :param pyfile: str: path to the processing module
+    :param funcname: str or None (default: None). The function name in `pyfile`
+        to be used (None means: use default name, currently "main")
+    :param config: str. Path of the configuration file in YAML syntax
     :param outfile: str or None. The destination file where to write the processing
         output, either ".csv" or ".hdf". If not given, the returned values of
         `funcname` in `pyfile` will be ignored, if given.
-    :param log2file: bool or str. If str, it is the log file path (whose directory
-        must exist). If True (the default), the log file path will be built as
+    :param log2file: bool or str (default: False). If str, it is the log file path
+        (whose directory must exist). If True, the log file path will be built as
         `outfile` + ".[now].log" or (if no output file is given) as
         `pyfile` + ".[now].log" ([now] = current date and time in ISO format).
         If False, logging is disabled.
-    :param verbose: if True (False by default) print some log information also on the
-        screen (messages of level info and critical), as well as a progress-bar showing
-        also the estimated remaining time will be printed on screen. This option is set
-        to True when this function is invoked from the command line interface (`cli.py`)
+    :param verbose: if True (default: False) print some log information also on the
+        screen (messages of level info and critical), as well as a progress bar
+        showing the estimated remaining time. This option is set to True when this
+        function is invoked from the command line interface (`cli.py`)
     :param append: bool (default False) ignored if the output file is not given or non
         existing, otherwise: if False, overwrite the existing output file. If True,
         process unprocessed segments only (checking the segment id), and append to the
