@@ -114,10 +114,16 @@ def yaml_load(filepath, **updates):
 
     # update recursively (which means subdicts are updated as well and not overridden):
     def update(dic1, dic2):
-        '''update dic1 with dic2 recursively'''
+        """update dic1 with dic2 recursively"""
+        # Terminology: If the same key exists in both dicts and is mapped to two
+        # dictionaries (not necessarily equal), the latter are called "shared dicts"
+
+        # 1. Move shared dicts from `dic2` in a temporary dictionary 'dickeys':
         dickeys = {k: dic2.pop(k) for k in viewkeys(dic1) if isinstance(dic1[k], dict) and
                    isinstance(dic2.get(k, None), dict)}
+        # 2. `dic1` and `dic2` have no shared dicts, update dicts "normally":
         dic1.update(dic2)
+        # 3. Update shared dicts recursively:
         for k in dickeys:
             update(dic1[k], dickeys[k])
 

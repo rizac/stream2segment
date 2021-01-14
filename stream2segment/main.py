@@ -81,9 +81,14 @@ def download(config, log2file=True, verbose=False, **param_overrides):
         exception, the file content is written to the database (`Download` table) and
         the file deleted. Otherwise, the file will be left on the system for inspection
     :param verbose: if True (default: False) print some log information also on the
-        standard output (usually the screen), as well as progress bars  showing the
+        standard output (usually the screen), as well as progress bars showing the
         estimated remaining time for each sub task. This option is set to True when
         this function is invoked from the command line interface (`cli.py`)
+    :param param_overrides: additional parameter(s) for the YAML `config`. The value
+        of existing config parameters will be overwritten (if not `dict`) or updated
+        (if `dict`). Example: `config` is `{'a': 1}`, `param_overrides` is `a=2`,
+        the result is: `{'a': 2}`. But if config is `{'a': {'b': 1}}` and
+        `param_overrides` is `a={'c': 1}`, the result is `{'a': {'b': 1, 'c': 1}}`)
     """
     # implementation details: this function can return 0 on success and 1 on failure.
     # First, it can raise ValueError for a bad parameter (checked before starting db session and
@@ -248,8 +253,11 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None, log2file=Fa
         existing, otherwise: if False, overwrite the existing output file. If True,
         process unprocessed segments only (checking the segment id), and append to the
         given file, without replacing existing data.
-    :param param_overrides: parameter that will override the YAML config. Nested dict will be
-        merged, not replaced
+    :param param_overrides: additional parameter(s) for the YAML `config`. The value
+        of existing config parameters will be overwritten (if not `dict`) or updated
+        (if `dict`). Example: `config` is `{'a': 1}`, `param_overrides` is `a=2`,
+        the result is: `{'a': 2}`. But if config is `{'a': {'b': 1}}` and
+        `param_overrides` is `a={'c': 1}`, the result is `{'a': {'b': 1, 'c': 1}}`)
     """
     # implementation details: this function returns 0 on success and raises otherwise.
     # First, it can raise ValueError for a bad parameter (checked before starting db session and
