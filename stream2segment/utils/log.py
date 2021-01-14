@@ -34,14 +34,14 @@ class DbStreamHandler(logging.FileHandler):
     For an example usijng sql-alchemy log rows (slightly different case but informative) see:
     http://docs.pylonsproject.org/projects/pyramid_cookbook/en/latest/logging/sqlalchemy_logger.html
     """
-    def __init__(self, basefilepath, min_level=20):
+    def __init__(self, filepath, min_level=20):
         """
         :param download_id: the id of the database instance reflecting a row of the Download table.
         THE INSTANCE MUST BE ADDED TO THE DATABASE ALREADY. It will be
         notified with each error and warning issued by this log
         """
         # w+: allows to read without closing first:
-        super(DbStreamHandler, self).__init__(logfilepath(basefilepath), mode='w+')
+        super(DbStreamHandler, self).__init__(filepath, mode='w+')
         # access the stream with self.stream
         self.errors = 0
         self.warnings = 0
@@ -128,22 +128,22 @@ class SysOutStreamHandler(logging.StreamHandler):
         self.setFormatter(logging.Formatter('%(message)s'))
 
 
-def configlog4download(logger, logfilebasepath='', verbose=False):
-    """"Configures the logger, setting it to a `INFO` level
-       with a list of default handlers:
+def configlog4download(logger, logfile_path='', verbose=False):
+    """"Configures the logger, setting it to a `INFO` level with a list of
+    default handlers:
 
-    - If `logfilebasepath` is truthy (evaluates to True), a DbStreamHandler redirecting to a file
-      named:
-         logfilebasepath.<now>.log
-      where <now> is the current date-time in iso-format. The handler will capture all
-      INFO, ERROR and WARNING level messages, and when its finalize() method is called,
-      flushes the content of its file to the database (deleting the file if needed.
-      This assures that if `finalize` is not called, possibly due to an
-      exception, the file can be inspected)
+    - If `logfile_path` is not the empty str, a :class:`DbStreamHandler` (streaming
+      to that file) will capture all INFO, ERROR and WARNING level messages, and
+      when its finalize() method is called, flushes the file content to the database
+      (deleting the file if needed. This assures that if `DbStreamHandler.finalize`
+      is not called, possibly due to an exception, the file can be inspected).
+      See :func:`logfilepath` if you want to create automatically a log file
+      path in the same directory of a given download config file.
 
-    - If `verbose` = True, a StreamHandler redirecting to standard output ONLY messages
-      of level INFO (20) and ERROR (40) and CRITICAL (50): i.e., it does not print DEBUG
-      WARNING messages (regardless of the level configured in `logger`)
+    - If `verbose` is True (False by default), a :class:`StreamHandler` (streaming
+      to standard output) will capture ONLY messages of level INFO (20) and ERROR (40)
+      and CRITICAL (50), ideal for showing relevant information to the user on a
+      terminal
 
     The returned list can thus contain 0, 1 or 2 loggers depending on the arguments.
 
@@ -164,8 +164,8 @@ def configlog4download(logger, logfilebasepath='', verbose=False):
     logger.setLevel(logging.INFO)  # necessary to forward to handlers
     # custom StreamHandler: count errors and warnings:
     handlers = []
-    if logfilebasepath:
-        handlers.append(DbStreamHandler(logfilebasepath))
+    if logfile_path:
+        handlers.append(DbStreamHandler(logfile_path))
     if verbose:
         # configure print to stdout (by default only info errors and critical messages)
         handlers.append(SysOutStreamHandler(sys.stdout))
@@ -174,18 +174,19 @@ def configlog4download(logger, logfilebasepath='', verbose=False):
     return handlers
 
 
-def configlog4processing(logger, logfilebasepath='', verbose=False):
-    """Configures the logger, setting it to a `INFO` level
-       with a list of default handlers:
+def configlog4processing(logger, logfile_path='', verbose=False):
+    """Configures the logger, setting it to a `INFO` level with a list of default
+    handlers:
 
-       - if `logfilebasepath` (string) is truthy (evaluates to True),
-         a logging.FileHandler redirecting to a file named:
-         logfilebasepath.<now>.log
-         where <now> is the current date-time in iso-format
+    - If `logfile_path` is given (not empty), a :class:`logging.FileHandler` (
+      streaming to that file) will capture all messages of at least level INFO
+      (e.g., INFO, WARNING, ERROR).
+      See :func:`logfilepath` if you want to create automatically a log file path
+      in the same directory of a given processing file.
 
-       - If `verbose` = True, a StreamHandler redirecting to standard output ONLY messages
-         of level INFO (20) and ERROR (40) and CRITICAL (50): i.e., it does not print DEBUG
-         WARNING messages (regardless of the level configured in `logger`)
+    - If `verbose` = True, a :class:`StreamHandler` (streaming to standard output)
+      will capture ONLY messages of level INFO (20) and ERROR (40) and CRITICAL (50),
+      ideal for showing relevant information to the user on a terminal
 
     The returned list can thus contain 0, 1 or 2 loggers depending on the arguments.
 
@@ -203,10 +204,10 @@ def configlog4processing(logger, logfilebasepath='', verbose=False):
     logging.logThreads = 0
     logging.logProcesses = 0
 
-    logger.setLevel(logging.INFO)  # this is necessary to properly cofngiure logger
+    logger.setLevel(logging.INFO)  # necessary to forward to handlers
     handlers = []
-    if logfilebasepath:
-        handlers.append(logging.FileHandler(logfilepath(logfilebasepath), mode='w'))
+    if logfile_path:
+        handlers.append(logging.FileHandler(logfile_path, mode='w'))
     if verbose:
         # configure print to stdout (by default only info errors and critical messages)
         handlers.append(SysOutStreamHandler(sys.stdout))
@@ -215,18 +216,22 @@ def configlog4processing(logger, logfilebasepath='', verbose=False):
     return handlers
 
 
-def logfilepath(basefilepath):
-    """returns a file path with name `basefilepath`.<now>.log, where <now>
-    is the current date-time in iso format
-    :param basefilepath: a file path serving as base for the log file name. The only requirement
-    is that the directory of `basefilepath` (`os.path.dirname(basefilepath)`) exists
+def logfilepath(filepath):
+    """Return a log file associated to the given `filepath`, i.e.:
+    `filepath` + "[now].log"
+    where [now] is the current date-time in ISO format, rounded to the closest
+    second
+
+    :param filepath: a file path serving as base for the returned log file
+        path. The file does not need to exist but if you want to use the returned
+        log file for logging (the usual case), its parent directory must exist
     """
     _now = datetime.utcnow().replace(microsecond=0).isoformat()
-    return basefilepath + (".%s.log" % _now)
+    return filepath + (".%s.log" % _now)
 
 
 def closelogger(logger):
-    '''closes all logger handlers and removes them from logger'''
+    """Close all logger handlers and removes them from logger"""
     handlers = logger.handlers[:]
     for handler in handlers:
         handler.close()

@@ -24,7 +24,7 @@ from webbrowser import open as open_in_browser
 import threading
 from tempfile import gettempdir
 
-from future.utils import PY2
+from future.utils import PY2, string_types
 
 import jinja2
 
@@ -33,7 +33,7 @@ from sqlalchemy.sql.expression import func
 from stream2segment.utils.inputargs import load_config_for_process, load_config_for_download,\
     load_session_for_dinfo
 from stream2segment.utils.log import configlog4download, configlog4processing,\
-    closelogger
+    closelogger, logfilepath
 from stream2segment.io.db.models import Download, Segment
 from stream2segment.process.main import run as run_process
 from stream2segment.download.main import run as run_download, new_db_download
@@ -66,20 +66,24 @@ logger = logging.getLogger("stream2segment")  # pylint: disable=invalid-name
 
 
 def download(config, log2file=True, verbose=False, **param_overrides):
-    """
-        Downloads the given segment providing a set of keyword arguments to match those of the
-        config file `config`
+    """Download the given segment providing a set of keyword arguments to match those of
+    the config file `config`
 
-        :param config: a valid path to a file in yaml format, or a dict of parameters reflecting
-            a download config file
-        :param log2file: boolean.
-            if True (the default) configures a logger handler which redirects to
-            a file named: `config.<now>.log`, where now is the current date-time in iso format.
-            The file will be used to log all warning, error and critical messages and will write
-            its content in the Donwload table. If the program
-            does not exit for unexpected exception, the file will be deleted
-        :param verbose: if True (False by default) all info and critical messages, as well as
-            a progress-bar showing also the estimated remaining time will be printed on screen
+    :param config: str or dict: If str, it is valid path to a configuration file in YAML
+        syntax, or a dict of parameters reflecting a download configuration file
+    :param log2file: bool or str. If string, it is the path to the log file (whose
+        parent directory must exist). If True (the default), `config` can not be a
+        `dict` (raise `ValueError` otherwise) and the log file path will be built as
+        `config` + ".[now].log" (where [now] = current date and time in ISO format).
+        If False, logging is disabled.
+        When logging is enabled, the file will be used to catch all warnings, errors and
+        critical messages (=Python exceptions): if the download routine exits with no
+        exception, the file content is written in the database (`Download` table) and
+        the file deleted. Otherwise, the file will be left on the system for inspection
+    :param verbose: if True (False by default) print some log information also on the
+        screen (messages of level info and critical), as well as a progress-bar showing
+        also the estimated remaining time will be printed on screen. This option is set
+        to True when this function is invoked from the command line interface (`cli.py`)
     """
     # implementation details: this function can return 0 on success and 1 on failure.
     # First, it can raise ValueError for a bad parameter (checked before starting db session and
@@ -98,6 +102,12 @@ def download(config, log2file=True, verbose=False, **param_overrides):
     session = None
     download_id = None
     try:
+        # short check:
+        isfile = isinstance(config, string_types) and os.path.isfile(config)
+        if not isfile and log2file is True:
+            raise ValueError('`log2file` can be True only if `config` is a '
+                             'string denoting an existing file')
+
         # check and parse config values (modify in place):
         yaml_dict = load_config_for_download(config, True, **param_overrides)
         # get the session object and the tt_table object (needed separately, see below):
@@ -110,7 +120,11 @@ def download(config, log2file=True, verbose=False, **param_overrides):
                                  load_config_for_download(config, False, **param_overrides)))
 
         # configure logger and habdlers:
-        loghandlers = configlog4download(logger, config if log2file else None, verbose)
+        if log2file is True:
+            log2file = logfilepath(config)  # auto create log file
+        else:
+            log2file = log2file or ''  # assure we have a string
+        loghandlers = configlog4download(logger, log2file, verbose)
 
         # create download row with unprocessed config (yaml_load function)
         # Note that we call again load_config with parseargs=False:
@@ -120,7 +134,7 @@ def download(config, log2file=True, verbose=False, **param_overrides):
             print("Log file:\n'%s'\n"
                   "(if the program does not quit for unexpected exceptions,\n"
                   "the file will be deleted before exiting and its content will be written\n"
-                  "to the table '%s', column '%s')" % (str(loghandlers[0].baseFilename),
+                  "to the table '%s', column '%s')" % (log2file,
                                                        Download.__tablename__,
                                                        Download.log.key))
 
@@ -135,15 +149,14 @@ def download(config, log2file=True, verbose=False, **param_overrides):
                 return "%s %s%s" % ("No" if n == 0 else str(n), text, '' if n == 1 else 's')
             logger.info("%s, %s", frmt(errs, 'error'), frmt(warns, 'warning'))
     except FailedDownload as fdwnld:
-        # we logged the exception in run_download, just set return value as 1 for convention:
+        # we logged the exception in `run_download`, just set return value as 1:
         ret = 1
     except KeyboardInterrupt:
         # https://stackoverflow.com/questions/5191830/best-way-to-log-a-python-exception:
         logger.critical("Aborted by user")
         raise
     except:  # @IgnorePep8 pylint: disable=broad-except
-        # log the exception traceback (only last) and raise,
-        # so that in principle the full traceback is printed on terminal (or caught by the caller)
+        # log the (last) exception traceback and raise
         noexc_occurred = False
         # https://stackoverflow.com/questions/5191830/best-way-to-log-a-python-exception:
         logger.critical("Download aborted", exc_info=True)
@@ -165,13 +178,13 @@ def download(config, log2file=True, verbose=False, **param_overrides):
 
 
 def _to_pretty_str(yaml_dict, unparsed_yaml_dict):
-    '''returns a pretty printed string from yaml_dict
+    """Return a pretty printed string from yaml_dict
 
     :param yaml_dict: the PARSED yaml as dict. It might contain variables, such as
         `session`, not in the original yaml file (these variables are not returned
         in this function)
     :param unparsed_yaml_dict: the UNPARSED yaml dict.
-    '''
+    """
 
     # the idea is: get the param value from yaml_dict, if not present get it from
     # unparsed_yaml_dict. Use this list of params so we can control order
@@ -206,25 +219,32 @@ def _to_pretty_str(yaml_dict, unparsed_yaml_dict):
 
 def process(dburl, pyfile, funcname=None, config=None, outfile=None, log2file=False,
             verbose=False, append=False, **param_overrides):
-    """
-        Process the segment saved in the db and optionally saves the results into `outfile`
-        in .csv format. Calles F the function named `funcname` defined in `pyfile`
-        If `outfile` is given , then F should return lists/dicts to be written as
-            csv row.
-        If `outfile` is not given, then the returned values of F will be ignored
-            (F is supposed to process data without returning a value, e.g. save processed
-            miniSeed to the FileSystem)
+    """Process the segment saved in the database at the given URL and optionally
+    saves the results into `outfile`. See docstrings in stream2segment templates
+    (command `s2s init`) for implementing a process module and configuration.
 
-        :param log2file: if True, all messages with level >= logging.INFO will be printed to
-            a log file named  <outfile>.<now>.log  (where now is the current date and time ins iso
-            format) or <pyfile>.<now>.log, if <outfile> is None
-
-        :param verbose: if True, all messages with level logging.INFO, logging.ERROR and
-            logging.CRITICAL will be printed to the screen, as well as a progress-bar showing the
-            eta (estimated time available).
-
-        :param param_overrides: paramter that will override the yaml config. Nested dict will be
-            merged, not replaced
+    :param pyfile: string (path to the processing module)
+    :param funcname: str or None: the function name in `pyfile` to be used
+        (None, the default means: use default name, currently "main")
+    :param config: str path of the configuration file in YAML syntax
+    :param outfile: str or None. The destination file where to write the processing
+        output, either ".csv" or ".hdf". If not given, the returned values of
+        `funcname` in `pyfile` will be ignored, if given.
+    :param log2file: bool or str. If str, it is the log file path (whose directory
+        must exist). If True (the default), the log file path will be built as
+        `outfile` + ".[now].log" or (if no output file is given) as
+        `pyfile` + ".[now].log" ([now] = current date and time in ISO format).
+        If False, logging is disabled.
+    :param verbose: if True (False by default) print some log information also on the
+        screen (messages of level info and critical), as well as a progress-bar showing
+        also the estimated remaining time will be printed on screen. This option is set
+        to True when this function is invoked from the command line interface (`cli.py`)
+    :param append: bool (default False) ignored if the output file is not given or non
+        existing, otherwise: if False, overwrite the existing output file. If True,
+        process unprocessed segments only (checking the segment id), and append to the
+        given file, without replacing existing data.
+    :param param_overrides: parameter that will override the YAML config. Nested dict will be
+        merged, not replaced
     """
     # implementation details: this function returns 0 on success and raises otherwise.
     # First, it can raise ValueError for a bad parameter (checked before starting db session and
@@ -239,14 +259,18 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None, log2file=Fa
     session, pyfunc, funcname, config_dict = \
         load_config_for_process(dburl, pyfile, funcname, config, outfile, **param_overrides)
 
-    loghandlers = configlog4processing(logger, (outfile or pyfile) if log2file else None, verbose)
+    if log2file is True:
+        log2file = logfilepath(outfile or pyfile)  # auto create log file
+    else:
+        log2file = log2file or ''  # assure we have a string
+    loghandlers = configlog4processing(logger, log2file, verbose)
     try:
         abp = os.path.abspath
         info = [
             "Input database:      %s" % secure_dburl(dburl),
             "Processing function: %s:%s" % (abp(pyfile), funcname),
             "Config. file:        %s" % (abp(config) if config else 'n/a'),
-            "Log file:            %s" % (abp(loghandlers[0].baseFilename) if log2file else 'n/a'),
+            "Log file:            %s" % (abp(log2file) if log2file else 'n/a'),
             "Output file:         %s" % (abp(outfile) if outfile else 'n/a')
         ]
         logger.info(ascii_decorate("\n".join(info)))
