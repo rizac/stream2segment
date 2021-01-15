@@ -236,38 +236,38 @@ class Base(_Base):
         me_dict = self.__dict__
         loaded_cols, unloaded_cols = 0, 0
         idx = 1
-        STRBYTES_MAXCHAR = 30
+        maxchar = 10
         ret.append('')
         for c in mapper.columns.keys():
             if c in me_dict:
                 val = me_dict[c]
-                if type(val) == str and len(val) > STRBYTES_MAXCHAR:
-                    val = val[:STRBYTES_MAXCHAR] + \
-                        " ... (showing first %d characters only)" % STRBYTES_MAXCHAR
-                elif type(val) == bytes and len(val) > STRBYTES_MAXCHAR:
-                    val = val[:STRBYTES_MAXCHAR] + \
-                        b" ... (showing first %d characters only)" % STRBYTES_MAXCHAR
-                elif type(val) == datetime:
-                    val = val.isoformat()
-                else:
-                    val = str(val)
-                ret.append("  %s: %s" % (c, val))
+                cut_str = ''
+                if hasattr(val, "__len__") and len(val) > maxchar:
+                    elm = 'characters' if isinstance(val, str) else 'elements'
+                    cut_str = ', %d %s, showing first %d only' % \
+                              (len(val), elm, maxchar)
+                    val = val[:maxchar]
+                ret.append("  %s: %s (%s%s)" % (
+                c, str(val), str(val.__class__.__name__), cut_str))
                 loaded_cols += 1
             else:
                 ret.append("  %s" % c)
                 unloaded_cols += 1
-        ret[idx] = ' columns (%d of %d loaded):' % (loaded_cols, loaded_cols + unloaded_cols)
+        ret[idx] = ' attributes (%d of %d loaded):' % (
+        loaded_cols, loaded_cols + unloaded_cols)
         idx = len(ret)
         ret.append('')
         loaded_rels, unloaded_rels = 0, 0
         for r in mapper.relationships.keys():
             if r in me_dict:
-                ret.append("  %s: `%s` object" % (r, str(me_dict[r].__class__.__name__)))
+                ret.append("  %s: `%s` object" %
+                           (r, str(me_dict[r].__class__.__name__)))
                 loaded_rels += 1
             else:
                 ret.append("  %s" % r)
                 unloaded_rels += 1
-        ret[idx] = ' relationships (%d of %d loaded):' % (loaded_rels, loaded_rels + unloaded_rels)
+        ret[idx] = ' related_objects (%d of %d loaded):' % \
+                   (loaded_rels, loaded_rels + unloaded_rels)
         return "\n".join(ret)
 
 
