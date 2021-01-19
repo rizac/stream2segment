@@ -1,10 +1,10 @@
-'''
+"""
 Stations/Channels download functions
 
 :date: Dec 3, 2017
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
-'''
+"""
 # make the following(s) behave like python3 counterparts if running from python2.7.x
 # (http://python-future.org/imports.html#explicit-imports):
 from builtins import zip, object
@@ -37,19 +37,14 @@ def get_channels_df(session, datacenters_df, eidavalidator,  # <- can be none
                     min_sample_rate, update,
                     max_thread_workers, timeout, blocksize, db_bufsize,
                     show_progress=False):
-    """Returns a dataframe representing a query to the eida services (or the internal db
-    if `post_data` is None) with the given argument.  The
-    dataframe will have as columns the `key` attribute of any of the following db columns:
-    ```
-    [Channel.id, Station.latitude, Station.longitude, Station.datacenter_id]
-    ```
-    :param datacenters_df: the first item resulting from `get_datacenters_df` (pandas DataFrame)
-    :param post_data: the second item resulting from `get_datacenters_df` (string)
-    :param channels: a list of string denoting the channels, or None for no filtering
-        (all channels). Each string follows FDSN specifications (e.g. 'BHZ', 'H??'). This argument
-        is not used if `post_data` is given (not None)
-    :param min_sample_rate: minimum sampling rate, set to negative value for no-filtering
-        (all channels)
+    """Return a Dataframe representing a query to the station service of each
+    URL in :func:`stream2segment.download.modules.datacenters_df` with the
+    given arguments.
+
+    :param datacenters_df: (DataFrame) the first item resulting from
+        `get_datacenters_df`
+    :param min_sample_rate: minimum sampling rate, set to negative value
+        for no-filtering (all channels)
     """
     postdata = get_post_data(net, sta, loc, cha, starttime, endtime)
 
@@ -127,25 +122,28 @@ def get_channels_df(session, datacenters_df, eidavalidator,  # <- can be none
 
 
 def get_post_data(net, sta, loc, cha, starttime=None, endtime=None):
-    '''Returns the string for a FDSN POST request according to the given
-        net(works), sta(tions), loc(ations) and cha(nnels), all iterable of strings
-        returned by :func:`stream2segment.download.utils.nslc_lists`
+    """Return the string for a FDSN POST request according to the given
+        net(works), sta(tions), loc(ations) and cha(nnels), all iterable of
+        strings returned by :func:`stream2segment.download.utils.nslc_lists`
 
     Example:
-        asget([], ['ABC'], [''], ['!A*', 'HH?', 'HN?'], None, None) = '* ABC -- HH?,HN? * *'
+    ```
+    >>> get_post_data([], ['ABC'], [''], ['!A*', 'HH?', 'HN?'], None, None)
+    '* ABC -- HH?,HN? * *'
+    ```
+    Note negations (!A*) not included: strings starting with "!" mean 'NOT' in
+    this program's syntax: as this feature is not supported in an FDSN query it
+    cannot be forwarded to any web service. The feature is used here in other
+    module functions *after* downloading data
 
-    Note negations (!A*) not included: strings starting with "!" mean 'NOT' in this
-    program's syntax: as this feature is not supported in an FDSN query it
-    cannot be forwarded to any web service. The feature is used here in other module functions
-    *after* downloading data
-
-    Arguments are usually the output of :func:`stream2segment.download.utils.nslc_lists`:
+    Arguments are usually the output of
+    :func:`stream2segment.download.utils.nslc_lists`:
 
     :param net: an iterable of strings denoting networks.
     :param sta: an iterable of strings denoting stations.
     :param loc: an iterable of strings denoting locations.
     :param cha: an iterable of strings denoting channels.
-    '''
+    """
     args = []
     for i, lst in enumerate([net, sta, loc, cha]):
         parsearg = '*'
@@ -162,28 +160,30 @@ def get_post_data(net, sta, loc, cha, starttime=None, endtime=None):
 
 
 def filter_channels_df(channels_df, net, sta, loc, cha, min_sample_rate):
-    '''Filters out `channels_df` according to the given parameters. Raises
+    """Filter out `channels_df` according to the given parameters. Raise
     `FailedDownload` if the returned filtered data frame woul be empty
 
-    Note that `net, sta, loc, cha` filters will be considered only if negations (i.e.,
-    with leading exclamation mark: "!A*") because the 'positive' filters are FDSN stantard and
-    are supposed to be already used in producing channels_df
-
-    Example:
+    Note that `net, sta, loc, cha` filters will be considered only if negations
+    (i.e., with leading exclamation mark: "!A*") because the 'positive' filters
+    are FDSN stantard and are supposed to be already used in producing
+    `channels_df`. Example:
+    ```
         filter_channels_df(d, [], ['ABC'], [''], ['!A*', 'HH?', 'HN?'])
+    ```
+    basically takes the dataframe `d`, finds the column related to the
+    `channels` key and removes all rows whose channel starts with 'A',
+    returning the new filtered data frame.
 
-        basically takes the dataframe `d`, finds the column related to the `channels` key and
-        removes all rowv whose channel starts with 'A', returning the new filtered data frame
-
-    Arguments are usually the output of :func:`stream2segment.download.utils.nslc_lists`
+    Arguments are usually the output of
+    :func:`stream2segment.download.utils.nslc_lists`
 
     :param net: an iterable of strings denoting networks.
     :param sta: an iterable of strings denoting stations.
     :param loc: an iterable of strings denoting locations.
     :param cha: an iterable of strings denoting channels.
-    :param min_sample_rate: numeric, minimum sample rate. If negative or zero, this parameter
-        is ignored
-    '''
+    :param min_sample_rate: numeric, minimum sample rate. If negative or zero,
+        this parameter is ignored
+    """
     # create a dict of regexps for pandas dataframe. FDSNWS do not support NOT
     # operators . Thus concatenate expression with OR
     dffilter = None
@@ -228,16 +228,14 @@ def filter_channels_df(channels_df, net, sta, loc, cha, min_sample_rate):
 
 def get_channels_df_from_db(session, datacenters_df, net, sta, loc, cha, starttime, endtime,
                             min_sample_rate):
-    '''Returns a dataframe of the database channels according to the arguments'''
-    # Build sql-alchemy binary expressions
-    # _be means "binary expression" (sql alchemy object reflecting a sql clause)
+    """Return a Dataframe of the database channels according to the arguments"""
+    # Build SQL-Alchemy binary expressions (suffix '_be'), i.e. an object
+    # reflecting a SQL clause)
     srate_be = Channel.sample_rate >= min_sample_rate if min_sample_rate > 0 else True
-    # select only relevant datacenters. Convert tolist() cause python3 complains of numpy ints
-    # (python2 doesn't but tolist() is safe for both):
+    # Select only relevant datacenters. Convert numnpy array `tolist()` because
+    # database clauses work best with native Python objects:
     dc_be = Station.datacenter_id.in_(datacenters_df[DataCenter.id.key].tolist())
-    # Starttime and endtime below: it must NOT hold:
-    # station.endtime <= starttime OR station.starttime >= endtime
-    # i.e. it MUST hold the negation:
+    # Select by starttime and endtime (below). Note that it must hold
     # station.endtime > starttime AND station.starttime< endtime
     stime_be = True
     if starttime:
@@ -248,36 +246,42 @@ def get_channels_df_from_db(session, datacenters_df, net, sta, loc, cha, startti
     sa_cols = [Channel.id, Channel.station_id, Station.latitude, Station.longitude,
                Station.start_time, Station.end_time, Station.datacenter_id, Station.network,
                Station.station, Channel.location, Channel.channel]
-    # filter on net, sta, loc, cha, as specified in config and converted to sql-alchemy be:
+    # filter on net, sta, loc, cha, as specified in config and converted to
+    # SQL-Alchemy binary expression:
     nslc_be = get_sqla_binexp(net, sta, loc, cha)
-    # note below: binary expressions (all variables ending with "_be") might be the boolean True.
-    # SqlAlchemy seems to understand them as long as they are preceded by a "normal" binary
-    # expression. Thus q.filter(binary_expr & True) works and it's equal to q.filter(binary_expr),
-    # BUT .filter(True & True) is not working as a no-op filter, it simply does not work
-    # Here we should be safe cause dc_be is a non-True sql alchemy expression (see above)
+    # note below: binary expressions (all variables ending with "_be") might be
+    # the boolean True. SQL-Alchemy seems to understand them as long as they
+    # are preceded by a "normal" binary expression. Thus this works:
+    # `q.filter(binary_expr & True)` and is equal to `q.filter(binary_expr)`,
+    # whereas `q.filter(True & True)` (we hoped it could be a no-op filter)
+    # is not working as a no-op filter, it simply does not work at all.
+    # Here we should be safe cause `dc_be` is a non-True sql alchemy expression
+    # (see above):
     qry = session.query(*sa_cols).join(Channel.station).filter(and_(dc_be, srate_be, nslc_be,
                                                                     stime_be, etime_be))
     return dbquery2df(qry)
 
 
 def get_sqla_binexp(net, sta, loc, cha):
-    '''Returns the sql-alchemy binary expression to be used as argument
-    for db queries (e.g., `session.query(...)`) which translates to SQL the given
-        net(works), sta(tions), loc(ations) and cha(nnels), all iterable of strings.
+    """Return the sql-alchemy binary expression to be used as argument for
+    database queries (e.g., `session.query(...)`) which translates to SQL the
+    given net(works), sta(tions), loc(ations) and cha(nnels), all iterable of
+    strings. Example:
+    ```
+    >>> get_sqla_binexp([], ['ABC'], [''], ['!A*', 'HH?', 'HN?'])
+    'sta=ABC&loc=&cha=HH?,HN?'
+    ```
+    Note negations (!A*) mean 'NOT' in this program's syntax (this feature is
+    not standard in an FDSN query).
 
-    Example:
-        asbinexp([], ['ABC'], [''], ['!A*', 'HH?', 'HN?']) = 'sta=ABC&loc=&cha=HH?,HN?'
-
-    Note negations (!A*) mean 'NOT' in this
-    program's syntax (this feature is not standard in an FDSN query)
-
-    Arguments are usually the output of :func:`stream2segment.download.utils.nslc_lists`
+    Arguments are usually the output of
+    :func:`stream2segment.download.utils.nslc_lists`.
 
     :param net: an iterable of strings denoting networks.
     :param sta: an iterable of strings denoting stations.
     :param loc: an iterable of strings denoting locations.
     :param cha: an iterable of strings denoting channels.
-    '''
+    """
     # build a sql alchemy filter condition
     sa_cols = (Station.network, Station.station, Channel.location, Channel.channel)
 
@@ -308,9 +312,9 @@ def get_sqla_binexp(net, sta, loc, cha):
 
 
 class ST(object):  # pylint: disable=too-few-public-methods, useless-object-inheritance
-    '''Simple enum-like container of strings defining the station's
-    related database/dataframe columns needed in this module
-    '''
+    """Simple enum-like container of strings defining the station's related
+    database/dataframe columns needed in this module
+    """
     ID = Station.id.key  # pylint: disable=invalid-name
     NET = Station.network.key  # pylint: disable=invalid-name
     STA = Station.station.key  # pylint: disable=invalid-name
@@ -322,9 +326,9 @@ class ST(object):  # pylint: disable=too-few-public-methods, useless-object-inhe
 
 
 class CH(object):  # pylint: disable=too-few-public-methods, useless-object-inheritance
-    '''Simple enum-like container of strings defining the channel's
-    related database/dataframe columns needed in this module
-    '''
+    """Simple enum-like container of strings defining the channel's related
+    database/dataframe columns needed in this module
+    """
     ID = Channel.id.key  # pylint: disable=invalid-name
     STAID = Channel.station_id.key  # pylint: disable=invalid-name
     LOC = Channel.location.key  # pylint: disable=invalid-name
@@ -335,11 +339,12 @@ class CH(object):  # pylint: disable=too-few-public-methods, useless-object-inhe
 
 
 def save_stations_and_channels(session, channels_df, eidavalidator, update, db_bufsize):
-    """Saves to db channels (and their stations) and returns a dataframe with only channels saved
-    The returned data frame will have the column 'id' (`Station.id`) renamed to
-    'station_id' (`Channel.station_id`) and a new 'id' column referring to the Channel id
-    (`Channel.id`)
-    :param channels_df: pandas DataFrame resulting from `get_channels_df`
+    """Saves to db channels (and their stations) and returns a dataframe with
+    only channels saved. The returned Dataframe will have the column 'id'
+    (`Station.id`) renamed to 'station_id' (`Channel.station_id`) and a new
+    'id' column referring to the Channel id (`Channel.id`)
+
+    :param channels_df: pandas DataFrame
     """
     channels_df, conflict_between, conflict_within = \
         drop_duplicates(session, channels_df, eidavalidator)
@@ -347,23 +352,26 @@ def save_stations_and_channels(session, channels_df, eidavalidator, update, db_b
     if channels_df.empty:
         raise FailedDownload('No channel left after cleanup (e.g., drop duplicates)')
 
-    # remember: dbsyncdf raises a FailedDownload, so no need to check for empty(dataframe). Also,
-    # if update is True, for stations only it must NOT update inventories HERE (handled later)
+    # if update is True, don't update inventories HERE (handled later)
     _update_stations = update
     if _update_stations:
         _update_stations = [_ for _ in shared_colnames(Station, channels_df, pkey=False)
                             if _ != Station.inventory_xml.key]
+    # Note: no need to check for `empty(channels_df)`, `dbsyncdf` raises a
+    # `FailedDownload` in case:
     sta_df = dbsyncdf(channels_df.drop_duplicates(subset=[ST.NET, ST.STA, ST.STIME, ST.DCID]),
                       session, [Station.network, Station.station, Station.start_time],
                       Station.id, _update_stations, buf_size=db_bufsize, keep_duplicates=False,
                       cols_to_print_on_err=ST.ERRCOLS)
-    # sta_df will have the STA_ID columns, channels_df not: set it from the former to the latter:
+    # `sta_df` will have the STA_ID columns, `channels_df` not: set it from the
+    # former to the latter:
     channels_df = mergeupdate(channels_df, sta_df, [ST.NET, ST.STA, ST.STIME, ST.DCID],
                               [ST.ID])
     # rename now 'id' to 'station_id' before writing the channels to db:
     channels_df.rename(columns={ST.ID: CH.STAID}, inplace=True)
 
-    # check channels with empty station id (should never happen, let's be picky):
+    # check channels with empty station id (should never happen, let's be
+    # picky):
     null_sta_id = channels_df[CH.STAID].isnull()
     conflict_null_sta_id = pd.DataFrame()
     if null_sta_id.any():
@@ -383,20 +391,33 @@ def save_stations_and_channels(session, channels_df, eidavalidator, update, db_b
 
 
 def drop_duplicates(session, channels_df, eidavalidator):
-    '''
-    Drops from channels_df duplicates (same station between or within data centers).
-    For duplicates between data centers, uses `eidavalidator` or the database
-    accessible via the session object, if eidavalidator is None.
+    """Drop from channels_df duplicates (same station between or within data
+    centers). For duplicates between data centers, uses `eidavalidator` or the
+    database accessible via the session object, if `eidavalidator` is None.
 
-    :return: the dataframes (ok, bad_between, bad_within), where ok is a subset of
-        `channels_df` and the other two dataframes contain duplicates
-    '''
-    # List of datframes representing channels conflicting between data centers,
-    # i.e. mopre data centers returning the same channels.
-    # (eidavalitator or current db will be used to resolve conflicts):
+    :return: the tuple of Dataframes:
+        `(oks, conflict_between_dc, conflict_within_dc)`, where `oks` is a
+        subset of `channels_df` with valid channels (one row per channel), and
+        the other two contain channels discarded: `conflict between_dc`
+        contains channels whose station is associated to several dc_id
+        (datacenter id) and `conflict_within_dc` contains channels of the same
+        dc_id violating a database unique constraint, e.g. two different
+        channels with the same (network, station, location, channel,
+        start_time, dc_id).
+    """
+    # Add to the list below the stations discarded because not uniquely mapped
+    # to a single data center (dc_id). E.g.:
+    #   net sta loc cha start_time dc_id
+    #   N   S   L   C   2010-01-01 1
+    #   N   S   L   C   2010-01-01 2
+    # (Depending on the eidavalidator, only one or both rows will be added)
     conflict_between_dc = []
-    # List of datframes representing channels conflicting within data centers,
-    # these kind of problems are unresolvable and put here:
+    # Add to the list below the stations discarded because of some non-unique
+    # database constraint. E.g.:
+    #   net sta loc cha start_time end_time   dc_id
+    #   N   S   L   C   2010-01-01 None       1
+    #   N   S   L   C   2010-01-01 2011-01-01 1
+    # (Depending on the eidavalidator, only one or both rows will be added)
     conflict_within_dc = []
     # list of ok channels (not falling in any category above):
     oks = []
@@ -406,27 +427,29 @@ def drop_duplicates(session, channels_df, eidavalidator):
     channels_df = channels_df.drop_duplicates()
 
     # From now on do not use anymore duplicated or drop_duplicates: the removal of
-    # duplicates now is more tricky. Let's  group by (net, sta, starttime)
-    # which is a unique constraints of the station table:
+    # duplicates now is more tricky.
+    # Let's  group by (net, sta, starttime), which is a unique constraints of the
+    # station table, and analyse what we get:
     for (net, sta, stime), df_ in channels_df.groupby([ST.NET, ST.STA, ST.STIME], sort=False):
+        # if we have only ONE dc_id, skip "if" below.. Otherwise:
         if len(pd.unique(df_[ST.DCID])) > 1:
-
+            # We have more than one data center mapped to the tuple (net, sta, stime):
+            # get all ids from the eidavalidator (=object representing the eida routing
+            # service) and put them in the set below:
             real_dc_ids = set()
+            # group stations by tuples (net, sta, stime, etime), because etime
+            # is needed by the eidavalidator.get_dc_id
             for etime in pd.unique(df_[ST.ETIME]):
                 if eidavalidator is not None:
-                    # get the datacenter id(s) at a station level (pass
-                    # cha and loc as None):
+                    # get the datacenter id(s) at a station level (loc, cha = None):
                     dcids = \
                         eidavalidator.get_dc_id(net, sta, loc=None, cha=None,
                                                 stime=None if pd.isnull(stime) else stime,
                                                 etime=None if pd.isnull(etime) else etime)
-                    # if len(dcids) != 1, then more than one datacenter is
-                    # returned, the channel will be discarded because the
-                    # relative station is mapped to more than one datacenter
-                    # and thus the station cannnot be saved (unique cosntraint
-                    # violated):
                     real_dc_ids.update(dcids)
                 else:
+                    # get the datacenter id(s) at a station level (loc, cha ignored)
+                    # from the database:
                     dcids = session.query(Station.datacenter_id).\
                         filter((Station.network == net) &
                                (Station.station == sta) &
@@ -434,16 +457,30 @@ def drop_duplicates(session, channels_df, eidavalidator):
                                (Station.end_time == None if pd.isnull(etime) else etime)).all()
                     real_dc_ids.update(dcids)
 
+            # Reminder: we are here if we have more than one datacenter mapped to
+            # the tuple (net, sta, stime). Now, real_dc_ids (the real/reliable
+            # datacenter ids) might be one or more than one:
             if len(real_dc_ids) != 1:
+                # The real datacenter ids are more than one
+                # => we can not save the station: empty (=> discard) the dataframe
                 conflict_between_dc.append(df_)
                 df_ = df_[0:0]  # simply empty dataframe, with same columns
             else:
+                # The real datacenter id is only one
+                # => discard all (net, sta, stime) with different datacenter id
                 dcid = list(real_dc_ids)[0]
                 conflicting = df_[ST.DCID] != dcid
                 conflict_between_dc.append(df_[conflicting])
                 df_ = df_[~conflicting]
 
+        # df_ now HAS SURELY ONE AND ONLY ONE dc_id, and same (net, sta, stime)
         if not df_.empty:
+            # Last check: df_ will be written as ONE station (one row of the "stations"
+            # table) and then, with the station_id, each df_ row will be written
+            # as a different channel. The "channels" table has a unique constraint
+            # the tuple (station_id, location, channel), thus we need to drop NOW
+            # duplicated values of (location, channel), and we need to drop all
+            # rows because we do not have a way to know what to do:
             dupes = df_.duplicated(subset=[CH.LOC, CH.CHA], keep=False)
             if dupes.any():
                 conflict_within_dc.append(df_[dupes])
@@ -464,15 +501,17 @@ def drop_duplicates(session, channels_df, eidavalidator):
 
 def log_unsaved_channels(conflict_between, conflict_within, conflict_null_sta_id,
                          eida_routing_service_was_used=False):
-    '''logs the results of channels and station saving.
-    The arguments are all dataframes issued from `save_stations_and_channels`
-    conflict_between: channels conflicts between datacenters (duplicated stations returned
-    by more than one datacenter), conflict_within: conflicts within channels of the same
-    datacenter violating channels unique constraints, conflict_null_sta_id: channels
-    that did not have a matching station is after station saving and before channel
-    saving (this should never happen, but we checkit for safety otherwise some db error
-    occurs)
-    '''
+    """log the results of channels and station saving.
+
+    :param conflict_between: Dataframe of channels conflicts between datacenters
+        (duplicated stations returned by more than one datacenter)
+    :param conflict_within: Dataframe of channels conflicts within the same
+        datacenter (violating channels unique constraints)
+    :param conflict_null_sta_id: Dataframe of channels that did not have a
+        matching station after station saving and before channel saving (this
+        should never happen, but we check it for safety otherwise some db error
+        occurs)
+    """
     max_row_count = 50
     # log non inserted data. Inserted stations and channels inserted are already
     # logged in `dbsyncdf` (see above) which uses `logwarn_dataframe` internally
@@ -503,19 +542,16 @@ def log_unsaved_channels(conflict_between, conflict_within, conflict_null_sta_id
 
 
 def chaid2mseedid_dict(channels_df, drop_mseedid_columns=True):
-    '''returns a dict of the form {channel_id: mseed_id} from channels_df, where mseed_id is
-    a string of the form
+    """Return a dict of the form {channel_id: mseed_id} from `channels_df`,
+    where mseed_id is a string of the form
+    "[network].[station].[location].[channel]"
 
-    ```[network].[station].[location].[channel]```
-
-    :param channels_df: the result of `get_channels_df`
-
-    :param drop_mseedid_columns: boolean (default: True), removes all columns related to the mseed
-        id from `channels_df`. This might save up a lor of memory when cimputing the
-        segments resulting from each event -> stations binding (according to the search radius)
-        Remember that pandas strings are not optimized for memory as they are python objects
+    :param channels_df: pandas Dataframe (one channel per row)
+    :param drop_mseedid_columns: boolean (default: True), remove all columns
+        related to the mseed id from `channels_df`. This might save up a lor
+        of memory: pandas strings are stored as Python objects
         (https://www.dataquest.io/blog/pandas-big-data/)
-    '''
+    """
     net = channels_df[ST.NET].str.cat
     sta = channels_df[ST.STA].str.cat
     loc = channels_df[CH.LOC].str.cat

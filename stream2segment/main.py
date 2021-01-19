@@ -149,11 +149,9 @@ def download(config, log2file=True, verbose=False, **param_overrides):
         logger.info("Completed in %s", str(totimedelta(stime)))
         if log2file:
             errs, warns = loghandlers[0].errors, loghandlers[0].warnings
-
-            def frmt(n, text):
-                '''stupid function to format 'No error', '1 error' , '2 errors', ...'''
-                return "%s %s%s" % ("No" if n == 0 else str(n), text, '' if n == 1 else 's')
-            logger.info("%s, %s", frmt(errs, 'error'), frmt(warns, 'warning'))
+            logger.info("%d error%s, %d warning%s", errs,
+                        '' if errs == 1 else 's', warns,
+                        '' if warns == 1 else 's')
     except FailedDownload as fdwnld:
         # we logged the exception in `run_download`, just set return value as 1:
         ret = 1

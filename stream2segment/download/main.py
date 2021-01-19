@@ -36,14 +36,14 @@ def run(session, download_id, eventws, starttime, endtime, dataws, eventws_param
         search_radius, update_metadata, inventory, timespan,
         retry_seg_not_found, retry_url_err, retry_mseed_err, retry_client_err, retry_server_err,
         retry_timespan_err, tt_table, advanced_settings, authorizer, isterminal=False):
-    """
-        Downloads waveforms related to events to a specific path.
-        This function is not intended to be called directly (PENDING: update doc?)
+    """Download waveforms related to events to a specific path.
+    This function is not intended to be called directly,
+    use :func:`stream2segment.main.download` instead
 
-        :raise: :class:`FailedDownload` exceptions
+    :raise: :class:`FailedDownload` exceptions
     """
 
-    # RAMAINDER: **Any function here EXPECTS THEIR DATAFRAME INPUT TO BE NON-EMPTY.**
+    # NOTE: **Any function here EXPECTS THEIR DATAFRAME INPUT TO BE NON-EMPTY.**
     # Thus, any function returning a dataframe is responsible to return well formed (non empty)
     # data frames: if it would not be the case, the function should raise either:
     # 1) a NothingToDownload to stop the routine silently (log to info) and proceed to the
