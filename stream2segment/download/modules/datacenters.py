@@ -1,12 +1,12 @@
-'''
+"""
 Data center(s) download functions
 
 :date: Dec 3, 2017
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
-'''
-# make the following(s) behave like python3 counterparts if running from python2.7.x
-# (http://python-future.org/imports.html#explicit-imports):
+"""
+# Make the following(s) behave like python3 counterparts if running from
+# Python 2.7.x (http://python-future.org/imports.html#explicit-imports):
 from builtins import map, next, zip, range, object
 
 import os
@@ -22,10 +22,11 @@ from stream2segment.utils import strconvert, urljoin, strptime
 from stream2segment.utils.url import URLException, urlread
 
 
-# logger: do not use logging.getLogger(__name__) but point to stream2segment.download.logger:
-# this way we preserve the logging namespace hierarchy
-# (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial) when calling logging
-# functions of stream2segment.download.utils:
+# logger: do not use logging.getLogger(__name__) but point to
+# stream2segment.download.logger: this way we preserve the logging namespace
+# hierarchy
+# (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial)
+# when calling logging functions of stream2segment.download.utils:
 from stream2segment.download import logger  # @IgnorePep8
 from stream2segment.utils.resources import get_templates_fpath, get_resources_fpath
 
@@ -33,23 +34,25 @@ from stream2segment.utils.resources import get_templates_fpath, get_resources_fp
 def get_datacenters_df(session, service, routing_service_url,
                        network, station, location, channel, starttime=None, endtime=None,
                        db_bufsize=None):
-    """Returns a 2 elements tuple: the dataframe of the datacenter(s) matching `service`,
-    and an EidaValidator (built on the eida routing service response)
+    """Returns a 2 elements tuple: the dataframe of the datacenter(s) matching
+    `service`, and an EidaValidator (built on the EIDA routing service response)
     for checking stations/channels duplicates after querying the datacenter(s)
     for stations / channels. If service != 'eida', this argument is None
 
-    WARNING: Due to bugs in the eida rs the parameter
-    network, station, location, channel, starttime, endtime
-    are NOT used and are here for legacy code and potential future development once
-    the eida rs will be fixed. In cany case, they would be used only if service = 'eida'
+    NOTE: The parameters
+    network, station, location, channel, starttime`, endtime
+    are NOT used and are here for legacy code, when we used them to filter
+    results in the eida routing service. The filter is now handled in the code
+    later
 
-    :param service: the string denoting the dataselect *or* station url in fdsn format, or
-        'eida', or 'iris'. In case of 'eida', `routing_service_url` must denote an url for the
-        edia routing service. If falsy (e.g., empty string or None), `service` defaults to 'eida'
+    :param service: the string denoting the dataselect *or* station url in FDSN
+        format, or 'eida', or 'iris'. In case of 'eida', `routing_service_url`
+        must denote an url for the EIDA routing service. If falsy (e.g., empty
+        str, None), `service` defaults to 'eida'
     """
 
-    # For convenience and readability, define once the mapped column names representing the
-    # dataframe columns that we need:
+    # For convenience and readability, define once the mapped column names
+    # representing the dataframe columns that we need:
     DC_SURL = DataCenter.station_url.key  # pylint: disable=invalid-name
     DC_DURL = DataCenter.dataselect_url.key  # pylint: disable=invalid-name
     DC_ORG = DataCenter.organization_name.key  # pylint: disable=invalid-name
@@ -64,7 +67,10 @@ def get_datacenters_df(session, service, routing_service_url,
         dc_df = pd.DataFrame(data={DC_DURL: '%s/fdsnws/dataselect/1/query' % iris_netloc,
                                    DC_SURL: '%s/fdsnws/station/1/query' % iris_netloc,
                                    DC_ORG: 'iris'}, index=[0])
-    elif service.lower() != 'eida':
+    elif service.lower() == 'eida':
+        eidars_response_text = get_eidars_response_text(routing_service_url)
+        dc_df = get_eida_datacenters_df(eidars_response_text)
+    else:
         try:
             fdsn = Fdsnws(service)
             dc_df = pd.DataFrame(data={DC_DURL: fdsn.url(Fdsnws.DATASEL),
@@ -74,9 +80,6 @@ def get_datacenters_df(session, service, routing_service_url,
             raise FailedDownload(formatmsg("Unable to use datacenter",
                                            "Url does not seem to be a valid fdsn url",
                                            service))
-    else:
-        eidars_response_text = get_eidars_response_text(routing_service_url)
-        dc_df = get_eida_datacenters_df(eidars_response_text)
 
     # attempt saving to db only if we might have something to save:
     dc_df = dbsyncdf(dc_df, session, [DataCenter.station_url], DataCenter.id,
@@ -88,19 +91,15 @@ def get_datacenters_df(session, service, routing_service_url,
 
 
 def get_eidars_response_text(routing_service_url):
-    """Returns the tuple (datacenters_df, eidavalidator) from eidars or from the db (in this
-    latter case eidavalidator is None)
-    """
+    """Return the EIDA Routing Service response text (str)"""
     # IMPORTANT NOTE:
-    # We issue a "basic" query to the EIDA rs, with no params other than 'service' and 'format'.
-    # The reason is that as of Jan 2019 the
-    # service is buggy if supplying some arguments
-    # (e.g., with long list of channels)
-    # Also, this way we can save a local file (independent from the custom query)
-    # and read from that file in case of request failure.
-    # The drawback is that we might ask later some data centers for data they do not have:
-    # This is an information the the routing service would provide us
-    # if queried with all parameters (net, sta, start, etcetera) ... too bad
+    # We issue a "basic" query to the EIDA rs, with no params other than
+    # 'service' and 'format'. The reasons are two:
+    # 1) as of Jan 2019 the service is buggy if supplying some arguments (e.g.,
+    # with long list of channels), adn this might happen again in the future.
+    # 2) We can save a local file (independent from the custom query) and read
+    # from it in case of request failure. The file should be updated from times
+    # to times
     query_args = {'service': 'dataselect', 'format': 'post'}
     url = urljoin(routing_service_url, **query_args)
 
@@ -119,16 +118,16 @@ def get_eidars_response_text(routing_service_url):
 
 
 def _get_local_routing_service():
-    '''Reads the routing service from local file where we stored a successful response
-    from the eida routing service (format=post), returns the file content and last modified
-    time (in string format)
+    """Reads the routing service from local file where we stored a successful
+    response from the EIDA routing service (format=post), returns the file
+    content and last modified time (in string format)
 
     :return: the tuple of strings:
         (content, last_modified)
         where content is the file content which is a string in the same format
         expected from a successful server response, and last_modified is the local
         file last modification time
-    '''
+    """
     fpath = get_resources_fpath('eidars.txt')
     lastmod_dtime = datetime(1970, 1, 1) + timedelta(seconds=os.path.getmtime(fpath))
     # read from file
@@ -138,11 +137,11 @@ def _get_local_routing_service():
 
 
 def get_eida_datacenters_df(responsetext):
-    """Returns the tuple (datacenters_df, eidavalidator) from eidars or from the db (in this
-    latter case eidavalidator is None)
+    """Returns the tuple (datacenters_df, eidavalidator) from eidars or from
+    the db (in this latter case eidavalidator is None)
     """
-    # For convenience and readability, define once the mapped column names representing the
-    # dataframe columns that we need:
+    # For convenience and readability, define once the mapped column names
+    # representing the Dataframe columns that we need:
     DC_SURL = DataCenter.station_url.key  # pylint: disable=invalid-name
     DC_DURL = DataCenter.dataselect_url.key  # pylint: disable=invalid-name
     DC_ORG = DataCenter.organization_name.key  # pylint: disable=invalid-name
@@ -165,16 +164,17 @@ def get_eida_datacenters_df(responsetext):
 
 
 class EidaValidator(object):
-    '''Class for validating stations duplicates according to the eida routing service
-    response text'''
+    """Class for validating stations duplicates according to the EIDA routing
+    service response text (see `get_dc_ids`)"""
 
     def __init__(self, datacenters_df, responsetext):
-        """Initializes a validator. You can then call `get_dc_id` to get the datacenter
-        id from a channel parmeters
+        """Initialize a validator. You can then call `get_dc_ids` to get the
+        datacenter id from a channel parameters
 
-        :param datacenters_df: a dataframe representing the datacenters read from the eida
-            routing service
-        :param responsetext: the plain response text from the eida routing service
+        :param datacenters_df: a dataframe representing the datacenters read
+            from the EIDA routing service
+        :param responsetext: the plain response text from the EIDA routing
+            service
         """
         self.dic = defaultdict(set)
         reg = re.compile("^(\\S+) (\\S+) (\\S+) (\\S+) (\\S+) (\\S+)$",
@@ -196,15 +196,18 @@ class EidaValidator(object):
                 except IndexError:
                     continue
 
-    def get_dc_id(self, net, sta, loc, cha, stime, etime):
-        '''Returns a set of unique ints denoting the data center id associated to the given
-        channel identified by the function arguments (all strings except stime and etime
-        which must be datetime. Any argument which is None will be ignored).
-        Returns None if the channel is not associated to any data center.
+    def get_dc_ids(self, net, sta, loc, cha, stime, etime):
+        """Return a set of unique integers denoting the data center id
+        associated to the given channel identified by the function arguments
+        (any argument which is None will be ignored)
 
-        NOTE: If the channel is associated to more than one data center, the id of
-        the first matching is returned
-        '''
+        :param net: (str or None) the network. None means: ignore
+        :param sta: (str or None) the station. None means: ignore
+        :param loc: (str or None) the location. None means: ignore
+        :param cha: (str or None) the channel. None means: ignore
+        :param stime: (datetime or None) the start time. None means: ignore
+        :param etime: (datetime or None) the end time. None means: ignore
+        """
         ret = set()
         for dcid, itemmacthers in self.dic.items():
             if any(_.match(net, sta, loc, cha, stime, etime) for _ in itemmacthers):
@@ -213,12 +216,12 @@ class EidaValidator(object):
 
 
 class ItemMatcher(object):
-    '''class handling the match between a channel and the eida routing service
-    channel'''
+    """Class handling the match between a channel and the eida routing service
+    channel"""
     def __init__(self, net, sta, loc, cha, stime, etime):
-        '''Initializes this Matcher with the components of the eida routing
+        """Initialize this Matcher with the components of the eida routing
         service channel (which might contain wildcards)
-        '''
+        """
         self.regs = tuple(re.compile("^%s$" % _)
                           for _ in [strconvert.wild2re(net),
                                     strconvert.wild2re(sta),
@@ -229,10 +232,10 @@ class ItemMatcher(object):
         self.etime = None if etime == '*' else strptime(etime)
 
     def match(self, net, sta, loc, cha, stime, etime):
-        '''Returns True if the given Matcher matches the channel
-        identified by the function arguments (all strings except stime and etime
-        which must be datetime). Any argument which is None will be ingored.
-        '''
+        """Return True if the given Matcher matches the channel identified by
+        the function arguments (all strings except `stime` and `etime`, which
+        must be both datetime). Any argument which is None will be ignored.
+        """
         if stime is not None and self.etime is not None and stime >= self.etime:
             return False
         if etime is not None and self.stime is not None and etime <= self.stime:
@@ -244,11 +247,13 @@ class ItemMatcher(object):
 
 
 def eidarsiter(responsetext):
-    """iterator yielding the tuple (url, postdata) for each datacenter found in responsetext
-    :param responsetext: the eida routing service response text
+    """Iterator yielding the tuple (url, postdata) for each datacenter found in
+    `responsetext`
+
+    :param responsetext: (str) the EIDA routing service response text
     """
-    # not really pythonic code, but I enjoyed avoiding copying strings and creating lists
-    # so this iterator is most likely really low memory consuming
+    # Yielding strings consumes less memory than using `str.split`... although
+    # the code below it's not super readable (maybe change in the future)
     start = 0
     textlen = len(responsetext)
     while start < textlen:

@@ -555,7 +555,7 @@ http:wrong
     for k, expected in tests.items():
         # convert to new values:
         expected = set() if expected is None else set(expected)
-        assert eidavalidator.get_dc_id(*k) == expected
+        assert eidavalidator.get_dc_ids(*k) == expected
 
 # (any, ['A','D','C','B'])   ['A', 'B', 'C', 'D']  # note result is sorted
 #     (any, 'B,C,D,A')          ['A', 'B', 'C', 'D']  # same as above

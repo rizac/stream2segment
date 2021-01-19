@@ -443,9 +443,9 @@ def drop_duplicates(session, channels_df, eidavalidator):
                 if eidavalidator is not None:
                     # get the datacenter id(s) at a station level (loc, cha = None):
                     dcids = \
-                        eidavalidator.get_dc_id(net, sta, loc=None, cha=None,
-                                                stime=None if pd.isnull(stime) else stime,
-                                                etime=None if pd.isnull(etime) else etime)
+                        eidavalidator.get_dc_ids(net, sta, loc=None, cha=None,
+                                                 stime=None if pd.isnull(stime) else stime,
+                                                 etime=None if pd.isnull(etime) else etime)
                     real_dc_ids.update(dcids)
                 else:
                     # get the datacenter id(s) at a station level (loc, cha ignored)
