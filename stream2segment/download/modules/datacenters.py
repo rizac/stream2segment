@@ -33,8 +33,8 @@ from stream2segment.utils.resources import get_templates_fpath, get_resources_fp
 
 
 def get_datacenters_df(session, service, routing_service_url,
-                       network, station, location, channel, starttime=None, endtime=None,
-                       db_bufsize=None):
+                       network, station, location, channel, starttime=None,
+                       endtime=None, db_bufsize=None):
     """Returns a 2 elements tuple: the Dataframe of the datacenter(s) matching
     `service`, and an EidaValidator (built on the EIDA routing service response)
     for checking stations/channels duplicates after querying the datacenter(s)
@@ -88,13 +88,11 @@ def get_datacenters_df(session, service, routing_service_url,
     if dclist:
         # attempt saving to db only if we might have something to save:
         dc_df = dbsyncdf(pd.DataFrame(dclist), session, [DataCenter.station_url],
-                         DataCenter.id,
-                         buf_size=len(dclist) if db_bufsize is None else db_bufsize,
+                         DataCenter.id, buf_size=db_bufsize or len(dclist),
                          keep_duplicates='first')
 
     if dc_df.empty:
-        raise FailedDownload(
-                Exception("No FDSN-compliant datacenter found"))
+        raise FailedDownload(Exception("No FDSN-compliant datacenter found"))
 
     if discarded:
         logger.info("%d data centers discarded", discarded)
@@ -116,7 +114,8 @@ def get_eidars_response_text(routing_service_url):
     url = urljoin(routing_service_url, **query_args)
 
     try:
-        responsetext, status, msg = urlread(url, decode='utf8', raise_http_err=True)
+        responsetext, status, msg = urlread(url, decode='utf8',
+                                            raise_http_err=True)
         if not responsetext:
             raise URLException(Exception("Empty data response"))  # fall below
     except URLException as urlexc:
@@ -137,8 +136,8 @@ def _get_local_routing_service():
     :return: the tuple of strings:
         (content, last_modified)
         where content is the file content which is a string in the same format
-        expected from a successful server response, and last_modified is the local
-        file last modification time
+        expected from a successful server response, and last_modified is the
+        local file last modification time
     """
     fpath = get_resources_fpath('eidars.txt')
     lastmod_dtime = datetime(1970, 1, 1) + timedelta(seconds=os.path.getmtime(fpath))
