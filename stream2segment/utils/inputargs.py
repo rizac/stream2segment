@@ -309,12 +309,20 @@ def create_auth(restricted_data, dataws, configfile=None):
     elif isinstance(restricted_data, string_types) and configfile is not None:
         restricted_data = normalizedpath(restricted_data, os.path.dirname(configfile))
     ret = Authorizer(restricted_data)
-    # here we have 4 cases: two ok ('eida' + token, any other fdsn + username & password)
-    # Bad cases: eida + username & password: raise
-    # any other fdsn + token: return normally, we might have provided a single eida datacenter
-    #    in which case the parameter set is fine.
+    # check dataws is single element list:
+    if len(dataws) != 1:
+        raise ValueError('Downloading restricted data requires '
+                         'a single URL in `dataws`')
+    dataws = dataws[0]
+    # Here we have 4 cases:
+    # 1 'eida' + token: OK
+    # 2. Any other fdsn + username & password: OK
+    # 3. eida + username & password: BAD. raise ValueError
+    # 4. Any other fdsn + token: OK (we might have provided a single eida
+    #                                datacenter in which case it's fine)
     if dataws.lower() == 'eida' and ret.userpass:
-        raise ValueError('downloading from EIDA requires a token, not username and password')
+        raise ValueError('Downloading from EIDA requires a token, '
+                         'not username and password')
     return ret
 
 
@@ -517,6 +525,15 @@ def load_config_for_download(config, parseargs, **param_overrides):
         #           needed if the parameter is invalid, and returning the correct parameter value
         params = [
             {
+                # dataws is a list of strings, but for backward compatibility we
+                # must accept strings too. Convert `dataws` to list AS FIRST
+                # ARGUMENT (I.E., this must be the FIRST dict of the list), so
+                # that any other parameter check below requiring dataws can
+                # safely work with lists:
+                'names': ['dataws'],
+                'newvalue': lambda _: [_] if isinstance(_, string_types) else _
+            },
+            {
                 'names': def_evt_params[:2],  # ['minlatitude', 'minlat'],
                 'defvalue': None,  # None: param not added (see below)
                 'newvalue': between(-90.0, 90.0)
@@ -555,11 +572,20 @@ def load_config_for_download(config, parseargs, **param_overrides):
             {
                 'names': ['update_metadata'],
                 'newvalue': parse_update_metadata
-             },
+            },
             {
                 'names': ['restricted_data'],
                 'newname': 'authorizer',
                 'newvalue': lambda val: create_auth(val, config_dict['dataws'], configfile)
+            },
+            {
+                 'names': ['eventws'],
+                 'newvalue': lambda url: valid_fdsn(url, is_eventws=True, configfile=configfile)
+            },
+            {
+                 'names': ['dataws'],
+                 'newvalue': lambda urls: [valid_fdsn(url, is_eventws=False)
+                                           for url in urls]
             },
             {
                  'names': ['dburl'],
@@ -578,14 +604,6 @@ def load_config_for_download(config, parseargs, **param_overrides):
             {
                  'names': ('endtime', 'end'),
                  'newvalue': valid_date
-            },
-            {
-                 'names': ['eventws'],
-                 'newvalue': lambda url: valid_fdsn(url, is_eventws=True, configfile=configfile)
-            },
-            {
-                 'names': ['dataws'],
-                 'newvalue': lambda url: valid_fdsn(url, is_eventws=False)
             },
             {
                  'names': ('network', 'net', 'networks'),

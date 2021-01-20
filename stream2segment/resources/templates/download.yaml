@@ -184,9 +184,9 @@ search_radius:
 # Data (waveform segments) https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf#page=8
 # ========================
 
-# Dataselect web service to use (url). It *must* be FDSN compliant
-# (so that the station URL can be retrieved automatically):
-#   <site>/fdsnws/dataselect/<majorversion>/query. Examples:
+# Dataselect web service(s) to use (list of URLs). Each URL *must* be FDSN
+# compliant, so that the station URL can be retrieved automatically:
+#   [site]/fdsnws/dataselect/<majorversion>/query. Examples:
 #   https://service.iris.edu/fdsnws/dataselect/1/query or
 #   service.iris.edu/fdsnws/dataselect/1/query  (scheme will default to 'http://').
 #   An ending '/' or '?' will be removed from the url, if present.
@@ -197,7 +197,9 @@ search_radius:
 # (e.g., connection problems), then the requested stations and channels will be fetched from the
 # database. In this case, if the database is empty the download process will stop with an error
 # message.
-dataws: 'eida'
+dataws:
+  - 'eida'
+  # - 'iris'
 
 # The model to be used to asses the travel times of a wave from
 # the event location to each station location. Type a string denoting a file name (absolute path)
@@ -227,6 +229,7 @@ timespan:
 # IMPORTANT: You SHOULD NOT perform massive, time-consuming downloads when fetching restricted data,
 # as the credentials validity might expire during the download execution (this is the case with EDIA tokens).
 # Try narrowing the search in case (e.g. provide the network(s) or station(s) of interest only).
+# Also note that restricted data downloads work with only one URL in `dataws`
 # This parameter can be:
 # - a single string pointing to a token file for restricted data authorization if "dataws" is "eida") 
 #   (https://geofon.gfz-potsdam.de/waveform/archive/auth/auth-overview.php). Non-absolute

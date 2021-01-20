@@ -15,6 +15,7 @@ import re
 
 from collections import defaultdict
 import pandas as pd
+from future.utils import string_types
 
 from stream2segment.io.db.models import DataCenter, Fdsnws
 from stream2segment.download.utils import FailedDownload, dbsyncdf, formatmsg
@@ -34,7 +35,7 @@ from stream2segment.utils.resources import get_templates_fpath, get_resources_fp
 def get_datacenters_df(session, service, routing_service_url,
                        network, station, location, channel, starttime=None, endtime=None,
                        db_bufsize=None):
-    """Returns a 2 elements tuple: the dataframe of the datacenter(s) matching
+    """Returns a 2 elements tuple: the Dataframe of the datacenter(s) matching
     `service`, and an EidaValidator (built on the EIDA routing service response)
     for checking stations/channels duplicates after querying the datacenter(s)
     for stations / channels. If service != 'eida', this argument is None
@@ -45,10 +46,8 @@ def get_datacenters_df(session, service, routing_service_url,
     results in the eida routing service. The filter is now handled in the code
     later
 
-    :param service: the string denoting the dataselect *or* station url in FDSN
-        format, or 'eida', or 'iris'. In case of 'eida', `routing_service_url`
-        must denote an url for the EIDA routing service. If falsy (e.g., empty
-        str, None), `service` defaults to 'eida'
+    :param service: (list[str] or str) the dataselect *or* station url(s) in
+        FDSN format, or the shortcuts 'eida', or 'iris'
     """
 
     # For convenience and readability, define once the mapped column names
@@ -57,37 +56,50 @@ def get_datacenters_df(session, service, routing_service_url,
     DC_DURL = DataCenter.dataselect_url.key  # pylint: disable=invalid-name
     DC_ORG = DataCenter.organization_name.key  # pylint: disable=invalid-name
 
-    eidars_response_text = None
+    # eida response text will be needed anyway to create an EidaValidator
 
-    if not service:
-        service = 'eida'
+    eidars_response_text = get_eidars_response_text(routing_service_url)
+    dclist = []
+    discarded = 0
+    if isinstance(service, string_types):
+        service = [service]
+    for service_url in service:
+        organization = service_url.lower().strip()
+        if organization == 'iris':
+            urls = ['https://service.iris.edu/fdsnws/dataselect/1/query']
+        elif organization == 'eida':
+            urls = [url for url, _ in eidarsiter(eidars_response_text)]
+        else:
+            urls = [service_url]
+            organization = None
 
-    if service.lower() == 'iris':
-        iris_netloc = 'https://service.iris.edu'
-        dc_df = pd.DataFrame(data={DC_DURL: '%s/fdsnws/dataselect/1/query' % iris_netloc,
-                                   DC_SURL: '%s/fdsnws/station/1/query' % iris_netloc,
-                                   DC_ORG: 'iris'}, index=[0])
-    elif service.lower() == 'eida':
-        eidars_response_text = get_eidars_response_text(routing_service_url)
-        dc_df = get_eida_datacenters_df(eidars_response_text)
-    else:
-        try:
-            fdsn = Fdsnws(service)
-            dc_df = pd.DataFrame(data={DC_DURL: fdsn.url(Fdsnws.DATASEL),
-                                       DC_SURL: fdsn.url(Fdsnws.STATION),
-                                       DC_ORG: None}, index=[0])
-        except ValueError:
-            raise FailedDownload(formatmsg("Unable to use datacenter",
-                                           "Url does not seem to be a valid fdsn url",
-                                           service))
+        for _url in urls:
+            try:
+                fdsn = Fdsnws(_url)
+                dclist.append({DC_SURL: fdsn.url(Fdsnws.STATION),
+                               DC_DURL: fdsn.url(Fdsnws.DATASEL),
+                               DC_ORG: organization})
+            except ValueError as verr:
+                discarded += 1
+                logger.warning(formatmsg("Discarding data center",
+                                         (str(verr)), _url))
 
-    # attempt saving to db only if we might have something to save:
-    dc_df = dbsyncdf(dc_df, session, [DataCenter.station_url], DataCenter.id,
-                     buf_size=len(dc_df) if db_bufsize is None else db_bufsize,
-                     keep_duplicates='first')
+    dc_df = pd.DataFrame()  # empty by default
+    if dclist:
+        # attempt saving to db only if we might have something to save:
+        dc_df = dbsyncdf(pd.DataFrame(dclist), session, [DataCenter.station_url],
+                         DataCenter.id,
+                         buf_size=len(dclist) if db_bufsize is None else db_bufsize,
+                         keep_duplicates='first')
 
-    return dc_df, \
-        EidaValidator(dc_df, eidars_response_text) if eidars_response_text is not None else None
+    if dc_df.empty:
+        raise FailedDownload(
+                Exception("No FDSN-compliant datacenter found"))
+
+    if discarded:
+        logger.info("%d data centers discarded", discarded)
+
+    return dc_df, EidaValidator(dc_df, eidars_response_text)
 
 
 def get_eidars_response_text(routing_service_url):
@@ -134,33 +146,6 @@ def _get_local_routing_service():
     with open(fpath, 'r') as opn_:
         responsetext = opn_.read()
     return responsetext, lastmod_dtime.strftime('%Y-%m-%d')
-
-
-def get_eida_datacenters_df(responsetext):
-    """Returns the tuple (datacenters_df, eidavalidator) from eidars or from
-    the db (in this latter case eidavalidator is None)
-    """
-    # For convenience and readability, define once the mapped column names
-    # representing the Dataframe columns that we need:
-    DC_SURL = DataCenter.station_url.key  # pylint: disable=invalid-name
-    DC_DURL = DataCenter.dataselect_url.key  # pylint: disable=invalid-name
-    DC_ORG = DataCenter.organization_name.key  # pylint: disable=invalid-name
-
-    dclist = []
-
-    for url, postdata in eidarsiter(responsetext):  # @UnusedVariable
-        try:
-            fdsn = Fdsnws(url)
-            dclist.append({DC_SURL: fdsn.url(Fdsnws.STATION),
-                           DC_DURL: fdsn.url(Fdsnws.DATASEL),
-                           DC_ORG: 'eida'})
-        except ValueError as verr:
-            logger.warning("Discarding data center (non FDSN url: '%s' "
-                           "as returned from the routing service)", url)
-    if not dclist:
-        raise FailedDownload(Exception("No datacenters found in response text / file"))
-    datacenters_df = pd.DataFrame(dclist)
-    return datacenters_df
 
 
 class EidaValidator(object):
