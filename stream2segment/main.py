@@ -50,7 +50,7 @@ import shutil
 
 
 if PY2:
-    # https://stackoverflow.com/questions/45946051/signature-method-in-inspect-module-for-python-2
+    # https://stackoverflow.com/a/45946245
     import funcsigs  # @UnresolvedImport pylint: disable=import-error
     SIGNATURE = funcsigs.signature
 else:

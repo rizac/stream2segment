@@ -185,18 +185,21 @@ search_radius:
 # ========================
 
 # Dataselect web service(s) to use (list of URLs). Each URL *must* be FDSN
-# compliant, so that the station URL can be retrieved automatically:
-#   [site]/fdsnws/dataselect/<majorversion>/query. Examples:
-#   https://service.iris.edu/fdsnws/dataselect/1/query or
-#   service.iris.edu/fdsnws/dataselect/1/query  (scheme will default to 'http://').
-#   An ending '/' or '?' will be removed from the url, if present.
-# You can also type two special values:
+# compliant, so that the station web service URL can be retrieved automatically:
+# [site]/fdsnws/dataselect/[majorversion]/query. Example:
+# https://service.iris.edu/fdsnws/dataselect/1/query
+# (If the URL scheme - basically the prefix "http://" or "https://" - is missing,
+# 'http://' will be prepended to the URL. An ending '/' or '?' will be removed
+# from the URL, if present). You can also type two special values:
 # "iris" (shortcut for: https://service.iris.edu/fdsnws/dataselect/1/query) or
 # "eida" (which will automatically fetch data from the urls of all EIDA data centers).
 # Implementation details: If the station web service(s) did not return data
 # (e.g., connection problems), then the requested stations and channels will be fetched from the
 # database. In this case, if the database is empty the download process will stop with an error
-# message.
+# message. If the same station/channel is returned by more than one station web
+# service, the eida routing service (see `advanced_settings`) will be used. If the
+# latter cannot resolve conflicts (e.g., non-eida station/channel), then the
+# station/channel will be discarded and the warning message logged for inspection.
 dataws:
   - 'eida'
   # - 'iris'
