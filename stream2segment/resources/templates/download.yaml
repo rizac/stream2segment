@@ -32,20 +32,22 @@ endtime: 2016-12-25T00:00:00
 
 
 # =======
-# Events: https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf#page=14
+# Events: https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=14
 # =======
 
-# The event web service url to use. Supply a *full* url (up to and not including
-# the first query character '?') or a path to a local file.
-# The events list returned by the url or in the supplied file must be formatted as specified
-# in https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf#page=16
-# or as isf (http://www.isc.ac.uk/standards/isf/download/isf.pdf), although the latter
-# has limited support in this program (e.g., comments are not supported. Use at your own risk).
-# Implementation details: 1. You can also type one of the following shortcut strings:
+# The URL of the event catalog (event web service) or local file path of the events list
+# The events list returned by the URL or in the supplied file must be formatted as
+# specified in https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=16
+# or in isf format (http://www.isc.ac.uk/standards/isf/download/isf.pdf), although the
+# latter has limited support in this program (e.g., comments are not recognized. Use at
+# your own risk).
+# IMPORTANT: when providing an event list file, the file name (not the full path) will be
+# used as catalog identifier: renaming the file and downloading again on the same database
+# will result in the events and their segments being saved twice (unnecessarily).
+# Implementation details: 1. Type URLs up to and not including the first query character
+# '?' (see example in the default template). 2. You can also type one of the following
+# shortcut strings instead of URLs:
 # {{ DOWNLOAD_EVENTWS_LIST }}.
-# 2. If providing an event list file, the file name (not the full path) will be used
-# as catalog identifier: renaming the file and downloading again on the same database
-# will result in the events and their segments being saved twice
 eventws: 'http://seismicportal.eu/fdsnws/event/1/query'
 
 # Limit to events with a latitude larger than or equal to the specified minimum.
@@ -87,9 +89,9 @@ minmagnitude: 4.0
 maxmagnitude: null
 
 # Additional event web search parameters. For info, see
-# https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf#page=14
-# (parameters with support 'Optional' are not guaranteed to work). Note that the 'format' parameter,
-# if missing, will be inferred (in most cases it defaults to 'text').
+# https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=14
+# (parameters with support 'Optional' are not guaranteed to work). Note that the 'format'
+# parameter, if missing, will be inferred (in most cases it defaults to 'text').
 # Implementation details: The parameter is empty by default, uncomment the lines below
 # or insert new ones. Remember that this is a YAML file, pay attention to indentation. 
 eventws_params:
@@ -100,16 +102,17 @@ eventws_params:
 
 
 # ====================
-# Stations / Channels: https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf#page=10
+# Stations / Channels: https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=10
 # ====================
 
-# Limit the search to the specified channels (if missing, defaults to '*', i.e.: accept all channels)
-# Wildcards '?' and '*' are recognized (https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf),
-# as well as the operator '!' placed as first character to indicate logical NOT.
-# Example: "!B*,BBB" accepts all channels NOT starting with "B" OR the channel "BBB"
-# Implementation details: 'cha' or 'channels' are also valid names for the parameter. You can
-# also specify a list/array of strings in yaml format instead of comma-separated strings.
-# E.g., these are equivalent:
+# Limit the search to the specified channels (if missing, defaults to '*', i.e.: accept
+# all channels). Wildcards '?' and '*' are recognized
+# (https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf), as well as the
+# operator '!' placed as first character to indicate logical NOT. Example: "!B*,BBB"
+# accepts all channels NOT starting with "B" OR the channel "BBB"
+# Implementation details: 'cha' or 'channels' are also valid names for the parameter. You
+# can also specify a list/array of strings in yaml format instead of comma-separated
+# strings. E.g., these are equivalent:
 # channels: "A,B"
 # cha: [ "A" , "B" ]
 # channel:
@@ -149,16 +152,16 @@ update_metadata: false
 # Download station inventories (xml format). When true, you can
 # control whether or not to overwrite already saved inventories with 'update_metadata'
 # (when false, update_metadata should also be false for data consistency).
-# Implementation details: inventories will in any case be downloaded and saved on the database
-# only for stations that have saved segments with data. 
+# Implementation details: inventories will in any case be downloaded and saved on the
+# database only for stations that have saved segments with data.
 inventory: true
 
 # search radius: defines the criteria for selecting stations around events. It is a dict
 # which can have either:
-# 1) two arguments ('min', 'max') in order to select stations exactly or within 'min' and 'mag' degrees
-# from each event location (min=0 is equivalent to a circular search area)
-# 2) four arguments in order to select stations within a circular
-# area whose radius is event's magnitude dependent:
+# 1) two arguments ('min', 'max'), to select stations within 'min' and 'max' deggrees
+# (endpoints included) from each event location (type min=0 for a circular search area)
+# 2) four arguments, to select stations within a circular area whose radius is dependent
+# on the event magnitude:
 #
 #                   |
 #     maxmag_radius +                oooooooooooo
@@ -169,8 +172,8 @@ inventory: true
 #                   |
 #                   ---------+-------+------------
 #                         minmag   maxmag
-# If minmag = maxmag = M, maxmag_radius will be used for events with magnitude >= M,
-# minmag_radius otherwise
+# If minmag = maxmag = M, `maxmag_radius` will be used for events with magnitude >= M,
+# `minmag_radius` otherwise
 search_radius:
  minmag: 6 # min magnitude
  maxmag: 7 # max magnitude
@@ -181,62 +184,66 @@ search_radius:
 
 
 # ========================
-# Data (waveform segments) https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf#page=8
+# Data (waveform segments) https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=8
 # ========================
 
-# Dataselect web service(s) to use (list of URLs). Each URL *must* be FDSN
-# compliant, so that the station web service URL can be retrieved automatically:
-# [site]/fdsnws/dataselect/[majorversion]/query. Example:
+# List of URLs for downloading waveform data. All URLs must be FDSN-compliant, e.g.:
 # https://service.iris.edu/fdsnws/dataselect/1/query
-# (If the URL scheme - basically the prefix "http://" or "https://" - is missing,
-# 'http://' will be prepended to the URL. An ending '/' or '?' will be removed
-# from the URL, if present). You can also type two special values:
-# "iris" (shortcut for: https://service.iris.edu/fdsnws/dataselect/1/query) or
-# "eida" (which will automatically fetch data from the urls of all EIDA data centers).
-# Implementation details: If the station web service(s) did not return data
-# (e.g., connection problems), then the requested stations and channels will be fetched from the
-# database. In this case, if the database is empty the download process will stop with an error
-# message. If the same station/channel is returned by more than one station web
-# service, the eida routing service (see `advanced_settings`) will be used. If the
-# latter cannot resolve conflicts (e.g., non-eida station/channel), then the
-# station/channel will be discarded and the warning message logged for inspection.
+# You can also type two special values: 1) "iris" (Incorporated Research Institutions for
+# Seismology, shortcut for the URL above) or 2) "eida" (European Integrated Data Archive,
+# shortcut for the URLs list of all EIDA data centers, or nodes). Being FDSN compliant,
+# all URLs are also used to fetch automatically the stations (and channels) necessary for
+# the waveforms download.
+# IMPORTANT: Keep in mind that when providing two (or more) non-EDIA URLs, conflicts
+# (e.g., a station returned by both URLs) cannot be resolved (i.e., the station will be
+# discarded) and any waveform available will not be downloaded. Discarded stations and
+# channels will be anyway logged to database or file for information.
+# Implementation details: If no station /channel could be downloaded (e.g., connection
+# problems), then the requested stations and channels will be fetched from the database,
+# if non-empty (otherwise the download process will stop with an error message). Station
+# conflicts involving EIDA nodes will be resolved with the eida routing service (see
+# `advanced_settings`). If the latter fails, the station/channel will be discarded, as
+# usual. In supplying the URLs, If the URL scheme - basically the prefix "http://" or
+# "https://" - is missing, 'http://' will be prepended to the URL. An ending '/' or '?'
+# will be removed from the URL, if present).
 dataws:
   - 'eida'
   # - 'iris'
 
-# The model to be used to asses the travel times of a wave from
-# the event location to each station location. Type a string denoting a file name (absolute path)
-# of a custom model created by means of `s2s utils ttcreate` or one of the 4 built-in models:
+# The model to be used to asses the travel times of a wave from the event location to
+# each station location. Type a string denoting a file name (absolute path) of a custom
+# model created by means of `s2s utils ttcreate` or one of the 4 built-in models:
 #   ak135_ttp+: ak135 model precomputed for all ttp+ phases (P wave arrivals)
 #   ak135_tts+: ak135 model precomputed for all tts+ phases (S wave arrivals)
 #   iasp91_ttp+: iasp91 model precomputed for all ttp+ phases (P wave arrivals)
 #   iasp91_tts+: iasp91 model precomputed for all tts+ phases (S wave arrivals)
 # For each segment, the arrival time (travel time + event time) will be the pivot
 # whereby the user sets up the download time window (see also 'timespan').
-# Implementation details: the *max* error on the arrival times (assessed on a random set of points)
-# using one of the precomputed models is in the order of 0.5 seconds. All builtin models
-# assume receiver depth=0 for simplicity
+# Implementation details: the max error on the arrival times (assessed on a random set of
+# points) using one of the precomputed models is in the order of 0.5 seconds. All builtin
+# models assume receiver depth=0 for simplicity
 traveltimes_model: 'ak135_ttp+'
 
-# The segment's time span (i.e., the data time window to download): specify two positive floats denoting 
-# the minutes to account for before and after the calculated arrival time. Note that 3.5 means
-# 3 minutes 30 seconds, and that each segment window will be eventually rounded to the nearest
-# second.
-# Implementation details: the rounding is necessary to avoid floating point errors when checking
-# for segments to re-download because of a changed window.
+# The segment's time span (i.e., the data time window to download): specify two positive
+# floats denoting the minutes to account for before and after the calculated arrival time.
+# Note that 3.5 means 3 minutes 30 seconds, and that each segment window will be
+# eventually rounded to the nearest second.
+# Implementation details: the rounding is necessary to avoid floating point errors when
+# checking for segments to re-download because of a changed window.
 timespan:
- - 1.0 # start time of the waveform segment to download, in minutes *before* the calculated arrival time.
- - 3.0 # end time of the waveform segment to download, in minutes *after* the calculated arrival time
+ - 1.0 # start of the waveform segment, in minutes *before* the calculated arrival time.
+ - 3.0 # end of the waveform segment, in minutes *after* the calculated arrival time
 
 # Set the credentials in order to download restricted data.
-# IMPORTANT: You SHOULD NOT perform massive, time-consuming downloads when fetching restricted data,
-# as the credentials validity might expire during the download execution (this is the case with EDIA tokens).
-# Try narrowing the search in case (e.g. provide the network(s) or station(s) of interest only).
-# Also note that restricted data downloads work with only one URL in `dataws`
+# IMPORTANT: You SHOULD NOT perform massive, time-consuming downloads when fetching
+# restricted data, as the credentials validity might expire during the download execution
+# (this is the case with EDIA tokens). Try narrowing the search in case (e.g. provide the
+# network(s) or station(s) of interest only). In any case, restricted data downloads work
+# with only one URL in `dataws`.
 # This parameter can be:
-# - a single string pointing to a token file for restricted data authorization if "dataws" is "eida") 
-#   (https://geofon.gfz-potsdam.de/waveform/archive/auth/auth-overview.php). Non-absolute
-#   paths will be relative to the config file they are written in.
+# - if "dataws" is "eida", a string denoting the path of a token file for restricted data
+#   authorization (https://geofon.gfz-potsdam.de/waveform/archive/auth/auth-overview.php).
+#   Non-absolute paths will be relative to the config file they are written in.
 # - a list of two strings denoting username and password
 # when this parameter is null, or the empty string, only open (unrestricted) waveform data will
 # be downloaded. When provided, restricted segments previously downloaded with no credentials

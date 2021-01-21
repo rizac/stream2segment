@@ -147,38 +147,22 @@ def _get_local_routing_service():
     return responsetext, lastmod_dtime.strftime('%Y-%m-%d')
 
 
-class EidaValidator(object):
-    """Class for validating stations duplicates according to the EIDA routing
-    service response text (see `get_dc_ids`)"""
+class RoutingService(object):
+    """Class representing a Routing service, i.e. and object that
+    returns datacenter ids (int) from given channels (given as the tuple
+    `(net, sta, loc, cha, start_time, end_time)`). An object of this class is
+    build as a dict of datacenter ids mapped to matcher objects via the
+    method `add_matcher`"""
 
-    def __init__(self, datacenters_df, responsetext):
-        """Initialize a validator. You can then call `get_dc_ids` to get the
-        datacenter id from a channel parameters
-
-        :param datacenters_df: a dataframe representing the datacenters read
-            from the EIDA routing service
-        :param responsetext: the plain response text from the EIDA routing
-            service
-        """
+    def __init__(self):
         self.dic = defaultdict(set)
-        reg = re.compile("^(\\S+) (\\S+) (\\S+) (\\S+) (\\S+) (\\S+)$",
-                         re.MULTILINE)  # @UndefinedVariable
-        for url, postdata in eidarsiter(responsetext):
-            _ = datacenters_df[datacenters_df[DataCenter.dataselect_url.key] == url]
-            if _.empty:
-                _ = datacenters_df[datacenters_df[DataCenter.station_url.key] == url]
-            if len(_) != 1:
-                continue
-            dc_id = _[DataCenter.id.key].iloc[0]
-            for match in reg.finditer(postdata):
-                try:
-                    net, sta, loc, cha, stime, etime = \
-                        match.group(1), match.group(2), match.group(3), match.group(4),\
-                        match.group(5), match.group(6)
-                    # 
-                    self.dic[dc_id].add(ItemMatcher(net, sta, loc, cha, stime, etime))
-                except IndexError:
-                    continue
+
+    def add_matcher(self, dc_id, net, sta, loc, cha, stime, etime):
+        """Add an :class:`ItemMatcher` to the Routing service, and maps it
+         to the given datacenter id `dc_id` (int). All arguments are strings
+         and might contain wildcards
+        """
+        self.dic[dc_id].add(ItemMatcher(net, sta, loc, cha, stime, etime))
 
     def get_dc_ids(self, net, sta, loc, cha, stime, etime):
         """Return a set of unique integers denoting the data center id
@@ -193,18 +177,23 @@ class EidaValidator(object):
         :param etime: (datetime or None) the end time. None means: ignore
         """
         ret = set()
-        for dcid, itemmacthers in self.dic.items():
-            if any(_.match(net, sta, loc, cha, stime, etime) for _ in itemmacthers):
-                ret.add(dcid)
+        for dc_id, item_macthers in self.dic.items():
+            if any(_.match(net, sta, loc, cha, stime, etime)
+                   for _ in item_macthers):
+                ret.add(dc_id)
         return ret
 
 
 class ItemMatcher(object):
-    """Class handling the match between a channel and the eida routing service
-    channel"""
+    """Class representing a matcher in a Routing service. E.g. a line of text
+    of the form:
+    ```
+    XT * * * 2014-05-21T00:00:00 2015-10-22T08:43:00
+    ```
+    """
     def __init__(self, net, sta, loc, cha, stime, etime):
-        """Initialize this Matcher with the components of the eida routing
-        service channel (which might contain wildcards)
+        """Initialize this Matcher with the components of a Routing
+        service channel. All arguments are strings and might contain wildcards
         """
         self.regs = tuple(re.compile("^%s$" % _)
                           for _ in [strconvert.wild2re(net),
@@ -230,6 +219,40 @@ class ItemMatcher(object):
         return True
 
 
+class EidaValidator(RoutingService):
+    """EIDA routing service for validating stations duplicates according to the
+    EIDA routing service response text (see `get_dc_ids`)"""
+
+    def __init__(self, datacenters_df, responsetext):
+        """Initialize a validator. You can then call `get_dc_ids` to get the
+        datacenter id from a channel parameters
+
+        :param datacenters_df: a dataframe representing the datacenters read
+            from the EIDA routing service
+        :param responsetext: the plain response text from the EIDA routing
+            service
+        """
+        super(EidaValidator, self).__init__()
+        reg = re.compile("^(\\S+) (\\S+) (\\S+) (\\S+) (\\S+) (\\S+)$",
+                         re.MULTILINE)  # @UndefinedVariable
+        for url, postdata in eidarsiter(responsetext):
+            _ = datacenters_df[datacenters_df[DataCenter.dataselect_url.key] == url]
+            if _.empty:
+                _ = datacenters_df[datacenters_df[DataCenter.station_url.key] == url]
+            if len(_) != 1:
+                continue
+            dc_id = _[DataCenter.id.key].iloc[0]
+            for match in reg.finditer(postdata):
+                try:
+                    net, sta, loc, cha, stime, etime = \
+                        match.group(1), match.group(2), match.group(3), \
+                        match.group(4), match.group(5), match.group(6)
+
+                    self.add_matcher(dc_id, net, sta, loc, cha, stime, etime)
+                except IndexError:
+                    continue
+
+
 def eidarsiter(responsetext):
     """Iterator yielding the tuple (url, postdata) for each datacenter found in
     `responsetext`
@@ -246,7 +269,8 @@ def eidarsiter(responsetext):
             end = textlen
         mid = responsetext.find("\n", start, end)  # note: now we set a new value to idx
         if mid > -1:
-            url, postdata = responsetext[start:mid].strip(), responsetext[mid:end].strip()
+            url = responsetext[start:mid].strip()
+            postdata = responsetext[mid:end].strip()
             if url and postdata:
                 yield url, postdata
         start = end + 2
