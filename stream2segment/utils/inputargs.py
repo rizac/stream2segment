@@ -1,14 +1,14 @@
-'''
-Module with utilities for checking / parsing / setting input arguments from the cli
-(download, process).
+"""
+Module with utilities for checking / parsing / setting input arguments from
+the command line interface (cli), e.g. download and process.
 
 :date: Feb 27, 2018
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
-'''
+"""
 import os
-import sys
-import re
+# import sys
+# import re
 from datetime import datetime, timedelta
 from itertools import chain
 
@@ -24,35 +24,29 @@ from stream2segment.download.utils import Authorizer, EVENTWS_MAPPING,\
 
 
 class BadArgument(Exception):
-    '''An exception whose string method is similar to click formatted output. It
-    supports sub-classes for most common argument errors.
-    Typical usage for modules importing it:
-    ```
-        param = 'my_param_name'
-        try:
-            ... do operations
-        except Exception as exc:
-            raise BadArgument(param, exc)
-    ```
-    '''
+    """Exception describing a bad configuration parameter, as
+    :class:`click.exceptions.BadParameter`, provides similar messages when
+    output in the terminal but it can be used outside a command line interface
+    environment
+    """
     def __init__(self, param_name, error, msg_preamble=''):
-        '''init method. Formats the message according to the given parameters
-
-        The formatted output, depending on the truthy value of the arguments will be:
+        """Initialize a BadArgument object. Formats the message according to
+        the given parameters. The formatted output string, depending on the
+        value of the arguments will be:
 
         'Error: %(msg_preamble) "%(param_name)": %(error)'
-        'Error: "%(param_name)": %(error)"
+        'Error: "%(param_name)": %(error)"'
         'Error: "%(param_name)"'
 
-        :param param_name: the parameter name (string), or a list of parameter names
-            (if the parameter supports several optional names)
+        :param param_name: the parameter name (string), or a list of parameter
+            names (if the parameter supports several optional names)
         :param error: the original exception, or a string message. If exception
             in (TypeError, KeyError), it will determine the message preamble,
             if not explicitly passed (see below)
         :param msg_preamble: the optional message preamble, as string. If not
             provided (empty string by default), it will default to a string
-            according to `error` type
-        '''
+            according to `error` type, e.g. KeyError => 'Missing value for'
+        """
         if not msg_preamble:
             msg_preamble = "Invalid value for"
             if isinstance(error, KeyError):
@@ -61,54 +55,57 @@ class BadArgument(Exception):
             elif isinstance(error, TypeError):
                 msg_preamble = "Invalid type for"
 
-        super(BadArgument, self).__init__(error.message
-                                          if isinstance(error, BadArgument)
-                                          else str(error))
+        if isinstance(error, BadArgument):
+            err_msg = error.message
+        else:
+            err_msg = str(error)
+
+        super(BadArgument, self).__init__(err_msg)
         self.msg_preamble = msg_preamble
         self.param_name = param_name
 
     @property
     def message(self):
-        msg = '%s' if not self.msg_preamble else self.msg_preamble.strip() + " %s"
+        msg = '%s' if not self.msg_preamble else \
+            self.msg_preamble.strip() + " %s"
         # Access the parent message (works in py2 and 3):
         err_msg = self.args[0]  # pylint: disable=unsubscriptable-object
-        pname = '"%s"' % (" / ".join('"%s"' % p for p in self.param_name)[1:-1]
+        p_name = '"%s"' % (" / ".join('"%s"' % p for p in self.param_name)[1:-1]
                           if isinstance(self.param_name, (list, tuple)) else
                           str(self.param_name))
-#         ('"%s"' % self.param_name) if self.param_name else \
-#             'unknown parameter (check input arguments)'
-        ret = (msg % pname) + (": " + err_msg if err_msg else '')
+        ret = (msg % p_name) + (": " + err_msg if err_msg else '')
         return ret[0:1].upper() + ret[1:]
 
     def __str__(self):
-        ''''''
+        """String representation of this object"""
         return "Error: %s" % self.message
 
 
 def parse_arguments(yaml_dic, *params):
-    '''Parses yaml_dic parameters according to `params`.
-    WARNING: this method modifies in-place `yaml_dic`
+    """Parse `yaml_dic` parameters according to `params`, updating the
+    `yaml_dict`. Raises `BadArgument` exception in case of parameter errors.
+    WARNING: this method modifies `yaml_dic` in-place!
 
-    :param params: a list of dicts. Each dict defines how to parse the given parameter and can
-        have the keys and values:
-        'names': (mandatory) list / tuple of the parameter name(s): the first parameter name
-            found in `yaml_dic` will be used, and  a :class:`ConflictingArgs` exception is raised
-            if any of the other names is also found in `yaml_dic` keys. It can be also a string,
-            in which case the function behaves as if `names` was a list with that string as only
-            element
-        'defvalue': (optional) when provided, and no parameter name is found in `yaml_dic`,
-            this is used as value. If not provided and no name in `names` is in
-            in `yaml_dic`, a :class:`MissingArg` exception is raised
-        'newname': (optional) string denoting the new parameter name which will replace the
-            old one. When missing, it defaults to `names[0]`
-        'newvalue': (optional) a callable which accepts the parameter value as argument and
-            returns a new value. The function can safely raise: its exception(s) will be converted
-            to :class:BadTypeArg or :class:BadValueArg depending on the cause
+    :param params: a list of dicts. Each dict defines how to parse the given
+        parameter and can have the keys and values:
+        'names': (mandatory) list / tuple of the parameter name(s): if list or
+            tuple, a `BadArgument` is raised in case of conflicts (more than
+            one name is found in `yaml_dic` keys). If string, it is converted
+            to a list with that string as only element
+        'defvalue': (optional) when provided, and no parameter name is found in
+            `yaml_dic`, this is the parameter value. If not provided and no
+            name in `names` is in `yaml_dic`, a `BadArgument` is raised
+        'newname': (optional) string denoting the new parameter name which will
+            replace the old one in `yaml_dict`. When missing, it defaults to
+            `names[0]`
+        'newvalue': (optional) a callable which accepts as argument the
+            parameter value and returns a new value.
+            `yaml_dic[newname] = newvalue` will be then called. The callable
+            can safely raise, any exception will be converted to `BadArgument`
+            and re-raised
 
-        For each element of `params`, this function parses the given argument and raises the
-        appropriate `BadArgument` exceptions
     :raise: BadArgument
-    '''
+    """
     for param in params:
         names = param['names']
         if not isinstance(names, (list, tuple)):
@@ -120,9 +117,11 @@ def parse_arguments(yaml_dic, *params):
             newvalue = parsefunc(value)
         except Exception as exc:
             raise BadArgument(name, exc)
-        # names[0] is the key that will be set on yaml_dct, if newname is missing:
+        # names[0] is the key that will be set on yaml_dct,
+        # if newname is missing:
         newname = param.get('newname', names[0])
-        # if the newname is not names[0], remove name (not names[0]) from yanl_dic:
+        # if the newname is not names[0], remove name (not names[0])
+        # from yanl_dic:
         if newname != name:
             yaml_dic.pop(name, None)
         # set new name and new (parsed) value:
@@ -135,18 +134,19 @@ _DEF_GET_MISSING_ARG_ = object()
 
 
 def get(dic, names, default_ifmissing=_DEF_GET_MISSING_ARG_):
-    '''Similar to `dic.get` with optinal (multi) keys. I.e., it calls iteratively
-    `dic.get(key)` for each key in `names` and stops at the first key found `n`.
-    Returns the tuple `(n, dic[n])` and raises :class:`BadArgument` in case
+    """Similar to `dic.get` with optional (multi) keys. I.e., it calls
+    iteratively `dic.get(key)` for each key in `names` and stops at the first
+    key found `n`. Returns the tuple `(n, dic[n])` and raises
+    :class:`BadArgument` in case
 
     :param dic: the source dict
-    :param names: list/tuple of `dic` keys to be searched.. It can be also a string,
-        in which case the function behaves as if `names` was a list with that string as only
-        element
-    :param default_if_missing: if provided and not None (the default), then this is the
-        value returned if no name is found. If not provided, and no name is found in
-        `dic`, :class:`MissingArg` is raised
-    '''
+    :param names: list/tuple of `dic` keys to be searched.. It can be also a
+        string, in which case the function behaves as if `names` was a list
+        with that string as only element
+    :param default_ifmissing: if provided and not None (the default), then
+        this is the value returned if no name is found. If not provided, and no
+        name is found in `dic`, :class:`MissingArg` is raised
+    """
     if not isinstance(names, (list, tuple)):
         names = (names,)
 
@@ -157,8 +157,9 @@ def get(dic, names, default_ifmissing=_DEF_GET_MISSING_ARG_):
         elif not keys_in:
             if default_ifmissing is not _DEF_GET_MISSING_ARG_:
                 return names[0], default_ifmissing
-            raise KeyError()  # handled in the except below. Note that a KeyError
-                              # will prprend the 'Missing value' in BadArgument
+            raise KeyError()
+            # KeyError caught below. Note that a KeyError will
+            # prepend the 'Missing value' in BadArgument
         name = keys_in[0]
         return name, dic[name]
 
@@ -169,59 +170,61 @@ def get(dic, names, default_ifmissing=_DEF_GET_MISSING_ARG_):
 
 
 def typesmatch(value, *other_values):
-    '''checks that value is of the same type (same class, or subclass) of *any* `other_value`
-    (at least one). Raises TypeError if that's not the case
+    """Check that value is of the same type (same class, or subclass) of *any*
+    `other_value` (at least one). Raises TypeError if that's not the case
 
     :param value: a python object
-    :param other_values: python objects. This function raises if value is NOT of the same type of
-        any other_values types
+    :param other_values: python objects. This function raises if value is NOT
+        of the same type of any other_values types
 
     :return: value
-    '''
+    """
     for other_value in other_values:
         if issubclass(value.__class__, other_value.__class__):
             return value
-    raise TypeError("%s expected, found %s" % (" or ".join(str(type(_)) for _ in other_values),
-                                               str(type(value))))
+    raise TypeError("%s expected, found %s" %
+                    (" or ".join(str(type(_)) for _ in other_values),
+                     str(type(value))))
 
 
 def nslc_param_value_aslist(value):
-    '''Returns a nslc (network/station/location/channel) parameter value converted as list.
-    This method cleans-up and checks `value` splitting each of its string elements
-    with the comma "," and aggregating all the string chunks into a single list, after performing
-    some sanity check. The resulting list is also sorted alphabetically
-    (for unit testing and readibility).
-    Raises ValueError in case some sanity checks fail (e.g., conflicts, syntax errors)
+    """Return a nslc (network/station/location/channel) parameter value
+    converted as list. This method cleans-up and checks `value` splitting each
+    of its string elements with the comma "," and aggregating all the string
+    chunks into a single list, after performing some sanity check. The
+    resulting list is also sorted alphabetically (for unit testing and
+    readability). Raises ValueError in case some sanity checks fail (e.g.,
+    conflicts, syntax errors)
 
     Examples:
 
-    nslc_param_value_aslist
-    arguments (any means:
-    any value in [0,1,2,3])   Result (with comment)
-    ========================= =================================================================
+    Func. arguments      Result (with comment)
+    =================== =================================================
     (['A','D','C','B'])  ['A', 'B', 'C', 'D']  # note result is sorted
     ('B,C,D,A')          ['A', 'B', 'C', 'D']  # same as above
-    ('A*, B??, C*')      ['A*', 'B??', 'C*']  # fdsn wildcards accepted
-    ('!A*, B??, C*')     ['!A*', 'B??', 'C*']  # we support negations: !A* means "not A*"
+    ('A*, B??, C*')      ['A*', 'B??', 'C*']  # FDSN wildcards accepted
+    ('!A*, B??, C*')     ['!A*', 'B??', 'C*']  # in s2s, !A* means "not A*"
     (' A, B ')           ['A', 'B']  # leading and trailing spaces ignored
-    ('*')                []  # if any chunk is '*', then [] (=match all) is returned
+    ('*')                []  # [] means "match all"
     ([])                 []  # same as above
-    ('  ')               ['']  # this means: match the empty string (strip the string)
-    ("")                 [""]  # same as above
+    ('  ')               ['']  # string is stripped: match the empty string
+    ("")                 [""]  # match the empty string
     ("!")                ['!']  # match any non empty string
     ("!*")               this raises (you cannot specify "discard all")
     ("!H*, H*")          this raises (it's a paradox)
-    (" A B,  CD")        this raises ('A B' invalid: only leading and trailing spaces allowed)
+    (" A B,  CD")        this raises ('A B' invalid: only leading and trailing
+                                      spaces allowed)
 
-    :param value: string or iterable of strings: (iterable in this context means python iterable
-        EXCEPT strings). If string, the argument will be converted
-        to the list [value] to make it iterable before processing it
-    '''
+    :param value: string or iterable of strings: (iterable in this context
+        means Python iterable EXCEPT strings). If string, the argument will be
+        converted to the list [value] to make it iterable before processing it
+    """
     try:
         strings = set()
 
-        # we assume, when parsearg is not list, that parsearg is str in both python2 and python3,
-        # i.e. it is NOT bytes in python2. The line below checks if is an iterable first:
+        # we assume, when parsearg is not list, that parsearg is str in both
+        # py2 and py3, i.e. it is NOT bytes in python2. The line below checks
+        # if is an iterable first:
         # in python2, it is sufficient to say it's not a string
         # in python3, we need to check that is no str also
         if not hasattr(value, "__iter__") or isinstance(value, str):
@@ -246,7 +249,8 @@ def nslc_param_value_aslist(value):
             for string in strings:  # accept A end discard A is not valid
                 opposite = "!%s" % string
                 if opposite in strings:
-                    raise Exception("conflicting values: '%s' and '%s'" % (string, opposite))
+                    raise Exception("conflicting values: '%s' and '%s'" %
+                                    (string, opposite))
 
         return sorted(strings)
 
@@ -255,31 +259,34 @@ def nslc_param_value_aslist(value):
 
 
 def extract_dburl_if_yamlpath(value, param_name='dburl'):
-    """
-    Returns the database path from 'value':
-    'value' can be a file (in that case is assumed to be a yaml file with the
-    `param_name` key in it, which must denote a db path) or the database path otherwise
+    """Return the database path from 'value': 'value' can be a file (in that
+    case is assumed to be a yaml file with the `param_name` key in it, which
+    must denote a db path) or the database path otherwise
     """
     if not isinstance(value, string_types) or not value:
-        raise TypeError('please specify a string denoting either a path to a yaml file with the '
-                        '`dburl` parameter defined, or a valid db path')
+        raise TypeError('please specify a string denoting either a path to a '
+                        'yaml file with the `dburl` parameter defined, or a '
+                        'valid db path')
     return yaml_load(value)[param_name] if (os.path.isfile(value)) else value
 
 
 def keyval_list_to_dict(value):
-    """parses optional event query args (when the 'd' command is issued) into a dict"""
-    # use iter to make a dict from a list whose even indices = keys, odd ones = values
-    # https://stackoverflow.com/questions/4576115/convert-a-list-to-a-dictionary-in-python
+    """Parse optional event query args (when the 'd' command is issued) into
+    a dict"""
+    # use iter to make a dict from a list whose even indices = keys, odd
+    # ones = values (https://stackoverflow.com/a/4576128)
     itr = iter(value)
     return dict(zip(itr, itr))
 
 
 def get_session(dburl, for_process=False):
-    '''Creates an asql-alchemy session from dburl. Raises TypeError if dburl os not
-    a string, or any SqlAlchemy exception if the session could not be created
+    """Create an SQL-Alchemy session from dburl. Raises TypeError if dburl is
+    not a string, or any SqlAlchemy exception if the session could not be
+    created
 
-    :param dburl: string denoting a database url (currently postgres and sqlite supported
-    '''
+    :param dburl: string denoting a database url (currently postgres and sqlite
+        supported
+    """
     if not isinstance(dburl, string_types):
         raise TypeError('string required, %s found' % str(type(dburl)))
     if for_process:
@@ -298,12 +305,12 @@ def get_session(dburl, for_process=False):
 
 
 def create_auth(restricted_data, dataws, configfile=None):
-    '''Creates an Auth class (handling authentication/authorization)
+    """Create an Auth class (handling authentication/authorization)
     from the given restricted_data
 
     :param restricted_data: either file path, to token, token data in bytes, or
         tuple (user, password). If None, or the empty string, None is returned
-    '''
+    """
     if restricted_data in ('', None, b''):
         restricted_data = None
     elif isinstance(restricted_data, string_types) and configfile is not None:
@@ -327,8 +334,7 @@ def create_auth(restricted_data, dataws, configfile=None):
 
 
 def parse_update_metadata(value):
-    '''parses parse_update_metadata returning True, False or 'only'
-    '''
+    """Parse parse_update_metadata returning True, False or 'only'"""
     val_str = str(value).lower()
     if val_str == 'true':
         return True
@@ -340,11 +346,11 @@ def parse_update_metadata(value):
 
 
 def load_tt_table(file_or_name):
-    '''Loads the given TTTable object from the given file path or name. If name (string)
-    it must match any of the builtin TTTable .npz files defined in this package
-    Raises TypeError or any Exception that TTTable might raise (including when the file is not
-    found)
-    '''
+    """Load the given TTTable object from the given file path or name. If name
+    (string) it must match any of the builtin TTTable .npz files defined in
+    this package. Raises TypeError or any Exception that TTTable might raise
+    (including when the file is not found)
+    """
     if not isinstance(file_or_name, string_types):
         raise TypeError('string required, not %s' % str(type(file_or_name)))
     filepath = get_ttable_fpath(file_or_name)
@@ -368,14 +374,16 @@ def valid_date(obj):
             pass
         if isinstance(_, TypeError):
             raise TypeError(("iso-formatted datetime string, datetime "
-                             "object or int required, found %s") % str(type(obj)))
+                             "object or int required, found %s") %
+                            str(type(obj)))
         else:
             raise _
 
 
 def valid_fdsn(url, is_eventws, configfile=None):
-    '''Returns url if it matches a FDSN service (valid strings are 'eida' and 'iris'),
-    raises ValueError or TypeError otherwise'''
+    """Return url if it matches a FDSN service (valid strings are 'eida' and
+    'iris'), raises ValueError or TypeError otherwise
+    """
     if not isinstance(url, string_types):
         raise TypeError('string required')
 
@@ -384,7 +392,8 @@ def valid_fdsn(url, is_eventws, configfile=None):
         return url.lower()
 
     if is_eventws:
-        fpath = url if configfile is None else normalizedpath(url, os.path.dirname(configfile))
+        fpath = url if configfile is None else \
+            normalizedpath(url, os.path.dirname(configfile))
         if os.path.isfile(fpath):
             return fpath
         try:
@@ -396,8 +405,9 @@ def valid_fdsn(url, is_eventws, configfile=None):
 
 
 def dict_or_none(value):
-    '''Checks that value is a dict and returns `value`.
-    Returns {} if the value is None. In any other cases, it raises'''
+    """Check that value is a dict and returns `value`.
+    Returns {} if the value is None. In any other cases, raise ValueError
+    """
     if value is None:
         value = {}
     if isinstance(value, dict):
@@ -440,7 +450,7 @@ def parse_download_advanced_settings(advanced_settings):
 
 
 def check_search_radius(search_radius):
-    '''Checks the validity of the 'search_radius' argument (dict)'''
+    """Check the validity of the 'search_radius' argument (dict)"""
     args = [
         search_radius.get('minmag'),
         search_radius.get('maxmag'),
@@ -457,8 +467,8 @@ def check_search_radius(search_radius):
     is_mag_indep = magindep_argscount == len(magindep_args) and not magdep_argscount
 
     if is_mag_dep == is_mag_indep:
-        raise ValueError("provide either 'min', 'max' or "
-                         "'minmag', 'maxmag', 'minmag_radius', 'maxmag_radius'")
+        raise ValueError("provide either 'min', 'max' or 'minmag', 'maxmag', "
+                         "'minmag_radius', 'maxmag_radius'")
 
     # check errors:
     nofloaterr = ValueError('numeric values expected')
@@ -467,12 +477,13 @@ def check_search_radius(search_radius):
             raise nofloaterr
         if args[0] > args[1]:  # minmag > maxmag
             raise ValueError('minmag should not be greater than maxmag')
-        if args[2] <= 0 or args[3] <= 0:  # minmag_radius or maxmag_radius non positive
-            raise ValueError('minmag_radius and maxmag_radius should be greater than 0')
+        if args[2] <= 0 or args[3] <= 0:  # minmag_radius or maxmag_radius <=0
+            raise ValueError('minmag_radius and maxmag_radius should be '
+                             'greater than 0')
         if args[0] == args[1] and args[2] == args[3]:
             # minmag == maxmag, minmag_radius == maxmag_radius => error
-            raise ValueError('To supply a constant radius, '
-                             'set "min: 0" and specify the radius with the "max" argument')
+            raise ValueError('To supply a constant radius, set "min: 0" and '
+                             'specify the radius with the "max" argument')
     else:
         if not all(isinstance(_, (int, float)) for _ in magindep_args):
             raise nofloaterr
@@ -487,13 +498,15 @@ def check_search_radius(search_radius):
 
 
 def load_config_for_download(config, parseargs, **param_overrides):
-    '''loads download arguments from the given config (yaml file or dict) after parsing and
-    checking some of the dict keys.
+    """Load download arguments from the given config (yaml file or dict) after
+    parsing and checking some of the dict keys.
 
-    :return: a dict loaded from the given `config` and with parseed arguments (dict keys)
+    :return: a dict loaded from the given `config` and with parseed arguments
+        (dict keys)
 
-    Raises BadArgument in case of parsing errors, missisng arguments, conflicts etcetera
-    '''
+    Raises `BadArgument` in case of parsing errors, missisng arguments,
+    conflicts etcetera
+    """
     try:
         config_dict = yaml_load(config, **param_overrides)
     except Exception as exc:
@@ -512,17 +525,20 @@ def load_config_for_download(config, parseargs, **param_overrides):
         # renaming params, parsing/converting their values, raising
         # BadArgument exceptions and so on
 
-        # Let's configure a 'params' list, a list of dicts where each dict is a 'param checker'
-        # with the following keys (at least one should be provided):
-        # names: list of strings. provide it in order to check for optional names,
-        #        check that only one param is provided, and
+        # Let's configure a 'params' list, a list of dicts where each dict is a
+        # 'param checker' with the following keys (at least one should be
+        # provided):
+        # names: list of strings. provide it in order to check for optional
+        #        names, check that only one param is provided, and
         #        replace whatever is found with the first item in the list
-        # newname: string, provide it if you want to replace names above with this value
-        #          instead first item in 'names'
-        # defvalue: if provided, then the parameter is optional and will be set to this value
-        #           if not provided, then the parameter is mandatory (BadArgument is raised in case)
-        # newvalue: function accepting a value (the parameter value) raising whatever is
-        #           needed if the parameter is invalid, and returning the correct parameter value
+        # newname: string, provide it if you want to replace names above with
+        #          this value instead first item in 'names'
+        # defvalue: if provided, then the parameter is optional and will be set
+        #           to this value if not provided, then the parameter is
+        #           mandatory (BadArgument is raised in case)
+        # newvalue: function accepting a value (the parameter value) raising
+        #           whatever is needed if the parameter is invalid, and
+        #           returning the correct parameter value
         params = [
             {
                 # dataws is a list of strings, but for backward compatibility we
@@ -576,11 +592,14 @@ def load_config_for_download(config, parseargs, **param_overrides):
             {
                 'names': ['restricted_data'],
                 'newname': 'authorizer',
-                'newvalue': lambda val: create_auth(val, config_dict['dataws'], configfile)
+                'newvalue': lambda val: create_auth(val,
+                                                    config_dict['dataws'],
+                                                    configfile)
             },
             {
                  'names': ['eventws'],
-                 'newvalue': lambda url: valid_fdsn(url, is_eventws=True, configfile=configfile)
+                 'newvalue': lambda url: valid_fdsn(url, is_eventws=True,
+                                                    configfile=configfile)
             },
             {
                  'names': ['dataws'],
@@ -677,10 +696,10 @@ def load_config_for_download(config, parseargs, **param_overrides):
         if missing_keys:
             raise BadArgument(list(missing_keys), KeyError())
 
-        # At last, put all event-related parameters (except starttime and endtime):
-        # and in the eventws_params dict (the latter is an OPTIONAL dict
-        # which can be set in the config for ADDITIONAL eventws parameters)
-        # and check for conflicts:
+        # At last, put all event-related parameters (except starttime and
+        # endtime): and in the eventws_params dict (the latter is an OPTIONAL
+        # dict which can be set in the config for ADDITIONAL eventws
+        # parameters) and check for conflicts:
         # IF A PRAMETER IS NONE IT IS NOT ADDED
         _esp = 'eventws_params'
         eventsearchparams = config_dict[_esp]
@@ -695,7 +714,7 @@ def load_config_for_download(config, parseargs, **param_overrides):
 
 
 def load_pyfunc(pyfile, funcname):
-    '''Returns the python module from the given python file'''
+    """Return the Python module from the given python file"""
     if not isinstance(pyfile, string_types):
         raise TypeError('string required, not %s' % str(type(pyfile)))
 
@@ -704,12 +723,13 @@ def load_pyfunc(pyfile, funcname):
 
     pymoduledict = load_source(pyfile).__dict__
     if funcname not in pymoduledict:
-        raise Exception('function "%s" not found in %s' % (str(funcname), pyfile))
+        raise Exception('function "%s" not found in %s' %
+                        (str(funcname), pyfile))
     return pymoduledict[funcname]
 
 
 def get_funcname(funcname=None):
-    '''Returns the python module from the given python file'''
+    """Return the Python module from the given python file"""
     if funcname is None:
         funcname = default_processing_funcname()
 
@@ -720,12 +740,14 @@ def get_funcname(funcname=None):
 
 
 def default_processing_funcname():
-    '''returns 'main', the default function name for processing, when such a name is not given'''
+    """Return 'main', the default function name for processing, when such
+    a name is not given"""
     return 'main'
 
 
 def filewritable(filepath):
-    '''checks that the file is writable, i.e. that is a string and its directory exists'''
+    """Check that the file is writable, i.e. that is a string and its
+    directory exists"""
     if not isinstance(filepath, string_types):
         raise TypeError('string required, found %s' % str(type(filepath)))
 
@@ -735,15 +757,14 @@ def filewritable(filepath):
     return filepath
 
 
-def load_config_for_process(dburl, pyfile, funcname=None, config=None, outfile=None,
-                            **param_overrides):
-    '''checks process arguments.
-    Returns the tuple session, pyfunc, config_dict,
-    where session is the dql alchemy session from `dburl`,
-    pyfunc is the python function loaded from `pyfile`, and config_dict is the dict loaded from
-    `config` which must denote a path to a yaml file, or None (config_dict will be empty
-    in this latter case)
-    '''
+def load_config_for_process(dburl, pyfile, funcname=None, config=None,
+                            outfile=None, **param_overrides):
+    """Check process arguments. Returns the tuple session, pyfunc, config_dict,
+    where session is the dql alchemy session from `dburl`, `funcname` is the
+    Python function loaded from `pyfile`, and config_dict is the dict loaded
+    from `config` which must denote a path to a yaml file, or None (config_dict
+    will be empty in this latter case)
+    """
     try:
         session = get_session(dburl, True)
     except Exception as exc:
@@ -760,8 +781,9 @@ def load_config_for_process(dburl, pyfile, funcname=None, config=None, outfile=N
     except Exception as exc:
         raise BadArgument('config', exc)
 
-    # NOTE: contrarily to the download routine, we cannot check the types of the config because
-    # no parameter is mandatory, and thus they might NOT be present in the config.
+    # NOTE: contrarily to the download routine, we cannot check the types of
+    # the config because no parameter is mandatory, and thus they might NOT be
+    # present in the config.
 
     try:
         pyfunc = load_pyfunc(pyfile, funcname)
@@ -783,5 +805,3 @@ def load_session_for_dinfo(dburl):
         return get_session(dburl)
     except Exception as exc:
         raise BadArgument('dburl', exc)
-
-
