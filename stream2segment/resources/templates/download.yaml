@@ -5,28 +5,29 @@
 # {{ YAML_WARN }}
 
 
-# Database url where to save data (currently supported are sqlite and postgresql).
-# We suggest sqlite for small to medium data sizes or enough system RAM (as a rule of thumb:
-# less than a million segments, or more than 8GB of RAM) and postgres
+# Database url where to save data (currently supported are SQLite and Postgres).
+# We suggest sqlite for small to medium data sizes or enough system RAM (as a rule of
+# thumb: less than a million segments, and/or more than 8GB of RAM) and postgres
 # otherwise (note that with postgres, the database must have been created beforehand).
-# If sqlite, just write the path to your local file
-# prefixed with 'sqlite:///' (e.g., 'sqlite:////home/myfolder/db.sqlite'): non-absolute
-# paths will be relative to the config file path.
-# If non-sqlite, the syntax is:
-# dialect+driver://username:password@host:port/database
-# E.g.: 'postgresql://smith:Hw_6,@mymachine.example.org/mydb'
+# If sqlite, just write the path to your local file prefixed with 'sqlite:///' (e.g.,
+# 'sqlite:////home/myfolder/db.sqlite'): non-absolute paths will be relative to the
+# config file path.
+# If non-sqlite, the syntax is: dialect+driver://username:password@host:port/database
+# E.g.: postgresql://smith:Hw_6,@mymachine.example.org/mydb
 # (for info see: http://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls)
 dburl: 'sqlite:///./db.sqlite'
 
-# Limit to events / data centers / station / channels on or after the specified start time. Specify a date or
-# date-time in iso-format or an integer >=0 to denote the number of days before today at midnight.
-# Example: start=1 and end=0 => fetch events occurred yesterday.
+# Limit to events / data centers / station / channels on or after the specified start
+# time. Specify an ISO-formatted date or date-time string, or an integer >=0 to denote
+# the number of days before today at midnight, e.g., start=1 and end=0 means: fetch
+# events occurred yesterday.
 # Implementation details: 'start' is also a valid name for this parameter
 starttime: 2006-01-01T00:00:00
 
-# Limit to events / data centers / station / channels on or before the specified end time. Specify a date or
-# date-time in iso-format or an integer >=0 to denote the number of days before today at midnight.
-# Example: start=1 and end=0 => fetch events occurred yesterday.
+# Limit to events / data centers / station / channels on or before the specified end
+# time. Specify an ISO formatted date or date-time string, or an integer >=0 to denote
+# the number of days before today at midnight, e.g., start=1 and end=0 means: fetch
+# events occurred yesterday.
 # Implementation details: 'end' is also a valid name for this parameter
 endtime: 2016-12-25T00:00:00
 
@@ -41,8 +42,8 @@ endtime: 2016-12-25T00:00:00
 # or in isf format (http://www.isc.ac.uk/standards/isf/download/isf.pdf), although the
 # latter has limited support in this program (e.g., comments are not recognized. Use at
 # your own risk).
-# IMPORTANT: when providing an event list file, the file name (not the full path) will be
-# used as catalog identifier: renaming the file and downloading again on the same database
+# IMPORTANT: when providing a file, the file name (not the full path) will be used as
+# catalog identifier: renaming the file and downloading again on the same database
 # will result in the events and their segments being saved twice (unnecessarily).
 # Implementation details: 1. Type URLs up to and not including the first query character
 # '?' (see example in the default template). 2. You can also type one of the following
@@ -136,7 +137,7 @@ station: '*'
 location: '*'
 
 # Limit the search to channels with at least the following sample rate (in Hz).
-# The relative segments will *most likely* (but not always) match the channel sample rate.
+# The relative segments will most likely (but not always) match the channel sample rate.
 # Set to 0 or negative number to ignore the sampling rate
 min_sample_rate: 60
 
@@ -144,7 +145,7 @@ min_sample_rate: 60
 # to the database overwriting already saved stations and channels, if present.
 # When false, only new stations and channels will be saved to the database.
 # On a subsequent download, you can also provide "only" as value (without quotes)
-# to update metadata only, skipping events and waveform download: in this case the *only*
+# to update metadata only, skipping events and waveform download: in this case the only
 # parameters used will be 'dataws' (to get the station web service(s)) and 'inventory'
 # (to optionally re-download and save all station inventories).
 update_metadata: false
@@ -225,8 +226,8 @@ dataws:
 traveltimes_model: 'ak135_ttp+'
 
 # The segment's time span (i.e., the data time window to download): specify two positive
-# floats denoting the minutes to account for before and after the calculated arrival time.
-# Note that 3.5 means 3 minutes 30 seconds, and that each segment window will be
+# floats denoting the minutes to account for before and after the calculated arrival
+# time. Note that 3.5 means 3 minutes 30 seconds, and that each segment window will be
 # eventually rounded to the nearest second.
 # Implementation details: the rounding is necessary to avoid floating point errors when
 # checking for segments to re-download because of a changed window.
@@ -240,40 +241,43 @@ timespan:
 # (this is the case with EDIA tokens). Try narrowing the search in case (e.g. provide the
 # network(s) or station(s) of interest only). In any case, restricted data downloads work
 # with only one URL in `dataws`.
-# This parameter can be:
-# - if "dataws" is "eida", a string denoting the path of a token file for restricted data
-#   authorization (https://geofon.gfz-potsdam.de/waveform/archive/auth/auth-overview.php).
-#   Non-absolute paths will be relative to the config file they are written in.
-# - a list of two strings denoting username and password
-# when this parameter is null, or the empty string, only open (unrestricted) waveform data will
-# be downloaded. When provided, restricted segments previously downloaded with no credentials
-# (thus, with no waveform data) will be always re-downloaded ignoring all 'retry' settings.
+# This parameter is usually a list of two strings denoting username and password, with
+# one exception: if "dataws" is "eida", it must be a single string denoting the path of a
+# token file for restricted data authorization (non-absolute paths will be relative to
+# the config file they are written in. For more details on how to obtain and use tokens,
+# see https://geofon.gfz-potsdam.de/waveform/archive/auth/auth-overview.php).
+# When this parameter is null, or the empty string, only open (unrestricted) waveform
+# data will be downloaded. When provided, restricted segments previously downloaded with
+# no credentials (thus, with no waveform data) will be always re-downloaded ignoring all
+# 'retry' settings.
+# Implementation details: to provide a two element list in YAML, see parameter `timespan`
 restricted_data: ""
 
-# Try to download again already saved segments with no waveform data because not found
-# in the response. This is NOT the case when the server returns no data with an appropriate
-# 'No Content' message, but when a successful multi-segment request returns some but not all
-# requested segments: missing segments will then belong to the "not found" category
+
+# Try to download again already saved segments with no waveform data because not found in
+# the response. This is NOT the case when the server returns no data with an appropriate
+# 'No Content' message, but when a successful multi-segment request returns some but not
+# all requested segments: missing segments will then belong to the "not found" category
 retry_seg_not_found: true
 
 # Try to download again already saved segments with no waveform data because of a
 # general url error (e.g., no internet connection, timeout, ...)
 retry_url_err: true
 
-# Try to download again already saved segments with no waveform data because the response was
-# malformed, i.e. not readable as MiniSeed
+# Try to download again already saved segments with no waveform data because the response
+# was malformed, i.e. not readable as MiniSeed
 retry_mseed_err: false
 
-# Try to download again already saved segments with no waveform data because of a client error
-# (response code in [400,499])
+# Try to download again already saved segments with no waveform data because of a client
+# error (response code in [400,499])
 retry_client_err: true
 
-# Try to download again already saved segments with no waveform data because of a server error
-# (response code in [500,599])
+# Try to download again already saved segments with no waveform data because of a server
+# error (response code in [500,599])
 retry_server_err: true
 
-# Try to download again already saved segments with no waveform data because the response data
-# was completely outside the requested time span (see 'timespan' for details)
+# Try to download again already saved segments with no waveform data because the response
+# data was completely outside the requested time span (see 'timespan' for details)
 retry_timespan_err: true
 
 
@@ -282,26 +286,28 @@ retry_timespan_err: true
 # =====================================
 
 advanced_settings:
- # the routing service used to fetch the eida nodes and relative network/stations
+ # Routing service used to fetch the eida nodes and relative network/stations
  routing_service_url: "http://www.orfeus-eu.org/eidaws/routing/1/query"
- # size (in bytes) of each block of data requested when downloading until no data is available.
- # This setting holds for any kind of data downloaded (event, waveform or station metadata)
- # If 0 or negative, all data will be read in a single call (if 0, it will be converted to -1).
+ # Size (in bytes) of each block of data requested when downloading. It applies to any
+ # kind of data (event, waveform or station metadata). If 0, it will be converted to -1.
+ # If negative, all data will be always read in a single call and one block.
  download_blocksize: 1048576  # = 1024*1024
- # how many parallel threads to start when downloading (one thread per download)
+ # How many parallel threads to start when downloading (one thread per download)
  # If null, 0 or negative, it is automatically set according to the machine CPU
  max_thread_workers: 0
- # max time to wait (in seconds) for a single request while downloading events
+ # Max time to wait (in seconds) for a single request while downloading events
  e_timeout: 120
- # max time to wait (in seconds) for a single request while downloading stations+channel metadata
+ # Max time to wait (in seconds) for a single request while downloading stations+channel
+ # metadata
  s_timeout: 120
- # max time to wait (in seconds) for a single request while downloading an inventory in xml format
+ # Max time to wait (in seconds) for a single request while downloading an inventory in
+ # XML format
  i_timeout: 60
- # max time to wait (in seconds) for a single request while downloading waveform data
+ # Max time to wait (in seconds) for a single request while downloading waveform data
  w_timeout: 30
- # the buffer size used when writing items (stations, segments, events, ...) to database.
- # Increasing this number usually speeds speed up database IO operations (also, we experienced
- # performance degradations when this number is below the range [30, 50]) but increases the memory
- # consumption. Note also that if a single item in the buffer cannot be inserted or updated
- # (e.g., integrity errors), all subsequent buffer items will also be discarded
+ # The buffer size used when writing (inserting or updating) database data. Increasing
+ # this number speeds up the download but increases the memory consumption and might
+ # cause in rare cases more data wasted (E.g. a database error while inserting a segment
+ # will discard the segment and also all subsequent items in the buffer). Conversely, we
+ # experienced performance degradations when this number is below the range [30, 50]
  db_buf_size: 100

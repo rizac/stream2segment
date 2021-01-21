@@ -1,10 +1,10 @@
-'''
+"""
 s2s database ORM
 
 :date: Jul 15, 2016
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
-'''
+"""
 
 import re
 import os
@@ -15,7 +15,7 @@ import sqlite3
 try:  # py3:
     from urllib.parse import urlparse
 except ImportError:  # py2
-    from urlparse import urlparse
+    from urlparse import urlparse  # noqa
 
 from sqlalchemy import (
     Column,
