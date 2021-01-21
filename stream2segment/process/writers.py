@@ -1,11 +1,11 @@
-'''
+"""
 Module handling the Writers, i.e. classes handling the IO operation from the
 processing function into a file
 
 Created on 22 May 2018
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
-'''
+"""
 import os
 import csv
 from future.utils import viewkeys
@@ -19,8 +19,9 @@ HDF_DEFAULT_CHUNKSIZE = 10000
 
 
 def get_writer(outputfile=None, append=False, options_dict=None):
-    '''Returns the writer from the given outputfile (string denoting a file path, or None)
-    and append flag (boolean)'''
+    """Return the writer from the given outputfile (string denoting a file
+    path, or None) and append flag (boolean)
+    """
     if outputfile is None:
         return BaseWriter(outputfile, append)
     if os.path.splitext(os.path.basename(outputfile))[1].lower() in \
@@ -30,9 +31,9 @@ def get_writer(outputfile=None, append=False, options_dict=None):
 
 
 class BaseWriter(object):
-    '''Base class, basically no-op: it can be used in a with statement but it's basically no-op
-    **IMPORTANT**: subclasses need to call super.__init__ !!!
-    '''
+    """Base class, basically no-op: it can be used in a with statement but it's
+    basically no-op **IMPORTANT**: subclasses need to call super.__init__ !!!
+    """
 
     def __init__(self, outputfile=None, append=False):
         self.append = append
@@ -42,45 +43,52 @@ class BaseWriter(object):
 
     @property
     def isbasewriter(self):
-        '''property returning if this object is a base writer, i.e., no-op'''
+        """Property returning if this object is a base writer, i.e., no-op"""
         return self._isbasewriter
 
     @property
     def outputfileexists(self):
-        '''Returns True if the output file given in the constructor exists. Returns False in
-        any other case'''
+        """Return True if the output file given in the constructor exists.
+        Returns False in any other case
+        """
         return self.outputfile and os.path.isfile(self.outputfile)
 
     @property
     def outputfileempty(self):
-        '''Returns True if the output file exists and is empty'''
+        """Return True if the output file exists and is empty"""
         return self.outputfileexists and os.stat(self.outputfile).st_size == 0
 
     def already_processed_segments(self):
-        '''returns a numpy array of UNIQUE integers denoting the the already processed
-        segments
-        '''
+        """Return a numpy array of UNIQUE integers denoting the the already
+        processed segments
+        """
         return []
 
     def write(self, segment_id, result):  # result is surely not None
-        '''Core function to write a processed segment result to the specified output'''
+        """Core function to write a processed segment result to the specified
+        output
+        """
         pass
 
     def __enter__(self):
-        '''method executed at the beginning of a `with` clause.
+        """Method executed at the beginning of a `with` clause.
         this method MUST be overridden and MUST set `self.outputfilehandle`
         != None
-        '''
-        self.outputfilehandle = True  # subclasses might set a more meaningful value
+        """
+        # subclasses might set a more meaningful value
+        self.outputfilehandle = True
 
     def __exit__(self, exc_type, exc_val, exc_tb):  # @UnusedVariable
-        '''method executed at the end of a `with` clause. Calls `self.close()` by default'''
+        """Method executed at the end of a `with` clause. Calls `self.close()`
+        by default
+        """
         self.close()
 
     def close(self):
-        '''closes `self.outputfilehandle`, which is the file object of this class, most likely
-        set in `self.__enter__`. If `self.outputfilehandle` has not been set, or has no attribute
-        `close()`, this method is no-op'''
+        """Close `self.outputfilehandle`, which is the file object of this
+        class, most likely set in `self.__enter__`. If `self.outputfilehandle`
+        has not been set, or has no attribute `close()`, this method is no-op
+        """
         try:
             self.outputfilehandle.close()
             return True
@@ -91,20 +99,24 @@ class BaseWriter(object):
 
 
 class CsvWriter(BaseWriter):
-    '''Class that can be used in a with statement writing each processed segments results
-    into a csv file'''
+    """Class that can be used in a with statement writing each processed
+    segments results into a csv file
+    """
 
     def __init__(self, outputfile, append):
-        '''calls super.__init__ (**mandatory**) and sets up class specific stuff'''
+        """Call super.__init__ (**mandatory**) and sets up class specific
+        stuff
+        """
         super(CsvWriter, self).__init__(outputfile, append)
-        self.csvwriterkwargs = dict(delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-        self.csvwriter = None  # bad hack: in python3, we might use 'nonlocal' @UnusedVariable
+        self.csvwriterkwargs = dict(delimiter=',', quotechar='"',
+                                    quoting=csv.QUOTE_MINIMAL)
+        self.csvwriter = None
         self.csvwriterisdict = False
 
     def already_processed_segments(self):
-        '''returns a numpy array of UNIQUE integers denoting the the already processed
-        segments
-        '''
+        """Return a numpy array of UNIQUE integers denoting the the already
+        processed segments
+        """
         return pd.unique(list(self._already_processed_segments_iter()))
 
     def _already_processed_segments_iter(self):
@@ -114,17 +126,21 @@ class CsvWriter(BaseWriter):
                 try:
                     yield int(firstrow[0])
                 except ValueError as _:
-                    # be relaxed about first row, it might be the header made of string columns:
+                    # be relaxed about first row, it might be the header made
+                    # of string columns:
                     pass
-                # now read all other first-col values, they must be integers this time:
+                # now read all other first-col values, they must be integers
+                # this time:
                 for row in reader:
                     yield int(row[0])
 
     def __enter__(self):
-        # py2 compatibility of csv library: open in 'wb'. If py3, open in 'w' mode:
-        # See utils module. buffering=1 flushes each line
-        self.outputfilehandle = open2writetext(self.outputfile, buffering=1, encoding='utf8',
-                                               errors='replace', newline='', append=self.append)
+        # py2 compatibility of csv library: open in 'wb'. If py3, open in 'w'
+        # mode. See utils module. buffering=1 flushes each line
+        self.outputfilehandle = open2writetext(self.outputfile, buffering=1,
+                                               encoding='utf8',
+                                               errors='replace', newline='',
+                                               append=self.append)
 
     def write(self, segment_id, result):  # result is surely not None
         csvwriter, isdict, seg_id_colname = \
@@ -133,15 +149,17 @@ class CsvWriter(BaseWriter):
             isdict = self.csvwriterisdict = isinstance(result, dict)
             # write first column(s):
             if isdict:
-                # we need to pass a list and not an iterable cause the iterable needs
-                # to be consumed twice (the doc states differently, however...):
+                # we need to pass a list and not an iterable cause the iterable
+                # needs to be consumed twice (the doc states differently,
+                # however...):
                 fieldnames = [seg_id_colname]
                 fieldnames.extend(viewkeys(result))
-                csvwriter = self.csvwriter = csv.DictWriter(self.outputfilehandle,
-                                                            fieldnames=fieldnames,
-                                                            **self.csvwriterkwargs)
-                # write header if we need it (file does not exists, append is False, or
-                # file exist, append=True but file has no row):
+                csvwriter = csv.DictWriter(self.outputfilehandle,
+                                           fieldnames=fieldnames,
+                                           **self.csvwriterkwargs)
+                self.csvwriter = csvwriter
+                # write header if we need it (file does not exists, append is
+                # False, or file exist, append=True but file has no row):
                 if not self.append or self.outputfileempty:
                     csvwriter.writeheader()
             else:
@@ -151,7 +169,8 @@ class CsvWriter(BaseWriter):
         if isdict:
             result[seg_id_colname] = segment_id
         else:
-            # we might have numpy arrays, we should support variable types (numeric, strings,..)
+            # we might have numpy arrays, we should support variable types
+            # (numeric, strings,..)
             res = [segment_id]
             res.extend(result)
             result = res
@@ -160,15 +179,19 @@ class CsvWriter(BaseWriter):
 
 
 class HDFWriter(BaseWriter):
-    '''Class that can be used in a with statement writing each processed segments results
-    into a HDF file'''
+    """Class that can be used in a with statement writing each processed
+    segments results into a HDF file
+    """
 
     def __init__(self, outputfile, append, options_dict=None):
-        '''calls super.__init__ (**mandatory**) and sets up class specific stuff'''
+        """Call super.__init__ (**mandatory**) and sets up class specific
+        stuff
+        """
         super(HDFWriter, self).__init__(outputfile, append)
         self._dframeslist = []
         self.options = options_dict or {}
-        # remove 'value' from options, it must be set by the user-defined python file:
+        # remove 'value' from options, it must be set by the user-defined
+        # Python file:
         self.options.pop('value', None)
         # pop the chunksize from options, if any, because we handle here
         # the chunksize:
@@ -188,15 +211,16 @@ class HDFWriter(BaseWriter):
         self.options['data_columns'] = data_columns
 
     def already_processed_segments(self):
-        '''returns a numpy array of UNIQUE integers denoting the the already processed
-        segments
-        '''
-        outputfile = self.outputfile
-        return pd.unique(pd.read_hdf(outputfile, columns=[SEGMENT_ID_COLNAME])[SEGMENT_ID_COLNAME])
+        """Return a numpy array of UNIQUE integers denoting the the already
+        processed segments
+        """
+        ids = pd.read_hdf(self.outputfile,
+                          columns=[SEGMENT_ID_COLNAME])[SEGMENT_ID_COLNAME]
+        return pd.unique(ids)
 
     def __enter__(self):
-        # py2 compatibility of csv library: open in 'wb'. If py3, open in 'w' mode:
-        # See utils module. buffering=1 flushes each line
+        # py2 compatibility of csv library: open in 'wb'. If py3, open in 'w'
+        # mode. See utils module. buffering=1 flushes each line
         self.outputfilehandle = pd.HDFStore(self.outputfile,
                                             mode='a' if self.append else 'w')
 
@@ -226,9 +250,10 @@ class HDFWriter(BaseWriter):
             self._dframeslist = []
 
     def close(self):
-        '''closes `self.outputfilehandle`, which is the file object of this class, most likely
-        set in `self.__enter__`. If `self.outputfilehandle` has not been set, or has no attribute
-        `close()`, this method is no-op'''
+        """Close `self.outputfilehandle`, which is the file object of this
+        class, most likely set in `self.__enter__`. If `self.outputfilehandle`
+        has not been set, or has no attribute `close()`, this method is no-op
+        """
         try:
             self._write(True)
         finally:

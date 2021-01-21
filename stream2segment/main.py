@@ -155,10 +155,11 @@ def download(config, log2file=True, verbose=False, **param_overrides):
                         '' if errs == 1 else 's', warns,
                         '' if warns == 1 else 's')
     except FailedDownload as fdwnld:
-        # we logged the exception in `run_download`, just set return value as 1:
+        # we logged the exception in `run_download`, just set ret=1:
         ret = 1
     except KeyboardInterrupt:
-        logger.critical("Aborted by user")  # https://stackoverflow.com/q/5191830
+        # https://stackoverflow.com/q/5191830
+        logger.critical("Aborted by user")
         raise
     except:  # @IgnorePep8 pylint: disable=broad-except
         # log the (last) exception traceback and raise
@@ -224,8 +225,8 @@ def _to_pretty_str(yaml_dict, unparsed_yaml_dict):
     return "%s\n" % ('\n'.join(ret)).strip()
 
 
-def process(dburl, pyfile, funcname=None, config=None, outfile=None, log2file=False,
-            verbose=False, append=False, **param_overrides):
+def process(dburl, pyfile, funcname=None, config=None, outfile=None,
+            log2file=False, verbose=False, append=False, **param_overrides):
     """Start a processing routine, fetching segments from the database at the
     given URL and optionally saving the processed data into `outfile`.
     See the doc-strings in stream2segment templates (command `s2s init`) for
@@ -295,8 +296,10 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None, log2file=Fa
         logger.info(ascii_decorate("\n".join(info)))
 
         stime = time.time()
-        writer_options = config_dict.get('advanced_settings', {}).get('writer_options', {})
-        run_process(session, pyfunc, get_writer(outfile, append, writer_options),
+        writer_options = config_dict.get('advanced_settings', {}).\
+            get('writer_options', {})
+        run_process(session, pyfunc, get_writer(outfile, append,
+                                                writer_options),
                     config_dict, verbose)
         logger.info("Completed in %s", str(totimedelta(stime)))
         return 0  # contrarily to download, an exception should always raise
@@ -347,7 +350,7 @@ def show(dburl, pyfile, configfile):
 
 
 def init(outpath, prompt=True, *filenames):
-    """Initilize an output directory writing therein the given template files
+    """Initialize an output directory writing therein the given template files
 
     :param prompt: bool (default: True) telling if a prompt message (python
         `input` function) should be issued to warn the user when overwriting
