@@ -147,12 +147,12 @@ def url2str(obj, maxlen=None):
     (I=obj.get_data().find('\n')`)
     """
     try:
-        url = obj.get_full_url()
-        data = obj.data
-        if data is not None:
-            str_data = ("%s\n...(showing first %d characters only)" % (data[:maxlen], maxlen)) \
-                if maxlen is not None and len(data) > maxlen else data
-        url = "%s, POST data:\n%s" % (url, str_data)
+        url = str(obj.get_full_url())
+        data = str(obj.data or '')
+        if data and maxlen is not None and len(data) > maxlen:
+            data = ("%s\n...(showing first %d characters only)" %
+                    (data[:maxlen], maxlen))
+            url = "%s, POST data:\n%s" % (url, data)
     except AttributeError:
         url = obj
     return url
@@ -163,12 +163,13 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024 * 1024,
                max_mem_consumption=90, **kwargs):
     """Wrapper around read_async defined in url which raises a
     :class:`FailedDownload` in case of MemoryError
+
     :param max_mem_consumption: a value in (0, 100] denoting the threshold in
-    % of the total memory after which the program should raise. This should
-    return as fast as possible consuming the less memory possible, and assuring
-    the quit-download message will be sent to the logger
+        % of the total memory after which the program should raise. This should
+        return as fast as possible consuming the less memory possible, and
+        assuring the quit-download message will be sent to the logger
     """
-    do_memcheck = max_mem_consumption > 0 and max_mem_consumption < 100
+    do_memcheck = 0 < max_mem_consumption < 100
     process = psutil.Process(os.getpid()) if do_memcheck else None
     count = 0
     step = 100
@@ -190,7 +191,7 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024 * 1024,
 def dbsyncdf(dataframe, session, matching_columns, autoincrement_pkey_col,
              update=False, buf_size=10, keep_duplicates=False, return_df=True,
              cols_to_print_on_err=None):
-    """Calls `syncdf` and writes to the logger before returning the new
+    """Call `syncdf` and writes to the logger before returning the new
     Dataframe. Raises a :class:`FailedDownload` if the returned Dataframe is
     empty (no row saved)"""
     db_exc_logger = DbExcLogger(cols_to_print_on_err)
@@ -384,7 +385,7 @@ def normalize_fdsn_dframe(dframe, query_type):
     `query` and correct data types (rows with unparsable values, e.g. NaNs, are
     removed). The data frame is ready to be saved to the internal database
 
-    :param query_df: the dataframe resulting from the string url `query`
+    :param dframe: the dataframe resulting from a FDSN query
     :param query_type: either 'event', 'channel', 'station'
     :return: a new dataframe, whose length is <= `len(dframe)`
     :raise: ValueError in case of errors (e.g., mismatching column number, or
@@ -430,8 +431,9 @@ def rename_columns(query_df, query_type):
         # EndTime`
         # Set this table columns mapping (by name, so we can safely add any
         # new column at any index):
-        columns = [Station.network.key, Station.station.key, Station.latitude.key,
-                   Station.longitude.key, Station.elevation.key, Station.site_name.key,
+        columns = [Station.network.key, Station.station.key,
+                   Station.latitude.key, Station.longitude.key,
+                   Station.elevation.key, Station.site_name.key,
                    Station.start_time.key, Station.end_time.key]
     elif query_type.lower() == "channel" or query_type.lower() == "channels":
         # these are the query_df expected columns for a station (level=channel)
@@ -661,14 +663,15 @@ class DownloadStats(OrderedDict):
                     GAP_OVLAP_CODE=('OK Gaps Overlaps',  # title
                                     'Data saved (download ok, '  # legend
                                     'data has gaps or overlaps)',
-                                    0.1)  # sort order (put it next ot '200 ok')
+                                    0.1) # sort order (put it next ot '200 ok')
         )
     ```
     In this case, please note:
     1. titles should be all with first letters capitalized (to conform to HTTP
        messages implemented as values of `stream2segment.utils.url.responses`)
     2. legends should have the format:
-       '<Data saved|No data saved> (download <ok|failed|completed><optional details>)'
+       '<Data saved|No data saved> (download <ok|failed|completed><details>)'
+       (where <details> is optional)
     3. The last tuple element is a float denoting the column position (order)
        when this class is printed or its `str` method called. The sort values
        for the default codes are described in `get_s2s_responses`
@@ -712,7 +715,8 @@ class DownloadStats(OrderedDict):
         choosen, if both are castable, then their natural order as integers is
         chosen)
 
-        :param codes: an iterable of numeric codes, usually but not necessarily integers
+        :param codes: an iterable of numeric codes, usually but not necessarily
+            integers
         """
         def cmp_func(kode1, kode2):
             """sort function"""
@@ -913,4 +917,7 @@ class Authorizer(object):
         """Return the tuple (user, passowrd), or None, You can safely use
         this method also in an if statement: `if auth.userpass`
         """
-        return None if (self._uname, self._pswd) == (None, None) else (self._uname, self._pswd)
+        if (self._uname, self._pswd) == (None, None):
+            return None
+        else:
+            return self._uname, self._pswd
