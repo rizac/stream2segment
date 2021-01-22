@@ -914,10 +914,9 @@ class Authorizer(object):
 
     @property
     def userpass(self):
-        """Return the tuple (user, passowrd), or None, You can safely use
+        """Return the tuple (user, password), or None, You can safely use
         this method also in an if statement: `if auth.userpass`
         """
         if (self._uname, self._pswd) == (None, None):
             return None
-        else:
-            return self._uname, self._pswd
+        return self._uname, self._pswd
