@@ -95,7 +95,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         self._seg_urlread_sideeffect = [self._seg_data, self._seg_data_gaps, 413, 500,
                                         self._seg_data[:2], self._seg_data_empty,  413,
                                         URLError("++urlerror++"), socket.timeout()]
-        self.service = ''  # so get_datacenters_df accepts any row by default
+        self.service = 'eida'  # so get_datacenters_df accepts any row by default
         self.db_buf_size = 1
         self.routing_service = yaml_load(get_templates_fpath("download.yaml"))\
             ['advanced_settings']['routing_service_url']
@@ -241,7 +241,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 
         net, sta, loc, cha = [], [], [], []
         datacenters_df, eidavalidator = \
-            self.get_datacenters_df(None, db.session, None, self.routing_service,
+            self.get_datacenters_df(None, db.session, self.service, self.routing_service,
                                     net, sta, loc, cha, db_bufsize=self.db_buf_size)
 
         # url read for channels: Note: first response data raises, second has an error and
@@ -368,7 +368,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 
         net, sta, loc, cha = [], [], [], []
         datacenters_df, eidavalidator = \
-            self.get_datacenters_df(None, db.session, None, self.routing_service,
+            self.get_datacenters_df(None, db.session, self.service, self.routing_service,
                                     net, sta, loc, cha, db_bufsize=self.db_buf_size)
 
         # url read for channels: Note: first response data raises, second has an error and

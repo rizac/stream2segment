@@ -76,7 +76,7 @@ ZU * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
         self._seg_urlread_sideeffect = [self._seg_data, self._seg_data_gaps, 413, 500,
                                         self._seg_data[:2], self._seg_data_empty,  413,
                                         URLError("++urlerror++"), socket.timeout()]
-        self.service = ''  # so get_datacenters_df accepts any row by default
+        self.service = 'eida'  # NOT USED (should be so get_datacenters_df accepts any row by default)
         self.db_buf_size = 1
         self.routing_service = yaml_load(get_templates_fpath("download.yaml"))\
             ['advanced_settings']['routing_service_url']
@@ -408,8 +408,9 @@ UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
                                                       net, sta, loc, cha, starttime, endtime,
                                                       db_bufsize=self.db_buf_size)
         assert self.mock_urlopen.called
-        assert not mock_fileopen.called
-        assert eidavalidator is None
+        assert mock_fileopen.called
+        mock_fileopen.reset_mock()
+        assert eidavalidator is not None
         assert len(dcdf) == 1
         assert db.session.query(DataCenter).count() == 1
 
@@ -420,20 +421,26 @@ UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
                                                       net, sta, loc, cha, starttime, endtime,
                                                       db_bufsize=self.db_buf_size)
         assert self.mock_urlopen.called
-        assert not mock_fileopen.called
-        assert eidavalidator is None
+        assert mock_fileopen.called
+        mock_fileopen.reset_mock()
+        assert eidavalidator is not None
         assert len(dcdf) == 1
         assert db.session.query(DataCenter).\
             filter(DataCenter.organization_name == 'iris').count() == 1
 
         # eida:
         # we should call self.mock_urlopen and mock_fileopen (eida error => read from file)
+        # first set the expected datacenters we get from teh local file.
+        # (see resources/eidars.txt). The datacenters currently there are 13 but one
+        # is not fdsn, thus 12:
+        EXPECTED_EIDA_DCS_FROMFILE = 13 - 1
         dcdf, eidavalidator = self.get_datacenters_df(urlread_sideeffect, db.session, "eida",
                                                       self.routing_service,
                                                       net, sta, loc, cha, starttime, endtime,
                                                       db_bufsize=self.db_buf_size)
         assert self.mock_urlopen.called
         assert mock_fileopen.called
+        mock_fileopen.reset_mock()
         msg = self.log_msg()
         _, last_mod_time = _get_local_routing_service()
         expected_str = ("Eida routing service error, reading routes from file "
@@ -441,8 +448,8 @@ UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
         assert expected_str in msg
         assert eidavalidator is not None
         assert db.session.query(DataCenter).\
-            filter(DataCenter.organization_name == 'eida').count() == 10
-        assert len(dcdf) == 10
+            filter(DataCenter.organization_name == 'eida').count() == EXPECTED_EIDA_DCS_FROMFILE
+        assert len(dcdf) == EXPECTED_EIDA_DCS_FROMFILE
 
 #         with pytest.raises(FailedDownload) as qdown:
 #             data, _ = self.get_datacenters_df(urlread_sideeffect, db.session, "eida",
@@ -468,10 +475,14 @@ UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
                                                       net, sta, loc, cha, starttime, endtime,
                                                       db_bufsize=self.db_buf_size)
         assert self.mock_urlopen.called
-        assert not mock_fileopen.called
-        assert db.session.query(DataCenter).\
-            filter(DataCenter.organization_name == 'eida').count() == 10
+        assert not mock_fileopen.called  # no err => no read from file
+        mock_fileopen.reset_mock()
+        # datacenters on the mocked response are two:
         assert len(dcdf) == 2
+        # on the database, we did not add any new data center:
+        assert db.session.query(DataCenter).\
+            filter(DataCenter.organization_name == 'eida').count() \
+               == EXPECTED_EIDA_DCS_FROMFILE
         assert "Eida routing service error, reading from file (last updated: " \
             not in self.log_msg()[len(msg):]
 
@@ -482,7 +493,7 @@ UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
         urlread_sideeffect = ["""http://ws.NEWDC1.fr/fdsnws/station/1/query
 http://geofon.gfz-potsdam.de/fdsnws/station/1/query
 
-http://NEWDC2.gfz-potsdam.de/fdsnws/station/1/query
+http://ws.NEWDC2.gfz-potsdam.de/fdsnws/station/1/query
 ZZ * * * 2002-09-01T00:00:00 2005-10-20T00:00:00
 UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
         dcdf, eidavalidator = self.get_datacenters_df(urlread_sideeffect, db.session,
@@ -491,8 +502,18 @@ UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
                                                       net, sta, loc, cha, starttime, endtime,
                                                       db_bufsize=self.db_buf_size)
         assert self.mock_urlopen.called
-        assert not mock_fileopen.called
-        assert db.session.query(DataCenter).\
-            filter(DataCenter.organization_name == 'eida').count() == 12
+        assert not mock_fileopen.called  # no err => no read from file
+        mock_fileopen.reset_mock()
+        # datacenters on the mocked response are two:
+        # Note that according to :func:`stream2segment.download.modules.datacenters.eidarsiter`
+        # the second line in in `urlread_sideeffect` above is interpreted as a station of
+        # the first datacenter NEWDC1. Thus we have only two datacenters NEWDC1 and NEWDC2
         assert len(dcdf) == 2
+        assert 'NEWDC1' in sorted(dcdf.dataselect_url)[0]
+        assert 'NEWDC2' in sorted(dcdf.dataselect_url)[1]
+        # on the database, we added two more data center:
+        assert db.session.query(DataCenter).\
+            filter(DataCenter.organization_name == 'eida').count() == \
+            2 + EXPECTED_EIDA_DCS_FROMFILE
+
 

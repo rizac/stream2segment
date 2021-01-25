@@ -96,7 +96,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         self._seg_urlread_sideeffect = [self._seg_data, self._seg_data_gaps, 413, 500,
                                         self._seg_data[:2], self._seg_data_empty,  413,
                                         URLError("++urlerror++"), socket.timeout()]
-        self.service = ''  # so get_datacenters_df accepts any row by default
+        self.service = 'eida'  # so get_datacenters_df accepts any row by default
         self.db_buf_size = 1
         self.routing_service = yaml_load(get_templates_fpath("download.yaml"))\
             ['advanced_settings']['routing_service_url']
@@ -254,7 +254,7 @@ ZU * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
 
         net, sta, loc, cha = [], [], [], []
         datacenters_df, eidavalidator = \
-            self.get_datacenters_df(urlread_sideeffect, db.session, None, self.routing_service,
+            self.get_datacenters_df(urlread_sideeffect, db.session, self.service, self.routing_service,
                                     net, sta, loc, cha, db_bufsize=self.db_buf_size)
         # first we mock url errors in all queries. We still did not write anything in the db
         # so we should quit:
@@ -563,7 +563,7 @@ YY yy * DE? 2013-08-01T00:00:00 2017-04-25
 """
         net, sta, loc, cha = [], [], [], []
         datacenters_df, eidavalidator = \
-            self.get_datacenters_df(urlread_sideeffect, db.session, None, self.routing_service,
+            self.get_datacenters_df(urlread_sideeffect, db.session, self.service, self.routing_service,
                                     net, sta, loc, cha, db_bufsize=self.db_buf_size)
 
         # MOCK THE CASE OF DUPLICATED STATIONS (I.E., RETURNED BY MORE THAN ONE DATACENTER)
@@ -604,9 +604,10 @@ B1|bb||NEZ|3|4|6|0|0|0|OK:                                                      
         csd = dbquery2df(db.session.query(Channel.sensor_description))
         assert len(csd) == EXPECTED_SAVED_CHANNELS
         logmsg = self.log_msg()
-        assert "4 station(s) and 7 channel(s) not saved to db. Reason: wrong datacenter" \
-            in logmsg
-        assert "2 channel(s) not saved to db. Reason: conflicting data" \
+        assert ("4 station(s) and 7 channel(s) not saved to db (wrong datacenter"
+                " detected using either Routing services or already saved "
+                "stations)") in logmsg
+        assert "2 channel(s) not saved to db (conflicting data" \
             in logmsg
         assert "BOTM" in logmsg[logmsg.index("2 channel(s) not saved to db"):]
         # assert that the OK string is in the sensor description

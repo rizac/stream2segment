@@ -149,12 +149,13 @@ def url2str(obj, maxlen=None):
     try:
         url = str(obj.get_full_url())
         data = str(obj.data or '')
-        if data and maxlen is not None and len(data) > maxlen:
-            data = ("%s\n...(showing first %d characters only)" %
-                    (data[:maxlen], maxlen))
+        if data:
+            if maxlen is not None and len(data) > maxlen:
+                data = ("%s\n...(showing first %d characters only)" %
+                        (data[:maxlen], maxlen))
             url = "%s, POST data:\n%s" % (url, data)
     except AttributeError:
-        url = obj
+        url = str(obj)
     return url
 
 
