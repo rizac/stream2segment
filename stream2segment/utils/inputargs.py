@@ -66,14 +66,26 @@ class BadArgument(Exception):
 
     @property
     def message(self):
-        msg = '%s' if not self.msg_preamble else \
-            self.msg_preamble.strip() + " %s"
+        # msg = '%s' if not self.msg_preamble else \
+        #     self.msg_preamble.strip() + " %s"
         # Access the parent message (works in py2 and 3):
-        err_msg = self.args[0]  # pylint: disable=unsubscriptable-object
-        p_name = '"%s"' % (" / ".join('"%s"' % p for p in self.param_name)[1:-1]
-                          if isinstance(self.param_name, (list, tuple)) else
-                          str(self.param_name))
-        ret = (msg % p_name) + (": " + err_msg if err_msg else '')
+        if isinstance(self.param_name, (list, tuple)):
+            p_name = " / ".join('"%s"' % p for p in self.param_name)[1:-1]
+        else:
+            p_name = str(self.param_name)
+        p_name = '"' + p_name + '"'
+        # p_name = '"%s"' % (" / ".join('"%s"' % p for p in self.param_name)[1:-1]
+        #                   if isinstance(self.param_name, (list, tuple)) else
+        #                   str(self.param_name))
+        msg_preamble = self.msg_preamble
+        if msg_preamble:
+            msg_preamble += ' '
+        err_msg = str(self.args[0] or '')  # noqa
+        if err_msg:
+            # lower case first letter as err_msg will follow a ":"
+            err_msg = ": " + err_msg[0].lower() + err_msg[1:]
+        # ret = (msg % p_name) + ": " + err_msg
+        ret = msg_preamble + p_name + err_msg
         return ret[0:1].upper() + ret[1:]
 
     def __str__(self):
@@ -318,7 +330,7 @@ def create_auth(restricted_data, dataws, configfile=None):
     ret = Authorizer(restricted_data)
     # check dataws is single element list:
     if len(dataws) != 1:
-        raise ValueError('Downloading restricted data requires '
+        raise ValueError('downloading restricted data requires '
                          'a single URL in `dataws`')
     dataws = dataws[0]
     # Here we have 4 cases:
@@ -328,7 +340,7 @@ def create_auth(restricted_data, dataws, configfile=None):
     # 4. Any other fdsn + token: OK (we might have provided a single eida
     #                                datacenter in which case it's fine)
     if dataws.lower() == 'eida' and ret.userpass:
-        raise ValueError('Downloading from EIDA requires a token, '
+        raise ValueError('downloading from EIDA requires a token, '
                          'not username and password')
     return ret
 

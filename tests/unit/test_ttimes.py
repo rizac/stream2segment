@@ -18,6 +18,9 @@ from stream2segment.cli import ttcreate
 from stream2segment.traveltimes.ttcreator import _filepath, StepIterator,\
     min_traveltime
 
+pytestmark = pytest.mark.skip("TRAVEL-TIMES CREATION NOT SUPPORTED AS OF 2021."
+                              "IT WILL PROBABLY BE M OVED TO A SEPARATE "
+                              "PACKAGE")
 
 @pytest.fixture(scope='module')
 def ttdata(data):

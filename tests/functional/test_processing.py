@@ -463,7 +463,7 @@ def main(""")
                 # basically, assert we do not have the log file
                 _ = self.logfilecontent
             assert 'Invalid value for "pyfile": ' in stdout
-            further_string = 'main2' if err_type is None else 'No module named'
+            further_string = 'main2' if err_type is None else 'no module named'
             assert further_string in stdout
             # we did NOt open the output file:
             assert not os.path.isfile(filename)

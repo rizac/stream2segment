@@ -1,10 +1,10 @@
-'''
+"""
 Class handling logger for downloading and processing
 
 :date: Feb 20, 2017
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
-'''
+"""
 # make the following(s) behave like python3 counterparts if running from python2.7.x
 # (http://python-future.org/imports.html#explicit-imports):
 from builtins import object  # pylint: disable=redefined-builtin
@@ -226,13 +226,12 @@ def configlog4processing(logger, logfile_path='', verbose=False):
 
 def logfilepath(filepath):
     """Return a log file associated to the given `filepath`, i.e.:
-    `filepath` + "[now].log"
-    where [now] is the current date-time in ISO format, rounded to the
-    closest second
+    `filepath + "[now].log"` where [now] is the current date-time in ISO
+    format, rounded to the closest second
 
-    :param filepath: a file path serving as base for the returned log file
-        path. The file does not need to exist but if you want to use the returned
-        log file for logging (the usual case), its parent directory must exist
+    :param filepath: a file path serving as base for the log file path. The
+        file does not need to exist but if you want to use the returned file
+        for logging (the usual case), its parent directory must exist
     """
     _now = datetime.utcnow().replace(microsecond=0).isoformat()
     return filepath + (".%s.log" % _now)

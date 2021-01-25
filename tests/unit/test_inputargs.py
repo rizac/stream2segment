@@ -367,7 +367,7 @@ class Test(object):
         result = run_cli_download(advanced_settings={})  # remove an opt. param.
         assert result.exit_code != 0
         assert ('Error: Invalid value for "advanced_settings": '
-                'Missing value for "download_blocksize"') in result.output
+                'missing value for "download_blocksize"') in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
         assert db.session.query(Download).count() == dcount
 
@@ -403,7 +403,7 @@ class Test(object):
                                                  'maxmag_radius': 4})
         assert result.exit_code != 0
         assert ('Error: Invalid value for "search_radius": '
-                'To supply a constant radius, '
+                'to supply a constant radius, '
                 'set "min: 0" and specify the radius with the "max" argument') in result.output
 
         result = run_cli_download(search_radius={'min': -1, 'max': 5})
@@ -779,8 +779,8 @@ def test_download_verbosity(mock_run_download, mock_configlog, mock_closesess, m
     assert not out  # assert empty
     log, err, warn = dblog_err_warn()
     assert "Completed in " in log
-    assert 'No errors' in log  # 0 total errors
-    assert 'No warnings' in log  # 0 total warnings
+    assert '0 errors' in log  # 0 total errors
+    assert '0 warnings' in log  # 0 total warnings
     assert numloggers[0] == 1
 
     # now let's see that if we raise an exception we also
@@ -801,8 +801,8 @@ def test_download_verbosity(mock_run_download, mock_configlog, mock_closesess, m
     assert out  # assert non empty
     log, err, warn = dblog_err_warn()
     assert "Completed in " in log
-    assert 'No errors' in log  # 0 total errors
-    assert 'No warnings' in log  # 0 total warnings
+    assert '0 errors' in log  # 0 total errors
+    assert '0 warnings' in log  # 0 total warnings
     assert numloggers[0] == 2
 
     # now let's see that if we raise an exception we also

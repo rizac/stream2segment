@@ -5,7 +5,7 @@
 # {{ YAML_WARN }}
 
 
-# Database url where to save data (currently supported are SQLite and Postgres).
+# Database URL where to save data (currently supported are SQLite and Postgres).
 # We suggest sqlite for small to medium data sizes or enough system RAM (as a rule of
 # thumb: less than a million segments, and/or more than 8GB of RAM) and postgres
 # otherwise (note that with postgres, the database must have been created beforehand).
@@ -36,7 +36,7 @@ endtime: 2016-12-25T00:00:00
 # Events: https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=14
 # =======
 
-# The URL of the event catalog (event web service) or local file path of the events list
+# The URL of the event catalog (event web service) or local file path of the events list.
 # The events list returned by the URL or in the supplied file must be formatted as
 # specified in https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=16
 # or in isf format (http://www.isc.ac.uk/standards/isf/download/isf.pdf), although the
@@ -188,41 +188,43 @@ search_radius:
 # Data (waveform segments) https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=8
 # ========================
 
-# List of URLs for downloading waveform data. All URLs must be FDSN-compliant, e.g.:
-# https://service.iris.edu/fdsnws/dataselect/1/query
+# List of URLs for downloading waveform data (data web services). All URLs must
+# be FDSN-compliant, e.g.: https://service.iris.edu/fdsnws/dataselect/1/query
 # You can also type two special values: 1) "iris" (Incorporated Research Institutions for
 # Seismology, shortcut for the URL above) or 2) "eida" (European Integrated Data Archive,
 # shortcut for the URLs list of all EIDA data centers, or nodes). Being FDSN compliant,
 # all URLs are also used to fetch automatically the stations (and channels) necessary for
 # the waveforms download.
-# IMPORTANT: Keep in mind that when providing two (or more) non-EDIA URLs, conflicts
-# (e.g., a station returned by both URLs) cannot be resolved (i.e., the station will be
-# discarded) and any waveform available will not be downloaded. Discarded stations and
-# channels will be anyway logged to database or file for information.
+# IMPORTANT: When providing two (or more) URLs, station conflicts (e.g., the same station
+# returned by both URLs) which cannot be resolved will cause the station to be discarded
+# (the user will be notified in the log file) and all its available waveforms not to be
+# downloaded. The program tries to resolve conflicts with a Routing service (for EIDA
+# URLs) or by checking if the station URL is saved on the database from a previous
+# download (thus, conflicts involving EIDA nodes have more chances to be resolved).
 # Implementation details: If no station /channel could be downloaded (e.g., connection
 # problems), then the requested stations and channels will be fetched from the database,
-# if non-empty (otherwise the download process will stop with an error message). Station
-# conflicts involving EIDA nodes will be resolved with the eida routing service (see
-# `advanced_settings`). If the latter fails, the station/channel will be discarded, as
-# usual. In supplying the URLs, If the URL scheme - basically the prefix "http://" or
-# "https://" - is missing, 'http://' will be prepended to the URL. An ending '/' or '?'
-# will be removed from the URL, if present).
+# if non-empty (otherwise the download process will stop with an error message). The EIDA
+# routing service is configurable in `advanced_settings`. In the URLs below, If the URL \
+# scheme - basically the prefix "http://" or "https://" - is missing, 'http://' will be
+# prepended to the URL. An ending '/' or '?' will be removed from the URL, if present).
 dataws:
   - 'eida'
   # - 'iris'
 
-# The model to be used to asses the travel times of a wave from the event location to
-# each station location. Type a string denoting a file name (absolute path) of a custom
-# model created by means of `s2s utils ttcreate` or one of the 4 built-in models:
+# The model to asses the travel time of a wave from the event location to each station
+# location. This will be used to get each segment arrival time (travel time + event time)
+# and then the final segment window to download (see also `timespan`). Type one of the 4
+# built-in precomputed models:
 #   ak135_ttp+: ak135 model precomputed for all ttp+ phases (P wave arrivals)
 #   ak135_tts+: ak135 model precomputed for all tts+ phases (S wave arrivals)
 #   iasp91_ttp+: iasp91 model precomputed for all ttp+ phases (P wave arrivals)
 #   iasp91_tts+: iasp91 model precomputed for all tts+ phases (S wave arrivals)
-# For each segment, the arrival time (travel time + event time) will be the pivot
-# whereby the user sets up the download time window (see also 'timespan').
-# Implementation details: the max error on the arrival times (assessed on a random set of
-# points) using one of the precomputed models is in the order of 0.5 seconds. All builtin
-# models assume receiver depth=0 for simplicity
+# Implementation details: the models above are optimized for speed in a massive download
+# scenario: the median error when compared to real models is in the order of few
+# milliseconds (max error reported: 0.5s). You can create your own model via the command
+# `s2s utils ttcreate` and use it here by typing its file (absolute) path. However, the
+# command is not maintained anymore (there are plans to move it to a new standalone
+# program) so use it at your own risk
 traveltimes_model: 'ak135_ttp+'
 
 # The segment's time span (i.e., the data time window to download): specify two positive
@@ -253,31 +255,30 @@ timespan:
 # Implementation details: to provide a two element list in YAML, see parameter `timespan`
 restricted_data: ""
 
-
-# Try to download again already saved segments with no waveform data because not found in
-# the response. This is NOT the case when the server returns no data with an appropriate
-# 'No Content' message, but when a successful multi-segment request returns some but not
-# all requested segments: missing segments will then belong to the "not found" category
+# Retry already downloaded segments if the database reports that the previous attempt was
+# unsuccessful because no data could be found. A typical case is when a request of several
+# segments to a server (see `dataws`) got in response only some of them
 retry_seg_not_found: true
 
-# Try to download again already saved segments with no waveform data because of a
-# general url error (e.g., no internet connection, timeout, ...)
+# Retry already downloaded segments if the database reports that the previous attempt was
+# unsuccessful because of a general URL error (e.g., no internet connection, timeout, ...)
 retry_url_err: true
 
-# Try to download again already saved segments with no waveform data because the response
-# was malformed, i.e. not readable as MiniSeed
+# Retry already downloaded segments if the database reports that the previous attempt was
+# unsuccessful because the waveform data was malformed, i.e. is not readable as MiniSeed
 retry_mseed_err: false
 
-# Try to download again already saved segments with no waveform data because of a client
-# error (response code in [400,499])
+# Retry already downloaded segments if the database reports that the previous attempt was
+# unsuccessful because of a client (i.e., stream2segment) request error
 retry_client_err: true
 
-# Try to download again already saved segments with no waveform data because of a server
-# error (response code in [500,599])
+# Retry already downloaded segments if the database reports that the previous attempt was
+# unsuccessful because of a server (see `dataws`) response error
 retry_server_err: true
 
-# Try to download again already saved segments with no waveform data because the response
-# data was completely outside the requested time span (see 'timespan' for details)
+# Retry already downloaded segments if the database reports that the previous attempt was
+# unsuccessful because received data was completely outside the requested time window
+# (see 'timespan' for details)
 retry_timespan_err: true
 
 

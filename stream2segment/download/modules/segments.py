@@ -299,8 +299,8 @@ def download_save_segments(session, segments_df, dc_dataselect_manager,
     # set queryauth column here, outside the loop:
     restricted_enable_dcids = dc_dataselect_manager.restricted_enabled_ids
     if restricted_enable_dcids:
-        segments_df[SEG.QAUTH] = \
-            segments_df[SEG.DCID].isin(dc_dataselect_manager.restricted_enabled_ids)
+        segments_df[SEG.QAUTH] = segments_df[SEG.DCID].\
+            isin(restricted_enable_dcids)
     else:
         segments_df[SEG.QAUTH] = False
 
@@ -383,7 +383,7 @@ def download_save_segments(session, segments_df, dc_dataselect_manager,
                         # overhead. The condition `code is not None` should
                         # never happen but for safety we put it, because we
                         # have set the download code column of `dframe` to
-                        # None/nan to mark segments to update neverthless, on
+                        # None/nan to mark segments to update nevertheless, on
                         # the assumption that we never get response code = None
                         # (see comment L.94). Thus, if for some weird reason
                         # the response code is None, then update the segment

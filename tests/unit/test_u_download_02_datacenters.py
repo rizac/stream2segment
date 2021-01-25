@@ -212,13 +212,20 @@ UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
         # provide defaults for arguments not tested here:
         net, sta, loc, cha, start, end = [], [], [], [], None, None
 
+        urljoin_expected_callcount = 0
         # no fdsn service ("http://myservice")
         with pytest.raises(FailedDownload):
             data, _ = self.get_datacenters_df(urlread_sideeffect, db.session,
                                               "http://myservice", self.routing_service,
                                               net, sta, loc, cha, start, end,
                                               db_bufsize=self.db_buf_size)
-        assert not mock_urljoin.called  # is called only when supplying eida
+
+        # NOTE: below we test that mock_urljoin.called and
+        # ediavalidator != None because of legacy code, where they were true
+        # conditionally depending on the input (iris or eida), whreas now both
+        # expressions are always True
+        urljoin_expected_callcount += 1
+        assert mock_urljoin.call_count == urljoin_expected_callcount
 
         # normal fdsn service ("https://mocked_domain/fdsnws/station/1/query")
         data, eidavalidator = \
@@ -226,10 +233,11 @@ UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
                                     "https://mock/fdsnws/station/1/query", self.routing_service,
                                     net, sta, loc, cha, start, end,
                                     db_bufsize=self.db_buf_size)
-        assert not mock_urljoin.called  # is called only when supplying eida
+        urljoin_expected_callcount += 1
+        assert mock_urljoin.call_count == urljoin_expected_callcount
         assert len(db.session.query(DataCenter).all()) == len(data) == 1
         assert db.session.query(DataCenter).first().organization_name is None
-        assert eidavalidator is None  # no eida
+        assert eidavalidator is not None
 
         # iris:
         data, eidavalidator = \
@@ -237,12 +245,13 @@ UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
                                     "iris", self.routing_service,
                                     net, sta, loc, cha, start, end,
                                     db_bufsize=self.db_buf_size)
-        assert not mock_urljoin.called  # is called only when supplying eida
+        urljoin_expected_callcount += 1
+        assert mock_urljoin.call_count == urljoin_expected_callcount
         assert len(db.session.query(DataCenter).all()) == 2  # we had one already (added above)
         assert len(data) == 1
         assert len(db.session.query(DataCenter).
                    filter(DataCenter.organization_name == 'iris').all()) == 1
-        assert eidavalidator is None  # no eida
+        assert eidavalidator is not None
 
         # eida:
         data, eidavalidator = \
@@ -250,7 +259,8 @@ UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
                                     "eida", self.routing_service,
                                     net, sta, loc, cha, start, end,
                                     db_bufsize=self.db_buf_size)
-        assert mock_urljoin.called  # is called only when supplying eida
+        urljoin_expected_callcount += 1
+        assert mock_urljoin.call_count == urljoin_expected_callcount
         # we had two already written, 1 written now:
         assert len(db.session.query(DataCenter).all()) == 3
         assert len(data) == 1
@@ -260,7 +270,7 @@ UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
         assert db.session.query(DataCenter).filter(DataCenter.organization_name ==
                                                    'eida').first().station_url == \
             "http://ws.resif.fr/fdsnws/station/1/query"
-        assert eidavalidator is not None  # no eida
+        assert eidavalidator is not None
 
         # now re-launch and assert we did not write anything to the db cause we already did:
         dcslen = len(db.session.query(DataCenter).all())
@@ -309,8 +319,8 @@ UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
                                                            self.routing_service,
                                                            net, sta, loc, cha, starttime, endtime,
                                                            db_bufsize=self.db_buf_size)
-            assert eida_validator is None
-            assert not mock_urljoin.called
+            assert eida_validator is not None
+            assert mock_urljoin.called
 
             # iris:
             mock_urljoin.reset_mock()
@@ -318,8 +328,8 @@ UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
                                                            self.routing_service,
                                                            net, sta, loc, cha, starttime, endtime,
                                                            db_bufsize=self.db_buf_size)
-            assert eida_validator is None
-            assert not mock_urljoin.called
+            assert eida_validator is not None
+            assert mock_urljoin.called
 
             # eida:
             mock_urljoin.reset_mock()
@@ -397,7 +407,7 @@ UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
                                                       self.routing_service,
                                                       net, sta, loc, cha, starttime, endtime,
                                                       db_bufsize=self.db_buf_size)
-        assert not self.mock_urlopen.called
+        assert self.mock_urlopen.called
         assert not mock_fileopen.called
         assert eidavalidator is None
         assert len(dcdf) == 1
@@ -409,7 +419,7 @@ UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
                                                       self.routing_service,
                                                       net, sta, loc, cha, starttime, endtime,
                                                       db_bufsize=self.db_buf_size)
-        assert not self.mock_urlopen.called
+        assert self.mock_urlopen.called
         assert not mock_fileopen.called
         assert eidavalidator is None
         assert len(dcdf) == 1
