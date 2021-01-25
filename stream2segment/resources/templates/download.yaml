@@ -306,9 +306,9 @@ advanced_settings:
  i_timeout: 60
  # Max time to wait (in seconds) for a single request while downloading waveform data
  w_timeout: 30
- # The buffer size used when writing (inserting or updating) database data. Increasing
- # this number speeds up the download but increases the memory consumption and might
- # cause in rare cases more data wasted (E.g. a database error while inserting a segment
- # will discard the segment and also all subsequent items in the buffer). Conversely, we
- # experienced performance degradations when this number is below the range [30, 50]
+ # The buffer size used when writing (inserting or updating) database data, in number of
+ # segments. Increasing this number speeds up the download (we experienced performance
+ # degradation when it's below the range [30, 50]) but increases the memory consumption.
+ # Consider also that a single database error while writing a segment will unfortunately
+ # affect all buffer segments, which must all be discarded
  db_buf_size: 100
