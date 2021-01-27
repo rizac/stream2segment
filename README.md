@@ -78,40 +78,78 @@ Please refer to the **[github documentation](https://github.com/rizac/stream2seg
 
 ## Installation
 
-This program has been installed and tested on Ubuntu 14+ and macOS
-(from El Capitan and later). *Please note that the database software installation is not
-covered here. If you plan saving data to a local database, depending on your database
-choice you will need also `sqlite3` or `postgres` installed on your computer (sqlite3 is
-generally pre-installed on Ubuntu and macOS).*
+This program has been installed and tested on Ubuntu (14 and later) and macOS
+(El Capitan and later).
 
-### Prerequisites
+In case of installation problems, we suggest you to proceed in this order:
+
+ 1. Look at [Installation Notes](#installation-notes) to check if the problem
+    has already ben observed and a solution proposed
+ 2. Google for the solution (as always)
+ 3. [Ask for help](https://github.com/rizac/stream2segment/issues)
+
+
+### Requirements (external software)
+
+In this section we assume that you already have Python (**3.5 or later**) 
+and the required database software. If you plan to use SQLite, which is generally
+used to save all data in a local file, you probably do not need to bother, as
+the required package `sqlite3` is generally pre-installed (but check it beforehand).
+If you plan to use Postgres, you might use a remote machine (e.g., a server where
+Postgres is already installed or where you can delegate its installation),
+or otherwise you need to install `postgresql` locally.
+
+<!--
+In most packages, the management of required external software is generally left
+to the user, as it depends on too many factors. We try to help collecting
+in this section and in [Installation Notes](#installation-notes) the feedbacks
+from several installations, also be to skip this section and - if you can stand some potential error
+during installation  - handle potential errors
+due to missing software later, in order to have more control on what you
+install or update, and why.
+-->
 
 #### macOS
 
-Follow the instructions below for Ubuntu, remembering to replace  `apt-get` with the OsX
-equivalent `brew` (be sure to have [brew](https://brew.sh/) installed).
+On MacOS (El Capitan and later) all required software is generally already
+preinstalled. We suggest you to go to the next step and look at the
+[Installation Notes](#installation-notes) in case of problems
+(to install software on MacOS, we recommend to use [brew](https://brew.sh/)).
+
+<details>
+<summary>Details</summary>
+
+In few cases, on some computers we needed to run one or more of the following
+commands (it's up to you to run them now or later, only those really needed):
+
+```
+xcode-select --install
+brew install openssl
+brew install c-blosc
+brew install git
+```
+
+</details>
 
 #### Ubuntu
 
-**NOTE: As of 2019, we strongly recommend to use Python3**
+Ubuntu does not generally have all required packages pre-installed. The bare minimum
+of the necessary packages can be installed with the `apt-get` command:
 
 ```
-sudo apt-get update
-sudo apt-get install git python-pip python2.7-dev  # python 2
 sudo apt-get install git python3-pip python3-dev  # python 3
 ```
 
-Stream2segment needs also several programs (collected from several Ubuntu installations),
-which you can install beforehand by expanding the details below and have less chances of
-installation problems. You can also go to the next section and skip the step below:
-installation problems are more likely to happen (for details, see also the
-[Installation Notes](#installation-notes)) but you can control what to install and avoid
-upgrading already installed packages unnecessarily.
+<!-- 
+sudo apt-get update
+
+sudo apt-get install git python-pip python2.7-dev  # python 2 -->
 
 <details>
-<summary>Show additional software installation details</summary>
+<summary>Details</summary>
 
-1. For Ubun tu users, we found the following command in some cases necessary:
+In few cases, on some computers we needed to run one or more of the following
+commands (it's up to you to run them now or later, only those really needed):
 
 Upgrade `gcc` first:
 	
@@ -128,12 +166,6 @@ sudo apt-get install libpng-dev libfreetype6-dev \
 	build-essential gfortran libatlas-base-dev libxml2-dev libxslt-dev python-tk
 ```
 
-2. For Mac users, you might need to:
-```
-xcode-select --install
-brew install openssl
-brew install c-blosc
-```
 
 </details>
 
@@ -150,23 +182,24 @@ cd stream2segment
 
 ### Install and activate Python virtualenv
 
-We strongly recomend to use Python virtual environment,
+We strongly recommend to use Python virtual environment,
 because by isolating all Python packages we are about to install,
 we won't create conflicts with already installed packages. 
 
-* Installation (recommended, but works for Python 3.5+ only)
+<!-- * Installation (recommended, but works for Python 3.5+ only) -->
 
-	Python 3 (from version 5) has a built-in support for virtual environments - venv.
-	Install it via:
-	```
-	sudo apt-get install python3-venv
-	```
-	Make virtual environment in an stream2segment/env directory (env is a convention,
-	but it's ignored by git commits so better keeping it)
-	```
-	python3 -m venv ./env
-	```
+Python (from version 3.3) has a built-in support for virtual environments - venv
+(On Ubuntu, you might need to install it first
+via `sudo apt-get install python3-venv`).
 
+Make virtual environment in an stream2segment/env directory (env is a convention,
+but it's ignored by git commits so better keeping it. You can also use ".env"
+which makes it usually hidden in Ubuntu).
+```
+python3 -m venv ./env
+```
+
+<!--
 * Installation (all Python versions)
 
 	To install Python virtual environment either use
@@ -182,6 +215,7 @@ we won't create conflicts with already installed packages.
 	 ```
 	(on ubuntu 16.04, we got the message 'virtualenv: Command not found.'.
 	We just typed: `/usr/local/bin/virtualenv env`)
+-->
 
 To activate your virtual environment, type:
 
@@ -223,11 +257,33 @@ Activate your virtual environment
 ### Install Stream2segment Python package
 
 **Important reminders before installing**: 
-  1. From now on you are supposed to be in your activated Python virtualenv**
-  2. In case of errors to check the [Installation notes below](#installation-Notes)**
+  - From now on you are supposed to be in the stream2segment directory,
+     (where you cloned the repository) with your Python virtualenv activated
+  - In case of errors, check the [Installation notes below](#installation-Notes)
 
-Run `./installme` or `./installme-dev` (the latter if you want to contribute and/or
-run tests to check if the program will likely work in your system)
+Installation first installs all *requirements* (i.e., required external Python
+packages) and then this package, and can be performed in a single command in two ways:
+
+1. If you already have other Python packages installed in the virtual environment, run:
+   ```
+   pip install -e .
+   ```
+   (the -e is optional, [it makes the package editable](https://pip.pypa.io/en/stable/reference/pip_install/#install-editable)). 
+   This does not re-install already installed requirements if they satisfy Stream2segment
+   minimum versions, and it's therefore generally safer in order to avoid conflicts with
+   existing packages. However, in all other cases requirements are installed with their
+   newest version. Therefore, you might have problems with Stream2segment, if some
+   requirements is used with a new untested version. Obviously, we do our best to keep
+   everything updated regularly and avoid this case as much as we can.
+
+2. If you plan to only use Stream2segment in an empty virtual environment, run:
+   ```
+   ./installme
+   ```
+   (or `./installme-dev` if you want to contribute and/or run tests to check if the program
+    will likely work in your system). This installs all requirements with specific version
+    "freezed" after successfully running tests, and it's therefore generally safer in order
+    to avoid problems with Stream2segment.
 
 <details>
 
