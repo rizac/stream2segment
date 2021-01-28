@@ -269,12 +269,12 @@ packages) and then this package, and can be performed in a single command in two
    pip install -e .
    ```
    (the -e is optional, [it makes the package editable](https://pip.pypa.io/en/stable/reference/pip_install/#install-editable)). 
-   This does not re-install already installed requirements if they satisfy Stream2segment
+   This does not reinstall already installed requirements if they satisfy Stream2segment
    minimum versions, and it's therefore generally safer in order to avoid conflicts with
    existing packages. However, in all other cases requirements are installed with their
    newest version. Therefore, you might have problems with Stream2segment, if some
-   requirements is used with a new untested version. Obviously, we do our best to keep
-   everything updated regularly and avoid this case as much as we can.
+   new untested requirement is used (we do our best to keep
+   everything updated regularly and avoid this case as much as we can).
 
 2. If you plan to only use Stream2segment in an empty virtual environment, run:
    ```
@@ -342,6 +342,10 @@ Here some examples depending on your needs:
 
 ```
 pytest -xvvv -W ignore ./tests/
+```
+
+```
+pytest -xvvv -W ignore --dburl postgresql://<user>:<password>@localhost/<dbname> ./tests/
 ```
 
 ```
@@ -434,23 +438,15 @@ to common problems you might have and that we collected from several Ubuntu inst
 
 ## Developer(s) notes:
 
-- Although PEP8 recommends 79 character length, the program used initially a 100
-  characters max line width (we are now moving back to 79 character length.
+- ~~Although PEP8 recommends 79 character length, the program used initially a 100
+  characters max line width~~ (we are now moving back to 79 character length).
   It seems that [among new features planned for Python 4 there is
   an increment to 89.5 characters](https://charlesleifer.com/blog/new-features-planned-for-python-4-0/).
-  If true, we might stick to that in the future) 
+  If true, we might stick to that in the future
   
-- The program can be also installed via the usual way by ignoring `requirements.txt` and
-  just typing:
-  ```
-  pip install -e .
-  ```
-  The difference is that this way the newest version of all dependencies are downloaded,
-  whereas with `requirements.txt` (see above) all dependencies are installed with the
-  specific version on which tests passed successfully. Therefore, the latter approach is
-  a lot safer. From times to times, it is nevertheless necessary to update the dependencies,
-  which would also make `pip install` more likely to work (at least for some time). The
-  procedure is:
+- In the absence of Continuous Integration in place, from times to times, it is necessary
+  to update the dependencies, to make `pip install` more likely to work (at least for
+  some time). The procedure is:
   ```
 	pip install -e .
 	pip freeze > ./requirements.tmp
