@@ -291,18 +291,18 @@ advanced_settings:
  routing_service_url: "http://www.orfeus-eu.org/eidaws/routing/1/query"
  # Maximum number of concurrent (roughly speaking, simultaneous) downloads allowed. The
  # default (null) means 'set it automatically' (usually between 4 and 8, depending on the
- # number of CPUs in the system). To disable concurrency and download all data in series
- # (or sequentially), set this parameter to 1.
- # In the practice, we recommend to leave this parameter to null because it improves
- # significantly the execution speed, and to set it to 1 (or 2, or any small number of
- # your choice) only in targeted, less "massive" downloads, e.g.:
+ # number of CPUs in the system), whereas 1 disables concurrency and downloads all data
+ # in series (i.e., sequentially).
+ # We recommend to leave this parameter to null because it improves significantly the
+ # execution speed, and to set it to 1 (or 2, or any small number of your choice) only
+ # in targeted, less "massive" downloads, e.g.:
  # a) when fetching restricted data (which should usually be performed from a specific
  #    datacenter and network. See `restricted_data`, `dataws` and `network` parameters)
  # b) when retrying a download from a datacenter that complained about too many requests,
  #    i.e. clearly suggesting that this parameter should be lowered. This happens when a
- #    datacenter returns many error codes 429 and 503 in the waveform download summary
+ #    datacenter returns many error codes 429 or 503 in the waveform download summary
  #    table that you can see at the end of each download routine, or via the command
- #    `s2s utils dreport`)
+ #    `s2s utils dreport`
  max_concurrent_downloads: null
  # Max time to wait (in seconds) for a single request while downloading events
  e_timeout: 120
