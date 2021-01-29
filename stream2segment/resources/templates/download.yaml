@@ -287,7 +287,7 @@ retry_timespan_err: true
 # =====================================
 
 advanced_settings:
- # Routing service used to fetch the eida nodes and relative network/stations
+ # Routing service used to fetch the EIDA nodes and relative network/stations
  routing_service_url: "http://www.orfeus-eu.org/eidaws/routing/1/query"
  # Maximum number of concurrent (roughly speaking, simultaneous) downloads allowed. The
  # default (null) means 'set it automatically' (usually between 4 and 8, depending on the
