@@ -92,12 +92,10 @@ In case of installation problems, we suggest you to proceed in this order:
 ### Requirements (external software)
 
 In this section we assume that you already have Python (**3.5 or later**) 
-and the required database software. If you plan to use SQLite, which is generally
-used to save all data in a local file, you probably do not need to bother, as
-the required package `sqlite3` is generally pre-installed (but check it beforehand).
-If you plan to use Postgres, you might use a remote machine (e.g., a server where
-Postgres is already installed or where you can delegate its installation),
-or otherwise you need to install `postgresql` locally.
+and the required database software. The latter should not needed if you use
+[SQLite](https://docs.python.org/3/library/sqlite3.html) or if the
+database is already installed remotely, so basically you are concerned only if you
+need to download data locally (on your computer) on a Postgres database.
 
 <!--
 In most packages, the management of required external software is generally left
@@ -348,9 +346,11 @@ pytest -xvvv -W ignore ./tests/
 pytest -xvvv -W ignore --dburl postgresql://<user>:<password>@localhost/<dbname> ./tests/
 ```
 
+<!--
 ```
 pytest -xvvv -W ignore --cov=./stream2segment --cov-report=html ./tests/
 ```
+-->
 
 ```
 pytest -xvvv -W ignore --dburl postgresql://<user>:<password>@localhost/<dbname> --cov=./stream2segment --cov-report=html ./tests/
@@ -438,9 +438,9 @@ to common problems you might have and that we collected from several Ubuntu inst
 
 ## Developer(s) notes:
 
-- ~~Although PEP8 recommends 79 character length, the program used initially a 100
-  characters max line width~~ (we are now moving back to 79 character length).
-  It seems that [among new features planned for Python 4 there is
+- Although PEP8 recommends 79 character length, the program used initially a 100
+  characters max line width, which is being reverted to 79 (you might see mixed
+  lengths in the modules). It seems that [among new features planned for Python 4 there is
   an increment to 89.5 characters](https://charlesleifer.com/blog/new-features-planned-for-python-4-0/).
   If true, we might stick to that in the future
   

@@ -54,6 +54,9 @@ def run(session, download_id, eventws, starttime, endtime, dataws,
     #    exception
 
     dbbufsize = advanced_settings['db_buf_size']
+    thread_workers = advanced_settings['concurrent_downloads'],
+    download_blocksize = advanced_settings['download_blocksize']
+
     update_md_only = update_metadata == 'only'
     if update_md_only:
         update_metadata = True
@@ -98,9 +101,9 @@ def run(session, download_id, eventws, starttime, endtime, dataws,
                                       network, station, location, channel,
                                       starttime, endtime,
                                       min_sample_rate, update_metadata,
-                                      advanced_settings['max_thread_workers'],
+                                      thread_workers,
                                       advanced_settings['s_timeout'],
-                                      advanced_settings['download_blocksize'],
+                                      download_blocksize,
                                       dbbufsize, isterminal)
 
         if not update_md_only:
@@ -143,7 +146,7 @@ def run(session, download_id, eventws, starttime, endtime, dataws,
                      '(open data only) ' if dc_dataselect_manager.opendataonly else '')
             # frees memory. Although maybe unecessary, let's do our best to
             # free stuff cause the next one is memory consuming:
-            # https://stackoverflow.com/questions/30021923/how-to-delete-a-sqlalchemy-mapped-object-from-memory
+            # https://stackoverflow.com/a/30022294/3526777
             session.expunge_all()
             session.close()
 
@@ -152,9 +155,9 @@ def run(session, download_id, eventws, starttime, endtime, dataws,
                                              chaid2mseedid, download_id,
                                              update_metadata,
                                              request_timebounds_need_update,
-                                             advanced_settings['max_thread_workers'],
+                                             thread_workers,
                                              advanced_settings['w_timeout'],
-                                             advanced_settings['download_blocksize'],
+                                             download_blocksize,
                                              dbbufsize,
                                              isterminal)
             del segments_df  # help gc?
@@ -187,7 +190,7 @@ def run(session, download_id, eventws, starttime, endtime, dataws,
         if inventory:
             # frees memory. Although maybe unecessary, let's do our best to
             # free stuff cause the next one might be memory consuming:
-            # https://stackoverflow.com/questions/30021923/how-to-delete-a-sqlalchemy-mapped-object-from-memory
+            # https://stackoverflow.com/a/30022294/3526777
             session.expunge_all()
             session.close()
 
@@ -202,9 +205,9 @@ def run(session, download_id, eventws, starttime, endtime, dataws,
                 stepinfo("Downloading %d station inventories", len(sta_df))
                 n_downloaded, n_empty, n_errors = \
                     save_inventories(session, sta_df,
-                                     advanced_settings['max_thread_workers'],
+                                     thread_workers,
                                      advanced_settings['i_timeout'],
-                                     advanced_settings['download_blocksize'],
+                                     download_blocksize,
                                      dbbufsize, isterminal)
                 logger.info(("** Station inventories download summary **\n"
                              "- downloaded     %7d \n"
