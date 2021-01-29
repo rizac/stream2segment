@@ -289,10 +289,6 @@ retry_timespan_err: true
 advanced_settings:
  # Routing service used to fetch the eida nodes and relative network/stations
  routing_service_url: "http://www.orfeus-eu.org/eidaws/routing/1/query"
- # Size (in bytes) of each block of data requested when downloading. It applies to any
- # kind of data (event, waveform or station metadata). If 0, it will be converted to -1.
- # If negative, all data will be always read in a single call and one block.
- download_blocksize: 1048576  # = 1024*1024
  # Number of concurrent (roughly speaking, simultaneous) downloads. This parameter can
  # also be true or false. The default (true) sets the number automatically, according to
  # the computer CPU (usually between 4 and 8), whereas 1 or false means download data in
@@ -315,6 +311,10 @@ advanced_settings:
  i_timeout: 60
  # Max time to wait (in seconds) for a single request while downloading waveform data
  w_timeout: 30
+ # Size (in bytes) of each block of data requested when downloading. It applies to any
+ # kind of data (event, waveform or station metadata). If 0, it will be converted to -1.
+ # If negative, all data will be always read in a single call and one block.
+ download_blocksize: 1048576  # = 1024*1024
  # The buffer size used when writing (inserting or updating) database data, in number of
  # segments. Increasing this number speeds up the download (we experienced performance
  # degradation when it's below the range [30, 50]) but increases the memory consumption.
