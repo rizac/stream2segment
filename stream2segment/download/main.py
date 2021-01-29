@@ -146,7 +146,7 @@ def run(session, download_id, eventws, starttime, endtime, dataws,
                      '(open data only) ' if dc_dataselect_manager.opendataonly else '')
             # frees memory. Although maybe unecessary, let's do our best to
             # free stuff cause the next one is memory consuming:
-            # https://stackoverflow.com/questions/30021923/how-to-delete-a-sqlalchemy-mapped-object-from-memory
+            # https://stackoverflow.com/a/30022294/3526777
             session.expunge_all()
             session.close()
 
@@ -190,7 +190,7 @@ def run(session, download_id, eventws, starttime, endtime, dataws,
         if inventory:
             # frees memory. Although maybe unecessary, let's do our best to
             # free stuff cause the next one might be memory consuming:
-            # https://stackoverflow.com/questions/30021923/how-to-delete-a-sqlalchemy-mapped-object-from-memory
+            # https://stackoverflow.com/a/30022294/3526777
             session.expunge_all()
             session.close()
 
