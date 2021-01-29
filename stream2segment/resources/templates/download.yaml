@@ -293,18 +293,17 @@ advanced_settings:
  # kind of data (event, waveform or station metadata). If 0, it will be converted to -1.
  # If negative, all data will be always read in a single call and one block.
  download_blocksize: 1048576  # = 1024*1024
- # Number of concurrent downloads, i.e., roughly, the maximum number of simultaneous
- # downloads that the program will try to perform whenever possible. This parameter can
+ # Number of concurrent (roughly speaking, simultaneous) downloads. This parameter can
  # also be true or false. The default (true) sets the number automatically, according to
  # the computer CPU (usually between 4 and 8), whereas 1 or false means download data in
  # series (or sequentially) which is considerably slower in time. In the practice, leave
  # this parameter as true and set it to 1 (or 2, or any small number of your choice) only
- # in targeted, less "massive" downloads, e.g. when fetching restricted data (which should
- # usually be done from a specific datacenter and network. See `restricted_data`,
- # `dataws` and `network` parameters), or when retrying a download from a datacenter that
- # refused to return data because of too many requests (you can inspect this by looking
- # at how many error codes 429 and 503 a datacenter has, in the waveform download summary
- # table. See also the command `s2s utils dreport`)
+ # in targeted, less "massive" downloads, e.g. when fetching restricted data (usually
+ # performed from a specific datacenter and network. See `restricted_data`, `dataws` and
+ # `network` parameters), or when retrying a download from a datacenter that refused to
+ # return data because of too many requests (you can inspect this by looking at how many
+ # error codes 429 and 503 a datacenter has, in the waveform download summary table. See
+ # also the command `s2s utils dreport`)
  concurrent_downloads: true  # or false, or supply a number >=1
  # Max time to wait (in seconds) for a single request while downloading events
  e_timeout: 120
@@ -322,15 +321,3 @@ advanced_settings:
  # Consider also that a single database error while writing a segment will unfortunately
  # affect all buffer segments, which must all be discarded
  db_buf_size: 100
-
-
-# Number of concurrent downloads to perform (it can be also true/false). The default
- # (true) will set this number automatically (usually between 4 and 8), whereas 1
- # or false means download data in series (sequentially) which is considerably slower in
- # time. In the practice, leave this parameter as true and set it to 1 (or 2, or any small
- # number of your choice) only in targeted, less "massive" downloads, e.g. when fetching
- # restricted data (which should usually be done from a specific datacenter and network.
- # See `restricted_data`, `dataws` and `network` parameters), or when retrying a download
- # from a datacenter that refused to return data because of too many requests (you can
- # inspect this by looking at how many error codes 429 and 503 a datacenter has, in the
- # waveform download summary table. See also the command `s2s utils dreport`)
