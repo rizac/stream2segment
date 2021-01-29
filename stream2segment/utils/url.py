@@ -212,7 +212,7 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024, dec
         url strings or Request objects. When function, it will be called with each element of
         `iterable` as argument, and must return the mapped url address or Request.
     :param max_workers: integer or None (the default) denoting the max workers of the
-        `ThreadPoolExecutor`. When None, the theads allocated are relative to the machine cpu
+        `ThreadPoolExecutor`. When None, the threads allocated are relative to the machine cpu
     :param blocksize: integer defaulting to 1024*1024 specifying, when connecting to one of
         the given urls, the mximum number of bytes to be read at each call of `urlopen.read`.
         If the size argument is negative or omitted, read all data until EOF is reached

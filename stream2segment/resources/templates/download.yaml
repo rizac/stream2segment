@@ -296,6 +296,20 @@ advanced_settings:
  # How many parallel threads to start when downloading (one thread per download)
  # If null, 0 or negative, it is automatically set according to the machine CPU
  max_thread_workers: 0
+ # Number of parallel downloads to perform. Can be also true or false. The default (true)
+ # will set this number automatically depending on the computer CPU (this usually means a
+ # maximum of 4 to 8 simultaneous connections to servers). 1 or false means download data
+ # in series, which will obviously slow down the whole routine considerably but might be
+ # beneficial to get data from datacenters which have a configured limit on the number of
+ # concurrent requests they can receive. We suggest to leave this parameter to true and
+ # then set it to 1 or false (or 2, or any small number of your choice) in narrower, less
+ # "massive" downloads, e.g. only from a specific datacenter and network (see `dataws`
+ # and `network` parameter). Two typical cases are when downloading restricted data (see
+ # `restricted_data`) or when in a previous download the datacenter refused to return
+ # waveforms because of too many attempts (error codes 503 or 429. These errors can be
+ # inspected in the summary table printed on the terminal after each download, or
+ # programmatically with the command `s2s utils dreport`)
+ parallel_downloads: true  # or false, or supply a number >=1
  # Max time to wait (in seconds) for a single request while downloading events
  e_timeout: 120
  # Max time to wait (in seconds) for a single request while downloading stations+channel
