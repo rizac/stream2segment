@@ -297,11 +297,10 @@ advanced_settings:
  # execution speed, and to set it to 1 (or 2, or any small number of your choice) only
  # in more targeted, less "massive" downloads, e.g.:
  # a) when fetching restricted data (See `restricted_data` parameter)
- # b) when retrying a download from a datacenter that complained about too many requests,
- #    i.e. clearly suggesting that this parameter should be lowered. This happens when a
- #    datacenter returns many error codes 429 or 503 in the waveform download summary
- #    table that you can see at the end of each download routine, or via the command
- #    `s2s utils dreport`
+ # b) when retrying to fetch data from a specific datacenter where many downloads failed
+ #    to return segments with error messages suggesting to lower this parameter, e.g.
+ #    "Service Unavailable" (code 503) or "Too Many Requests" (code 429) errors in the
+ #    download summary table (see also the command `s2s utils dreport`)
  max_concurrent_downloads: null
  # Max time to wait (in seconds) for a single request while downloading events
  e_timeout: 120
