@@ -237,22 +237,22 @@ timespan:
  - 1.0 # start of the waveform segment, in minutes *before* the calculated arrival time.
  - 3.0 # end of the waveform segment, in minutes *after* the calculated arrival time
 
-# Set the credentials in order to download restricted data.
+# Credentials to download restricted data. When null, missing or "", only open waveforms
+# will be downloaded. When provided, it can be either a list of two strings (username and
+# password), or, for EIDA node(s), a string denoting the path of a token file (for
+# info see https://geofon.gfz-potsdam.de/waveform/archive/auth/auth-overview.php)
 # IMPORTANT: You SHOULD NOT perform massive, time-consuming downloads when fetching
-# restricted data, as the credentials validity might expire during the download execution
-# (this is the case with EDIA tokens). Try narrowing the search in case (e.g. provide the
-# network(s) or station(s) of interest only). In any case, restricted data downloads work
-# with only one URL in `dataws`.
-# This parameter is usually a list of two strings denoting username and password, with
-# one exception: if "dataws" is "eida", it must be a single string denoting the path of a
-# token file for restricted data authorization (non-absolute paths will be relative to
-# the config file they are written in. For more details on how to obtain and use tokens,
-# see https://geofon.gfz-potsdam.de/waveform/archive/auth/auth-overview.php).
-# When this parameter is null, or the empty string, only open (unrestricted) waveform
-# data will be downloaded. When provided, restricted segments previously downloaded with
-# no credentials (thus, with no waveform data) will be always re-downloaded ignoring all
-# 'retry' settings.
-# Implementation details: to provide a two element list in YAML, see parameter `timespan`
+# restricted data, because 1) it makes no sense: credentials are valid only for the
+# organization emitting them (thus there must be only one item in `dataws`) and
+# 2) credentials might have an expiration time (e.g., EIDA tokens should have few hours).
+# Thus, try narrowing the search (e.g., shorter time bounds, network(s) or station(s) of
+# interest only. Have a look also at `max_concurrent_downloads` in `advanced_settings` as
+# in this case you might want to improve download efficiency over execution speed).
+# Implementation details: restricted segments previously downloaded with no credentials
+# (thus, with no waveform data) will be always re-downloaded ignoring all 'retry'
+# settings. If you need to provide username and password, remember indentation in YAML
+# (see parameter `timespan`). If you provide a token with a non-absolute path, its path
+# will be relative to the config file path
 restricted_data: ""
 
 # Retry already downloaded segments if the database reports that the previous attempt was
@@ -295,9 +295,8 @@ advanced_settings:
  # in series (i.e., sequentially).
  # We recommend to leave this parameter to null because it improves significantly the
  # execution speed, and to set it to 1 (or 2, or any small number of your choice) only
- # in targeted, less "massive" downloads, e.g.:
- # a) when fetching restricted data (which should usually be performed from a specific
- #    datacenter and network. See `restricted_data`, `dataws` and `network` parameters)
+ # in more targeted, less "massive" downloads, e.g.:
+ # a) when fetching restricted data (See `restricted_data` parameter)
  # b) when retrying a download from a datacenter that complained about too many requests,
  #    i.e. clearly suggesting that this parameter should be lowered. This happens when a
  #    datacenter returns many error codes 429 or 503 in the waveform download summary
