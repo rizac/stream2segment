@@ -168,7 +168,7 @@ def init(outdir):
 
 
 # NOTES BELOW:
-# First, naming conventions:
+# Naming conventions:
 # * option short name: any click option name starting with "-"
 # * option long name: any click option name starting with "--"
 # * option default name: any click option name not starting with any "-"

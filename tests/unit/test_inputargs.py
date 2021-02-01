@@ -432,7 +432,7 @@ class Test(object):
         result = run_cli_download(advanced_settings=adv)
         assert 'max_concurrent_downloads: 2' in \
                result.output[result.output.index('advanced_settings'):]
-        # now provide a "old" config and check we parsed it normally:
+        # now provide a "old" config and check we converted to the new param:
         adv.pop('max_concurrent_downloads')
         adv['max_thread_workers'] = 55
         result = run_cli_download(advanced_settings=adv)
