@@ -245,9 +245,9 @@ timespan:
 # restricted data, because 1) it makes no sense: credentials are valid only for the
 # organization emitting them (thus there must be only one item in `dataws`) and
 # 2) credentials might have an expiration time (e.g., EIDA tokens should have few hours).
-# Thus, try narrowing the search (e.g., shorter time bounds, network(s) or station(s) of
+# Thus, try narrowing the search: e.g., shorter time bounds, network(s) or station(s) of
 # interest only. Have a look also at `max_concurrent_downloads` in `advanced_settings` as
-# in this case you might want to improve download efficiency over execution speed).
+# in this case you might want to improve download efficiency over execution speed.
 # Implementation details: restricted segments previously downloaded with no credentials
 # (thus, with no waveform data) will be always re-downloaded ignoring all 'retry'
 # settings. If you need to provide username and password, remember indentation in YAML
@@ -296,11 +296,12 @@ advanced_settings:
  # We recommend to leave this parameter to null because it improves significantly the
  # execution speed, and to set it to 1, 2, or any small number of your choice) only in
  # more targeted, less "massive" downloads, e.g.:
- # a) when fetching restricted data (See `restricted_data` parameter)
- # b) when retrying to fetch data from a specific datacenter which reported many download
- #    errors suggesting to lower this parameter, e.g. "Service Unavailable" (code 503)
- #    or "Too Many Requests" (code 429). You can inspect errors in the summary table
- #    printed at the end of each download, or via the command `s2s utils dreport`
+ # a) when fetching restricted data (see `restricted_data` parameter)
+ # b) when retrying to fetch data from a specific datacenter (see `dataws` parameter)
+ #    which reported many download errors suggesting to "slow down", e.g. "Service
+ #    Unavailable" (code 503) or "Too Many Requests" (code 429). You can inspect errors
+ #    in the summary table printed after all segments are downloaded, or via the command
+ #    `s2s utils dreport`
  max_concurrent_downloads: null
  # Max time to wait (in seconds) for a single request while downloading events
  e_timeout: 120
