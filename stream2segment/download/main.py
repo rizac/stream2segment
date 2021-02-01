@@ -54,7 +54,7 @@ def run(session, download_id, eventws, starttime, endtime, dataws,
     #    exception
 
     dbbufsize = advanced_settings['db_buf_size']
-    thread_workers = advanced_settings['concurrent_downloads'],
+    max_thread_workers = advanced_settings['max_concurrent_downloads'],
     download_blocksize = advanced_settings['download_blocksize']
 
     update_md_only = update_metadata == 'only'
@@ -101,7 +101,7 @@ def run(session, download_id, eventws, starttime, endtime, dataws,
                                       network, station, location, channel,
                                       starttime, endtime,
                                       min_sample_rate, update_metadata,
-                                      thread_workers,
+                                      max_thread_workers,
                                       advanced_settings['s_timeout'],
                                       download_blocksize,
                                       dbbufsize, isterminal)
@@ -155,7 +155,7 @@ def run(session, download_id, eventws, starttime, endtime, dataws,
                                              chaid2mseedid, download_id,
                                              update_metadata,
                                              request_timebounds_need_update,
-                                             thread_workers,
+                                             max_thread_workers,
                                              advanced_settings['w_timeout'],
                                              download_blocksize,
                                              dbbufsize,
@@ -205,7 +205,7 @@ def run(session, download_id, eventws, starttime, endtime, dataws,
                 stepinfo("Downloading %d station inventories", len(sta_df))
                 n_downloaded, n_empty, n_errors = \
                     save_inventories(session, sta_df,
-                                     thread_workers,
+                                     max_thread_workers,
                                      advanced_settings['i_timeout'],
                                      download_blocksize,
                                      dbbufsize, isterminal)

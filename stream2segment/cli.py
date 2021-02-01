@@ -192,7 +192,7 @@ def init(outdir):
 #    (Options short names can be changed without problems, in principle).
 #    For these options, you need also to provide an option default name which MUST MATCH
 #    the corresponding yaml param help, otherwise the option doc will not be found.
-@cli.command(short_help='Downloads waveform data segments',
+@cli.command(short_help='Download waveform data segments',
              context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
 @click.option("-c", "--config",
               help="The path to the configuration file in yaml format "
@@ -258,13 +258,15 @@ def download(config, dburl, eventws, starttime, endtime, network,  # pylint: dis
     All other options, if provided, will overwrite the corresponding value in the
     config file
     """
+    _locals = dict(locals())  # MUST BE THE FIRST STATEMENT
+
     # import here to improve slow click cli (at least when --help is invoked)
     # https://www.tomrochette.com/problems/2020/03/07
     from stream2segment import main
 
     # REMEMBER: NO LOCAL VARIABLES OTHERWISE WE MESS UP THE CONFIG OVERRIDES ARGUMENTS
     try:
-        overrides = {k: v for k, v in locals().items()
+        overrides = {k: v for k, v in _locals.items()
                      if v not in ((), {}, None) and k != 'config'}
         with warnings.catch_warnings():  # capture (ignore) warnings
             warnings.simplefilter("ignore")
@@ -280,7 +282,7 @@ def download(config, dburl, eventws, starttime, endtime, network,  # pylint: dis
     sys.exit(0 if ret <= 1 else ret)
 
 
-@cli.command(short_help='Processes downloaded waveform data segments',
+@cli.command(short_help='Process downloaded waveform data segments',
              context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option("-c", "--config",
@@ -332,6 +334,8 @@ def process(dburl, config, pyfile, funcname, append, no_prompt,
     If this argument is missing, then the output of F (if any) will be discarded,
     and all logging messages will be saved to the file [pyfile].[now].log
     """
+    _locals = dict(locals())  # MUST BE THE FIRST STATEMENT
+
     # import here to improve slow click cli (at least when --help is invoked)
     # https://www.tomrochette.com/problems/2020/03/07
     from stream2segment import main
@@ -345,7 +349,7 @@ def process(dburl, config, pyfile, funcname, append, no_prompt,
             ret = 1
         else:
             # override config values for multi_process and num_processes
-            overrides = {k: v for k, v in locals().items()
+            overrides = {k: v for k, v in _locals.items()
                          if v not in ((), {}, None) and k in ('multi_process', 'num_processes')}
             if overrides:
                 # if given, put these into 'advanced_settings' sub-dict. Note that
@@ -364,7 +368,7 @@ def process(dburl, config, pyfile, funcname, append, no_prompt,
     sys.exit(ret)
 
 
-@cli.command(short_help='Shows raw and processed downloaded waveform\'s plots in a browser',
+@cli.command(short_help='Show raw and processed downloaded waveform\'s plots in a browser',
              context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option("-c", "--configfile",
@@ -390,7 +394,7 @@ def utils():  # pylint: disable=missing-docstring
     pass
 
 
-@utils.command(short_help='Produces download summary statistics in either plain text or html format',
+@utils.command(short_help='Produce download summary statistics in either plain text or html format',
                context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option('-did', '--download-id', multiple=True, type=int,
@@ -437,7 +441,7 @@ def dstats(dburl, download_id, maxgap_threshold, html, outfile):
         sys.exit(1)  # exit with 1 as normal python exceptions
 
 
-@utils.command(short_help="Returns download information for inspection",
+@utils.command(short_help="Return download information for inspection",
                context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option('-did', '--download-id', multiple=True, type=int,
@@ -484,7 +488,7 @@ def dreport(dburl, download_id, config, log, outfile):
         sys.exit(1)  # exit with 1 as normal python exceptions
 
 
-@utils.command(short_help="Drops (deletes) download executions and all associated segments",
+@utils.command(short_help="Drop (delete) download executions and all associated segments",
                context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option('-did', '--download-id', multiple=True, type=int, required=True,
@@ -522,7 +526,7 @@ def ddrop(dburl, download_id):
         sys.exit(1)  # exit with 1 as normal python exceptions
 
 
-@utils.command(short_help='Prints on screen quick help on stream2segment built-in math functions',
+@utils.command(short_help='Print on screen quick help on stream2segment built-in math functions',
                context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
 @click.option("-t", "--type", type=click.Choice(['numpy', 'obspy', 'all']), default='all',
               show_default=True,
