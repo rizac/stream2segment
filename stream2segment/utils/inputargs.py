@@ -452,7 +452,7 @@ def parse_download_advanced_settings(advanced_settings):
         if advanced_settings[paramname] <= 0:
             advanced_settings[paramname] = -1
 
-        paramname = 'concurrent_downloads'
+        paramname = 'max_concurrent_downloads'
         if paramname not in advanced_settings:
             # try to search old parameter "max_thread_workers"
             # (maybe an old download config)
@@ -460,17 +460,12 @@ def parse_download_advanced_settings(advanced_settings):
             if old_paramname not in advanced_settings:
                 raise KeyError()  # (will raise paramname error)
             # When old_paramname<=0, it defaulted to None (= max thread workers
-            # automatically set by threadPool). We achieve the same now when
-            # parmname is True (see below):
+            # automatically set by threadPool):
             if advanced_settings[old_paramname] <= 0:
-                advanced_settings[old_paramname] = True
+                advanced_settings[old_paramname] = None
             advanced_settings[paramname] = advanced_settings.pop(old_paramname)
 
-        if advanced_settings[paramname] is True:
-            advanced_settings[paramname] = None
-        elif advanced_settings[paramname] is False:
-            advanced_settings[paramname] = 1
-        else:
+        if advanced_settings[paramname] is not None:
             advanced_settings[paramname] = int(advanced_settings[paramname])
 
         paramname = 'db_buf_size'

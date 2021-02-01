@@ -7,12 +7,11 @@ Module for easily accessing all project specific resources.
 """
 from os import listdir
 from os.path import join, dirname, abspath, normpath, isfile, isabs, splitext
-import re
+import yaml
 from collections import defaultdict
 
 # python2-3 compatibility for items and viewitems:
 from future.utils import viewitems, viewkeys, string_types
-import yaml
 
 
 def _get_main_path():
@@ -212,32 +211,41 @@ def yaml_load_doc(filepath, varname=None, preserve_newlines=False):
         single line, concatenating parsed lines with a space
     """
     comments = []
-    reg_yaml_var = re.compile("^([^:]+):\\s.*")
-    reg_comment = re.compile("^#+(.*)")
+    # reg_yaml_var = re.compile("^([^:]+):\\s.*")
+    # reg_comment = re.compile("^#+(.*)")
     ret = defaultdict(str) if varname is None else ''
     isbytes = None
     with open(filepath, 'r') as stream:
         while True:
-            line = stream.readline()  # last char of line is a newline
-            if isbytes is None:
-                isbytes = isinstance(line, bytes)
+            line = stream.readline()
+            # from the docs (https://docs.python.org/3/tutorial/inputoutput.html): if
+            # f.readline() returns an empty string, the end of the file has been reached,
+            # while a blank line is represented by '\n'
             if not line:
                 break
-            # is line a comment?
-            m = reg_comment.match(line)
-            if m and m.groups():
-                # the line is a comment, add the comment text (m.groups()[0]).
-                # Note that the group does not include last  newline
-                comments.append(m.groups()[0].strip())
+            if isbytes is None:
+                isbytes = isinstance(line, bytes)
+            # is line a comment? do not use regexp, it's slower
+            # m = reg_comment.match(line)
+            if line.startswith('#'):
+                # the line is a comment, add the comment text.
+                # Note that the line does not include last newline, if present
+                comments.append(line[1:].strip())
             else:
                 # the line is not a comment line. Do we have parsed comments?
                 if comments:
+                    # use string search and not regexp because faster:
+                    idx = line.find(': ')
+                    if idx == -1:
+                        idx = line.find(':\n')
+                    var_name = None if idx < 1 else line[:idx]
                     # We have parsed comments. Is the line a YAML parameter?
-                    m = reg_yaml_var.match(line)
-                    if m and m.groups():
+                    # m = reg_yaml_var.match(line)
+                    # if m and m.groups():
+                    if var_name:
                         # the line is a yaml variable, it's name is
                         # m.groups()[0]. Map the variable to its comment
-                        var_name = m.groups()[0]
+                        # var_name = m.groups()[0]
                         join_char = "\n" if preserve_newlines else " "
                         comment = join_char.join(comments)
                         docstring = comment

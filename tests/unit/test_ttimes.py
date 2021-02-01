@@ -14,9 +14,8 @@ import pandas as pd
 import pytest
 from click.testing import CliRunner
 
-from stream2segment.cli import ttcreate
 from stream2segment.traveltimes.ttcreator import _filepath, StepIterator,\
-    min_traveltime
+    min_traveltime, ttcreate
 
 pytestmark = pytest.mark.skip("TRAVEL-TIMES CREATION NOT SUPPORTED AS OF 2021."
                               "IT WILL PROBABLY BE M OVED TO A SEPARATE "

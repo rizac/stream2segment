@@ -1,10 +1,10 @@
-'''
+"""
 Module implementing the Command line interface (cli) to access function in the main module
 
 :date: Oct 8, 2017
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
-'''
+"""
 
 # provide some imports to let python3 syntax work also in python 2.7+ effortless.
 # Any of the defaults import below can be safely removed if python2+
@@ -34,17 +34,17 @@ from collections import OrderedDict
 
 import click
 
-from stream2segment import main
+# from stream2segment import main
 from stream2segment.utils.resources import get_templates_fpath, yaml_load_doc
-from stream2segment.traveltimes import ttcreator
+# from stream2segment.traveltimes import ttcreator
 from stream2segment.utils import inputargs
 
 
-class clickutils(object):  #pylint: disable=invalid-name, too-few-public-methods
+class clickutils(object):  # pylint: disable=invalid-name, too-few-public-methods
     """Container for Options validations, default settings so as not to pollute the click
     decorators"""
 
-    TERMINAL_HELP_WIDTH = 110  # control width of help. 80 should be the default (roughly)
+    TERMINAL_HELP_WIDTH = 110  # control width of help (default ~= 80)
     DEFAULTDOC = yaml_load_doc(get_templates_fpath("download.yaml"))
     EQA = "(event search parameter)"
     DBURL_OR_YAML_ATTRS = dict(type=inputargs.extract_dburl_if_yamlpath,
@@ -116,7 +116,7 @@ def cli():
              context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
 @click.argument('outdir')
 def init(outdir):
-    """Creates template files for launching download,
+    """Create template files for launching download,
     processing and visualization. OUTDIR will be created if it does not exist
     """
     helpdict = OrderedDict([
@@ -143,6 +143,9 @@ def init(outdir):
          "Test database with few downloaded segments. Used in the "
          "associated jupyter notebook")
     ])
+    # import here to improve slow click cli (at least when --help is invoked)
+    # https://www.tomrochette.com/problems/2020/03/07
+    from stream2segment import main
 
     try:
         copied_files = main.init(outdir, True, *helpdict)  # pass only helpdict keys
@@ -189,7 +192,7 @@ def init(outdir):
 #    (Options short names can be changed without problems, in principle).
 #    For these options, you need also to provide an option default name which MUST MATCH
 #    the corresponding yaml param help, otherwise the option doc will not be found.
-@cli.command(short_help='Downloads waveform data segments',
+@cli.command(short_help='Download waveform data segments',
              context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
 @click.option("-c", "--config",
               help="The path to the configuration file in yaml format "
@@ -250,13 +253,20 @@ def download(config, dburl, eventws, starttime, endtime, network,  # pylint: dis
              minlatitude, maxlatitude, minlongitude,  # pylint: disable=unused-argument
              maxlongitude, mindepth, maxdepth, minmagnitude,  # pylint: disable=unused-argument
              maxmagnitude):  # pylint: disable=unused-argument
-    """Downloads waveform data segments with metadata in a specified database.
-    The config file (-c option, see below) is the only required option. All other options,
-    if provided, will overwrite the correspomding value in the config file
+    """Download waveform data segments with metadata in a specified database.
+    NOTE: The config file (-c option, see below) is the only required option.
+    All other options, if provided, will overwrite the corresponding value in the
+    config file
     """
+    _locals = dict(locals())  # MUST BE THE FIRST STATEMENT
+
+    # import here to improve slow click cli (at least when --help is invoked)
+    # https://www.tomrochette.com/problems/2020/03/07
+    from stream2segment import main
+
     # REMEMBER: NO LOCAL VARIABLES OTHERWISE WE MESS UP THE CONFIG OVERRIDES ARGUMENTS
     try:
-        overrides = {k: v for k, v in locals().items()
+        overrides = {k: v for k, v in _locals.items()
                      if v not in ((), {}, None) and k != 'config'}
         with warnings.catch_warnings():  # capture (ignore) warnings
             warnings.simplefilter("ignore")
@@ -272,7 +282,7 @@ def download(config, dburl, eventws, starttime, endtime, network,  # pylint: dis
     sys.exit(0 if ret <= 1 else ret)
 
 
-@cli.command(short_help='Processes downloaded waveform data segments',
+@cli.command(short_help='Process downloaded waveform data segments',
              context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option("-c", "--config",
@@ -312,7 +322,7 @@ def download(config, dburl, eventws, starttime, endtime, network,  # pylint: dis
 def process(dburl, config, pyfile, funcname, append, no_prompt,
             multi_process, num_processes,  # pylint: disable=unused-argument
             outfile):
-    """Processes downloaded waveform data segments via a custom python file and a configuration
+    """Process downloaded waveform data segments via a custom python file and a configuration
     file.
 
     [OUTFILE] (optional): the path of the CSV or HDF file where the output of the user-defined
@@ -324,6 +334,12 @@ def process(dburl, config, pyfile, funcname, append, no_prompt,
     If this argument is missing, then the output of F (if any) will be discarded,
     and all logging messages will be saved to the file [pyfile].[now].log
     """
+    _locals = dict(locals())  # MUST BE THE FIRST STATEMENT
+
+    # import here to improve slow click cli (at least when --help is invoked)
+    # https://www.tomrochette.com/problems/2020/03/07
+    from stream2segment import main
+
     # REMEMBER: NO LOCAL VARIABLES OTHERWISE WE MESS UP THE CONFIG OVERRIDES ARGUMENTS
     try:
         if not append and outfile and os.path.isfile(outfile) and not no_prompt and \
@@ -333,7 +349,7 @@ def process(dburl, config, pyfile, funcname, append, no_prompt,
             ret = 1
         else:
             # override config values for multi_process and num_processes
-            overrides = {k: v for k, v in locals().items()
+            overrides = {k: v for k, v in _locals.items()
                          if v not in ((), {}, None) and k in ('multi_process', 'num_processes')}
             if overrides:
                 # if given, put these into 'advanced_settings' sub-dict. Note that
@@ -352,7 +368,7 @@ def process(dburl, config, pyfile, funcname, append, no_prompt,
     sys.exit(ret)
 
 
-@cli.command(short_help='Shows raw and processed downloaded waveform\'s plots in a browser',
+@cli.command(short_help='Show raw and processed downloaded waveform\'s plots in a browser',
              context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option("-c", "--configfile",
@@ -363,7 +379,11 @@ def process(dburl, config, pyfile, funcname, append, no_prompt,
               help="Optional: The path to the python file with the plot functions implemented",
               type=clickutils.ExistingPath, required=False)
 def show(dburl, configfile, pyfile):
-    """Shows raw and processed downloaded waveform\'s plots in a browser"""
+    """Show raw and processed downloaded waveform\'s plots in a browser"""
+    # import here to improve slow click cli (at least when --help is invoked)
+    # https://www.tomrochette.com/problems/2020/03/07
+    from stream2segment import main
+
     with warnings.catch_warnings():  # capture (ignore) warnings
         warnings.simplefilter("ignore")
         main.show(dburl, pyfile, configfile)
@@ -374,7 +394,7 @@ def utils():  # pylint: disable=missing-docstring
     pass
 
 
-@utils.command(short_help='Produces download summary statistics in either plain text or html format',
+@utils.command(short_help='Produce download summary statistics in either plain text or html format',
                context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option('-did', '--download-id', multiple=True, type=int,
@@ -396,11 +416,16 @@ def utils():  # pylint: disable=missing-docstring
                                                            dir_okay=False, writable=True,
                                                            readable=True))
 def dstats(dburl, download_id, maxgap_threshold, html, outfile):
-    """Produces download summary statistics either in plain text or html format.
+    """Produce download summary statistics either in plain text or html format.
 
     [OUTFILE] (optional): the output file where the information will be saved to.
     If missing, results will be printed to screen or opened in a web browser
-    (depending on the option '--html')"""
+    (depending on the option '--html')
+    """
+    # import here to improve slow click cli (at least when --help is invoked)
+    # https://www.tomrochette.com/problems/2020/03/07
+    from stream2segment import main
+
     print('Fetching data, please wait (this might take a while depending on the '
           'db size and connection)')
     try:
@@ -416,7 +441,7 @@ def dstats(dburl, download_id, maxgap_threshold, html, outfile):
         sys.exit(1)  # exit with 1 as normal python exceptions
 
 
-@utils.command(short_help="Returns download information for inspection",
+@utils.command(short_help="Return download information for inspection",
                context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option('-did', '--download-id', multiple=True, type=int,
@@ -435,11 +460,16 @@ def dstats(dburl, download_id, maxgap_threshold, html, outfile):
                                                            dir_okay=False, writable=True,
                                                            readable=True))
 def dreport(dburl, download_id, config, log, outfile):
-    """Returns download information.
+    """Return download information.
 
     [OUTFILE] (optional): the output file where the information will be saved to.
     If missing, results will be printed to screen or opened in a web browser
-    (depending on the option '--html')"""
+    (depending on the option '--html')
+    """
+    # import here to improve slow click cli (at least when --help is invoked)
+    # https://www.tomrochette.com/problems/2020/03/07
+    from stream2segment import main
+
     print('Fetching data, please wait (this might take a while depending on the '
           'db size and connection)')
     try:
@@ -458,7 +488,7 @@ def dreport(dburl, download_id, config, log, outfile):
         sys.exit(1)  # exit with 1 as normal python exceptions
 
 
-@utils.command(short_help="Drops (deletes) download executions and all associated segments",
+@utils.command(short_help="Drop (delete) download executions and all associated segments",
                context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option('-did', '--download-id', multiple=True, type=int, required=True,
@@ -466,8 +496,13 @@ def dreport(dburl, download_id, config, log, outfile):
                    "This option can be given multiple "
                    "times: ... -did 1 --download_id 2 ...")
 def ddrop(dburl, download_id):
-    """Drops (deletes) download executions. WARNING: this command deletes also
-       all segments, stations and channels downloaded with the given download execution"""
+    """Drop (deletes) download executions. WARNING: this command deletes also
+    all segments, stations and channels downloaded with the given download execution
+    """
+    # import here to improve slow click cli (at least when --help is invoked)
+    # https://www.tomrochette.com/problems/2020/03/07
+    from stream2segment import main
+
     print('Fetching data, please wait (this might take a while depending on the '
           'db size and connection)')
     try:
@@ -491,7 +526,7 @@ def ddrop(dburl, download_id):
         sys.exit(1)  # exit with 1 as normal python exceptions
 
 
-@utils.command(short_help='Prints on screen quick help on stream2segment built-in math functions',
+@utils.command(short_help='Print on screen quick help on stream2segment built-in math functions',
                context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
 @click.option("-t", "--type", type=click.Choice(['numpy', 'obspy', 'all']), default='all',
               show_default=True,
@@ -505,86 +540,15 @@ def ddrop(dburl, download_id):
               help="Show doc only for the function whose name matches the given filter. "
                    "Wildcards (* and ?) are allowed")
 def mathinfo(type, filter):  # @ReservedAssignment pylint: disable=redefined-outer-name
-    '''Prints on screen the doc-strings of the math functions implemented in this package,
-    according to the given type and filter'''
+    """Print on screen the doc-strings of the math functions implemented in this package,
+    according to the given type and filter
+    """
+    # import here to improve slow click cli (at least when --help is invoked)
+    # https://www.tomrochette.com/problems/2020/03/07
+    from stream2segment import main
+
     for line in main.helpmathiter(type, filter):
         print(line)
-
-
-@utils.command(short_help="Creates a travel time table for computing "
-               "travel times (via linear or cubic interpolation, or nearest point) "
-               "in a *much* faster way than using obspy routines directly for large number of "
-               "points")
-@click.option('-o', '--output', required=True,
-              help=('The output file. If directory, the file name will be automatically '
-                    'created inside the directory. Otherwise must denote a valid writable '
-                    'file name. The extension .npz will be added automatically'))
-@click.option("-m", "--model", required=True,
-              help="the model name, e.g. iasp91, ak135, ..")
-@click.option('-p', '--phases', multiple=True, required=True,
-              help=("The phases used, e.g. ttp+, tts+. Can be typed multiple times, e.g."
-                    "-m P -m p"))
-@click.option('-t', '--tt_errtol', type=float, required=True,
-              help=('The error tolerance (in seconds). The algorithm will try to store grid points '
-                    'whose distance is close to this value. Decrease this value to increase '
-                    'precision, increase this value to increase the execution speed'))
-@click.option('-s', '--maxsourcedepth', type=float, default=ttcreator.DEFAULT_SD_MAX,
-              show_default=True,
-              help=('Optional: the maximum source depth (in km) used for the grid generation. '
-                    'When loaded, the relative model can calculate travel times for source depths '
-                    'lower or equal to this value'))
-@click.option('-r', '--maxreceiverdepth', type=float, default=ttcreator.DEFAULT_RD_MAX,
-              show_default=True,
-              help=('Optional: the maximum receiver depth (in km) used for the grid generation. '
-                    'When loaded, the relative model can calculate travel times for receiver '
-                    'depths lower or equal to this value. Note that setting this value '
-                    'greater than zero might lead to numerical problems, e.g. times not '
-                    'monotonically increasing with distances, especially for short distances '
-                    'around the source'))
-@click.option('-d', '--maxdistance', type=float, default=ttcreator.DEFAULT_DIST_MAX,
-              show_default=True,
-              help=('Optional: the maximum distance (in degrees) used for the grid generation. '
-                    'When loaded, the relative model can calculate travel times for receiver '
-                    'depths lower or equal to this value'))
-@click.option('-P', '--pwavevelocity', type=float, default=ttcreator.DEFAULT_PWAVEVELOCITY,
-              show_default=True,
-              help=('Optional: the P-wave velocity (in km/sec), if the calculation of the P-waves '
-                    'is required according to the argument `phases` (otherwise ignored). '
-                    'As the grid points (in degree) of the distances axis '
-                    'cannot be optimized, a fixed step S is set for which it holds: '
-                    '`min(travel_times(D+step))-min(travel_times(D)) <= tt_errtol` for any point '
-                    'D of the grid. The P-wave velocity is needed to asses such a step '
-                    '(for info, see: '
-                    'http://rallen.berkeley.edu/teaching/F04_GEO302_PhysChemEarth/Lectures/HellfrichWood2001.pdf)'))  # @IgnorePep8 pylint: disable=line-too-long
-@click.option('-S', '--swavevelocity', type=float, default=ttcreator.DEFAULT_SWAVEVELOCITY,
-              show_default=True,
-              help=('Optional: the S-wave velocity (in km/sec), if the calculation of the S-waves '
-                    '*only* is required, according to the argument `phases` (otherwise ignored). '
-                    'As the grid points (in degree) of the distances axis '
-                    'cannot be optimized, a fixed step S is set for which it holds: '
-                    '`min(travel_times(D+step))-min(travel_times(D)) <= tt_errtol` for any point '
-                    'D of the grid. If the calculation of the P-waves is also needed according to '
-                    'the argument `phases` , the p-wave velocity value will be used and this '
-                    'argument will be ignored. (for info, see: '
-                    '(http://rallen.berkeley.edu/teaching/F04_GEO302_PhysChemEarth/Lectures/HellfrichWood2001.pdf)'))  # @IgnorePep8 pylint: disable=line-too-long
-def ttcreate(output, model, phases, tt_errtol, maxsourcedepth, maxreceiverdepth, maxdistance,
-             pwavevelocity, swavevelocity):
-    """Creates a travel time table TT, i.e. a grid of
-       source_depths, receiver_depths and distances asssociated to the corresponding
-       travel time T, computed with obspy routines. This allows the calculation of the
-       travel times (via linear or cubic interpolation, or nearest point)
-       in a *much* faster way than using obspy routines directly for large number of
-       points. Stores the
-       resulting file as .npz compressed numpy format. The file path can be given
-       as parameter in the download config to customize the travel times computation"""
-    try:
-        output = ttcreator._filepath(output, model, phases)
-        ttcreator.computeall(output, model, tt_errtol, phases, maxsourcedepth, maxreceiverdepth,
-                             maxdistance, pwavevelocity, swavevelocity, isterminal=True)
-        sys.exit(0)
-    except Exception as exc:  # pylint: disable=broad-except
-        print("ERROR: %s" % str(exc))
-        sys.exit(1)
 
 
 if __name__ == '__main__':
