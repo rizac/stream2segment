@@ -76,6 +76,8 @@ def msgin(msg, click_output):
 
 class Test(object):
 
+    yaml_def_params = yaml_load(get_templates_fpath("download.yaml"))
+
     # execute this fixture always even if not provided as argument:
     # https://docs.pytest.org/en/documentation-restructure/how-to/fixture.html#autouse-fixtures-xunit-setup-on-steroids
     @pytest.fixture(autouse=True)
@@ -371,6 +373,8 @@ class Test(object):
         # assert we did not write to the db, cause the error threw before setting up db:
         assert db.session.query(Download).count() == dcount
 
+
+
         # search radius:
         for search_radius in [{'min': 5}, {'min': 5, 'max': 6, 'minmag': 7}]:
             result = run_cli_download(search_radius=search_radius)
@@ -420,6 +424,21 @@ class Test(object):
         assert result.exit_code != 0
         assert ('Error: Invalid value for "search_radius": '
                 'min should be lower than max') in result.output
+
+        # check advanced_settings renaming of max_thread_workers
+        # normal "new" case:
+        adv = dict(self.yaml_def_params['advanced_settings'])
+        adv['max_concurrent_downloads'] = 2
+        result = run_cli_download(advanced_settings=adv)
+        assert 'max_concurrent_downloads: 2' in \
+               result.output[result.output.index('advanced_settings'):]
+        # now provide a "old" config and check we parsed it normally:
+        adv.pop('max_concurrent_downloads')
+        adv['max_thread_workers'] = 55
+        result = run_cli_download(advanced_settings=adv)
+        assert 'max_concurrent_downloads: 55' in \
+               result.output[result.output.index('advanced_settings'):]
+
 
 
 @patch('stream2segment.main.run_download', side_effect=lambda *a, **v: None)
