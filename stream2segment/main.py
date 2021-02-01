@@ -19,6 +19,7 @@ import re
 import sys
 import os
 import inspect
+import shutil
 from collections import OrderedDict
 from datetime import timedelta
 from webbrowser import open as open_in_browser
@@ -47,7 +48,7 @@ from stream2segment.download.utils import FailedDownload
 from stream2segment.gui.dinfo import DReport, DStats
 from stream2segment.resources.templates import DOCVARS
 from stream2segment.process.writers import get_writer
-import shutil
+
 
 
 if PY2:

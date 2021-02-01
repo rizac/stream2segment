@@ -211,20 +211,20 @@ dataws:
   - 'eida'
   # - 'iris'
 
-# The model to asses the travel time of a wave from the event location to each station
-# location. This will be used to get each segment arrival time (travel time + event time)
-# and then the final segment window to download (see also `timespan`). Type one of the 4
-# built-in precomputed models:
-#   ak135_ttp+: ak135 model precomputed for all ttp+ phases (P wave arrivals)
-#   ak135_tts+: ak135 model precomputed for all tts+ phases (S wave arrivals)
-#   iasp91_ttp+: iasp91 model precomputed for all ttp+ phases (P wave arrivals)
-#   iasp91_tts+: iasp91 model precomputed for all tts+ phases (S wave arrivals)
-# Implementation details: the models above are optimized for speed in a massive download
-# scenario: the median error when compared to real models is in the order of few
-# milliseconds (max error reported: 0.5s). You can create your own model via the command
-# `s2s utils ttcreate` and use it here by typing its file (absolute) path. However, the
-# command is not maintained anymore (there are plans to move it to a new standalone
-# program) so use it at your own risk
+# The model to asses the travel time of a wave from the event location to a station
+# location, which will be used to get the segment arrival time (travel time +
+# event time) and eventually the segment time window to download (see also `timespan`).
+# Type one of the 4 built-in models:
+#   ak135_ttp+: ak135 model for all ttp+ phases (P wave arrivals)
+#   ak135_tts+: ak135 model for all tts+ phases (S wave arrivals)
+#   iasp91_ttp+: iasp91 model for all ttp+ phases (P wave arrivals)
+#   iasp91_tts+: iasp91 model for all tts+ phases (S wave arrivals)
+# Implementation details: the models above are grids of pre-computed travel times
+# obtained from the corresponding model. The grids allow to speed up significantly the
+# computation introducing a negligible interpolation error (roughly in the order of
+# few milliseconds and never exceeding 0.5s). Disclaimer: you can also create your own
+# grid file and put its path here. However, the procedure is not maintained anymore, it
+# might have bugs. For info type `python stream2segment/traveltimes/ttcreator.py --help`
 traveltimes_model: 'ak135_ttp+'
 
 # The segment's time span (i.e., the data time window to download): specify two positive
@@ -239,12 +239,12 @@ timespan:
 
 # Credentials to download restricted data. When null, missing or "", only open waveforms
 # will be downloaded. When provided, it can be either a list of two strings (username and
-# password), or, for EIDA node(s), a string denoting the path of a token file (for
-# info see https://geofon.gfz-potsdam.de/waveform/archive/auth/auth-overview.php)
+# password), or, for EIDA node(s), a string denoting the path of a token file (to get a
+# token, see https://geofon.gfz-potsdam.de/waveform/archive/auth/auth-overview.php)
 # IMPORTANT: You SHOULD NOT perform massive, time-consuming downloads when fetching
-# restricted data, because 1) it makes no sense: credentials are valid only for the
-# organization emitting them (thus there must be only one item in `dataws`) and
-# 2) credentials might have an expiration time (e.g., EIDA tokens should have few hours).
+# restricted data: first, it makes no sense: credentials are valid only for the
+# organization emitting them (thus there must be only one item in `dataws`) and second,
+# credentials might have an expiration time (e.g., roughly few hours for EIDA tokens).
 # Thus, try narrowing the search: e.g., shorter time bounds, network(s) or station(s) of
 # interest only. Have a look also at `max_concurrent_downloads` in `advanced_settings` as
 # in this case you might want to improve download efficiency over execution speed.

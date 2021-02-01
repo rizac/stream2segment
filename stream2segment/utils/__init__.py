@@ -8,13 +8,13 @@ Common utilities for the whole program
 # # (http://python-future.org/imports.html#explicit-imports):
 from builtins import open as compatible_open
 
-from future.utils import string_types, itervalues, PY2, text_type
+from future.utils import string_types, itervalues, PY2
 
 # this can not apparently be fixed with the future package:
 # The problem is io.StringIO accepts unicodes in python2 and strings in python3:
-try:
-    from cStringIO import StringIO  # python2.x
-except ImportError:
+if PY2:
+    from cStringIO import StringIO  # noqa
+else:
     from io import StringIO
 
 import os
