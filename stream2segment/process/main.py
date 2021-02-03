@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 
 
 def run(session, pyfunc, writer, config=None, show_progress=False):
-    '''Runs the processing routine
+    """Run the processing routine
 
     :param session: the sql-alchemy db session
     :pram pyfunc: a python function to be executed on all selected segments
@@ -56,13 +56,13 @@ def run(session, pyfunc, writer, config=None, show_progress=False):
         def __call__(segment_id, result):  # result is surely not None
         ```
     where result is an iterable of values/objects, and segment_id is ... the segment id.
-    :param config: dict of configuration parameters, ususally the result of an associated YAML
-    configuration file
+    :param config: dict of configuration parameters, ususally the result of an associated
+        YAML configuration file
     :param skip_ids: an iterable of integers denoting segments to be skipped among the
     selected ones. None (the default) is equivalent to pass the empty list []
     :param show_progress: (boolean) whether or not to show progress status and remaining time
     on the terminal
-    '''
+    """
     if config is None:
         config = {}
     done_skipped_errors = [0, 0, 0]
@@ -136,11 +136,11 @@ def run(session, pyfunc, writer, config=None, show_progress=False):
 
 
 def fetch_segments_ids(session, config, writer):
-    '''Returns the numpy array of segments ids to process
+    """Return the numpy array of segments ids to process
 
     :return: the numpy array of integers denoting the ids of the segments to process
         according to `config` and `writer` settings
-    '''
+    """
 
     # (Over commenting this module to keep track of all choices done)
 
@@ -193,13 +193,14 @@ def fetch_segments_ids(session, config, writer):
 
 
 def get_advanced_settings(config, segments_count, show_progress):
-    '''Extracts the advanced settings from the given config, returning their defaults
+    """Extract the advanced settings from the given config, returning their defaults
     if not given.
 
-    :return: the tuple chunksize (int, default:depends on segments_count and show_progress,
-                                  however it stems from a default_chunk_size of 1200),
-        multi_process (boolean, default:False), num_processes (int, default: cpu_count())
-    '''
+    :return: the tuple:
+        ```
+        (chunksize:int, multi_process:bool = False, num_processes:int = cpu_count)
+        ```
+    """
     adv_settings = config.get('advanced_settings', {})  # dict
     multi_process = adv_settings.get('multi_process', False)
     num_processes = adv_settings.get('num_processes', None)
@@ -211,18 +212,18 @@ def get_advanced_settings(config, segments_count, show_progress):
         if not show_progress or segments_count >= 2 * default_chuknksize:
             chunksize = default_chuknksize
         else:
-            # determine the chunlsize in order to have `min_pbar_iterations` iterations
+            # determine the chunksize in order to have `min_pbar_iterations` iterations
             # use np.true_divide so that py2/3 division is not a problem:
             chunksize = max(1, int(np.true_divide(segments_count, min_pbar_iterations).item()))
     return chunksize, multi_process, num_processes
 
 
 def _get_chunksize_defaults():
-    '''returns a 2 element tuple with
-    the default segment chunksize (1200) and the minimum progressbar iterations (10)
+    """Return a 2 element tuple with
+    the default segment chunksize (600) and the minimum progressbar iterations (10)
     This function is implemented mainly for mocking in tests
-    '''
-    return 1200, 10
+    """
+    return 600, 10
 
 
 def process_mp(session, pyfunc, config, seg_ids_chunks, writer, done_skipped_errors, pbar,
