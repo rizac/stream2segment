@@ -37,8 +37,9 @@ class BaseWriter(object):
     basically no-op **IMPORTANT**: subclasses need to call super.__init__ !!!
     """
 
-    _SEGID_NOTFOUND_ERR = TypeError('segment id column name not found (was '
-                                    'the file created with this program?)')
+    _SEGID_NOTFOUND_ERR = TypeError('Cannot append to file, segment_id column '
+                                    'name not found (was the file created with '
+                                    'this program?)')
 
     def __init__(self, outputfile=None, append=False):
         self.append = append
@@ -147,7 +148,6 @@ class CsvWriter(BaseWriter):
         exist). Return None if such a column could not be found
         :param outputfile: a valid EXISTING file
         """
-        segidcolname = None
         # read header automatically
         with open(outputfile, "r") as f:
             reader = csv.reader(f)
@@ -156,7 +156,7 @@ class CsvWriter(BaseWriter):
                 if segidcolname in _SEGMENT_ID_COLNAMES:
                     return segidcolname
                 break
-        return segidcolname
+        return None
 
     def already_processed_segments(self):
         """Return a numpy array of UNIQUE integers denoting the the already
