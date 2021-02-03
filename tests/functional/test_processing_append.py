@@ -22,7 +22,7 @@ from stream2segment.io.db.models import Segment
 from stream2segment.utils.resources import get_templates_fpath
 from stream2segment.process.main import run as process_main_run
 from stream2segment.utils.log import configlog4processing as o_configlog4processing
-from stream2segment.process.writers import BaseWriter, SEGMENT_ID_COLNAME
+from stream2segment.process.writers import BaseWriter, _SEGMENT_ID_COLNAMES
 
 
 @pytest.fixture
@@ -122,7 +122,7 @@ class Test(object):
                                                   cmdline_opts,
                                                   # fixtures:
                                                   pytestdir, db4process, clirunner, yamlfile):
-        '''test a case where we create a temporary file, empty but opened before writing'''
+        '''test a case where we create a temporary empty file'''
         # set values which will override the yaml config in templates folder:
         config_overrides = {'snr_threshold': 0,
                             'segment_select': {'has_data': 'true'}}
@@ -152,20 +152,26 @@ class Test(object):
     # use db4process(with_inventory, with_data, with_gap) to return sqlalchemy query for
     # those segments in case. For info see db4process in conftest.py
     @pytest.mark.parametrize('hdf', [True, False])
+    @pytest.mark.parametrize("segment_id_colname", _SEGMENT_ID_COLNAMES)
     @pytest.mark.parametrize('return_list', [True, False])
     @pytest.mark.parametrize("advanced_settings, cmdline_opts",
                              [({}, ['-a']),
                               ({}, ['-a', '--multi-process']),
                               ])
     @mock.patch('stream2segment.cli.click.confirm', return_value=True)
-    def test_append(self, mock_click_confirm, advanced_settings, cmdline_opts,
-                    return_list, hdf,
+    @mock.patch('stream2segment.process.writers.SEGMENT_ID_COLNAME')
+    def test_append(self, mock_seg_id_colname,
+                    mock_click_confirm, advanced_settings, cmdline_opts,
+                    return_list, segment_id_colname, hdf,
                     # fixtures:
                     pytestdir, db4process, clirunner, yamlfile):
         '''test a typical case where we supply the append option'''
         if return_list and hdf:
             # hdf does not support returning lists
             return
+
+        # assign the default segment id column name:
+        mock_seg_id_colname.return_value=segment_id_colname
 
         # set values which will override the yaml config in templates folder:
         config_overrides = {'snr_threshold': 0,
@@ -208,7 +214,7 @@ def main2(segment, config):""")
         # check file has been correctly written:
         csv1 = read_hdf(filename) if hdf else readcsv(filename, header=not return_list)
         assert len(csv1) == 1
-        segid_column = SEGMENT_ID_COLNAME if hdf else csv1.columns[0]
+        segid_column = segment_id_colname if hdf else csv1.columns[0]
         assert csv1.loc[0, segid_column] == expected_first_row_seg_id
         logtext1 = self.logfilecontent
         assert "4 segment(s) found to process" in logtext1
@@ -226,7 +232,7 @@ def main2(segment, config):""")
         # check file has been correctly written:
         csv2 = read_hdf(filename) if hdf else readcsv(filename, header=not return_list)
         assert len(csv2) == 1
-        segid_column = SEGMENT_ID_COLNAME if hdf else csv1.columns[0]
+        segid_column = segment_id_colname if hdf else csv1.columns[0]
         assert csv2.loc[0, segid_column] == expected_first_row_seg_id
         logtext2 = self.logfilecontent
         assert "3 segment(s) found to process" in logtext2
@@ -251,7 +257,7 @@ def main2(segment, config):""")
         # check file has been correctly written:
         csv3 = read_hdf(filename) if hdf else readcsv(filename, header=not return_list)
         assert len(csv3) == 2
-        segid_column = SEGMENT_ID_COLNAME if hdf else csv1.columns[0]
+        segid_column = segment_id_colname if hdf else csv1.columns[0]
         assert csv3.loc[0, segid_column] == expected_first_row_seg_id
         assert csv3.loc[1, segid_column] == new_seg_id
         logtext3 = self.logfilecontent
@@ -270,7 +276,7 @@ def main2(segment, config):""")
         # check file has been correctly written:
         csv4 = read_hdf(filename) if hdf else readcsv(filename, header=not return_list)
         assert len(csv4) == 1
-        segid_column = SEGMENT_ID_COLNAME if hdf else csv1.columns[0]
+        segid_column = segment_id_colname if hdf else csv1.columns[0]
         assert csv4.loc[0, segid_column] == new_seg_id
         logtext4 = self.logfilecontent
         assert "4 segment(s) found to process" in logtext4
