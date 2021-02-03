@@ -14,6 +14,7 @@ as it is usually input in the template file, e.g.:
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 '''
 from stream2segment.download.utils import EVENTWS_MAPPING
+from stream2segment.process.main import _get_chunksize_defaults
 from stream2segment.process.writers import SEGMENT_ID_COLNAME, HDF_DEFAULT_CHUNKSIZE
 
 
@@ -643,8 +644,8 @@ advanced_settings:
   # database is faster: the number below defines the chunk size. If multi_process is true,
   # the chunk size also defines how many segments will be loaded in each Python sub-process.
   # Increasing this number might speed up execution but increases the memory usage.
-  # When null, the chunk size defaults to 1200 if the number N of
-  # segments to be processed is > 1200, otherwise N/10.
+  # When null, the chunk size defaults to {1:d} if the number N of
+  # segments to be processed is > {1:d}, otherwise N/{2:d}.
   segments_chunksize: null
   # Optional arguments for the output writer. Ignored for CSV output, for HDF output see:
   # https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.HDFStore.append.html
@@ -658,7 +659,7 @@ advanced_settings:
     # min_itemsize:
     #   col1: 10
     #   col2: 20
-'''.format(HDF_DEFAULT_CHUNKSIZE)
+'''.format(HDF_DEFAULT_CHUNKSIZE, *_get_chunksize_defaults())
 
 DOWNLOAD_EVENTWS_LIST = '\n'.join('%s"%s": %s' % ('# ' if i > 0 else '', str(k), str(v))
                                   for i, (k, v) in enumerate(EVENTWS_MAPPING.items()))
