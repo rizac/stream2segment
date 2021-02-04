@@ -44,7 +44,7 @@ The key aspects with respect to widely-used similar applications are:
   outputs (e.g., CSV, HDF), or store on the local file system the processed waveform
   segments.
 
-* A visualization tool to show downloded and optionally customized processed segments in
+* A visualization tool to show downloaded and optionally customized processed segments in
   a web browser Graphical User Interface (GUI) by means of Python web framework and 
   Javascript libraries (thus, with no external programs required). As for the processing
   module, write your own code (following few simple instructions) run it with the
