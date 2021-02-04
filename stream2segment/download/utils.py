@@ -40,8 +40,7 @@ from stream2segment.download import logger  # @IgnorePep8
 
 
 class QuitDownload(Exception):
-    """
-    This is an abstract-like class representing an Exception to be raised
+    """This is an abstract-like class representing an Exception to be raised
     as soon as something causes no segments to be downloaded.
 
     This class should not be called directly. Rather, the user should re-raise
@@ -62,10 +61,10 @@ class QuitDownload(Exception):
 
 
 class NothingToDownload(QuitDownload):
-    """This class represents an exception that should be raised whenever the
-    download process has no segments to download according to the user's
-    settings. Currently, stream2segments catches these Exceptions logging their
-    message as level INFO and returning a 0 (=successful) status code
+    """Exception that should be raised whenever the download process has no
+    segments to download according to the user's settings. Currently,
+    stream2segments catches these Exceptions logging their message as level
+    INFO and returning a 0 (=successful) status code
 
     This class and :class:`FailedDownload` both inherit from
     :class:`QuitDownload`.
@@ -74,11 +73,11 @@ class NothingToDownload(QuitDownload):
 
 
 class FailedDownload(QuitDownload):
-    """This class represents an exception that should be raised whenever the
-    download process could not proceed. E.g., a download error (e.g., no
-    internet connection) prevents to fetch any data. Currently, stream2segments
-    catches these Exceptions logging their message as level CRITICAL or ERROR
-    and returning a nonzero (=unsuccessful) status code
+    """Exception that should be raised whenever the download process could not
+    proceed. E.g., a download error (e.g., no internet connection) prevents to
+    fetch any data. Currently, stream2segments catches these Exceptions logging
+    their message as level CRITICAL or ERROR and returning a nonzero
+    (=unsuccessful) status code
 
     This class and :class:`NothingToDownload` both inherit from
     :class:`QuitDownload`
@@ -87,10 +86,10 @@ class FailedDownload(QuitDownload):
 
 
 def formatmsg(action=None, errmsg=None, url=None):
-    """Function which formats a message in order to have normalized message
-    types across the program (e.g., in logging utilities). The argument can
-    contain new (e.g., "{}") but also old-style format keywords (such as '%s',
-    '%d') for usage within the logging functions, e.g.:
+    """Format a message in order to have normalized message types across the
+    program (e.g., in logging utilities). The argument can contain new
+    (e.g., "{}") but also old-style format keywords (such as '%s', '%d') for
+    usage within the logging functions, e.g.:
     `logging.warning(msg('%d segments discarded', 'no response'), 3)`.
     The resulting string message will be in any of the following formats
     (according to how many arguments are non-empty):
@@ -509,7 +508,7 @@ class s2scodes(object):  # pylint: disable=too-few-public-methods, invalid-name
 
 
 def to_fdsn_arg(iterable):
-    """ Converts an iterable of strings denotings networks, stations, locations
+    """Convert an iterable of strings denotings networks, stations, locations
     or channels into a valid string argument for an FDSN query. This method
     basically joins all element of `iterable` with a comma after removing all
     elements starting with '!' (used in this application to denote logical not,
@@ -522,7 +521,7 @@ def to_fdsn_arg(iterable):
 
 
 def get_s2s_responses():
-    """Creates a default response dict which maps http responses (int-like
+    """Create a default response dict which maps http responses (int-like
     objects) to the tuple ('title', 'legend',  sort_value)
 
     `sort_value` is a value which controls the order of each http response
@@ -602,12 +601,9 @@ def get_s2s_responses():
 
 
 class HTTPCodesCounter(dict):
-    """A defaultdict-like dict, mapping http status codes to the number of
-    times they occurred. This class handles string status codes, which are
-    sometimes returned by some data center (i.e., treat '200' as if it was
-    200). This feature is the reqson why we did not opt for a `defaultdict`
-    nor this class inherits from it: a new dict subclass makes the code more
-    readable and without performance costs
+    """A dict, mapping http status codes to the number of times they occurred.
+    This class handles string status codes, which are sometimes returned by
+    some data center (i.e., treat '200' as if it was 200)
     """
     # implementation note: In a previous version, we used a normal defaultdict
     # as values of DownloadStats, but the above mentioned int/str problem
@@ -618,16 +614,18 @@ class HTTPCodesCounter(dict):
 
     def __setitem__(self, key, val):
         try:
-            key = int(key)
-        except:  # @IgnorePep8 pylint: disable=bare-except
+            key = int(key)  # e.g. '200' and 200 must be the same key
+        except:  # noqa
+            # could not convert to int: no ambiguity, use the key as it is
             pass
         # slightly faster than super(...).__setitiem__:
         return dict.__setitem__(self, key, val)
 
     def __getitem__(self, key):
         try:
-            key = int(key)
-        except:  # @IgnorePep8 pylint: disable=bare-except
+            key = int(key)  # e.g. '200' and 200 must be the same key
+        except:  # noqa
+            # could not convert to int: no ambiguity, use the key as it is
             pass
         # slightly faster than super(...).__setitiem__:
         return dict.__getitem__(self, key)
@@ -713,7 +711,7 @@ class DownloadStats(OrderedDict):
         default ones (i.e., in `cls.resp`) are pushed to the end. When
         comparing two codes both not in the default ones, the one which is
         castable to int comes first (if both are not castable, the first one is
-        choosen, if both are castable, then their natural order as integers is
+        chosen, if both are castable, then their natural order as integers is
         chosen)
 
         :param codes: an iterable of numeric codes, usually but not necessarily
@@ -788,7 +786,7 @@ class DownloadStats(OrderedDict):
         # Set sorted_codes and legend. Columns should take the min available
         # space, so stack them in rows via a word wrap. Unfortunately, pandas
         # does not allow this, so we need to create a top dataframe with our
-        # col headers. Mopreover, add the legend to be displayed at the
+        # col headers. Moreover, add the legend to be displayed at the
         # bottom after the whole dataframe for non standard http codes
         columns_df = pd.DataFrame(columns=data_df.columns)
         legend = []
@@ -849,7 +847,7 @@ EVENTWS_MAPPING = {
     'ncedc': 'http://service.ncedc.org/fdsnws/event/1/query',
     'scedc': 'http://service.scedc.caltech.edu/fdsnws/event/1/query',
     'usgs':  'http://earthquake.usgs.gov/fdsnws/event/1/query',
-    }
+}
 
 
 EVENTWS_SAFE_PARAMS = ['minlatitude', 'minlat', 'maxlatitude', 'maxlat',

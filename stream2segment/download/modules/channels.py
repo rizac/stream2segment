@@ -457,7 +457,7 @@ def drop_duplicates(session, channels_df, eidavalidator):
     #   net sta loc cha start_time end_time   dc_id
     #   N   S   L   C   2010-01-01 None       1
     #   N   S   L   C   2010-01-01 2011-01-01 1
-    # (Depending on the eidavalidator, only one or both rows will be added)
+    # (both rows will be added)
     conflict_within_dc = []
     # list of ok channels (not falling in any category above):
     oks = []

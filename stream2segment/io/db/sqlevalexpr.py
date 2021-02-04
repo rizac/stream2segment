@@ -1,18 +1,19 @@
-'''
-Module implementing the functionalities that allow issuing sql select statements from
-config files, command line or via GUI input controls
+"""
+Module implementing the functionalities that allow issuing sql select
+statements from config files, command line or via GUI input controls
 via string expression on database tables columns
 
 :date: Mar 6, 2017
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
-'''
+"""
 
 from datetime import datetime
 import shlex
 import warnings
 
-# iterating over dictionary keys with the same set-like behaviour on Py2.7 as on Py3
+# iterating over dictionary keys with the same set-like behaviour on Py2.7 as
+# on Py3
 from future.utils import viewitems
 
 import numpy as np
@@ -24,13 +25,14 @@ from sqlalchemy.orm.collections import InstrumentedList, InstrumentedSet,\
 
 
 def exprquery(sa_query, conditions, orderby=None):
-    """
-    Enhances the given sql-alchemy query `sa_query` with conditions
-    and ordering given in form of **string** expression, returning a new sql alchemy query.
+    """Enhance the given SQLAlchemy query `sa_query` with conditions
+    and ordering given in form of **string** expression, returning a new
+    SQLAlchemy query.
 
-    This method first infers the reference Model from **the first entity passed** in
-    `sa_query` (thus **pay attention to the arguments order when you build sa_query**).
-    These for example all consider the class 'Parent' as reference model:
+    This method first infers the reference Model from **the first entity
+    passed** in `sa_query` (thus **pay attention to the arguments order when
+    you build sa_query**). These for example all consider the class 'Parent'
+    as reference model:
     ```
         session.query(Parent)
         session.query(Parent, Child)
@@ -38,8 +40,9 @@ def exprquery(sa_query, conditions, orderby=None):
 
     ```
     Then columns (and relationships, if any) are extracted from `conditions`,
-    which is a dict of string keys representing columns or relationships relative to the
-    **reference model**, and mapped to a string expression. E.g.:
+    which is a dict of string keys representing columns or relationships
+    relative to the **reference model**, and mapped to a string expression.
+    E.g.:
     ```
     {
         'id' : '<6',
@@ -48,10 +51,10 @@ def exprquery(sa_query, conditions, orderby=None):
     ```
     The order by condition is then applied, if present.
 
-    The returned query is a valid sql-alchemy query and can be further manipulated
-    **in most cases**: a case when it's not possible is when issuing a `group_by` in `postgres`
-    (for info, see
-    http://stackoverflow.com/questions/18061285/postgresql-must-appear-in-the-group-by-clause-or-be-used-in-an-aggregate-functi).
+    The returned query is a valid sql-alchemy query and can be further
+    manipulated **in most cases**: a case when it's not possible is when
+    issuing a `group_by` in `postgres`
+    (for info, see https://stackoverflow.com/a/18061451).
     In these case a normal SqlAlchemy query must be issued
 
     Example:
@@ -73,72 +76,94 @@ def exprquery(sa_query, conditions, orderby=None):
 
     sess = ...  # sql-alchemy session
     sa_query = sess.query  # sql-alchemy session's query object
+    ```
 
-    # return all parents who have children:
-    exprquery(sa_query(Parent), {'children', 'any'})
+    Then:
 
-    # return all parents id's who have children:
-    exprquery(sa_query(Parent.id), {'children', 'any'})
+    Return all parents who have children:
+    `exprquery(sa_query(Parent), {'children', 'any'})`
 
-    # return all parents who have adult children:
-    exprquery(sa_query(Parent), {'children.age', '>=18'})
+    Return all parents id's who have children:
+    `exprquery(sa_query(Parent.id), {'children', 'any'})`
 
-    # return all parents born before 1980 who have adult children:
-    exprquery(sa_query(Parent), {'birth': '<1980-01-01', 'children.age', '>=18'})
+    Return all parents who have adult children:
+    `exprquery(sa_query(Parent), {'children.age', '>=18'})`
 
-    # return all parents who have adult children, sorted (ascending) by parent's age (2 solutions):
-    exprquery(sa_query(Parent), {'children.age', '>=18'}, ['age'])  # or
-    exprquery(sa_query(Parent), {'children.age', '>=18'}, [('age', 'asc')])
+    Return all parents born before 1980 who have adult children:
+    ```
+    exprquery(sa_query(Parent), {'birth': '<1980-01-01',
+                                 'children.age', '>=18'})
+    ```
 
-    # return all parents who have adult children, sorted (ascending) by parent's age and then
-    # descending by parent's id:
-    exprquery(sa_query(Parent), {'children.age', '>=18'}, [('age', 'asc'), ('id', 'desc')])
+    Return all parents who have adult children, sorted (ascending)
+    by parent's age (2 solutions):
+    `exprquery(sa_query(Parent), {'children.age', '>=18'}, ['age'])` or
+    `exprquery(sa_query(Parent), {'children.age', '>=18'}, [('age', 'asc')])`
 
-    # Finally, note that these three are equivalent and valid:
-    date1980 = datetime(1980, 1, 1)
-    exprquery(sa_query(Parent).filter(Parent.birth < date1980), {'children.age', '>=18'})
-    exprquery(sa_query(Parent), {'children.age', '>=18'}).filter(Parent.birth < date1980)
-    exprquery(sa_query(Parent), {'birth': '<1980-01-01', 'children.age', '>=18'})
+    Return all parents who have adult children, sorted (ascending) by
+    parent's age and then descending by parent's id:
+    ```
+    exprquery(sa_query(Parent), {'children.age', '>=18'},
+              [('age', 'asc'), ('id', 'desc')])
+    ```
+
+    Finally, note that, called `date1980 = datetime(1980, 1, 1)`, these three
+    are equivalent and valid:
+    ```
+    exprquery(sa_query(Parent).filter(Parent.birth < date1980),
+              {'children.age', '>=18'})
+    ```
+    ```
+    exprquery(sa_query(Parent), {'children.age', '>=18'})\
+        .filter(Parent.birth < date1980)
+    ```
+    exprquery(sa_query(Parent),
+              {'birth': '<1980-01-01', 'children.age', '>=18'})
     ```
 
     :param sa_query: any sql-alchemy query object
-    :param conditions: a dict of string columns mapped to **string** expression, e.g.
-        "column2": "[1, 45]" or "column1": "true" (note: string, not the boolean True)
-        A string column is an expression denoting an attribute of the reference model class
-        and can include relationships.
-        Example: if the reference model tablename is 'mymodel', then a string column 'name'
-        will refer to 'mymodel.name', 'name.id' denotes on the other hand a relationship 'name'
-        on 'mymodel' and will refer to the 'id' attribute of the table mapped by 'mymodel.name'.
-        The values of the dict on the other hand are string expressions in the form recognized
-        by `binexpr`. E.g. '>=5', '["4", "5"]' ...
-        For each condition mapped to a falsy value (e.g., None or empty string), the condition is
-        discarded. See note [*] below for auto-added joins from columns.
+    :param conditions: a dict of string columns mapped to **string**
+        expression, e.g. "column2": "[1, 45]" or "column1": "true" (note:
+        string, not the boolean True). A string column is an expression
+        denoting an attribute of the reference model class and can include
+        relationships.
+        Example: if the reference model tablename is 'mymodel', then a string
+        column 'name' will refer to 'mymodel.name', 'name.id' denotes on the
+        other hand a relationship 'name' on 'mymodel' and will refer to the
+        'id' attribute of the table mapped by 'mymodel.name'. The values of
+        the dict on the other hand are string expressions in the form
+        recognized by `binexpr`. E.g. '>=5', '["4", "5"]' ...
+        For each condition mapped to a falsy value (e.g., None or empty
+        string), the condition is discarded. See note [*] below for auto-added
+        joins  from columns.
     :param orderby: a list of string columns (same format
         as `conditions` keys), or a list of tuples where the first element is
-        a string column, and the second is either "asc" (ascending) or "desc" (descending). In the
-        first case, the order is "asc" by default. See note [*] below for auto-added joins from
-        orderby columns.
+        a string column, and the second is either "asc" (ascending) or "desc"
+        (descending). In the first case, the order is "asc" by default. See
+        note [*] below for auto-added joins from orderby columns.
 
     :return: a new sel-alchemy query including the given conditions and ordering
 
-    [*] Note on auto-added joins: if any given `condition` or `orderby` key refers to
-    relationships defined on the reference model class, then necessary joins are appended to
-    `sa_query`, *unless already present* (this should also avoid the
-    warning 'SAWarning: Pathed join target', currently in `sqlalchemy.orm.query.py:2105`).
+    [*] Note on auto-added joins: if any given `condition` or `orderby` key
+        refers to relationships defined on the reference model class, then
+        necessary joins are appended to `sa_query`, *unless already present*
+        (this should also avoid the warning 'SAWarning: Pathed join target',
+        currently in `sqlalchemy.orm.query.py:2105`).
     """
     # get the table model from the query's FIRST column description
     model = sa_query.column_descriptions[0]['entity']
     parsed_conditions = []
     joins = set()  # relationships have an hash, this assures no duplicates
-    # set already joined tables. We use the private method _join_entities although it's not
-    # documented anywhere (we inspected via eclipse debug to find the method):
+    # set already joined tables. We use the private method _join_entities
+    # although it's not documented anywhere (we inspected via eclipse debug to
+    # find the method):
     already_joined_models = set(_.class_ for _ in sa_query._join_entities)
     # if its'an InstrumentedAttribute, use the class
     relations = inspect(model).relationships
 
     if conditions:
         for attname, expression in viewitems(conditions):
-            if not expression:  # discard falsy expressions (empty strings, None's)
+            if not expression:  # discard empty strings, None's, ...
                 # note that expressions MUST be strings
                 continue
             relationship, column = _get_rel_and_column(model, attname, relations)
@@ -190,22 +215,27 @@ def _get_rel_and_column(model, colname, relations=None):
 
 
 def get_rel_refmodel(relationship):
-    '''returns the relationship's reference table model
-    :param relationship: the InstrumentedAttribute retlative to a relationship. Example. Given
-        a model `model`, and a relationship e.g. `r_name=inspect(model).relationships.keys()[i],
-        then `relationship=getattr(model, r_name)`'''
+    """Return the relationship's reference table model
+
+    :param relationship: the InstrumentedAttribute retlative to a relationship.
+        Example. Given a model `model`, and a relationship e.g.
+        `r_name=inspect(model).relationships.keys()[i],
+        then `relationship=getattr(model, r_name)`
+    """
     return relationship.mapper.class_
 
 
 def binexpr(column, expr):
-    """Returns an :class:`sqlalchemy.sql.expression.BinaryExpression` to be used as `query.filter`
-    argument from the given column and the given expression. Supports the operators given in
-    :function:`stream2segment.io.db.sqlevalexpr.split` and the types given in `parsevals`:
-    (`int`s, `float`s, `datetime`s, `bool`s and `str`s)
+    """Return an :class:`sqlalchemy.sql.expression.BinaryExpression` to be
+    used as `query.filter` argument from the given column and the given
+    expression. Supports the operators given in
+    :func:`stream2segment.io.db.sqlevalexpr.split` and the types given in
+    `parsevals`: (`int`s, `float`s, `datetime`s, `bool`s and `str`s)
+
     :param column: an sqlkalchemy model column
     :param expr: a string expression (see `split`)
 
-    :example:
+    Example:
     ```
     # given a model with column `column1`
     binexpr(model.column1, '>=5')
@@ -240,19 +270,19 @@ def binexpr(column, expr):
 
 
 def split(expr):
-    """Splits the expression into its operator(s) and its value.
+    """Split the expression into its operator(s) and its value.
 
-    :param: expression: a string which is first stripped (i.e., leading and trailing spaces
-    are omitted) and then either:
-    1. starts with (zero or more spaces and):
-        "<", "=", "==", "!=", ">", "<=", ">="
-    2. starts with "[", "(", "]" **and** ends with "]" , "[", ")", where "[", "]" denote the
-    closed interval (endpoints included) and the other symbols an open interval (endpoints
-    excluded)
+    :param: expression: a string which is first stripped (i.e., leading and
+        trailing spaces are omitted) and then either:
+        1. starts with (zero or more spaces and):
+            "<", "=", "==", "!=", ">", "<=", ">="
+        2. starts with "[", "(", "]" **and** ends with "]" , "[", ")", where
+           "[", "]" denote the closed interval (endpoints included) and the
+           other symbols an open interval (endpoints excluded)
 
-    :return: the operator (one of the symbol above) and the remaining string. Note that the
-    operator is normalized to "=" in case 1 if either "=" or "==", and in case 2 is "open",
-    "leftopen", "rightopen", "closed"
+    :return: the operator (one of the symbol above) and the remaining string.
+        Note that the operator is normalized to "=" in case 1 if either "=" or
+        "==", and in case 2 is "open", "leftopen", "rightopen", "closed"
     """
     expr = expr.strip()
     if expr[:2] in ("<=", ">=", "==", "!="):
@@ -272,21 +302,18 @@ def split(expr):
 
 
 def parsevals_sql(column, expr_value):
-    """Parses `expr_value` according to the model column type. Supports `int`s, `float`s,
-    `datetime`s, `bool`s and `str`s.
+    """Parse `expr_value` according to the model column type. Supports `int`s,
+    `float`s, `datetime`s, `bool`s and `str`s.
 
-    :param expr_value: a value given as command line argument(s). Thus, quoted strings will
-    be recognized removing the quotation symbols.
-    The list of values will then be casted to the python type of the given column.
-    Note that the values are intended to be
-    in SQL syntax, thus NULL or null for python None's. Datetime's must be input in ISO format
-    (with or without spaces)
+    :param expr_value: a value given as command line argument(s). Thus, quoted
+        strings will be recognized removing the quotation symbols. The list of
+        values will then be casted to the python type of the given column. Note
+        that the values are intended to be in SQL syntax, thus NULL or null for
+        Python None's. Datetime's must be input in ISO format (with or without
+        spaces)
 
-    :Example:
-    ```
-    # given a model with int column 'column1'
-    parsevals(model.column1, '4 null 5 6') = [4, None, 5, 6]
-    ```
+    Example. Given a model with int column 'column1':
+    `parsevals(model.column1, '4 null 5 6') = [4, None, 5, 6]`
     """
     try:
         return parsevals(get_pytype(get_sqltype(column)), expr_value)
@@ -295,21 +322,19 @@ def parsevals_sql(column, expr_value):
 
 
 def parsevals(pythontype, expr_value):
-    """Parses `expr_value` according to the given python type. Supports `int`s, `float`s,
-    `datetime`s, `bool`s and `str`s.
-    :param expr_value: if bool, int, float, None or datetime, or iterable of those values,
-    a value given as command line argument(s). Thus, quoted strings will
-    be recognized removing the quotation symbols.
-    The list of values will then be casted to the python type of the given column.
-    Note that the values are intended to be
-    in SQL syntax, thus NULL or null for python None's. Datetime's must be input in ISO format
-    (with or without spaces)
+    """Parse `expr_value` according to the given python type. Supports `int`s,
+    `float`s, `datetime`s, `bool`s and `str`s.
 
-    :Example:
-    ```
-    # given a model with int column 'column1'
-    parsevals(int, '4 null 5 6') = [4, None, 5, 6]
-    ```
+    :param expr_value: if bool, int, float, None or datetime, or iterable of
+        those values, a value given as command line argument(s). Thus, quoted
+        strings will be recognized removing the quotation symbols. The list of
+        values will then be casted to the python type of the given column.
+        Note that the values are intended to be in SQL syntax, thus NULL or
+        null for python None's. Datetime's must be input in ISO format
+        (with or without spaces)
+
+    Example. Given a model with int column 'column1':
+    `parsevals(int, '4 null 5 6') = [4, None, 5, 6]`
     """
     _NONES = ("null", "NULL")
     vals = shlex.split(expr_value)
@@ -318,7 +343,8 @@ def parsevals(pythontype, expr_value):
     elif pythontype == int:
         return [None if x in _NONES else int(x) for x in vals]
     elif pythontype == bool:
-        # bool requires a user defined function for parsing javascript/python strings (see below)
+        # bool requires a user defined function for parsing javascript/python
+        # strings (see below)
         return [None if x in _NONES else _bool(x) for x in vals]
     elif pythontype == datetime:
         # numpy complains if we have timezone aware strings. This is also
@@ -329,7 +355,8 @@ def parsevals(pythontype, expr_value):
         # utc datetime strings with no timezone info:
         with warnings.catch_warnings():
             warnings.simplefilter('ignore')
-            return np.array(vals, dtype="datetime64[us]").tolist()  # works with None's
+            # array casting below works with None's:
+            return np.array(vals, dtype="datetime64[us]").tolist()
     elif pythontype == str:
         return [None if x in _NONES else str(x) for x in vals]
 
@@ -337,7 +364,7 @@ def parsevals(pythontype, expr_value):
 
 
 def _bool(val):
-    '''parses javascript booleans true false and returns a python boolean'''
+    """Parse javascript booleans true false and returns a python boolean"""
     if val in ('false', 'False', 'FALSE'):
         return False
     elif val in ('true', 'True', 'TRUE'):
@@ -346,16 +373,18 @@ def _bool(val):
 
 
 def get_sqltype(obj):
-    '''Returns the sql type associated with `obj`.
+    """Return the sql type associated with `obj`.
 
-    :param obj: an object with an 'expression' method, e.g. sqlalchemy.sql.schema.Column or
+    :param obj: an object with an 'expression' method, e.g.
+        sqlalchemy.sql.schema.Column or
         :class:`sqlalchemy.orm.attributes.QueryableAttribute` (for instance
-         :class:`sqlalchemy.orm.attributes.InstrumentedAttribute`, i.e. the model's attributes
-        mapping db columns)
+        :class:`sqlalchemy.orm.attributes.InstrumentedAttribute`, i.e. the
+        model's attributes mapping db columns)
 
-    :return: An object defined in :class:`sqlalchemy.sql.sqltypes`, e.g. `Integer`
-        the method  :function:`get_pytype` of the returned object defines the relative python type
-    '''
+    :return: An object defined in :class:`sqlalchemy.sql.sqltypes`, e.g.
+        `Integer` the method  :function:`get_pytype` of the returned object
+        defines the relative python type
+    """
     try:
         return obj.expression.type
     except NotImplementedError:
@@ -374,10 +403,10 @@ def get_pytype(sqltype):
 
 
 class Inspector(object):
-    '''Class for inspecting a ORM model (Python class) or an instance (Python object)
-    reflecting a database row.
+    """Class for inspecting a ORM model (Python class) or an instance (Python
+    object) reflecting a database row.
     Usage:
-
+    ```
     insp = Inspector(model_or_instance)
 
     # get attribute names matching criteria:
@@ -388,7 +417,8 @@ class Inspector(object):
 
     # get att. values:
     attvalues = [insp.attval(_) for _ in attnames]
-    '''
+    ```
+    """
 
     PKEY = 1
     FKEY = 2
@@ -397,7 +427,7 @@ class Inspector(object):
     REL = 16
 
     def __init__(self, model_or_instance):
-        '''Initializes the current object with a model or instance argument'''
+        """Initialize the current object with a model or instance argument"""
         self.mapper = self._model = None
         self.pknames, self.fknames, self.colnames, self.relnames, self.qanames = \
             set(), set(), set(), set(), set()
@@ -411,9 +441,10 @@ class Inspector(object):
         except NoInspectionAvailable:
             return
 
-        if mapper is model_or_instance:  # this happens when the object has anything to inspect,
-            # e.g., an AppenderQuery object resulting from some relationship configured in some
-            # particular way
+        if mapper is model_or_instance:
+            # this happens when the object has anything to inspect, e.g., an
+            # AppenderQuery object resulting from some relationship configured
+            # in some particular way
             return
 
         # if model_or_instance is an instance, reload Mapper on the model:
@@ -430,17 +461,21 @@ class Inspector(object):
         # class Table:
         #     id = Column(...)
         #
-        # you might expect that Table.id is a Column object. It is indeeed an
-        # InstrumentedAttribute (subclass of QueryableAttribute). To get the column
-        # we should do ` mapper(Table).columns` which returns a dict-like object of names
-        # mapped to Column object.
-        # Also, a ORM model might have relationships or simple hybrid properties
-        # All these things seem to be instance of QueryableAttribute. So:
-        qanames = self.qanames = set(_ for _ in dir(_real_model) if _[:2] != '__' and
-                                     isinstance(getattr(_real_model, _), QueryableAttribute))
+        # you might expect that Table.id is a Column object. It is indeed an
+        # InstrumentedAttribute (subclass of QueryableAttribute). To get the
+        # column we should do ` mapper(Table).columns` which returns a
+        # dict-like object of names mapped to Column object. Also, a ORM model
+        # might have relationships or simple hybrid properties. All these
+        # things seem to be instance of QueryableAttribute. So:
+        qanames = self.qanames = \
+            set(_ for _ in dir(_real_model)
+                if _[:2] != '__' and
+                isinstance(getattr(_real_model, _), QueryableAttribute))
+
         self.attrs = {_: getattr(_real_model, _) for _ in qanames}
-        # we will remove keys from qanames leaving only queryable attributes not
-        # belonging to any other class (that's why we associated it to self.qanames)
+        # we will remove keys from qanames leaving only queryable attributes
+        # not belonging to any other class (that's why we associated it to
+        # self.qanames)
 
         _mapped_table = self._get_mapped_table(mapper)
         # now, get Foreign Keys Columns
@@ -471,9 +506,10 @@ class Inspector(object):
 
     @staticmethod
     def _get_mapped_table(mapper):
-        '''Returns the mapped table from the given SQLAlchemy mapper
-        Note that there is a twin method in 'pdsql' module (FIXME: merge in future releases)
-        '''
+        """Return the mapped table from the given SQLAlchemy mapper
+        Note that there is a twin method in 'pdsql' module
+        (FIXME: merge in future releases)
+        """
         # http://docs.sqlalchemy.org/en/latest/orm/mapping_api.html#sqlalchemy.orm.mapper.Mapper.mapped_table
         # Note that from v 1.3+, we need to use .persist_selectable:
         try:
@@ -493,41 +529,47 @@ class Inspector(object):
         return exclude
 
     def attnames(self, flags=None, sort=True, deep=False, exclude=None):
-        '''Yields a set of strings identifying the attributes of the model
+        """Yield a set of strings identifying the attributes of the model
         or instance passed in the constructor
 
-        :param flags: one or more of :class:`Inspector.PKEY`, :class:`Inspector.FKEY`,
-            :class:`Inspector.QATT`, :class:`Inspector.REL`: concatenate those values
+        :param flags: one or more of :class:`Inspector.PKEY`,
+            :class:`Inspector.FKEY`, :class:`Inspector.QATT`,
+            :class:`Inspector.REL`: concatenate those values
             with the "|" operator for more options, where:
 
-            - :class:`Inspector.PKEY`: return the attribute names denoting SQL primary
-                keys
-            - :class:`Inspector.FKEY`: return the attribute names denoting SQL foreign
-                keys
-            - :class:`Inspector.COL`: return the attribute names denoting any SQL column
-                on the database (excluding primary keys and foreign keys).
-            - :class:`Inspector.QATT`: return the attribute names denoting any queryable
-                attribute. i.e.,custom queryable attributes NOT mapped to any database column
-                (e.g. hybrid properties)
-            - :class:`Inspector.REL`: return the attribute names denoting any relationship
-                defined at the Python level on the given model
-        :param sort: boolean (default True), yield the strings sorted. Sorting is done
-            within each category defined in `flags` (thus first
-            primary keys sorted alphabetically, then foreign keys sorted alphabetically, and
-            so on)
-        :param deep: boolean (default False): whether to return the attributes of all mapped
-            relationships. Ignored if :class:`Inspector.REL` is not in `flags`. If True, the
-            for each attribute defining a relationship will not be yielded, but all the
-            relation's model attributes instead
-            (using the same `flags` passed here, except that further relationships will not be
-            expanded further). The attributes will be yielded with the relationship model name
-            plus a 'dot' pluts the model attribute name
-            to avoid potential duplicates. E.g.: 'parent.id', 'parent.name', and so on
-        :param exclude: a list of strings or model attributes to be excluded, i.e. not
-            yielded. If `deep=True`, the list can include related models attributes
-            (with simple strings there is no way to identify the nested attribute to be
-            excluded)
-        '''
+            - :class:`Inspector.PKEY`: return the attribute names denoting SQL
+                primary keys
+            - :class:`Inspector.FKEY`: return the attribute names denoting SQL
+                foreign keys
+            - :class:`Inspector.COL`: return the attribute names denoting any
+              SQL column on the database (excluding primary keys and foreign
+              keys).
+            - :class:`Inspector.QATT`: return the attribute names denoting any
+              queryable attribute. i.e.,custom queryable attributes NOT mapped
+              to any database column (e.g. hybrid properties)
+            - :class:`Inspector.REL`: return the attribute names denoting any
+              relationship defined at the Python level on the given model
+
+        :param sort: boolean (default True), yield the strings sorted. Sorting
+            is done within each category defined in `flags` (thus first primary
+            keys sorted alphabetically, then foreign keys sorted alphabetically,
+            and so on)
+
+        :param deep: boolean (default False): whether to return the attributes
+            of all mapped relationships. Ignored if :class:`Inspector.REL` is
+            not in `flags`. If True, the for each attribute defining a
+            relationship will not be yielded, but all the relation's model
+            attributes instead (using the same `flags` passed here, except that
+            further relationships will not be expanded further). The attributes
+            will be yielded with the relationship model name plus a 'dot' plus
+            the model attribute name to avoid potential duplicates.
+            E.g.: 'parent.id', 'parent.name', and so on
+
+        :param exclude: a list of strings or model attributes to be excluded,
+            i.e. not yielded. If `deep=True`, the list can include related
+            models attributes (with simple strings there is no way to identify
+            the nested attribute to be excluded)
+        """
         ret = []
         exclude = self._exclude_set(exclude)
         if flags is None:
@@ -563,14 +605,14 @@ class Inspector(object):
                 yield name
 
     def relatedmodel(self, relname):
-        '''Returns the model class related to the given relation name, as returned
-        from `self.attnames`'''
+        """Return the model class related to the given relation name,
+        as returned from `self.attnames`"""
         return get_rel_refmodel(self.mapper.relationships[relname])
 
     def atttype(self, attname):
-        '''Returns the Python type corresponding to the SQL type of the
+        """Return the Python type corresponding to the SQL type of the
         given attribut name, as returned from `self.attnames`. Returns None
-        if no type can be found'''
+        if no type can be found"""
         if attname in self.relnames:
             return object
         model = self.model
@@ -583,11 +625,12 @@ class Inspector(object):
             return None
 
     def attval(self, attname):
-        '''Returns the value corresponding to the given attribut name,
-        as returned from `self.attnames`. The value is an `InstrumentedAttribute`
-        if this object was initialized with a model class, or the value
-        of the given attribute (int, float etcetera) if this object was initialized
-        with an instance object'''
+        """Return the value corresponding to the given attribute name, as
+        returned from `self.attnames`. The value is an `InstrumentedAttribute`
+        if this object was initialized with a model class, or the value of the
+        given attribute (int, float etcetera) if this object was initialized
+        with an instance object
+        """
         relnames, aname = self._splitatt(attname)
         if self.instance is not None:
             obj = self.instance

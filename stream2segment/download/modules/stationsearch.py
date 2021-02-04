@@ -1,11 +1,11 @@
-'''
+"""
 Event-based station search functions
 
 :date: Dec 3, 2017
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
-'''
-# make the following(s) behave like python3 counterparts if running from python2.7.x
+"""
+# make the following(s) behave like python3 counterparts if running from py2.7
 # (http://python-future.org/imports.html#explicit-imports):
 from builtins import map, next, zip, range, object
 
@@ -20,50 +20,53 @@ from stream2segment.utils import get_progressbar
 from stream2segment.io.db.pdsql import mergeupdate, dfrowiter
 
 
-# logger: do not use logging.getLogger(__name__) but point to stream2segment.download.logger:
-# this way we preserve the logging namespace hierarchy
-# (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial) when calling logging
-# functions of stream2segment.download.utils:
+# logger: do not use logging.getLogger(__name__) but point to
+# stream2segment.download.logger: this way we preserve the logging namespace
+# hierarchy
+# (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial) when
+# calling logging functions of stream2segment.download.utils:
 from stream2segment.download import logger  # @IgnorePep8
 from itertools import cycle
 
 
 def merge_events_stations(events_df, channels_df, search_radius,
                           tttable, show_progress=False):
-    """Merges `events_df` and `channels_df` by returning a new dataframe representing all
-    channels within a specific search radius. *Each row of the returned data frame is
-    basically a segment to be potentially donwloaded*.
-    The returned dataframe will be the same as `channels_df` with one or more rows repeated
-    (some channels might be in the search radius of several events), plus a column
-    "event_id" (`Segment.event_id`) representing the event associated to that channel
-    and two columns 'event_distance_deg', 'time' (representing the *event* time) and
-    'depth_km' (representing the event depth in km)
+    """Merge `events_df` and `channels_df` by returning a new dataframe
+    representing all channels within a specific search radius. *Each row of the
+    returned data frame is basically a segment to be potentially donwloaded*.
+    The returned dataframe will be the same as `channels_df` with one or more
+    rows repeated (some channels might be in the search radius of several
+    events), plus a column "event_id" (`Segment.event_id`) representing the
+    event associated to that channel and two columns 'event_distance_deg',
+    'time' (representing the *event* time) and 'depth_km' (representing the
+    event depth in km)
 
     :param channels_df: pandas DataFrame resulting from `get_channels_df`
     :param events_df: pandas DataFrame resulting from `get_events_df`
     """
-    # For convenience and readability, define once the mapped column names representing the
-    # dataframe columns that we need:
-    EVT_ID = Event.id.key  # pylint: disable=invalid-name
-    EVT_MAG = Event.magnitude.key  # pylint: disable=invalid-name
-    EVT_LAT = Event.latitude.key  # pylint: disable=invalid-name
-    EVT_LON = Event.longitude.key  # pylint: disable=invalid-name
-    EVT_TIME = Event.time.key  # pylint: disable=invalid-name
-    EVT_DEPTH = Event.depth_km.key  # pylint: disable=invalid-name
-    STA_LAT = Station.latitude.key  # pylint: disable=invalid-name
-    STA_LON = Station.longitude.key  # pylint: disable=invalid-name
-    STA_STIME = Station.start_time.key  # pylint: disable=invalid-name
-    STA_ETIME = Station.end_time.key  # pylint: disable=invalid-name
-    CHA_ID = Channel.id.key  # pylint: disable=invalid-name
-    CHA_STAID = Channel.station_id.key  # pylint: disable=invalid-name
-    SEG_EVID = Segment.event_id.key  # pylint: disable=invalid-name
-    SEG_EVDIST = Segment.event_distance_deg.key  # pylint: disable=invalid-name
-    SEG_ATIME = Segment.arrival_time.key  # pylint: disable=invalid-name
-    SEG_DCID = Segment.datacenter_id.key  # pylint: disable=invalid-name
-    SEG_CHAID = Segment.channel_id.key  # pylint: disable=invalid-name
+    # For convenience and readability, define once the mapped column names
+    # representing the dataframe columns that we need:
+    EVT_ID = Event.id.key  # noqa
+    EVT_MAG = Event.magnitude.key  # noqa
+    EVT_LAT = Event.latitude.key  # noqa
+    EVT_LON = Event.longitude.key  # noqa
+    EVT_TIME = Event.time.key  # noqa
+    EVT_DEPTH = Event.depth_km.key  # noqa
+    STA_LAT = Station.latitude.key  # noqa
+    STA_LON = Station.longitude.key  # noqa
+    STA_STIME = Station.start_time.key  # noqa
+    STA_ETIME = Station.end_time.key  # noqa
+    CHA_ID = Channel.id.key  # noqa
+    CHA_STAID = Channel.station_id.key  # noqa
+    SEG_EVID = Segment.event_id.key  # noqa
+    SEG_EVDIST = Segment.event_distance_deg.key  # noqa
+    SEG_ATIME = Segment.arrival_time.key  # noqa
+    SEG_DCID = Segment.datacenter_id.key  # noqa
+    SEG_CHAID = Segment.channel_id.key  # noqa
 
     channels_df = channels_df.rename(columns={CHA_ID: SEG_CHAID})
-    # get unique stations, rename Channel.id into Segment.channel_id now so we do not bother later
+    # get unique stations, rename Channel.id into Segment.channel_id now so we
+    # do not bother later
     stations_df = channels_df.drop_duplicates(subset=[CHA_STAID]).copy()
 
     ret = []
@@ -71,17 +74,24 @@ def merge_events_stations(events_df, channels_df, search_radius,
     sourcedepths, eventtimes = [], []
 
     with get_progressbar(show_progress, length=len(events_df)) as pbar:
-        min_radia, max_radia = get_serarch_radia(search_radius, events_df[EVT_MAG].values)
-        for min_radius, max_radius, evt_dic in \
-                zip(min_radia, max_radia, dfrowiter(events_df, [EVT_ID, EVT_LAT, EVT_LON,
-                                                                EVT_TIME, EVT_DEPTH])):
+
+        min_radia, max_radia = get_serarch_radia(search_radius,
+                                                 events_df[EVT_MAG].values)
+
+        radia_event_iter = zip(min_radia, max_radia,
+                               dfrowiter(events_df, [EVT_ID, EVT_LAT, EVT_LON,
+                                                     EVT_TIME, EVT_DEPTH]))
+
+        oneday = timedelta(days=1)
+        for min_radius, max_radius, evt_dic in radia_event_iter:
             l2d = locations2degrees(stations_df[STA_LAT], stations_df[STA_LON],
                                     evt_dic[EVT_LAT], evt_dic[EVT_LON])
             condition = (stations_df[STA_STIME] <= evt_dic[EVT_TIME]) & \
                         (pd.isnull(stations_df[STA_ETIME]) |
-                         (stations_df[STA_ETIME] >= evt_dic[EVT_TIME] + timedelta(days=1)))
-            # l2d is a distance, thus non negative. We can add the min radius condition
-            # only if it is >=0. Evaluate to false in case min_radius is None (legacy code):
+                         (stations_df[STA_ETIME] >= evt_dic[EVT_TIME] + oneday))
+            # l2d is a distance, thus non negative. We can add the min radius
+            # condition only if it is >=0. Evaluate to false in case min_radius
+            # is None (legacy code):
             if min_radius:
                 condition &= (l2d >= min_radius)
             # for max_radius, None means: skip
@@ -92,20 +102,26 @@ def merge_events_stations(events_df, channels_df, search_radius,
             if not np.any(condition):
                 continue
 
-            # Set (or re-set from second iteration on) as NaN SEG_EVDIST columns. This is important
-            # cause from second loop on we might have some elements not-NaN which should be NaN now
+            # Set (or re-set from second iteration on) as NaN SEG_EVDIST
+            # columns. This is important cause from second loop on we might
+            # have some elements not-NaN which should be NaN now
             channels_df[SEG_EVDIST] = np.nan
             # set locations2 degrees
             stations_df[SEG_EVDIST] = l2d
             # Copy distances calculated on stations to their channels
-            # (match along column CHA_STAID shared between the reletive dataframes). Set values
-            # only for channels whose stations are within radius (stations_df[condition]):
-            cha_df = mergeupdate(channels_df, stations_df[condition], [CHA_STAID], [SEG_EVDIST],
-                                 drop_other_df_duplicates=False)  # dupes already dropped
-            # drop channels which are not related to station within radius:
+            # (match along column CHA_STAID shared between the reletive
+            # dataframes). Set values only for channels whose stations are
+            # within radius (stations_df[condition]):
+            cha_df = mergeupdate(channels_df, stations_df[condition],
+                                 [CHA_STAID], [SEG_EVDIST],
+                                 drop_other_df_duplicates=False)
+            # Note above: duplicates already dropped
+            # Now drop channels which are not related to station within radius:
             cha_df = cha_df.dropna(subset=[SEG_EVDIST], inplace=False).copy()
-            cha_df[SEG_EVID] = evt_dic[EVT_ID]  # ...and add "safely" SEG_EVID values
-            # append to arrays (calculate arrival times in one shot a t the end, it's faster):
+            # ...and add "safely" SEG_EVID values:
+            cha_df[SEG_EVID] = evt_dic[EVT_ID]
+            # append to arrays (calculate arrival times in one shot a t the
+            # end, it's faster):
             sourcedepths += [evt_dic[EVT_DEPTH]] * len(cha_df)
             eventtimes += [np.datetime64(evt_dic[EVT_TIME])] * len(cha_df)
             # Append only relevant columns:
@@ -122,14 +138,15 @@ def merge_events_stations(events_df, channels_df, search_radius,
     sourcedepths = np.array(sourcedepths)
     distances = ret[SEG_EVDIST].values
     traveltimes = tttable(sourcedepths, 0, distances)
-    # assign to column:
-    eventtimes = np.array(eventtimes)  # should be of type  '<M8[us]' or whatever datetime dtype
-    # now to compute arrival times: eventtimes + traveltimes does not work (we cannot
-    # sum np.datetime64 and np.float). Convert traveltimes to np.timedelta: we first multiply by
-    # 1000000 to preserve the millisecond resolution and then we write traveltimes.astype("m8[us]")
-    # which means: 8bytes timedelta with microsecond resolution (10^-6)
-    # Side note: all numpy timedelta constructors (as well as "astype") round to int
-    # argument, at least in numpy13.
+    # assign to column (should be of type  '<M8[us]' or any datetime dtype):
+    eventtimes = np.array(eventtimes)
+    # now to compute arrival times: eventtimes + traveltimes does not work
+    # (we cannot sum np.datetime64 and np.float). Convert traveltimes to
+    # np.timedelta: we first multiply by 1000000 to preserve the millisecond
+    # resolution and then we write traveltimes.astype("m8[us]") which means:
+    # 8bytes timedelta with microsecond resolution (10^-6). Side note: all
+    # numpy timedelta constructors (as well as "astype") round to int argument,
+    # at least in numpy13.
     ret[SEG_ATIME] = eventtimes + (traveltimes*1000000).astype("m8[us]")
     # drop nat values
     oldlen = len(ret)
@@ -138,14 +155,13 @@ def merge_events_stations(events_df, channels_df, search_radius,
         logger.info(formatmsg("%d of %d segments discarded", "Travel times NaN"),
                     oldlen-len(ret), oldlen)
         if ret.empty:
-            raise FailedDownload(formatmsg("No segments to process", "All travel times NaN"))
+            raise FailedDownload(formatmsg("No segments to process",
+                                           "All travel times NaN"))
     return ret
 
 
 def locations2degrees(lat1, lon1, lat2, lon2):
-    """Same as obspy `locations2degree` but works with numpy arrays.
-    (Note: this function, exactly this one, is now in obspy, thanks to a PR we issued long ago.
-    We still have it here because prefer to decouple obspy from the download package
+    """Same as ObsPy `locations2degree` but works with numpy arrays.
 
     From the doc:
     Convenience function to calculate the great circle distance between two
@@ -162,6 +178,10 @@ def locations2degrees(lat1, lon1, lat2, lon2):
 
     :return: Distance in degrees as a numpy numeric array.
     """
+    # (Note: this function, exactly this one, is now in obspy, thanks to a PR
+    # we issued long ago. We still have it here because prefer to decouple
+    # ObsPy from the download package
+
     # Convert to radians.
     lat1 = np.radians(np.asarray(lat1))
     lat2 = np.radians(np.asarray(lat2))
@@ -176,9 +196,10 @@ def locations2degrees(lat1, lon1, lat2, lon2):
 
 
 def get_serarch_radia(search_radius, magnitudes):
-    '''Returns two iterables denoting the minima and maxima radia for
+    """Return two iterables denoting the minima and maxima radia for
     stations search. Any element of the iterables might be None to indicate:
-    no restriction for that element'''
+    no restriction for that element
+    """
     if 'min' not in search_radius and 'max' not in search_radius:
         return cycle([None]), get_magdep_search_radius(magnitudes,
                                                        search_radius['minmag'],
@@ -189,27 +210,27 @@ def get_serarch_radia(search_radius, magnitudes):
 
 
 def get_magdep_search_radius(mag, minmag, maxmag, minmag_radius, maxmag_radius):
-    """From a given magnitude, determines and returns the max radius (in degrees).
-        Given minmag_radius and maxmag_radius and minmag and maxmag (FIXME: TO BE CALIBRATED!),
-        this function returns D from the f below:
+    """From a given magnitude, return the max radius/radia (in degrees).
+    Given minmag_radius and maxmag_radius and minmag and maxmag, this
+    function returns D from the f below:
 
-                      |
-        maxmag_radius +                oooooooooooo
-                      |              o
-                      |            o
-                      |          o
-        minmag_radius + oooooooo
-                      |
-                      ---------+-------+------------
-                            minmag     maxmag
+                  |
+    maxmag_radius +                oooooooooooo
+                  |              o
+                  |            o
+                  |          o
+    minmag_radius + oooooooo
+                  |
+                  ---------+-------+------------
+                        minmag     maxmag
 
-    :return: the max radius (in degrees)
+
     :param mag: (numeric or list or numbers/numpy.array) the magnitude
     :param minmag: (int, float) the minimum magnitude
     :param maxmag: (int, float) the maximum magnitude
     :param minmag_radius: (int, float) the radius for `min_mag` (in degrees)
     :param maxmag_radius: (int, float) the radius for `max_mag` (in degrees)
-    :return: a scalar if mag is scalar, or an numpy.array
+    :return: the max radius/radia (in degrees)
     """
     mag = np.asarray(mag)  # do NOT copies data for existing arrays
     isscalar = not mag.shape
