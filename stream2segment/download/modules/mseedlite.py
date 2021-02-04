@@ -8,7 +8,7 @@ from __future__ import print_function, division
 # make the following(s) behave like python3 counterparts if running from python2.7.x
 # (http://python-future.org/imports.html#explicit-imports):
 from builtins import object
-from collections import defaultdict
+# from collections import defaultdict
 import datetime
 import struct
 from math import log
@@ -68,22 +68,24 @@ class Record(object):
 
     def __init__(self, fd):
         """Create a Mini-SEED record from a file handle or a bitstream.
+
         :param fd: any object (File descriptor, BytesIO) with a 'read' attribute
         """
 
-        # fd is the file pointer to a sequence of bytes of miniseed records
-        # (not necessarily from a single waveformd data). We have 2 types of errors
-        # 1) because we reached the EOF -> store the error message in self.error and return
-        #    The miniseed of the current record will be malformed, all other miniseed
-        #    previously read are unaffected
-        # 2) Any other error preventing us to move to the start of the next record
-        #    -> raise MseedError
-        #    All miniseed will be malformed. This means skipping successfully read
-        #    records, but it is safer to do so than saving potentially partial data
+        # fd is the file pointer to a sequence of bytes of miniSEED records
+        # (not necessarily from a single waveform data). We have 2 types of
+        # errors
+        # 1) because we reached the EOF -> store the error message in
+        #    self.error and return. The miniSEED of the current record will be
+        #    malformed, all other miniSEED previously read are unaffected
+        # 2) Any other error preventing us to move to the start of the next
+        #    record -> raise MseedError. All miniSEED will be malformed. This
+        #    means skipping successfully read records, but it is safer to do so
+        #    than saving potentially partial data
         # 3) Any other error NOT preventing to move to the next record
         #    -> store the error message in self.error and continue.
-        #    The miniseed of the current record
-        #    will be malformed, all other miniseed are unaffected
+        #    The miniSEED of the current record
+        #    will be malformed, all other miniSEED are unaffected
 
         # self.header = ""
         self.header = bytes()
@@ -119,14 +121,16 @@ class Record(object):
 
         try:
             self.record_id = _get_id(net, sta, loc, cha)
-        except UnicodeDecodeError as exc:  # raise MSeedError so it will be caught
+        except UnicodeDecodeError as exc:
+            # raise MSeedError so it will be caught
             raise MSeedError(str(exc))
 
         self.header += fixhead
 
         if ((self.rectype != b'D') and (self.rectype != b'R') and
                 (self.rectype != b'Q') and (self.rectype != b'M')):
-            # what do we do here below? seems we know how to move to the next block, how?
+            # what do we do here below? seems we know how to move to the next
+            # block, how?
             fd.read(_MAX_RECLEN - _FIXHEAD_LEN)
             self.error = "non-data record"
             return
@@ -134,7 +138,8 @@ class Record(object):
         if ((self.__pdata < _FIXHEAD_LEN) or (self.__pdata >= _MAX_RECLEN) or
             ((self.__pblk != 0) and ((self.__pblk < _FIXHEAD_LEN) or
                                      (self.__pblk >= self.__pdata)))):
-            # what do we do here below? seems we know how to move to the next block, how?
+            # what do we do here below? seems we know how to move to the next
+            # block, how?
             fd.read(_MAX_RECLEN - _FIXHEAD_LEN)
             self.error = "invalid pointers"
             return
@@ -303,7 +308,8 @@ class Record(object):
             self.error = "internal error"  # err type 2
             return
 
-        if self.error:  # we might have an error set, we reached the next block, just return
+        if self.error:
+            # we might have an error set, we reached the next block, just return
             return  # err type 2
 
         try:
@@ -448,29 +454,33 @@ class Record(object):
 
 
 class Input(object):
-    """Iterate over the available Mini-SEED records. Keeps track of record ids in case of errors
-    on a single mseed"""
+    """Iterate over the available Mini-SEED records. Keeps track of record ids
+    in case of errors on a single mseed
+    """
 
     def __init__(self, fd):
         """Create the iterable from the file handle passed as parameter.
-        :param fd: either a bytes sequence or a BytesIO object. The bytes sequence must
-        represent downloaded data **related to the same time span** (e.g. issued from a query
-        with any network, station, location, channel but the same 'start' and 'end' parameters)
+
+        :param fd: either a bytes sequence or a BytesIO object. The bytes
+            sequence must represent downloaded data **related to the same time
+            span** (e.g. issued from a query with any network, station,
+            location, channel but the same 'start' and 'end' parameters)
         """
-        # Avoid creating a BytesIO in each Record otherwise we will infinitely read the first chunk
-        # each time. This is not DRY (don't repeat yourself) but avoids modifying the original code:
+        # Avoid creating a BytesIO in each Record otherwise we will infinitely
+        # read the first chunk each time. This is not DRY (don't repeat
+        # yourself) but avoids modifying the original code:
         if not hasattr(fd, "read"):
             fd = BytesIO(fd)
         self.__fd = fd
 
     def __iter__(self):
-        """Define the iterator. Yields the tuple (Record, is_exc). Record is the record read
-        (if is_exc is False) or the MiniseedError raised (is_exc = True). In any case,
-        the Record object has the attribute
+        """Define the iterator. Yields the tuple (Record, is_exc). Record is
+        the record  read (if is_exc is False) or the MiniseedError raised
+        (is_exc = True). In any  case, the Record object has the attribute
         ```record_id = "[network].[station].[location].[channel]" != None```
-        This method raises for any kind of non-MiniseedError exception, or for MiniseedError
-        occurred during header reading, i.e. for which the exception attribute "record_id" would
-        be None.
+        This method raises for any kind of non-MiniseedError exception, or for
+        MiniseedError occurred during header reading, i.e. for which the
+        exception attribute "record_id" would be None.
         """
         while True:
             rec = Record(self.__fd)
@@ -481,22 +491,22 @@ class Input(object):
 
 
 def _get_id(net, sta, loc, cha):
-    '''Returns the id in the format ```net.sta.loc.cha```: all arguments should be bytes
-    The four arguments are network, station, location and channel code as read from
-    the miniseed bytes.
+    """Return the id in the format ```net.sta.loc.cha```: all arguments should
+    be bytes. The four arguments are network, station, location and channel
+    code as read from the miniSEED bytes.
 
     :return: a string (unicode in python2)
 
     :raise: UnicodeDecodeError if any character cannot be decoded
-    '''
+    """
     # assure python3 compatibility. Return str in py3 and unicode in py2:
-    return (b"%s.%s.%s.%s" % (net.strip(), sta.strip(), loc.strip(), cha.strip())).decode('utf8')
+    return (b"%s.%s.%s.%s" %
+            (net.strip(), sta.strip(), loc.strip(), cha.strip())).decode('utf8')
 
 
 def unpack(data, starttime=None, endtime=None):
-    """
-    Unpacks data into its "traces" (time series). Returns a dict where keys are the seed id as
-    strings:
+    """Unpack data into its "traces" (time series). Returns a dict where keys
+    are the seed id as strings:
     "network.station.location.channel"
     mapped to a tuple
     ```
@@ -505,19 +515,20 @@ def unpack(data, starttime=None, endtime=None):
     ```
     where:
     exc is the exception raised while reading the miniseed (or None)
-    data is the bytes data of the miniseed (if exc is None) or None (if exc is not None)
-    s_rate* is the sample rate (float)
-    max_gap_overlap_ratio* is a float indicating the maximum gap (positive) or overlap (negative)
-        found between all miniseed records. If zero, no gaps/ overlaps where found
+    data is the bytes data of the miniSEED (if exc is None) or None (if exc is
+    not None) s_rate* is the sample rate (float)
+    max_gap_overlap_ratio* is a float indicating the maximum gap (positive) or
+        overlap (negative) found between all miniseed records. If zero, no
+        gaps/ overlaps where found
     start_time*: (datetime) the miniseed start time (time of the first sample)
     end_time*: (datetime) the miniseed end_time (time of the last sample)
-    out_of_bounds_chunks_found*: boolean, if either `starttime` or `endtime` are provided, reutrns
-        True if some records of `data` where out-of-bounds and thus where discarded (not returned
-        in `bytes`)
+    out_of_bounds_chunks_found*: boolean, if either `starttime` or `endtime`
+        are provided, reutrns True if some records of `data` where
+        out-of-bounds and thus where discarded (not returned in `bytes`)
 
     * rely on these values only if `exc=None`. Otherwise, these values are None:
-      so basically the user should check first and handle the error, and otherwise
-      handle `data` and all other elements
+      so basically the user should check first and handle the error, and
+      otherwise handle `data` and all other elements
 
     When no error occurs (exc=None) this method assures that:
     ```
@@ -528,16 +539,19 @@ def unpack(data, starttime=None, endtime=None):
     Stream([obspy.read(BytesIO(d[0]))[0] for d in unpack(data).values()])
     ```
     return the same object
-    :param data: the bytes (or str in python2) representing waveform data as, e.g., returned from
-    a query response
-    :param starttime: the *expected* starttime (`datetime` object) or None (do not check for time
-    bounds): if not None, all records completely before this value will not be returned.
-    :param endtime: the *expected* endtime (`datetime` object) or None (do not check for time
-    bounds): if not None, all records completely after this value will not be returned
-    :return: a dictionary of keys (tuples `(network, station location, channel)`) mapped to the
-    tuple representing the record read
-    :raise MiniseedError if some error is raised, that is 'not' recoverable (e.g., header error, or
-     bad file length for some record causing all subsequent records to be mis-aligned)
+    :param data: the bytes (or str in python2) representing waveform data as,
+        e.g., returned from a query response
+    :param starttime: the *expected* starttime (`datetime` object) or None (do
+        not check for time bounds): if not None, all records completely before
+        this value will not be returned.
+    :param endtime: the *expected* endtime (`datetime` object) or None (do not
+        check for time bounds): if not None, all records completely after this
+        value will not be returned
+    :return: a dictionary of keys tuples `(network, station location, channel)`
+        mapped to the tuple representing the record read
+    :raise MiniseedError if some error is raised, that is 'not' recoverable
+        (e.g., header error, or bad file length for some record causing all
+        subsequent records to be mis-aligned)
     """
     mseeds_to_read = {}
 
@@ -558,7 +572,8 @@ def unpack(data, starttime=None, endtime=None):
         if id_ in processed_mseeds:
             continue
         elif rec.error:
-            processed_mseeds[id_] = (MSeedError(rec.error), None, None, None, None, None, False)
+            processed_mseeds[id_] = \
+                (MSeedError(rec.error), None, None, None, None, None, False)
             mseeds_to_read.pop(id_, None)
             continue
 
@@ -575,7 +590,8 @@ def unpack(data, starttime=None, endtime=None):
 
     for id_, records in mseeds_to_read.items():
         if not records:
-            processed_mseeds[id_] = (None, b'', None, None, None, None, id_ in chunks_out_of_bounds)
+            processed_mseeds[id_] = \
+                (None, b'', None, None, None, None, id_ in chunks_out_of_bounds)
             continue
         # get records and sort ascending by time
         records.sort(key=lambda elm: elm.begin_time)
@@ -592,11 +608,14 @@ def unpack(data, starttime=None, endtime=None):
                 if i == 0:
                     continue
 
-                # curr_max_gap_ratio = distance between end_time of this chunk and begin_time of
-                # next chunk.
-                # curr_max_gap_ratio is in number of samples, thus curr_max_gap_ratio *= fsamp.
-                # If curr_max_gap_ratio == 1, then no gaps. If > 1, possible gaps,
-                # if < 1 possible overlaps. Subtract 1 as we want 0 for no gaps/overlaps,
+                # curr_max_gap_ratio = distance between end_time of this chunk
+                # and begin_time of next chunk.
+                # curr_max_gap_ratio is in number of samples, thus
+                # curr_max_gap_ratio *= fsamp.
+                # If curr_max_gap_ratio == 1, then no gaps.
+                # If > 1, possible gaps,
+                # If < 1 possible overlaps.
+                # Subtract 1 as we want 0 for no gaps/overlaps,
                 # >0 for possible gaps, and <0 for possible overlaps:
                 curr_max_gap_ratio = \
                     (record.begin_time - records[i-1].end_time).total_seconds() * fsamp - 1

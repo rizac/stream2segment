@@ -1,17 +1,17 @@
-'''
+"""
 Events download functions
 
 :date: Dec 3, 2017
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
-'''
+"""
 # make the following(s) behave like python3 counterparts if running from python2.7.x
 # (http://python-future.org/imports.html#explicit-imports):
 from builtins import map, next, zip, range, object
 
 import os
-import sys
-import re
+# import sys
+# import re
 from io import open  # py2-3 compatible
 from datetime import timedelta
 
@@ -19,23 +19,25 @@ import numpy as np
 import pandas as pd
 
 from stream2segment.utils import StringIO
-from stream2segment.download.utils import dbsyncdf, FailedDownload, response2normalizeddf, \
-    formatmsg, EVENTWS_MAPPING
+from stream2segment.download.utils import (dbsyncdf, FailedDownload,
+                                           response2normalizeddf, formatmsg,
+                                           EVENTWS_MAPPING)
 from stream2segment.io.db.models import WebService, Event
 from stream2segment.utils.url import urlread, socket, HTTPError
 from stream2segment.utils import urljoin, strptime, get_progressbar
 
-# logger: do not use logging.getLogger(__name__) but point to stream2segment.download.logger:
-# this way we preserve the logging namespace hierarchy
-# (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial) when calling logging
-# functions of stream2segment.download.utils:
+# logger: do not use logging.getLogger(__name__) but point to
+# stream2segment.download.logger: this way we preserve the logging namespace
+# hierarchy
+# (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial) when
+# calling logging functions of stream2segment.download.utils:
 from stream2segment.download import logger  # @IgnorePep8
 
 
 def get_events_df(session, url, evt_query_args, start, end,
                   db_bufsize=30, timeout=15,
                   show_progress=False):
-    '''Returns the event data frame from the given url or local file'''
+    """Return the event data frame from the given url or local file"""
 
     eventws_id = configure_ws_fk(url, session, db_bufsize)
 
@@ -49,30 +51,37 @@ def get_events_df(session, url, evt_query_args, start, end,
         events_df = pd.concat(pd_df_list, axis=0, ignore_index=True, copy=False)
 
     if events_df is None or events_df.empty:
-        # if we are here, the reason should NOT be an URL error (Http error, timeout etcetera)
-        # becasue those error have already raised a FailedDownload
-        # Thus, the reasons are: the downloaded content is unparsable, or empty
-        # (the downloaded content might be the aggregation of all sub-requests contents, if
-        # the original request had to be splitted).
+        # if we are here, the reason should NOT be an URL error (Http error,
+        # timeout etcetera) because those error have already raised a
+        # FailedDownload. Thus, the reasons are: the downloaded content is not
+        # parsable, or empty (the downloaded content might be the aggregation
+        # of all sub-requests contents, if the original request had to be
+        # split).
         isfile = islocalfile(url)
         if isfile:
-            msg = ("No event found. Check that the file is non empty and its content is valid")
+            msg = ("No event found. Check that the file is non empty and its "
+                   "content is valid")
         else:
             # we might have supplied a file that the program interprets as url.
             # Check first that we surely did not provide a file and set message
             # accordingly
             if url in EVENTWS_MAPPING:
                 # Surely not a file. Valid FDSN:
-                msg = ("No event found, try to change your search parameters")
+                msg = "No event found, try to change your search parameters"
             elif url.lower().startswith('http://') or url.lower().startswith('https://'):
-                # Surely not a file. It might be that the content is actually invalid FDSN
+                # Surely not a file. It might be that the content is actually
+                # invalid FDSN
                 msg = ("No event found, try to change your search parameters. "
-                       "Check also that the service returns parsable data (FDSN-compliant)")
+                       "Check also that the service returns parsable data "
+                       "(FDSN-compliant)")
             else:
-                # Maybe file maybe url. It might be that the content is actually invalid FDSN
-                msg = ("No event found. If you supplied a file, the file was not found: "
-                       "check path and typos. Otherwise, try to change your search parameters: "
-                       "check also that the service returns parsable data (FDSN-compliant)")
+                # Maybe file maybe url. It might be that the content is
+                # actually invalid FDSN
+                msg = ("No event found. If you supplied a file, the file was "
+                       "not found: check path and typos. "
+                       "Otherwise, try to change your search parameters: "
+                       "check also that the service returns parsable data "
+                       "(FDSN-compliant)")
             # build the real url used for the query, so that we log the latter:
             url, evt_query_args = _normalize(url, evt_query_args, start, end)
             url = urljoin(url, **evt_query_args)
@@ -81,29 +90,36 @@ def get_events_df(session, url, evt_query_args, start, end,
 
     events_df[Event.webservice_id.key] = eventws_id
     events_df = dbsyncdf(events_df, session,
-                         [Event.event_id, Event.webservice_id], Event.id, buf_size=db_bufsize,
-                         cols_to_print_on_err=[Event.event_id.key], keep_duplicates='first')
+                         [Event.event_id, Event.webservice_id], Event.id,
+                         buf_size=db_bufsize,
+                         cols_to_print_on_err=[Event.event_id.key],
+                         keep_duplicates='first')
 
     # try to release memory for unused columns (FIXME: NEEDS TO BE TESTED)
-    return events_df[[Event.id.key, Event.magnitude.key, Event.latitude.key, Event.longitude.key,
-                      Event.depth_km.key, Event.time.key]].copy()
+    return events_df[[Event.id.key, Event.magnitude.key, Event.latitude.key,
+                      Event.longitude.key, Event.depth_km.key, Event.time.key]].copy()
 
 
 def configure_ws_fk(eventws_url, session, db_bufsize):
-    '''configure the web service foreign key creating such a db row if it does not
-    exist and returning its id'''
+    """Configure the web service foreign key creating such a db row if it does
+    not exist and returning its id"""
     ws_name = ''
     if eventws_url in EVENTWS_MAPPING:
         ws_name = eventws_url
         eventws_url = EVENTWS_MAPPING[eventws_url]
     elif islocalfile(eventws_url):
         eventws_url = tofileuri(eventws_url)
-    eventws_id = session.query(WebService.id).filter(WebService.url == eventws_url).scalar()
+
+    eventws_id = session.query(WebService.id).\
+        filter(WebService.url == eventws_url).scalar()
+
     if eventws_id is None:  # write url to table
         data = [("event", ws_name, eventws_url)]
-        dfr = pd.DataFrame(data, columns=[WebService.type.key, WebService.name.key,
+        dfr = pd.DataFrame(data, columns=[WebService.type.key,
+                                          WebService.name.key,
                                           WebService.url.key])
-        dfr = dbsyncdf(dfr, session, [WebService.url], WebService.id, buf_size=db_bufsize)
+        dfr = dbsyncdf(dfr, session, [WebService.url], WebService.id,
+                       buf_size=db_bufsize)
         eventws_id = dfr.iloc[0][WebService.id.key]
 
     return eventws_id
@@ -112,10 +128,11 @@ def configure_ws_fk(eventws_url, session, db_bufsize):
 def dataframe_iter(url, evt_query_args, start, end,
                    timeout=15,
                    show_progress=False):
-    '''Yields pandas dataframe(s) from the event url or file
+    """Yield pandas dataframe(s) from the event url or file
 
-    :param url: a valid url, a mappings string, or a local file (fdsn 'text' formatted)
-    '''
+    :param url: a valid url, a mappings string, or a local file (fdsn 'text'
+        formatted)
+    """
 
     if islocalfile(url):
         events_iter = events_iter_from_file(url, evt_query_args.get('format'))
@@ -134,10 +151,10 @@ def dataframe_iter(url, evt_query_args, start, end,
 
 
 def events_iter_from_file(file_path, format_=None):
-    """Yields the tuple (filepath, events_data) from a file, which must exist on
-    the local computer.
+    """Yield the tuple (filepath, events_data) from a file, which must exist
+    on the local computer.
 
-    :param foramt_: string: None will infer the format (isf or txt), otherwise
+    :param format_: string: None will infer the format (isf or txt), otherwise
         it must be isf or txt. Note that support for isf is not fully complete
         (e.g., no comments allowed)
     """
@@ -160,22 +177,26 @@ def is_isf(filepath):
 
 
 def tofileuri(file_path):
-    '''returns a file uri form the given file, basically file:///+basename(file_path)'''
+    """return a file URI form the given file,
+    basically file_path:///+basename(file_path)
+    """
     # https://en.wikipedia.org/wiki/File_URI_scheme#Format
     # return 'file:///' + os.path.abspath(os.path.normpath(file_path))
     return 'file:///' + os.path.basename(file_path)
 
 
 def islocalfile(url):
-    '''Returns whether url denotes a local file path, existing on the computer machine'''
+    """Return whether url denotes a local file path, existing on the computer
+    machine
+    """
     return url not in EVENTWS_MAPPING and os.path.isfile(url)
 
 
-def events_iter_from_url(base_url, evt_query_args, start, end, timeout, show_progress=False):
-    """
-    Yields an iterator of tuples (url, data), where bith are strings denoting the
-    url and the corresponding response body. The returned iterator has length > 1
-    if the request was too large and had to be splitted
+def events_iter_from_url(base_url, evt_query_args, start, end, timeout,
+                         show_progress=False):
+    """Yield an iterator of tuples (url, data), where both are strings denoting
+    the URL and the corresponding response body. The returned iterator has
+    length > 1 if the request was too large and had to be split
     """
     base_url, evt_query_args = _normalize(base_url, evt_query_args, start, end)
     is_isf_ = evt_query_args['format'] == 'isf'
@@ -190,8 +211,8 @@ def events_iter_from_url(base_url, evt_query_args, start, end, timeout, show_pro
                         "sub-requests")
 
             # the tricky part below is actually the progressbar part. It must:
-            # 1 not be linear, thus advance "more" at lower magnitudes (where events are more
-            #   dense)
+            # 1 not be linear, thus advance "more" at lower magnitudes (where
+            #   events are more dense)
             # 2 consider that, when the maximum magnitude depth is reached, we split
             #   by time and in this case only the last sub-request should advance the
             #   progress bar
@@ -219,13 +240,13 @@ def events_iter_from_url(base_url, evt_query_args, start, end, timeout, show_pro
 
 
 def _normalize(base_url, evt_query_args, start, end):
-    '''Returns the normalized tuple (url, evt_query_args), i.e. url is
-    mapped to EVENTWS_MAPPING (if a key is found) and evt_query_args has surely the
-    keys 'starttime', 'endtime', 'format'. Moreover, 'minmag' 'maxmag', if found,
+    """Return the normalized tuple (url, evt_query_args), i.e. url is mapped to
+    EVENTWS_MAPPING (if a key is found) and evt_query_args has surely the keys
+    'starttime', 'endtime', 'format'. Moreover, 'minmag' 'maxmag', if found,
     are normalized into 'minmagnitude' and 'maxmagnitude' (but note that
-    'minmagnitude' and 'maxmagnitude' are not assured to be keys of the returned
-    `evt_query_args`.
-    '''
+    'minmagnitude' and 'maxmagnitude' are not assured to be keys of the
+    returned `evt_query_args`.
+    """
     start_iso = start.isoformat()
     end_iso = end.isoformat()
     # This should never happen but let's be safe: override start and end
@@ -235,7 +256,8 @@ def _normalize(base_url, evt_query_args, start, end):
     if 'end' in evt_query_args:
         evt_query_args.pop('end')
     evt_query_args['endtime'] = end_iso
-    # assure that we have 'minmagnitude' and 'maxmagnitude' as mag parameters, if any:
+    # assure that we have 'minmagnitude' and 'maxmagnitude' as mag parameters,
+    # if any:
     if 'minmag' in evt_query_args:
         minmag = evt_query_args.pop('minmag')
         if 'minmagnitude' not in evt_query_args:
@@ -246,14 +268,16 @@ def _normalize(base_url, evt_query_args, start, end):
             evt_query_args['maxmagnitude'] = maxmag
 
     url = EVENTWS_MAPPING.get(base_url, base_url)
-    evt_query_args.setdefault('format', 'isf' if url == EVENTWS_MAPPING['isc'] else 'text')
+    evt_query_args.setdefault('format',
+                              'isf' if url == EVENTWS_MAPPING['isc'] else 'text')
 
     return url, evt_query_args
 
 
 def _urlread(url, timeout=None, is_isf=False):
-    '''Wrapper around urlread but returns None if the url should be splitted
-    becasue of a too long request'''
+    """Wrapper around `urlread` but returns None if the url should be split
+    because of a too long request
+    """
     try:
         raw_data, code, msg = urlread(url, decode='utf8', timeout=timeout,
                                       raise_http_err=True, wrap_exceptions=False)
@@ -273,11 +297,11 @@ def _urlread(url, timeout=None, is_isf=False):
 
 
 def _split_request(evt_query_args):
-    '''Splits the event query issued with the given `event_query_args` (dict)
+    """Split the event query issued with the given `event_query_args` (dict)
     and returns a two-element list:
     (event_query_args1, event_query_args2)
     of event query parameters (dicts) resulting from splitting `evt_query_args`
-    '''
+    """
     minmag, deltamag, evtfreq_freq_mag_dist = _get_freq_mag_distrib(evt_query_args)
     if len(evtfreq_freq_mag_dist) < 2:  # max recusrion on magnitudes, split by time:
         start = strptime(evt_query_args['starttime'])
@@ -305,7 +329,7 @@ def _split_request(evt_query_args):
 
 
 def _get_freq_mag_distrib(evt_query_args):
-    '''Returns the tuple minmag, step, distrib, where minmag is a float
+    """Return the tuple minmag, step, distrib, where minmag is a float
     representing `func` first point (magnitude), step is the magnitude
     distance two adjacent points of `distrib`, and `distrib` is a a numpy array
     (dtype=int) representing the theoretical events distribution from a given
@@ -313,11 +337,12 @@ def _get_freq_mag_distrib(evt_query_args):
     ```
     f(mag) = 10 ** (9-mag)
     ```
-    '''
+    """
     default_min, step, default_max = 0, .1, 9
 
     # create the function:
-    ret = ((10 ** (default_max - np.arange(default_min, default_max, step))) + 0.5).astype(int)
+    ret = ((10 ** (default_max - np.arange(default_min, default_max, step))) + 0.5).\
+        astype(int)
     # set all points of magnitude <1 equal to the frequency at magnitude 1
     # (no frequency increase after that threshold)
     index_of_mag_1 = int(0.5 + ((1.0 - default_min) / step))
@@ -343,7 +368,7 @@ def _get_freq_mag_distrib(evt_query_args):
 
 
 def isfresponse2txt(nonempty_text, catalog='ISC', contributor='ISC'):
-    '''Converts an isf formatted string into an FDSN text formatted string'''
+    """Convert an isf formatted string into an FDSN text formatted string"""
     sio = StringIO(nonempty_text)
     sio.seek(0)
     try:
@@ -353,7 +378,7 @@ def isfresponse2txt(nonempty_text, catalog='ISC', contributor='ISC'):
 
 
 def isf2text_iter(isf_filep, catalog='', contributor=''):
-    '''Yields lists of strings representing an event. The yielded list L
+    """Yield lists of strings representing an event. The yielded list L
     can be passed to a DataFrame: pd.DataFrame[L]) and then converted with
     response2normalizeddf('file:///' + filepath, data, "event")
     For info see:
@@ -362,10 +387,11 @@ def isf2text_iter(isf_filep, catalog='', contributor=''):
     Note that comments are not supported: events with comments will be discarded
 
     :param isf_filep: a file-like object which returns string (unicode) data
-    '''
+    """
 
-    # To have an idea of the text format parsed  See e.g.:
-    # http://www.isc.ac.uk/fdsnws/event/1/query?starttime=2011-01-08T00:00:00&endtime=2011-01-08T01:00:00&format=isf
+    # To have an idea of the text format parsed  See e.g. (URL split into two):
+    # http://www.isc.ac.uk/fdsnws/event/1/query?
+    # starttime=2011-01-08T00:00:00&endtime=2011-01-08T01:00:00&format=isf
 
     buf = []
     origin_subblock_header = ("Date       Time        Err   RMS Latitude Longitude  "
@@ -382,7 +408,7 @@ def isf2text_iter(isf_filep, catalog='', contributor=''):
             continue
         try:
             if eof or line.startswith('Event '):
-                if buf:  # remaining unparsed event
+                if buf:  # remaining not parsed event
                     yield buf
                 if eof:
                     break
