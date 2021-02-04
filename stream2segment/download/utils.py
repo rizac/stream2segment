@@ -616,7 +616,7 @@ class HTTPCodesCounter(dict):
         try:
             key = int(key)  # e.g. '200' and 200 must be the same key
         except:  # noqa
-            # could not convert to int: no ambiguity, use the key as it is:
+            # could not convert to int: no ambiguity, use the key as it is
             pass
         # slightly faster than super(...).__setitiem__:
         return dict.__setitem__(self, key, val)
@@ -625,7 +625,7 @@ class HTTPCodesCounter(dict):
         try:
             key = int(key)  # e.g. '200' and 200 must be the same key
         except:  # noqa
-            # could not convert to int: no ambiguity, use the key as it is:
+            # could not convert to int: no ambiguity, use the key as it is
             pass
         # slightly faster than super(...).__setitiem__:
         return dict.__getitem__(self, key)
