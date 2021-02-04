@@ -614,18 +614,18 @@ class HTTPCodesCounter(dict):
 
     def __setitem__(self, key, val):
         try:
-            key = int(key)  # Try to treat '200' and 200 as the same key
+            key = int(key)  # e.g. '200' and 200 must be the same key
         except:  # noqa
-            # keep key as it is (the intention was not to do any type checking)
+            # could not convert to int: no ambiguity, use the key as it is:
             pass
         # slightly faster than super(...).__setitiem__:
         return dict.__setitem__(self, key, val)
 
     def __getitem__(self, key):
         try:
-            key = int(key) # Try to treat '200' and 200 as the same key
+            key = int(key)  # e.g. '200' and 200 must be the same key
         except:  # noqa
-            # keep key as it is (the intention was not to do any type checking)
+            # could not convert to int: no ambiguity, use the key as it is:
             pass
         # slightly faster than super(...).__setitiem__:
         return dict.__getitem__(self, key)
