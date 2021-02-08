@@ -79,9 +79,13 @@ is never downloaded per se, Stream2segment helps the whole workflow with:
 
 ## Usage
 
-All detailed documentation is available in the **[github documentation](https://github.com/rizac/stream2segment/wiki)**
-and via the command `s2s init <destination_directory>` which creates several example
-files with all necessary documentation to start: 
+A detailed documentation is available online in the
+**[github wiki page](https://github.com/rizac/stream2segment/wiki)**, but
+you can also simply start the program via the command `init` ( 
+`s2s init --help` for details) which creates several examples files to run
+the program. These files contain roughly the same online documentation  
+in form of comments to code and parameters that you can immediately start to
+configure and modify. These files are: 
 
  - A download configuration file (in YAML syntax with all parameters documented)
    to start the download routine:
