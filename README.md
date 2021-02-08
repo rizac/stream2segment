@@ -56,8 +56,8 @@ is never downloaded per se, Stream2segment helps the whole workflow with:
   user-defined classes in order to refine the segments selection later, or for 
   creating datasets in machine-learning supervised classification problems
 
-* **Several utilities** to interact with the database of produce download reports
-  or statistic plots (see command `s2s utils`)
+* **Several utilities** to interact with the database, print download reports
+  or show interactive stats on web GUI maps (see command `s2s utils`)
   
   | The GUI produced with the `show` command  | The dynamic HTML page produced with the `utils dstats` command  |
   | --- | --- |
