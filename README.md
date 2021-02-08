@@ -8,7 +8,7 @@ a Relational database management system (RDBMS) to store downloaded data and
 metadata.
 
 <sub>**Important Note** he program supports SQLite and Postgres RDBMS. For massive 
-  downloads (as a rule of thumb: &ge; <!-->=--> 1 million segments) we suggest to 
+  downloads (as a rule of thumb: &ge; 1 million segments) we suggest to 
   use Postgres, and we **strongly** suggest to run the program on computers with at 
   least **16GB** of RAM.</sub>
   
