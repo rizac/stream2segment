@@ -1,57 +1,63 @@
 # <img align="left" height="30" src="https://www.gfz-potsdam.de/fileadmin/gfz/medien_kommunikation/Infothek/Mediathek/Bilder/GFZ/GFZ_Logo/GFZ-Logo_eng_RGB.svg"> Stream2segment <img align="right" height="50" src="https://www.gfz-potsdam.de/fileadmin/gfz/GFZ_Wortmarke_SVG_klein_en_edit.svg">
 
-A Python project to download, process and visualize event-based seismic waveform segments,
-specifically created to manage massive amounts of data.
+A Python project to download, process and visualize event-based seismic waveform 
+segments, specifically designed to manage big volumes of data.
 
-<sub>**Hint**: for massive downloads (as a rule of thumb: >= 1 million segments) we
-suggest to use postgres as database, and we **strongly** suggest to run the program on 
-computers with at least **16GB** of RAM.</sub>
+The key aspects with respect to widely-used similar applications is the use of
+a Relational database management system (RDBMS) to store downloaded data and 
+metadata.
 
-The key aspects with respect to widely-used similar applications are:
+<sub>**Important Note** he program supports SQLite and Postgres RDBMS. For massive 
+  downloads (as a rule of thumb: &ge; <!-->=--> 1 million segments) we suggest to 
+  use Postgres, and we **strongly** suggest to run the program on computers with at 
+  least **16GB** of RAM.</sub>
+  
+The main advantages of this approach are: 
 
-* A database storage (sqlite or postgres) for downloaded data and metadata. Downloading 
-  hundreds of thousands, if not millions, of waveform segments on your file system to 
-  inspect, select and process them accessing their metadata, is so unfeasible to be in 
-  most cases virtually impossible. For this kind of tasks *a database is not polluting your 
-  computer with huge, complex and unexplorable directory structures*, stores everything 
-  more efficiently, preventing data and metatada inconsistency by design,  allowing a far
-  more powerful and efficient data selection and accessibility (see below) and several 
-  users to work on the same database remotely, if needed. *Stream2segment uniquely read 
-  each downloaded waveform (without performance degradation)* and runs diagnostics (e.g.,
-  percentage of downloaded data, gaps/overlaps) which will be saved to the database in order
-  to allow a fast and unique selection of suitable segments on both segment's data and 
-  metadata.
+* **Storage efficiency**: no huge amount of files, no complex, virtually 
+  unusable directory structures. Moreover, a database prevents data and metatada 
+  inconsistency by design, and allows more easily to track what has already 
+  been downloaded in order to customize and improve further downloads
 
-* A very efficient and straightforward interface for processing downloaded data in any
-  kind of custom code (e.g., the processing module described below, Jupyter notebook):
-  each segment is exposed as a simple Python object with a list of easily accessible
-  attributes denoting data, metadata and related objects (segment's station, channel,
-  event, and so on), which also makes the selection of suitable segments to process
-  incredibly unique, powerful and easy to use. The selection can be performed on all
-  segments attributes, it exploits under the hood the efficiency of the Object-relational
-  mapping library to issue SQL `select` commands, but it does not require any specific
-  database knowledge thanks to a simplified and custom syntax documented in any generated
-  template and in the  [Usage](#usage) section
+* **Simple Python objects representing stored data and relationships**, easy 
+  to work with in any kind of custom code. For instance, a segment is 
+  represented by a `Segment` object with its data, metadata and related objects 
+  easily accessible through its attributes, e.g., `segment.stream()`, 
+  `segment.event_distance_deg`, `segment.event.magnitude`, 
+  `segment.station.network`, `segment.channel.orientation_code` and so on.
+  
+* **A powerful segments selection** made even easier by means of a simplified
+  syntax: map any attribute described above to a selection expression
+  (e.g. `segment.event.magnitude: "[4, 5)"`) and with few lines you can compose 
+  complex database queries such as e.g., "get all downloaded segments within a 
+  given magnitude range, with no gaps, enough data (related to the requested 
+  data), from broadband channels only and a given specific network"
 
-* An integrated processing environment to get any user-dependent output from the
-  downloaded data. Write your own code in a processing module (following few simple
-  instructions), run it with the `s2s process` command, and Stream2segment takes care of
-  executing the code on all selected segments, interacting with the database for you while
-  displaying progress bars, estimated available time, and handling errors. The selection
-  of segments to process is implemented via a simple and powerful expressions syntax in a
-  config YAML file to be passed to `s2s process`. Few templates (command `s2s init`)
-  provide the user with editable examples for two typical scenarios: create tabular file
-  outputs (e.g., CSV, HDF), or store on the local file system the processed waveform
-  segments.
+Each download is highly customizable with several parameters for any step required
+(event, data center, station and waveform data download). In addition, as data 
+is never downloaded per se, Stream2segment helps the whole workflow with:
 
-* A visualization tool to show downloaded and optionally customized processed segments in
-  a web browser Graphical User Interface (GUI) by means of Python web framework and 
-  Javascript libraries (thus, with no external programs required). As for the processing
-  module, write your own code (following few simple instructions) run it with the
-  `s2s show` command, and Stream2segment takes care of showing the plots *you implemented
-  in your code*. The user can also set class labels to make the GUI a hand-labelling tool
-  for supervised classification problems, or to simply label special segments for easy 
-  election
+* **An integrated processing environment** to get any user-dependent output (e.g., 
+  tabular output such as CSV or HDF files). Write your segment selection 
+  in a configuration (YAML) file, and your own code in a processing (Python) 
+  module.
+  Pass both files to the `s2s process` command, and Stream2segment takes care of
+  executing the code on all selected segments, interacting with the database for 
+  you while displaying progress bars, estimated available time, and handling 
+  errors.
+
+* **A visualization tool** to show *any* kind of user defined plot from each selected
+  segment. Similar to the processing case above, write your selection in 
+  the configuration file and the code of your own plots in the processing (or 
+  any Python) module. 
+  Pass both files to the `s2s show` command, and Stream2segment takes care of 
+  visualizing your plots in a *web browser* Graphical User Interface (GUI) with
+  no external programs required. The GUI can also be used to label segments with 
+  user-defined classes in order to refine the segments selection later, or for 
+  creating datasets in machine-learning supervised classification problems
+
+* **Several utilities** to interact with the database of produce download reports
+  or statistic plots (see command `s2s utils`)
   
   | The GUI produced with the `show` command  | The dynamic HTML page produced with the `utils dstats` command  |
   | --- | --- |
@@ -73,8 +79,26 @@ The key aspects with respect to widely-used similar applications are:
 
 ## Usage
 
-Please refer to the **[github documentation](https://github.com/rizac/stream2segment/wiki)**
+All detailed documentation is available in the **[github documentation](https://github.com/rizac/stream2segment/wiki)**
+and via the command `s2s init <destination_directory>` which creates several example
+files with all necessary documentation to start: 
 
+ - A download configuration file (in YAML syntax with all parameters documented)
+   to start the download routine:
+   ```bash
+   s2s download -c <config_file> ...
+   ```
+ - Two modules (Python files) with relative configurations (YAML files)
+   to be passed to the processing routine:
+   ```bash
+   s2s process -c <config_file> -p <processing_module> ...
+   ``` 
+   or the visualization routine:
+   ```bash
+   s2s show -c <config_file> -p <processing_module> ...
+   ``` 
+ - A Jupyter notebook tutorial with examples, for user who prefer 
+   this approach when working with downloaded data
 
 ## Installation
 

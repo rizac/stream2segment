@@ -14,7 +14,7 @@ import pandas as pd
 from stream2segment.utils import open2writetext
 
 HDF_FILE_EXTENSIONS = ['.hdf', '.h5', '.hdf5']
-SEGMENT_ID_COLNAME = '_segment_db_id'
+SEGMENT_ID_COLNAME = 'segment_db_id'
 # previous versions had different SEGMENT_ID_COLNAMEs:
 _SEGMENT_ID_COLNAMES = (SEGMENT_ID_COLNAME, 'Segment.db.id')  # order matters
 HDF_DEFAULT_CHUNKSIZE = 10000
