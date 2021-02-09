@@ -5,12 +5,10 @@ segments, specifically designed to manage big volumes of data.
 
 The key aspects with respect to widely-used similar applications is the use of
 a Relational database management system (RDBMS) to store downloaded data and 
-metadata.
-
-<sub>**Important Note** he program supports SQLite and Postgres RDBMS. For massive 
+metadata. **Note** the program supports SQLite and Postgres RDBMS. For massive 
   downloads (as a rule of thumb: &ge; 1 million segments) we suggest to 
   use Postgres, and we **strongly** suggest to run the program on computers with at 
-  least **16GB** of RAM.</sub>
+  least **16GB** of RAM.
   
 The main advantages of this approach are: 
 
@@ -23,7 +21,7 @@ The main advantages of this approach are:
   to work with in any kind of custom code. For instance, a segment is 
   represented by a `Segment` object with its data, metadata and related objects 
   easily accessible through its attributes, e.g., `segment.stream()`, 
-  `segment.event_distance_deg`, `segment.event.magnitude`, 
+  `segment.maxgap_numsamples`, `segment.event.magnitude`, 
   `segment.station.network`, `segment.channel.orientation_code` and so on.
   
 * **A powerful segments selection** made even easier by means of a simplified
