@@ -1,10 +1,10 @@
-'''
-Db utitlties for the 'show' command
+"""
+Db utilities for the 'show' command
 
 Created on 16 Apr 2020
 
 @author: riccardo
-'''
+"""
 import os
 import numpy as np
 from sqlalchemy import func
@@ -39,9 +39,9 @@ _session = None  # pylint: disable=invalid-name
 
 
 def init(app, dbpath):
-    '''Initializes the database. this method must be called after the Flask
+    """Initialize the database. this method must be called after the Flask
     app has been created nd before using it
-    '''
+    """
     # https://nestedsoftware.com/2018/06/11/flask-and-sqlalchemy-without-the-flask-sqlalchemy-extension-3cf8.34704.html
     # and
     # https://flask.palletsprojects.com/en/1.1.x/appcontext/#storing-data
@@ -54,28 +54,28 @@ def init(app, dbpath):
     # removed (see get_session below)
     @app.teardown_appcontext
     def close_db(error):
-        """Closes the database again at the end of the request."""
+        """Close the database again at the end of the request."""
         # if hasattr(g, 'session'):
         #     g.session.remove()
         get_session().remove()
 
 
 def get_session():
-    '''Returns a sqlalchemy scoped session for interacting with the database'''
+    """Return a sqlalchemy scoped session for interacting with the database"""
     # (see init above)
     return _session
 
 
 def get_db_url(safe=True):
-    '''Returns the db url (with password hidden, if present in the url)'''
+    """Return the db url (with password hidden, if present in the url)"""
     return secure_dburl(str(get_session().bind.engine.url))
 
 
 def get_segments_count(conditions):
-    '''Returns the number of segments to show (int) according to the given
+    """Return the number of segments to show (int) according to the given
     `conditions` (dict of selection expressions usually resulting from the
     'segment_select' parameter in the YAML config)
-    '''
+    """
     session = get_session()
     num_segments = _query4gui(session.query(func.count(Segment.id)), conditions).scalar()
     if num_segments > 0:
@@ -89,7 +89,7 @@ def _query4gui(what2query, conditions, orderby=None):
 
 
 def get_segment_id(seg_index, conditions):
-    '''Returns the segment id (int) at a given index (position) in the GUI'''
+    """Return the segment id (int) at a given index (position) in the GUI"""
     if np.isnan(SEG_IDS[seg_index]):
         # segment id not queryed yet: load chunks of segment ids:
         # Note that this is the best compromise between
@@ -109,18 +109,18 @@ def get_segment_id(seg_index, conditions):
 
 
 def get_segment_ids(conditions, limit=50, offset=0):
-    '''Fetches from the database a block of segments ids and returns them
-    as list of integers'''
+    """Fetch from the database a block of segments ids and returns them
+    as list of integers"""
     session = get_session()
-    # querying all segment ids is faster later when selecting a segment
-    orderby = [('event.time', 'desc'), ('event_distance_deg', 'asc'),
-               ('id', 'asc')]
+    # NOTE: sort by id only, is way FASTER (we leave old sorting key for info):
+    orderby = [ # ('event.time', 'desc'), ('event_distance_deg', 'asc'),
+               ('id', 'desc')]
     return [_[0] for _ in _query4gui(session.query(Segment.id),
                                      conditions, orderby).limit(limit).offset(offset)]
 
 
 def get_segment(segment_id):  # , cols2load=None):
-    '''Returns the segment identified by id `segment_id`'''
+    """Return the segment identified by id `segment_id`"""
     # Some history: we initially wanted to use some sort of cache, because displaying
     # several plots might be time consuming. Solution 1: complex caching
     # mechanism, with ad hoc classes and methods: it's a pain to test and maintain
@@ -161,8 +161,7 @@ def get_segment(segment_id):  # , cols2load=None):
 
 
 def get_classes(segment_id=None):
-    '''
-    If `segment_id` is given (int not None), returns a list of classes ids
+    """If `segment_id` is given (int not None), returns a list of classes ids
     (integers) denoting the classes associated to the given segment, or the
     empty list if no classes are set.
 
@@ -181,7 +180,7 @@ def get_classes(segment_id=None):
     ]
     ```
     Note that 'id' and 'label' might change depending on the ORM implementation
-    '''
+    """
     if segment_id is not None:
         segment = get_segment(segment_id)
         return [] if not segment else sorted(c.id for c in segment.classes)
@@ -197,10 +196,11 @@ def get_classes(segment_id=None):
 
 
 def get_metadata(segment_id=None):
-    '''Returns a list of tuples (column, column_type) if `segment_id` is None or
+    """Return a list of tuples (column, column_type) if `segment_id` is None or
     (column, column_value) if segment is not None. In the first case, `column_type` is the
     string representation of the column python type (str, datetime,...), in the latter,
-    it is the value of `segment` for that column'''
+    it is the value of `segment` for that column
+    """
     excluded_colnames = set([Station.inventory_xml, Segment.data, Download.log,
                              Download.config, Download.errors, Download.warnings,
                              Download.program_version, Class.description])
