@@ -240,8 +240,14 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 			var indices = $scope.getVisiblePlotIndices();
 		}
 		var zooms = $scope.getAndClearZooms();
-		var param = {seg_index: $scope.segIdx, pre_processed: $scope.showPreProcessed, zooms:zooms,
-					 plot_indices: indices, all_components: $scope.showAllComponents};
+		var param = {
+		    seg_index: $scope.segIdx,
+		    seg_count: $scope.segmentsCount,
+		    pre_processed: $scope.showPreProcessed,
+		    zooms:zooms,
+			plot_indices: indices,
+			all_components: $scope.showAllComponents
+		};
 
 		param.config = config || {};
 		if(refreshMetadata){
