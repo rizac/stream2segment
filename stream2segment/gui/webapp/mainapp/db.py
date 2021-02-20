@@ -165,9 +165,10 @@ def get_classes(segment_id=None):
     [
         ... ,
         {
-         'id': (int)
-         'labe;': (str)
-         'count': (int) (number of segments labelled with this label)
+         'id': int
+         'label': str,
+         'description': str
+         'count': int (number of segments labelled with this label)
         },
         ...
     ]
@@ -179,14 +180,19 @@ def get_classes(segment_id=None):
         return [] if not segment else sorted(c.id for c in segment.classes)
 
     session = get_session()
-    colnames = [Class.id.key, Class.label.key, 'count']
-    # Note isouter which produces a left outer join, important when we have no
-    # class labellings (i.e. third column all zeros) otherwise with a normal
-    # join we would have no results
-    data = session.query(Class.id, Class.label, func.count(ClassLabelling.id).label(colnames[-1])).\
-        join(ClassLabelling, ClassLabelling.class_id == Class.id, isouter=True).group_by(Class.id).\
-        order_by(Class.id)
-    return [{name: val for name, val in zip(colnames, d)} for d in data]
+    colnames = [Class.id.key, Class.label.key, Class.description.key, 'count']
+    # compose the query step by step:
+    query = session.query(Class.id, Class.label, Class.description,
+                          func.count(ClassLabelling.id).label(colnames[-1]))
+    # Join class labellings to get how many segments per class:
+    # Note: `isouter` below, which produces a left outer join, is important
+    # when we have no class labellings (i.e. third column all zeros) otherwise
+    # with a normal join we would have no results
+    query = query.join(ClassLabelling,
+                       ClassLabelling.class_id == Class.id, isouter=True)
+    # group by class id:
+    query = query.group_by(Class.id).order_by(Class.id)
+    return [{name: val for name, val in zip(colnames, d)} for d in query]
 
 
 def get_metadata(segment_id=None):

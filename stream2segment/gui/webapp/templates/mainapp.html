@@ -123,12 +123,12 @@
 								<div ng-show="classes.length">
 									<div class="divider"></div>
 									<div ng-click="toggleDivVisibility('classes')">
-										classes <div ng-class="isDivVisible('classes') ? 'arrow-up' : 'arrow-down'"
+										class label <div ng-class="isDivVisible('classes') ? 'arrow-up' : 'arrow-down'"
 											style='float:right'></div>
 									</div>
 									<div ng-show="isDivVisible('classes')" class="panel-body">
 										<div ng-repeat="class in classes">
-					  						<label>
+					  						<label title="{{ class.description }}">
 												<input
 												    type="checkbox"
 												    value="{{ class.id }}"

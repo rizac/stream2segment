@@ -7,7 +7,6 @@ Views for the web app (processing)
 """
 from flask import (render_template, request, jsonify, Blueprint)
 
-from stream2segment.process.db import configure_classes
 from stream2segment.gui.webapp.mainapp import core
 
 
