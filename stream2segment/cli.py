@@ -112,7 +112,9 @@ def cli():
     pass
 
 
-@cli.command(short_help='Creates template/config files in a specified directory',
+@cli.command(short_help='Create example config. files and modules with'
+                        'code and documentation to start downloading and '
+                        'processing data',
              context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
 @click.argument('outdir')
 def init(outdir):
@@ -389,12 +391,12 @@ def show(dburl, configfile, pyfile):
         main.show(dburl, pyfile, configfile)
 
 
-@cli.group(short_help="Program utilities. Type --help to list available sub-commands")
-def utils():  # pylint: disable=missing-docstring
+@cli.group(short_help="Donwload utilities. Type --help to list available sub-commands")
+def dl():  # pylint: disable=missing-docstring
     pass
 
 
-@utils.command(short_help='Produce download summary statistics in either plain text or html format',
+@dl.command(short_help='Produce download summary statistics in either plain text or html format',
                context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option('-did', '--download-id', multiple=True, type=int,
@@ -415,7 +417,7 @@ def utils():  # pylint: disable=missing-docstring
 @click.argument("outfile", required=False, type=click.Path(file_okay=True,
                                                            dir_okay=False, writable=True,
                                                            readable=True))
-def dstats(dburl, download_id, maxgap_threshold, html, outfile):
+def stats(dburl, download_id, maxgap_threshold, html, outfile):
     """Produce download summary statistics either in plain text or html format.
 
     [OUTFILE] (optional): the output file where the information will be saved to.
@@ -441,7 +443,7 @@ def dstats(dburl, download_id, maxgap_threshold, html, outfile):
         sys.exit(1)  # exit with 1 as normal python exceptions
 
 
-@utils.command(short_help="Return download information for inspection",
+@dl.command(short_help="Return download information for inspection",
                context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option('-did', '--download-id', multiple=True, type=int,
@@ -459,7 +461,7 @@ def dstats(dburl, download_id, maxgap_threshold, html, outfile):
 @click.argument("outfile", required=False, type=click.Path(file_okay=True,
                                                            dir_okay=False, writable=True,
                                                            readable=True))
-def dreport(dburl, download_id, config, log, outfile):
+def report(dburl, download_id, config, log, outfile):
     """Return download information.
 
     [OUTFILE] (optional): the output file where the information will be saved to.
@@ -488,14 +490,14 @@ def dreport(dburl, download_id, config, log, outfile):
         sys.exit(1)  # exit with 1 as normal python exceptions
 
 
-@utils.command(short_help="Drop (delete) download executions and all associated segments",
+@dl.command(short_help="Drop (delete) download executions and all associated segments",
                context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option('-did', '--download-id', multiple=True, type=int, required=True,
               help="The id(s) of the download execution(s) to be deleted. "
                    "This option can be given multiple "
                    "times: ... -did 1 --download_id 2 ...")
-def ddrop(dburl, download_id):
+def drop(dburl, download_id):
     """Drop (deletes) download executions. WARNING: this command deletes also
     all segments, stations and channels downloaded with the given download execution
     """
@@ -524,6 +526,87 @@ def ddrop(dburl, download_id):
     except inputargs.BadArgument as aerr:
         print(aerr)
         sys.exit(1)  # exit with 1 as normal python exceptions
+
+
+@cli.group(short_help="Database utilities. Type --help to list available sub-commands")
+def db():  # pylint: disable=missing-docstring
+    pass
+
+
+@db.command(short_help="Add/rename/delete class labels from the database",
+            context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
+@click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
+@click.option('--add', multiple=True, nargs=2, type=str, required=False,
+              help="Add a new class label: `--add label description`. You can "
+                   "provide this arguments multiple times to add several labels")
+@click.option('--rename', multiple=True, nargs=3, type=str, required=False,
+              help="Rename a class label: "
+                   "`--rename old_label new_label new_description`. Set "
+                   "new_description to \"\" or '' to rename the label only and "
+                   "keep the old description. You can provide this argument "
+                   "multiple times to rename several labels")
+@click.option('--delete', multiple=True, type=str, required=False,
+              help="Delete a new class label. Provide a single value (label to"
+                   "be removed). You can provide this argument multiple times "
+                   "to delete several labels. Note: this will also remove all "
+                   "mappings (class labellings) between segments and their "
+                   "associated label, if present")
+@click.option("--no-prompt", is_flag=True, default=False,
+              help="Do not prompt the user when attempting to "
+                   "perform an operation")
+def classlabel(dburl, add, rename, delete, no_prompt):
+    """Add/Rename/delete class labels from the database"""
+    # import here to improve slow click cli (at least when --help is invoked)
+    # https://www.tomrochette.com/problems/2020/03/07
+    from stream2segment.process.db import configure_classes
+
+    add_arg, rename_arg, delete_arg = {}, {}, []
+    try:
+        if add:
+            add_arg = {_[0]: _[1] for _ in add}
+        if rename:
+            rename_arg = {_[0]: (_[1], _[2] or None) for _ in rename}
+        if delete:
+            delete_arg = list(delete)
+
+        if not no_prompt:
+            msg = "You asked to"
+            if add_arg:
+                msg += '\nAdd: %d class label(s)' % len(add_arg)
+            if rename_arg:
+                msg += '\nRename: %d class label(s)' % len(rename_arg)
+            if rename_arg:
+                msg += '\nDelete: %d class label(s)' % len(delete_arg)
+            msg+= '\nContinue (y/n)?'
+            if input(msg) != 'y':
+                sys.exit(1)
+
+        session = load_session_for_dinfo(dburl)
+        configure_classes(session, add_arg, rename_arg, delete_arg)
+
+        # with warnings.catch_warnings():  # capture (ignore) warnings
+        #     warnings.simplefilter("ignore")
+        #     ret = main.ddrop(dburl, download_id, True)
+        # if no is None:
+        #     sys.exit(1)
+        # elif not ret:
+        #     print('Nothing to delete')
+        # for key, val in ret.items():
+        #     msg = 'Download id=%d: ' % key
+        #     if isinstance(val, Exception):
+        #         msg += "FAILED (%s)" % str(val)
+        #     else:
+        #         msg += "DELETED (%d associated segments deleted)" % val
+        #     print(msg)
+        sys.exit(0)
+    except inputargs.BadArgument as aerr:
+        print(aerr)
+        sys.exit(1)  # exit with 1 as normal python exceptions
+
+
+@cli.group(short_help="Program utilities. Type --help to list available sub-commands")
+def utils():  # pylint: disable=missing-docstring
+    pass
 
 
 @utils.command(short_help='Print on screen quick help on stream2segment built-in math functions',

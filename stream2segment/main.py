@@ -50,7 +50,6 @@ from stream2segment.resources.templates import DOCVARS
 from stream2segment.process.writers import get_writer
 
 
-
 if PY2:
     # https://stackoverflow.com/a/45946245
     import funcsigs  # @UnresolvedImport pylint: disable=import-error

@@ -27,6 +27,7 @@ from io import BytesIO
 
 from obspy.core.stream import _read
 # from sqlalchemy import event
+from sqlalchemy.exc import SQLAlchemyError
 
 from stream2segment.io.utils import loads_inv
 from stream2segment.utils import _get_session
@@ -89,27 +90,63 @@ def _toggle_enhance_segment(value):
         del Segment.siblings
 
 
-def configure_classes(session, update_dict, commit=True):
-    '''Configure the Classes of the database related to the given session
+def configure_classes(session, *, add, rename, delete, commit=True):
+    """Configure the Classes of the database related to the given session
 
-    :param update_dict: a dictionary of string (class labels) mapped to the class
-    description
-    '''
-    if not update_dict:
-        return
-    # do not add already added config_classes:
-    needscommit = True  # flag telling if we need commit
-    # seems odd but googling I could not find a better way to infer it from the session
+    :param add: Class labels to add as a Dict[str, str]. The dict keys are
+        the new class labels, the dict values are the label description
+    :param rename: Class labels to rename as Dict[str, Sequence[str]]
+        The dict keys are the old class labels, and the dict values are
+        a 2-element sequence (e.g., list/tuple) denoting the new class label
+        and the new description. The latter can be None (= do not modify
+        the description, just change the label)
+    :param add: Class labels to delete, as Squence[str] denoting the class
+        labels to delete
+    """
     db_classes = {c.label: c for c in session.query(Class)}
-    for label, description in update_dict.items():
-        if label in db_classes and db_classes[label].description != description:
-            db_classes[label].description = description  # update
-            needscommit = True
-        elif label not in db_classes:
-            session.add(Class(label=label, description=description))
-            needscommit = True
-    if commit and needscommit:
-        session.commit()
+    if add:
+        for label, description in add.items():
+            if label in db_classes:  # unique constraint
+                continue
+            class_label = Class(label=label, description=description)
+            session.add(class_label)
+            db_classes[label] = class_label
+
+    if rename:
+        for label, (new_label, new_description) in rename.items():
+            if label not in db_classes:  # unique constraint
+                continue
+            db_classes[label].label = new_label
+            if new_description is not None:
+                db_classes[label].description = new_description
+
+    if delete:
+        for label in delete:
+            if label in db_classes:
+                session.delete(db_classes[label])
+
+    if commit:
+        try:
+            session.commit()
+        except SQLAlchemyError as sqlerr:
+            session.rollback()
+            raise
+
+    # if not update_dict:
+    #     return
+    # # do not add already added config_classes:
+    # needscommit = True  # flag telling if we need commit
+    # # seems odd but googling I could not find a better way to infer it from the session
+    #
+    # for label, description in update_dict.items():
+    #     if label in db_classes and db_classes[label].description != description:
+    #         db_classes[label].description = description  # update
+    #         needscommit = True
+    #     elif label not in db_classes:
+    #         session.add(Class(label=label, description=description))
+    #         needscommit = True
+    # if commit and needscommit:
+    #     session.commit()
 
 
 def _raiseifreturnsexception(func):
