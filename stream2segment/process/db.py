@@ -46,11 +46,13 @@ def get_session(dburl, scoped=False, **engine_args):
     :param dbpath: the path to the database, e.g. sqlite:///path_to_my_dbase.sqlite
     :param scoped: boolean (False by default) if the session must be scoped session
     :param engine_args: optional keyword argument values for the
-        `create_engine` method. E.g.:
+        `create_engine` method. E.g., let's provide two engine arguments,
+        `echo` and `connect_args`:
         ```
-        _get_session(dbpath, db_url, connect_args={'connect_timeout': 10})
+        _get_session(dburl, ..., echo=True, connect_args={'connect_timeout': 10})
         ```
-        other options are e.g., encoding='latin1', echo=True etcetera
+        For info see:
+        https://docs.sqlalchemy.org/en/14/core/engines.html#sqlalchemy.create_engine.params.connect_args
     """
     # We want to enhance the Segment class with new (processing-related) obspy
     # methods.

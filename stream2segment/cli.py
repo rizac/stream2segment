@@ -570,34 +570,20 @@ def classlabel(dburl, add, rename, delete, no_prompt):
             delete_arg = list(delete)
 
         if not no_prompt:
-            msg = "You asked to"
+            msg = "Attempting to:"
             if add_arg:
-                msg += '\nAdd: %d class label(s)' % len(add_arg)
+                msg += '\nAdd %d class label(s)' % len(add_arg)
             if rename_arg:
-                msg += '\nRename: %d class label(s)' % len(rename_arg)
+                msg += '\nRename %d class label(s)' % len(rename_arg)
             if rename_arg:
-                msg += '\nDelete: %d class label(s)' % len(delete_arg)
-            msg+= '\nContinue (y/n)?'
+                msg += '\nDelete %d class label(s)' % len(delete_arg)
+            msg += '\nContinue (y/n)?'
             if input(msg) != 'y':
                 sys.exit(1)
 
-        session = load_session_for_dinfo(dburl)
+        session = inputargs.get_session(dburl, for_process=False,
+                                        scoped=False, raise_bad_argument=True)
         configure_classes(session, add_arg, rename_arg, delete_arg)
-
-        # with warnings.catch_warnings():  # capture (ignore) warnings
-        #     warnings.simplefilter("ignore")
-        #     ret = main.ddrop(dburl, download_id, True)
-        # if no is None:
-        #     sys.exit(1)
-        # elif not ret:
-        #     print('Nothing to delete')
-        # for key, val in ret.items():
-        #     msg = 'Download id=%d: ' % key
-        #     if isinstance(val, Exception):
-        #         msg += "FAILED (%s)" % str(val)
-        #     else:
-        #         msg += "DELETED (%d associated segments deleted)" % val
-        #     print(msg)
         sys.exit(0)
     except inputargs.BadArgument as aerr:
         print(aerr)

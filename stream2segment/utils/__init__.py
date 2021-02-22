@@ -284,11 +284,13 @@ def _get_session(dbpath, base=None, scoped=False, create_all=True, **engine_args
         first check for the existence of each individual table, and if not found
         will issue the CREATE statements
     :param engine_args: optional keyword argument values for the
-        `create_engine` method. E.g.:
+        `create_engine` method. E.g., let's provide two engine arguments,
+        `echo` and `connect_args`:
         ```
-        _get_session(dbpath, db_url, connect_args={'connect_timeout': 10})
+        _get_session(dbpath, ..., echo=True, connect_args={'connect_timeout': 10})
         ```
-        other options are e.g., encoding='latin1', echo=True etcetera
+        For info see:
+        https://docs.sqlalchemy.org/en/14/core/engines.html#sqlalchemy.create_engine.params.connect_args
     """
     if base is None:
         base = Base  # default declarative base, withour obspy methods
