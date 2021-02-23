@@ -148,8 +148,8 @@ class Test(object):
             # calcualtions:
             self.segment_id = session.query(Segment).join(Segment.channel,
                                                           Segment.event).filter(
-                (Channel.location == '05gap_unmerged') &
-                (Channel.channel == 'HHZ') &
+                (Channel.location == '01') &
+                (Channel.channel == 'HHE') &
                 (Event.event_id == 'event1')
             ).one().id
 
@@ -170,9 +170,18 @@ class Test(object):
             _data = _data.decode('utf8')
         return json.loads(_data)
 
+
+    @patch('stream2segment.gui.webapp.mainapp.views.core.get_segment_id')
     def test_root_no_config_and_pyfile_and_classes(self,
+                                                   mock_get_segment_id,
                                                    # fixtures:
                                                    db):
+
+        # test some combinations of plots. Return always the same segment,
+        # so mock the function returning a segment from a given index:
+        def _(*a, **v):
+            return self.segment_id
+        mock_get_segment_id.side_effect = _
 
         # assure this function is run once for each given dburl
         with self.app.test_request_context():
@@ -221,7 +230,7 @@ class Test(object):
             data = self.jsonloads(resp.data)
             assert not data['error_msg'] and not data['data']
 
-            d = dict(seg_index=self.SEG_INDEX,
+            d = dict(seg_index=1,  # whatever, not used
                      seg_count=1,  # whatever, not used
                      pre_processed=True,
                      # zooms = data['zooms']
@@ -459,6 +468,7 @@ class Test(object):
             def _(*a, **v):
                 return self.segment_id
             mock_get_segment_id.side_effect = _
+
             # do not ue pytest parametrize, as it causes hundreds of db creation
             # destruction (see init) and is inefficient. Also  postgres complains about
             # too many connections (but FIXME: this should never happen,
@@ -498,11 +508,22 @@ class Test(object):
                     assert (traces_in_first_plot == 1 and not all_components) or traces_in_first_plot >= 1
                 # we should add a a test for the pre_processed case also
                 # we should add a test for the zooms, too
+                db.session.remove()
 
+    @patch('stream2segment.gui.webapp.mainapp.views.core.get_segment_id')
     def test_segment_sa_station_inv_errors_in_preprocessed_traces(self,
+                                                                  mock_get_segment_id,
                                                                   # fixtures:
                                                                   db):
         ''''''
+
+        # test some combinations of plots. Return always the same segment,
+        # so mock the function returning a segment from a given index:
+        def _(*a, **v):
+            return self.segment_id
+
+        mock_get_segment_id.side_effect = _
+
         plot_indices = [0]
         metadata = False
         classes = False
@@ -518,7 +539,7 @@ class Test(object):
                      data=json.dumps(dict(segment_select={'has_data':'true'})),
                      headers={'Content-Type': 'application/json'})
             
-            d = dict(seg_index=self.SEG_INDEX,
+            d = dict(seg_index=1, # whatever, not used
                      seg_count=1,  # whatever, not used
                      pre_processed=False,
                      # zooms = data['zooms']
@@ -537,7 +558,7 @@ class Test(object):
         # Now we exited the session, we try with pre_processed=True
         with self.app.test_request_context():
             app = self.app.test_client()
-            d = dict(seg_index=self.SEG_INDEX,
+            d = dict(seg_index=1,  # whatever, not used
                      seg_count=1,  # whatever, not used
                      pre_processed=True,
                      # zooms = data['zooms']
@@ -555,7 +576,10 @@ class Test(object):
 
 
     @pytest.mark.parametrize('calculate_sn_spectra', [True, False])
-    def test_change_config(self, calculate_sn_spectra,
+    @patch('stream2segment.gui.webapp.mainapp.views.core.get_segment_id')
+    def test_change_config(self,
+                           mock_get_segment_id,
+                           calculate_sn_spectra,
                            # fixtures:
                            db):
         '''test a change in the config from within the GUI'''
@@ -570,6 +594,13 @@ class Test(object):
         metadata = False
         classes = False
 
+        # test some combinations of plots. Return always the same segment,
+        # so mock the function returning a segment from a given index:
+        def _(*a, **v):
+            return self.segment_id
+
+        mock_get_segment_id.side_effect = _
+
         with self.app.test_request_context():
             app = self.app.test_client()
             
@@ -581,7 +612,7 @@ class Test(object):
                      data=json.dumps(dict(segment_select={'has_data':'true'})),
                      headers={'Content-Type': 'application/json'})
             
-            d = dict(seg_index=self.SEG_INDEX,
+            d = dict(seg_index=1,  # whatever, not used
                      seg_count=1,  # whatever, not used
                      pre_processed=False,
                      # zooms = data['zooms']
