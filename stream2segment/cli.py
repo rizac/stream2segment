@@ -35,6 +35,8 @@ from collections import OrderedDict
 import click
 
 # from stream2segment import main
+from click import wrap_text
+
 from stream2segment.utils.resources import get_templates_fpath, yaml_load_doc
 # from stream2segment.traveltimes import ttcreator
 from stream2segment.utils import inputargs
@@ -43,7 +45,8 @@ from stream2segment.utils import inputargs
 class clickutils(object):  # pylint: disable=invalid-name, too-few-public-methods
     """Container for Options validations, default settings so as not to pollute the click
     decorators"""
-
+    HELP_MAXWIDTH = 89
+    HELP_INDENT = 2
     DEFAULTDOC = yaml_load_doc(get_templates_fpath("download.yaml"))
     EQA = "(event search parameter)"
     DBURL_OR_YAML_ATTRS = dict(type=inputargs.extract_dburl_if_yamlpath,
@@ -91,49 +94,62 @@ class clickutils(object):  # pylint: disable=invalid-name, too-few-public-method
 
     @staticmethod
     def _config_cmd_kwargs(**kwargs):
-        """Configures a new Command (or Group) default keyword arguments"""
+        """Configures a new Command (or Group) with default arguments"""
         # increase width of help on terminal (default ~= 80):
-        context_settings = dict(max_content_width=100)
+        context_settings = dict(max_content_width=clickutils.HELP_MAXWIDTH)
         kwargs.setdefault('context_settings', context_settings)
         return kwargs
 
     class MyCommand(click.Command):
-
+        """Class used for any click Command in this module"""
         def __init__(self, *arg, **kwargs):
+            # configure default arguments:
             super().__init__(*arg, **clickutils._config_cmd_kwargs(**kwargs))
-            # self.options_metavar = ''  # instead of [OPTIONS]
+            self.option_metavar = 'option'
+            self.options_metavar = '[%ss]' % self.option_metavar   # instead of [OPTIONS]
+
+        def format_options(self, ctx, formatter):
+            """Write all the options into the formatter if they exist.
+            Overwrite super implementation to provide custom formatting
+            """
+            # same as superclass:
+            opts = []
+            for param in self.get_params(ctx):
+                rv = param.get_help_record(ctx)
+                if rv is not None:
+                    opts.append(rv)
+
+            # same as superclass, with slight modifications:
+            if opts:
+
+                # Write header ("Options:")
+                formatter.write("\n")
+                formatter.write(self.option_metavar.title() + 's:')
+
+                indent = clickutils.HELP_INDENT * " "
+                for opt, opt_help in opts:
+                    opt_help = wrap_text(opt_help,
+                                         clickutils.HELP_MAXWIDTH -
+                                         clickutils.HELP_INDENT,
+                                         subsequent_indent=indent)
+                    formatter.write("\n\n")
+                    formatter.write(indent + opt)
+                    formatter.write("\n")
+                    formatter.write(indent + opt_help)
+
 
     class MyGroup(click.Group):
-        """Subclass click.Group to provide better help string on the
-        terminal"""
+        """Class used for any click Group of this module"""
 
         def __init__(self, *arg, **kwargs):
+            # configure default arguments:
             super().__init__(*arg, **clickutils._config_cmd_kwargs(**kwargs))
+            # With groupos, printing "command [OPTIONS] COMMAND [ARGS]
+            # is misleading. There is only one option (--help)
+            # so we can avoid writing [OPTIONS] above
             self.options_metavar = ''  # instead of [OPTIONS]
-
-        def get_command(self, ctx, cmd_name):
-            """Returns nested commands if cmd_name is properly formatted
-            with spaces"""
-            parent_cmd = super()
-            commands = cmd_name.split(' ')
-            cmd_name = commands[-1]
-            for cmd_name_ in commands[:-1]:
-                parent_cmd = parent_cmd.get_command(ctx, cmd_name_)
-            return parent_cmd.get_command(ctx, cmd_name)
-
-        def list_commands(self, ctx):
-            """List commands and subcommands"""
-            # superclass return sorted, we want to return implementation order:
-            ret = []
-            for cmd_name in list(self.commands):
-                ret.append(cmd_name)
-                cmd_obj = self.get_command(ctx, cmd_name)
-                # (a click.Group is also a Command object)
-                if not isinstance(cmd_obj, click.Group):
-                    continue
-                for subc_name in cmd_obj.commands:
-                    ret.append('%s %s' % (cmd_name, subc_name))
-            return ret
+            self.command_metavar = "command"
+            self.subcommand_metavar = "[%s] [args]..." % self.command_metavar
 
         def format_help(self, ctx, formatter):
             """Subclass format help: moves around different help blocks
@@ -149,6 +165,55 @@ class clickutils(object):  # pylint: disable=invalid-name, too-few-public-method
             self.format_commands(ctx, formatter)
             self.format_epilog(ctx, formatter)
 
+        def format_commands(self, ctx, formatter):
+            """Format sub-commands.
+            Overwrite super implementation to provide custom formatiing
+            """
+            command_path = ctx.command_path
+            commands = []
+            for subcommand in list(self.commands):
+                cmd = self.get_command(ctx, subcommand)
+                # What is this, the tool lied about a command.  Ignore it
+                if cmd is None:
+                    continue
+                if cmd.hidden:
+                    continue
+
+                commands.append((subcommand, cmd))
+
+                # Now also add nested subcommands:
+                subcommands = []
+                # (a click.Group is also a Command object)
+                if isinstance(cmd, click.Group):
+                    subcommands = list((cmd, _) for _ in cmd.commands)
+                while subcommands:
+                    parent_cmd, subcmd_name = subcommands.pop(0)
+                    subcmd = parent_cmd.get_command(ctx, subcmd_name)
+                    commands.append(("%s %s" % (parent_cmd.name, subcmd_name),
+                                     subcmd))
+                    if isinstance(subcmd, click.Group):
+                        subcommands += list((subcmd, _) for _ in subcmd.commands)
+
+            # allow for 3 times the default spacing
+            if len(commands):
+
+                # Write header ("Commands:")
+                formatter.write("\n")
+                formatter.write(self.command_metavar.title() + 's:')
+
+                indent = clickutils.HELP_INDENT * " "
+                for subcommand, cmd in commands:
+                    cmd_help = wrap_text(cmd.get_short_help_str(),
+                                         clickutils.HELP_MAXWIDTH -
+                                         clickutils.HELP_INDENT,
+                                         subsequent_indent=indent)
+                    formatter.write("\n\n")
+                    formatter.write(indent + subcommand +
+                                    " (for details, type: %s %s --help)" %
+                                    (command_path, subcommand))
+                    formatter.write("\n")
+                    formatter.write(indent + cmd_help)
+
         def command(self, *args, **kwargs):
             """Force to return my subclasses of command"""
             kwargs.setdefault('cls', clickutils.MyCommand)
@@ -162,7 +227,7 @@ class clickutils(object):  # pylint: disable=invalid-name, too-few-public-method
 
 @click.group(cls=clickutils.MyGroup)
 def cli():
-    """stream2segment is a program to download, process, visualize or annotate
+    """Stream2segment is a program to download, process, visualize or annotate
     massive amounts of event-based seismic waveform segments and their metadata.
     """
     pass
