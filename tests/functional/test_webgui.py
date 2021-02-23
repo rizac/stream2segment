@@ -192,8 +192,6 @@ class Test(object):
             assert not self.session.query(Class).all()
             # https://github.com/pallets/flask/issues/716 is bytes in python3. Fix for both 2 and 3:
             response_data = resp.data.decode('utf-8')
-            assert '"hasPreprocessFunc": true' in response_data \
-                or "'hasPreprocessFunc': true" in response_data
             assert '"config": {}' not in response_data and "'config': {}" not in response_data
 
         # ------------------------
@@ -210,8 +208,6 @@ class Test(object):
             assert resp.status_code == 200
             assert not self.session.query(Class).all()
             response_data = resp.data.decode('utf-8')
-            assert '"hasPreprocessFunc": false' in response_data \
-                or "'hasPreprocessFunc': false" in response_data
             # we do not inject the config in the html anymore:
             assert "config:" not in response_data
             
@@ -313,37 +309,9 @@ class Test(object):
             assert resp.status_code == 200
             response_data = resp.data.decode('utf-8')
 
-            # we do not inject the config in the html anymore:
-#             # assert global yaml config vars are injected as javascript from jinja rendering:
-#             # (be relaxed, if we change the template yaml file we do not want to fail)
-#             expected_str = """var __SETTINGS = {"config": {"""
-#             # https://github.com/pallets/flask/issues/716 is bytes in python3. Fix for both 2 and 3:
-#             assert expected_str in response_data
-
-            # simple test:
-            assert '"hasPreprocessFunc": true' in response_data \
-                or "'hasPreprocessFunc': true" in response_data
-
-            expected_str = ["""<div class='plot-wrapper' ng-show='plots[{0:d}].visible'>""",
-                            """<div data-plot='time-series' data-plotindex={0:d} class='plot'></div>"""]
             # In the default processing, we implemented 6 plots, assure they are there:
             for plotindex in range(6):
                 assert "<div id='plot-{0:d}' class='plot'".format(plotindex) in response_data
-
-            # No Class set in config anymore, comment out:
-            #
-            # self.session.query(Class).delete()
-            # self.session.commit()
-            # clz = self.session.query(Class).count()
-            # assert clz == 0
-            #
-            # # now the plotmanager does not set any class:
-            # del core_module.g_config['class_labels']
-            # resp = app.get('/')
-            # assert resp.status_code == 200
-            # clz = self.session.query(Class).count()
-            # # assert nothing has changed (same as previous assert):
-            # assert clz == 0
 
     def test_get_segs(self, db):  # db is a fixture (see conftest.py). Even if not used, it will
         # assure this function is run once for each given dburl

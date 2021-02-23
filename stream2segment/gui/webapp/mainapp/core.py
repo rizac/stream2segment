@@ -48,15 +48,17 @@ def _reset_global_config():
     g_config[SEL_STR] = {}
 
 
-def _default_preprocessfunc(*args, **kwargs):
-    """No function decorated with '@gui.preprocess'
-
-    REAL DOC: (the string above is meaningless, it's just what we will be
-    displayed on the browser if no custom process function is implemented):
-    this is the default preprocess function - i.e. no-op - and might be
-    changed dynamically by the user implemented one, see below)
+def _default_preprocessfunc(segment, config):
+    """Default pre-process function: remove the instrumental response
+    assuming output unit in m/s and water level for deconvolution = 60
     """
-    raise Exception("No function decorated with '@gui.preprocess'")
+    s = Stream()
+    inventory = segment.inventory()
+    for t in segment.stream():
+        t.remove_response(inventory)
+        s.append(t)
+    return t if len(s) == 1 else s
+    # raise Exception("No function decorated with '@gui.preprocess'")
 
 
 _preprocessfunc = _default_preprocessfunc  # pylint: disable=invalid-name
@@ -123,12 +125,6 @@ def get_segments_count(segselect=None):
 
 def get_db_url(safe=True):
     return db.get_db_url(safe=safe)
-
-
-def has_preprocess_func():
-    """Return True if a custom pre-process function has been defined in
-    the user defined python file"""
-    return _preprocessfunc is not _default_preprocessfunc
 
 
 def get_func_doc(index=-1):

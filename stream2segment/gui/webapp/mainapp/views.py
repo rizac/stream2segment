@@ -20,7 +20,9 @@ main_app = Blueprint('main_app', __name__, template_folder='templates')
 @main_app.route("/")
 def main():
     ud_plots = core.userdefined_plots
-    settings = {'hasPreprocessFunc': core.has_preprocess_func()}
+    # FIXME: remove hasPreProcessFunc below (legacy code, now there is
+    # always a preprocess function, also when no mopdule is provided):
+    settings = {'hasPreprocessFunc': True}
     return render_template('mainapp.html', title=core.get_db_url(safe=True),
                            settings=settings,
                            rightPlots=[_ for _ in ud_plots if _['position'] == 'r'],
