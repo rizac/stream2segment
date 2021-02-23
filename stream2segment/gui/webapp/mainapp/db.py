@@ -31,8 +31,7 @@ def init(app, dbpath):
     # and
     # https://flask.palletsprojects.com/en/1.1.x/appcontext/#storing-data
 
-    # we store _dbpath globally
-    global _session  # pylint: disable=global-statement, invalid-name
+    global _session  # noqa
     _session = _getsess(dbpath, scoped=True)
 
     # we add a listener that whn a request is ended, the session should be
@@ -90,22 +89,17 @@ def get_segment_id(seg_index, segment_count, conditions):
 
 def get_segment(segment_id):  # , cols2load=None):
     """Return the segment identified by id `segment_id`"""
-    # Some history: we initially wanted to use some sort of cache, because displaying
-    # several plots might be time consuming. Solution 1: complex caching
-    # mechanism, with ad hoc classes and methods: it's a pain to test and maintain
-    # 2. Simpler approach: cache a segment at a time. When a new segment is requested,
-    # discard the previously cached (if any), and cache the new segment,
-    # so that when e.g., a user chooses only a different
-    # custom plot in the GUI (or checks/unchecks the 'preprocessing'
+    # We might want to cache segments, so that when e.g., a user chooses only a
+    # different custom plot in the GUI (or checks/unchecks the 'preprocessing'
     # button) we do not need to reload the segment from the DB, neither we
     # need to re-open the segment stream from the Bytes sequence.
     # Now, we might use the session identity_map (https://stackoverflow.com/a/48988010)
     # but it seems that the identity_map will always be empty, as it is
     # cleared automatically at the end of each method using a db session
     # (i.e., the method sqlalchemy.orm.state.InstanceState._cleanup is called)
-    # Thus, we opted for solution 3: avoid any form of caching, also in account
+    # Thus, let's avoid any form of caching, also in account
     # of the fact that most Flask example suggest to release the db session after
-    # each request. We followed this pattern (see 'init' function) and we
+    # each request (see `init` function above) and we
     # just use query.get (see below) which avoids querying the db if the
     # segment instance is already in the session. As we saw,
     # this should never happen, but just in case.
