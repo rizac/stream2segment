@@ -557,7 +557,14 @@ def drop(dburl, download_id):
               help="Do not prompt the user when attempting to "
                    "perform an operation")
 def classlabel(dburl, add, rename, delete, no_prompt):
-    """Add/Rename/delete class labels from the database"""
+    """Add/Rename/delete class labels from the database. A class label is
+    composed of a label name (e.g., LowS2N) and a short description (e.g.,
+    "Segment has a low signal-to-noise ratio") and denote any user-defined
+    characteristic that you want to assign to certain segments either manually
+    in the GUI, or programmatically in the processing module or your code.
+    Class labels can then be used for e.g., supervised classification problems,
+    or tp perform custom selection on specific segments before processing.
+    """
     # import here to improve slow click cli (at least when --help is invoked)
     # https://www.tomrochette.com/problems/2020/03/07
     from stream2segment.process.db import (configure_classlabels,

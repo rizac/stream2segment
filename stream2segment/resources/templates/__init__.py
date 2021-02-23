@@ -614,24 +614,6 @@ Settings for computing the 'signal' and 'noise' time windows on a segment wavefo
 # shifted in order to always end on the segment's arrival time
 '''
 
-PROCESS_YAML_CLASSLABELS = '''
-If you want to use the GUI as hand labelling tool (for e.g. supervised classification problems)
-# or setup classes before processing, you can provide the parameter 'class_labels' which is a
-# dictionary of label names mapped to their description. If provided, the labels will first be
-# added to the database (updating the description, if the label name is already present) and
-# then will show up in the GUI where one or more classes can be assigned to a given segment via
-# check boxes. If missing, no class labels will show up in the GUI, unless already set by a
-# previous config. Example:
-#class_labels:
-#  Discarded: "Segment which does not fall in any other category (e.g., unknown artifacts)"
-#  Unknown: "Segment which is either: unlabeled (not annotated) or unclassified"
-#  Ok: "Segment with no artifact"
-#  LowS2N: "Segment has a low signal-to-noise ratio"
-#  Aftershock: "Segment with non overlapping multi-events recorded (aftershock)"
-#  MultiEvent: "Segment with overlapping multi-events recorded (no aftershock)"
-#  BadCoda: "Segment with a bad coda (bad decay)"
-'''
-
 PROCESS_YAML_ADVANCEDSETTINGS = '''
 Advanced settings tuning the process routine:
 advanced_settings:
