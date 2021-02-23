@@ -391,13 +391,14 @@ def show(dburl, configfile, pyfile):
         main.show(dburl, pyfile, configfile)
 
 
-@cli.group(short_help="Donwload utilities. Type --help to list available sub-commands")
+@cli.group(short_help="Downloaded data analysis tools. "
+                      "Type --help to list available sub-commands")
 def dl():  # pylint: disable=missing-docstring
     pass
 
 
 @dl.command(short_help='Produce download summary statistics in either plain text or html format',
-               context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
+            context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option('-did', '--download-id', multiple=True, type=int,
               help="Limit the download statistics to a specified set of download ids (integers) "
@@ -490,8 +491,14 @@ def report(dburl, download_id, config, log, outfile):
         sys.exit(1)  # exit with 1 as normal python exceptions
 
 
-@dl.command(short_help="Drop (delete) download executions and all associated segments",
-               context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
+@cli.group(short_help="Database management tools. "
+                      "Type --help to list available sub-commands")
+def db():  # pylint: disable=missing-docstring
+    pass
+
+
+@db.command(short_help="Drop (delete) download executions and all associated segments",
+            context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option('-did', '--download-id', multiple=True, type=int, required=True,
               help="The id(s) of the download execution(s) to be deleted. "
@@ -528,11 +535,6 @@ def drop(dburl, download_id):
         sys.exit(1)  # exit with 1 as normal python exceptions
 
 
-@cli.group(short_help="Database utilities. Type --help to list available sub-commands")
-def db():  # pylint: disable=missing-docstring
-    pass
-
-
 @db.command(short_help="Add/rename/delete class labels from the database",
             context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
@@ -559,6 +561,7 @@ def classlabel(dburl, add, rename, delete, no_prompt):
     # import here to improve slow click cli (at least when --help is invoked)
     # https://www.tomrochette.com/problems/2020/03/07
     from stream2segment.process.db import configure_classes
+    from stream2segment.main import input  # <- for mocking in testing
 
     add_arg, rename_arg, delete_arg = {}, {}, []
     try:
@@ -583,7 +586,8 @@ def classlabel(dburl, add, rename, delete, no_prompt):
 
         session = inputargs.get_session(dburl, for_process=False,
                                         scoped=False, raise_bad_argument=True)
-        configure_classes(session, add_arg, rename_arg, delete_arg)
+        configure_classes(session, add=add_arg, rename=rename_arg,
+                          delete=delete_arg)
         sys.exit(0)
     except inputargs.BadArgument as aerr:
         print(aerr)

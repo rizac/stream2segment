@@ -14,7 +14,8 @@ from sqlalchemy import func
 # from flask import g
 from stream2segment.process.db import (Segment, Class, ClassLabelling,
                                        Station, Download,
-                                       get_session as _getsess)
+                                       get_session as _getsess,
+                                       get_classes as _get_classes)
 from stream2segment.io.db.sqlevalexpr import exprquery, Inspector
 from stream2segment.utils import secure_dburl
 # import atexit
@@ -53,31 +54,6 @@ def get_session():
 def get_db_url(safe=True):
     """Return the db url (with password hidden, if present in the url)"""
     return secure_dburl(str(get_session().bind.engine.url))
-
-
-# def compute_segments_count(conditions):
-#     # FIXME: used threads to compute segments count, left as example
-#     """Compute the number of segments to show (int) according to the given
-#     `conditions` and stores it in the global varibale
-#     _segments_count
-#
-#     :param conditions: dict of selection expressions usually resulting from the
-#         'segment_select' parameter in the YAML config)
-#     """
-#     with threading.Lock():
-#         global _segments_count
-#         _segments_count = -1
-#
-#     session = get_session()
-#
-#     def foo():
-#         num_segments = _query4gui(session.query(func.count(Segment.id)),
-#                                   conditions).scalar()
-#         with threading.Lock():
-#             global _segments_count
-#             _segments_count = num_segments
-#
-#     t = threading.Thread(target=foo).start()
 
 
 def get_segments_count(conditions):
@@ -173,26 +149,12 @@ def get_classes(segment_id=None):
         ...
     ]
     ```
-    Note that 'id' and 'label' might change depending on the ORM implementation
     """
     if segment_id is not None:
         segment = get_segment(segment_id)
         return [] if not segment else sorted(c.id for c in segment.classes)
 
-    session = get_session()
-    colnames = [Class.id.key, Class.label.key, Class.description.key, 'count']
-    # compose the query step by step:
-    query = session.query(Class.id, Class.label, Class.description,
-                          func.count(ClassLabelling.id).label(colnames[-1]))
-    # Join class labellings to get how many segments per class:
-    # Note: `isouter` below, which produces a left outer join, is important
-    # when we have no class labellings (i.e. third column all zeros) otherwise
-    # with a normal join we would have no results
-    query = query.join(ClassLabelling,
-                       ClassLabelling.class_id == Class.id, isouter=True)
-    # group by class id:
-    query = query.group_by(Class.id).order_by(Class.id)
-    return [{name: val for name, val in zip(colnames, d)} for d in query]
+    return _get_classes(get_session(), include_counts=True)
 
 
 def get_metadata(segment_id=None):

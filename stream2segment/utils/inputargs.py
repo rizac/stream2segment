@@ -313,7 +313,7 @@ def get_session(dburl, for_process=False, raise_bad_argument=False,
         `create_engine` method. E.g., let's provide two engine arguments,
         `echo` and `connect_args`:
         ```
-        _get_session(dbpath, ..., echo=True, connect_args={'connect_timeout': 10})
+        get_session(dbpath, ..., echo=True, connect_args={'connect_timeout': 10})
         ```
         For info see:
         https://docs.sqlalchemy.org/en/14/core/engines.html#sqlalchemy.create_engine.params.connect_args
@@ -321,12 +321,15 @@ def get_session(dburl, for_process=False, raise_bad_argument=False,
     try:
         if not isinstance(dburl, string_types):
             raise TypeError('string required, %s found' % str(type(dburl)))
+        # import in function to speed up module imports from cli:
         if for_process:
-            from stream2segment.process.db import get_session as _sess_func
+            # important, rename otherwise conflicts with this function name:
+            from stream2segment.process.db import get_session as sess_func
         else:
-            from stream2segment.utils import _get_session as _sess_func
+            # important, rename otherwise conflicts with this function name:
+            from stream2segment.io.db import get_session as sess_func
 
-        sess = _sess_func(dburl, scoped=scoped, **engine_kwargs)
+        sess = sess_func(dburl, scoped=scoped, **engine_kwargs)
 
         # Check if database exist, which should not always be done (e.g.
         # for_processing=True). Among other methods (https://stackoverflow.com/a/3670000
@@ -816,7 +819,7 @@ def load_config_for_process(dburl, pyfile, funcname=None, config=None,
     will be empty in this latter case)
     """
     try:
-        session = get_session(dburl, True)
+        session = get_session(dburl, for_process=True)
     except Exception as exc:
         raise BadArgument('dburl', exc)
 

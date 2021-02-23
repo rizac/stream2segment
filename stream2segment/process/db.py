@@ -25,12 +25,14 @@ Created on 26 Mar 2019
 
 from io import BytesIO
 
-from obspy.core.stream import _read
 # from sqlalchemy import event
+from sqlalchemy import func
 from sqlalchemy.exc import SQLAlchemyError
 
+from obspy.core.stream import _read
+
 from stream2segment.io.utils import loads_inv
-from stream2segment.utils import _get_session
+from stream2segment.io.db import get_session as _get_session
 from stream2segment.io.db.models import (Segment, Station, Base, object_session,
                                          Class, ClassLabelling, Download,
                                          Event, Channel, DataCenter,
@@ -41,7 +43,7 @@ from stream2segment.io.db.sqlevalexpr import exprquery
 def get_session(dburl, scoped=False, **engine_args):
     """
     Create and returns an sql alchemy session for IO db operations aiming to
-    **process downloaded**
+    **process downloaded data**
 
     :param dbpath: the path to the database, e.g. sqlite:///path_to_my_dbase.sqlite
     :param scoped: boolean (False by default) if the session must be scoped session
@@ -49,7 +51,7 @@ def get_session(dburl, scoped=False, **engine_args):
         `create_engine` method. E.g., let's provide two engine arguments,
         `echo` and `connect_args`:
         ```
-        _get_session(dburl, ..., echo=True, connect_args={'connect_timeout': 10})
+        get_session(dburl, ..., echo=True, connect_args={'connect_timeout': 10})
         ```
         For info see:
         https://docs.sqlalchemy.org/en/14/core/engines.html#sqlalchemy.create_engine.params.connect_args
@@ -80,7 +82,7 @@ def _toggle_enhance_segment(value):
         Station.inventory = classmeth_inventory
         Segment.stream = classmeth_stream
         Segment.inventory = lambda self, *a, **kw: self.station.inventory(*a, **kw)
-        Segment.dbsession = lambda self: object_session(self)  # pylint: disable=unnecessary-lambda
+        Segment.dbsession = lambda self: object_session(self)  # noqa
         Segment.siblings = classmeth_siblings
     else:
         del Station.inventory
@@ -102,7 +104,7 @@ def configure_classes(session, *, add, rename, delete, commit=True):
         a 2-element sequence (e.g., list/tuple) denoting the new class label
         and the new description. The latter can be None (= do not modify
         the description, just change the label)
-    :param add: Class labels to delete, as Squence[str] denoting the class
+    :param delete: Class labels to delete, as Squence[str] denoting the class
         labels to delete
     """
     db_classes = {c.label: c for c in session.query(Class)}
@@ -134,21 +136,48 @@ def configure_classes(session, *, add, rename, delete, commit=True):
             session.rollback()
             raise
 
-    # if not update_dict:
-    #     return
-    # # do not add already added config_classes:
-    # needscommit = True  # flag telling if we need commit
-    # # seems odd but googling I could not find a better way to infer it from the session
-    #
-    # for label, description in update_dict.items():
-    #     if label in db_classes and db_classes[label].description != description:
-    #         db_classes[label].description = description  # update
-    #         needscommit = True
-    #     elif label not in db_classes:
-    #         session.add(Class(label=label, description=description))
-    #         needscommit = True
-    # if commit and needscommit:
-    #     session.commit()
+
+def get_classes(session, include_counts=True):
+    """Return a list of classes on the database of the given `session`. Each
+    class is returned as dict with keys 'id', 'label' and 'description':
+    ```
+    [
+        ... ,
+        {
+         'id': int
+         'label': str,
+         'description': str
+         'count': int (number of segments labelled with this label)
+        },
+        ...
+    ]
+    ```
+    :param include_counts: boolean (True by default). Whether to include
+        the 'count' in each dict. Set to False if you don;t need the information
+         as the function might be faster
+    """
+    if not include_counts:
+        return [
+            {'id': c.id, 'label': c.label, 'description': c.description}
+            for c in session.query(Class)
+        ]
+
+    colnames = [Class.id.key, Class.label.key, Class.description.key, 'count']
+    # compose the query step by step:
+    query = session.query(Class.id, Class.label, Class.description,
+                          func.count(ClassLabelling.id).label(colnames[-1]))
+    # Join class labellings to get how many segments per class:
+    # Note: `isouter` below, which produces a left outer join, is important
+    # when we have no class labellings (i.e. third column all zeros) otherwise
+    # with a normal join we would have no results
+    query = query.join(ClassLabelling,
+                       ClassLabelling.class_id == Class.id, isouter=True)
+    # group by class id:
+    query = query.group_by(Class.id).order_by(Class.id)
+    return [{name: val for name, val in zip(colnames, d)} for d in query]
+
+
+
 
 
 def _raiseifreturnsexception(func):

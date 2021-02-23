@@ -31,7 +31,7 @@ def readfile(outfile):
 
 class Test(object):
     # define ONCE HERE THE command name, so if we change it in the cli it will be easier to fix here
-    CMD_NAME = 'dreport'
+    CMD_PREFIX = ['dl', 'report']
 
     # execute this fixture always even if not provided as argument:
     # https://docs.pytest.org/en/documentation-restructure/how-to/fixture.html#autouse-fixtures-xunit-setup-on-steroids
@@ -116,7 +116,7 @@ class Test(object):
                 db.session.add(seg)
                 db.session.commit()
 
-        with patch('stream2segment.utils.inputargs.get_session',
+        with patch('stream2segment.main.get_session',
                    return_value=db.session) as mock_session:
             yield
 
@@ -132,8 +132,8 @@ class Test(object):
         runner = CliRunner()
         # text output, to file
         outfile = pytestdir.newfile('.txt')
-        result = runner.invoke(cli, ['utils', self.CMD_NAME,
-                                     '--dburl', db.dburl, outfile])
+        result = runner.invoke(cli, self.CMD_PREFIX + ['--dburl', db.dburl,
+                                                       outfile])
         assert not result.exception
         expected_string = ascii_decorate("Download id: 1 (%s)" %
                                          str(db.session.query(Download.run_time).first()[0]))
@@ -149,7 +149,7 @@ class Test(object):
         runner = CliRunner()
         # text output, to file
         outfile = pytestdir.newfile('.txt')
-        result = runner.invoke(cli, ['utils', self.CMD_NAME, '--config', '--log',
+        result = runner.invoke(cli, self.CMD_PREFIX + ['--config', '--log',
                                      '--dburl', db.dburl, outfile])
         assert not result.exception
         expected_string = ascii_decorate("Download id: 1 (%s)" %
@@ -172,7 +172,7 @@ download report written to """)
         assert not mock_gettempdir.called
 
         # calling with no ouptut file (print to screen, i.e. result.output):
-        result = runner.invoke(cli, ['utils', self.CMD_NAME, '--log',
+        result = runner.invoke(cli, self.CMD_PREFIX + ['--log',
                                      '--config', '--dburl', db.dburl])
         assert not result.exception
         content = result.output
@@ -185,11 +185,13 @@ download report written to """)
         expected = """Fetching data, please wait (this might take a while depending on the db size and connection)
 """
         # try with flags:
-        result = runner.invoke(cli, ['utils', self.CMD_NAME, '--dburl', '--log', db.dburl])
+        result = runner.invoke(cli, self.CMD_PREFIX + ['--dburl', '--log',
+                                                       db.dburl])
         assert expected in result.output
         assert not result.output[result.output.index(expected)+len(expected):]
 
         # try with flags:
-        result = runner.invoke(cli, ['utils', self.CMD_NAME, '--dburl', '--config', db.dburl])
+        result = runner.invoke(cli, self.CMD_PREFIX + ['--dburl', '--config',
+                                                       db.dburl])
         assert expected in result.output
         assert not result.output[result.output.index(expected)+len(expected):]
