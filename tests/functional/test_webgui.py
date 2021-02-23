@@ -137,12 +137,21 @@ class Test(object):
                               )
                 c.segments.append(seg)
 
-                if c is channels[1] and ev == e1 and \
-                        seg.data == data_ok['data']:
-                    # this segment will be used to test plot requests:
-                    self.segment_id = seg.id
+                # if c.location == '05gap_unmerged' and  c.channel == 'HHZ' and \
+                #         ev.event_id == 'event1':
+                #     # this segment will be used to test plot requests:
+                #     self.segment_id = seg.id
 
             session.commit()
+
+            # get ref segment to be used in tests below to mock plots
+            # calcualtions:
+            self.segment_id = session.query(Segment).join(Segment.channel,
+                                                          Segment.event).filter(
+                (Channel.location == '05gap_unmerged') &
+                (Channel.channel == 'HHZ') &
+                (Event.event_id == 'event1')
+            ).one().id
 
             # set inventory
             self.inventory = data.read_inv("GE.FLT1.xml")
@@ -448,7 +457,7 @@ class Test(object):
             # test some combinations of plots. Return always the same segment,
             # so mock the function returning a segment from a given index:
             def _(*a, **v):
-                return [self.segment_id]
+                return self.segment_id
             mock_get_segment_id.side_effect = _
             # do not ue pytest parametrize, as it causes hundreds of db creation
             # destruction (see init) and is inefficient. Also  postgres complains about
