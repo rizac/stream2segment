@@ -18,7 +18,8 @@ from stream2segment.cli import cli
 from stream2segment.io.db.models import Event, Station, Segment, \
     Channel, Download, DataCenter, Class, ClassLabelling
 from stream2segment.utils.resources import get_templates_fpath
-from stream2segment.process.db import get_inventory, get_stream, get_classes
+from stream2segment.process.db import (get_inventory, get_stream,
+                                       get_classlabels)
 from stream2segment.utils.log import configlog4processing as o_configlog4processing
 from stream2segment.process.main import query4process
 
@@ -207,10 +208,14 @@ class Test(object):
                 assert len(segs.all()) == 2
 
     @patch('stream2segment.main.input', side_effect=lambda *a, **kw: 'y')
-    def test_setclasses(self,
-                        mock_input,
-                        # fixtures:
-                        db4process):
+    def test_classlabel_cmd(self,
+                            mock_input,
+                            # fixtures:
+                            db4process):
+
+        # legacy code: get_classlabels was get_classes, feel lazy:
+        get_classes = get_classlabels
+
         classes = get_classes(db4process.session)
         assert not classes
         runner = CliRunner()
@@ -219,6 +224,7 @@ class Test(object):
                                      '-d', db4process.dburl,
                                      '--add', 'label', 'description'])
         assert not result.exception
+        assert 'label (description)' in result.output
         classes = get_classes(db4process.session)
         assert classes[0]['label'] == 'label'
         assert classes[0]['description'] == 'description'
@@ -231,6 +237,7 @@ class Test(object):
                                      '-d', db4process.dburl,
                                      '--rename', 'label', 'label2', ''])
         assert not result.exception
+        assert 'label2 (description)' in result.output
         classes = get_classes(db4process.session)
         assert classes[0]['label'] == 'label2'
         assert classes[0]['description'] == 'description'
@@ -243,6 +250,7 @@ class Test(object):
                                      '--rename', 'label2', 'label2',
                                      'description2'])
         assert not result.exception
+        assert 'label2 (description2)' in result.output
         classes = get_classes(db4process.session)
         assert classes[0]['label'] == 'label2'
         assert classes[0]['description'] == 'description2'
@@ -277,6 +285,7 @@ class Test(object):
                                      '-d', db4process.dburl,
                                      '--delete', 'label2'])
         assert not result.exception
+        assert 'None' in result.output
         assert mock_input.call_count == ccount + 1
         classes = get_classes(db4process.session)
         assert not classes

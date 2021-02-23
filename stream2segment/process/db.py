@@ -96,7 +96,7 @@ def _toggle_enhance_segment(value):
         del Segment.siblings
 
 
-def configure_classes(session, *, add, rename, delete, commit=True):
+def configure_classlabels(session, *, add, rename, delete, commit=True):
     """Configure the class labels of the database related to the database
     of the given session
 
@@ -143,7 +143,7 @@ def configure_classes(session, *, add, rename, delete, commit=True):
             raise
 
 
-def get_classes(session, include_counts=True):
+def get_classlabels(session, include_counts=True):
     """Return a list of class labels on the database of the given `session`.
     Each class label is returned as dict with keys 'id', 'label' and
     'description':

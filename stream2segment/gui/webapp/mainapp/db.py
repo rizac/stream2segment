@@ -15,7 +15,7 @@ from sqlalchemy import func
 from stream2segment.process.db import (Segment, Class, ClassLabelling,
                                        Station, Download,
                                        get_session as _getsess,
-                                       get_classes as _get_classes)
+                                       get_classlabels as _get_classes)
 from stream2segment.io.db.sqlevalexpr import exprquery, Inspector
 from stream2segment.utils import secure_dburl
 # import atexit

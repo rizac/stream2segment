@@ -560,7 +560,8 @@ def classlabel(dburl, add, rename, delete, no_prompt):
     """Add/Rename/delete class labels from the database"""
     # import here to improve slow click cli (at least when --help is invoked)
     # https://www.tomrochette.com/problems/2020/03/07
-    from stream2segment.process.db import configure_classes
+    from stream2segment.process.db import (configure_classlabels,
+                                           get_classlabels)
     from stream2segment.main import input  # <- for mocking in testing
 
     add_arg, rename_arg, delete_arg = {}, {}, []
@@ -586,8 +587,15 @@ def classlabel(dburl, add, rename, delete, no_prompt):
 
         session = inputargs.get_session(dburl, for_process=False,
                                         scoped=False, raise_bad_argument=True)
-        configure_classes(session, add=add_arg, rename=rename_arg,
-                          delete=delete_arg)
+        configure_classlabels(session, add=add_arg, rename=rename_arg,
+                              delete=delete_arg)
+        print('Done. Current class labels on the database:')
+        clabels = get_classlabels(session, include_counts=False)
+        if not clabels:
+            print('None')
+        else:
+            for clbl in clabels:
+                print("%s (%s)" % (clbl['label'], clbl['description']))
         sys.exit(0)
     except inputargs.BadArgument as aerr:
         print(aerr)
