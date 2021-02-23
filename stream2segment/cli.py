@@ -44,7 +44,6 @@ class clickutils(object):  # pylint: disable=invalid-name, too-few-public-method
     """Container for Options validations, default settings so as not to pollute the click
     decorators"""
 
-    TERMINAL_HELP_WIDTH = 110  # control width of help (default ~= 80)
     DEFAULTDOC = yaml_load_doc(get_templates_fpath("download.yaml"))
     EQA = "(event search parameter)"
     DBURL_OR_YAML_ATTRS = dict(type=inputargs.extract_dburl_if_yamlpath,
@@ -90,32 +89,87 @@ class clickutils(object):  # pylint: disable=invalid-name, too-few-public-method
 
         return value
 
+    @staticmethod
+    def _config_cmd_kwargs(**kwargs):
+        """Configures a new Command (or Group) default keyword arguments"""
+        # increase width of help on terminal (default ~= 80):
+        context_settings = dict(max_content_width=100)
+        kwargs.setdefault('context_settings', context_settings)
+        return kwargs
 
-@click.group()
+    class MyCommand(click.Command):
+
+        def __init__(self, *arg, **kwargs):
+            super().__init__(*arg, **clickutils._config_cmd_kwargs(**kwargs))
+            # self.options_metavar = ''  # instead of [OPTIONS]
+
+    class MyGroup(click.Group):
+        """Subclass click.Group to provide better help string on the
+        terminal"""
+
+        def __init__(self, *arg, **kwargs):
+            super().__init__(*arg, **clickutils._config_cmd_kwargs(**kwargs))
+            self.options_metavar = ''  # instead of [OPTIONS]
+
+        def get_command(self, ctx, cmd_name):
+            """Returns nested commands if cmd_name is properly formatted
+            with spaces"""
+            parent_cmd = super()
+            commands = cmd_name.split(' ')
+            cmd_name = commands[-1]
+            for cmd_name_ in commands[:-1]:
+                parent_cmd = parent_cmd.get_command(ctx, cmd_name_)
+            return parent_cmd.get_command(ctx, cmd_name)
+
+        def list_commands(self, ctx):
+            """List commands and subcommands"""
+            # superclass return sorted, we want to return implementation order:
+            ret = []
+            for cmd_name in list(self.commands):
+                ret.append(cmd_name)
+                cmd_obj = self.get_command(ctx, cmd_name)
+                # (a click.Group is also a Command object)
+                if not isinstance(cmd_obj, click.Group):
+                    continue
+                for subc_name in cmd_obj.commands:
+                    ret.append('%s %s' % (cmd_name, subc_name))
+            return ret
+
+        def format_help(self, ctx, formatter):
+            """Subclass format help: moves around different help blocks
+            to be clearer, and inspect nested subcommands to provide
+            all subcommands help, not only direct children
+            """
+            self.format_usage(ctx, formatter)
+            self.format_help_text(ctx, formatter)
+            # self.format_options(ctx, formatter)
+            # the method above calls:
+            # Command.format_options(self, ctx, formatter)  # Comment out
+            # and (this we want to preserve):
+            self.format_commands(ctx, formatter)
+            self.format_epilog(ctx, formatter)
+
+        def command(self, *args, **kwargs):
+            """Force to return my subclasses of command"""
+            kwargs.setdefault('cls', clickutils.MyCommand)
+            return super().command(*args, **kwargs)
+
+        def group(self, *args, **kwargs):
+            """Force to return my subclasses of group"""
+            kwargs.setdefault('cls', clickutils.MyGroup)
+            return super().group(*args, **kwargs)
+
+
+@click.group(cls=clickutils.MyGroup)
 def cli():
-    """stream2segment is a program to download, process, visualize or annotate massive amounts of
-    event-based seismic waveform data segments.
-    According to the given command, segments can be:
-
-    \b
-    - efficiently downloaded (with metadata) in a custom sqlite or postgres database
-    - processed with little implementation effort by supplying a custom python file
-    - visualized and annotated in a web browser
-
-    For details, type:
-
-    \b
-    stream2segment COMMAND --help
-
-    \b
-    where COMMAND is one of the commands listed below"""
+    """stream2segment is a program to download, process, visualize or annotate
+    massive amounts of event-based seismic waveform segments and their metadata.
+    """
     pass
 
 
-@cli.command(short_help='Create example config. files and modules with'
-                        'code and documentation to start downloading and '
-                        'processing data',
-             context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
+@cli.command(short_help='Create working example files with documentation to '
+                        'start downloading and processing data')
 @click.argument('outdir')
 def init(outdir):
     """Create template files for launching download,
@@ -194,8 +248,7 @@ def init(outdir):
 #    (Options short names can be changed without problems, in principle).
 #    For these options, you need also to provide an option default name which MUST MATCH
 #    the corresponding yaml param help, otherwise the option doc will not be found.
-@cli.command(short_help='Download waveform data segments',
-             context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
+@cli.command(short_help='Download waveform data segments saving data into an SQL database')
 @click.option("-c", "--config",
               help="The path to the configuration file in yaml format "
                    "(https://learn.getgrav.org/advanced/yaml).",
@@ -284,8 +337,8 @@ def download(config, dburl, eventws, starttime, endtime, network,  # pylint: dis
     sys.exit(0 if ret <= 1 else ret)
 
 
-@cli.command(short_help='Process downloaded waveform data segments',
-             context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
+@cli.command(short_help='Process downloaded waveform data segments by executing custom '
+                        'code on a user-defined selection of segments')
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option("-c", "--config",
               help="The path to the configuration file in yaml format "
@@ -370,8 +423,7 @@ def process(dburl, config, pyfile, funcname, append, no_prompt,
     sys.exit(ret)
 
 
-@cli.command(short_help='Show raw and processed downloaded waveform\'s plots in a browser',
-             context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
+@cli.command(short_help='Show customizable waveform\'s plots in the browser')
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option("-c", "--configfile",
               help="Optional: The path to the configuration file in yaml format "
@@ -391,14 +443,12 @@ def show(dburl, configfile, pyfile):
         main.show(dburl, pyfile, configfile)
 
 
-@cli.group(short_help="Downloaded data analysis tools. "
-                      "Type --help to list available sub-commands")
+@cli.group(short_help="Prefix denoting downloaded data analysis tools")
 def dl():  # pylint: disable=missing-docstring
     pass
 
 
-@dl.command(short_help='Produce download summary statistics in either plain text or html format',
-            context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
+@dl.command(short_help='Produce download summary statistics in either plain text or html format')
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option('-did', '--download-id', multiple=True, type=int,
               help="Limit the download statistics to a specified set of download ids (integers) "
@@ -444,8 +494,7 @@ def stats(dburl, download_id, maxgap_threshold, html, outfile):
         sys.exit(1)  # exit with 1 as normal python exceptions
 
 
-@dl.command(short_help="Return download information for inspection",
-               context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
+@dl.command(short_help="Return download information for inspection")
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option('-did', '--download-id', multiple=True, type=int,
               help="Limit the download statistics to a specified set of download ids (integers) "
@@ -491,14 +540,12 @@ def report(dburl, download_id, config, log, outfile):
         sys.exit(1)  # exit with 1 as normal python exceptions
 
 
-@cli.group(short_help="Database management tools. "
-                      "Type --help to list available sub-commands")
+@cli.group(short_help="Prefix denoting database management tools")
 def db():  # pylint: disable=missing-docstring
     pass
 
 
-@db.command(short_help="Drop (delete) download executions and all associated segments",
-            context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
+@db.command(short_help="Drop (delete) download executions and all associated segments")
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option('-did', '--download-id', multiple=True, type=int, required=True,
               help="The id(s) of the download execution(s) to be deleted. "
@@ -535,8 +582,7 @@ def drop(dburl, download_id):
         sys.exit(1)  # exit with 1 as normal python exceptions
 
 
-@db.command(short_help="Add/rename/delete class labels from the database",
-            context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
+@db.command(short_help="Add/rename/delete class labels from the database")
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option('--add', multiple=True, nargs=2, type=str, required=False,
               help="Add a new class label: `--add label description`. You can "
@@ -609,13 +655,12 @@ def classlabel(dburl, add, rename, delete, no_prompt):
         sys.exit(1)  # exit with 1 as normal python exceptions
 
 
-@cli.group(short_help="Program utilities. Type --help to list available sub-commands")
+@cli.group(short_help="Prefix denoting program utilities")
 def utils():  # pylint: disable=missing-docstring
     pass
 
 
-@utils.command(short_help='Print on screen quick help on stream2segment built-in math functions',
-               context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
+@utils.command(short_help='Print on screen quick help on stream2segment built-in math functions')
 @click.option("-t", "--type", type=click.Choice(['numpy', 'obspy', 'all']), default='all',
               show_default=True,
               help="Show help only for the function matching the given type. Numpy indicates "
