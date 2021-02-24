@@ -65,9 +65,18 @@ def run(session, pyfunc, writer, config=None, show_progress=False):
     """
     if config is None:
         config = {}
-    done_skipped_errors = [0, 0, 0]
 
     seg_ids = fetch_segments_ids(session, config, writer)
+
+    with writer:
+        for seg_id, result in \
+            runiter(session, seg_ids, pyfunc, writer, config, show_progress):
+
+
+def runiter(session, seg_ids, pyfunc, config=None, show_progress=False):
+    """FIXME doic needed!"""
+    done_skipped_errors = [0, 0, 0]
+
     seg_len = len(seg_ids)
     # get total segment length (in numpy it is equivalent to len(seg_sta_ids)):
     chunksize, multi_process, num_processes = \
@@ -89,38 +98,37 @@ def run(session, pyfunc, writer, config=None, show_progress=False):
 
     session.close()  # expunge all, clear all states
 
-    with writer:
-        # redirection of stderr prevents Python BUT ALSO external libraries to print
-        # unwanted stuff on screen which might mess up the progressbar. Note that this
-        # should capture also warnings because they are normally directed to stderr. This
-        # is why warnings_filter is None, (also, this method is usually called inside a
-        # with statements ignoring warnings). Sub-processes will call (see below)
-        # create_processing_env with redirect_stderr=False (we do not want to mess up too
-        # much with leaking file descriptors, a complex topic) and
-        # warnings_filter='ignore', because we would have too many redundant messages
-        with create_processing_env(seg_len if show_progress else 0,
-                                   redirect_stderr=True,
-                                   warnings_filter=None) as pbar:
-            if show_progress and seg_len:
-                # if we are here we want to show the progressbar. Problem is, we can not
-                # know in how much time the progress bar will be rendered on the terminal
-                # (for heavy user-defined processing routines, this might happen in
-                # several minutes). Showing the progress bar immediately is therefore of
-                # help for the user (even if the bar has obviously no progress done yet).
-                # Is there a 'flush' method? Looking at click, it's 'render_progress()'.
-                # But the latter does not work if called within 'pbar.short_limit'
-                # seconds after the progressbar has been created. Therefore, let's force
-                # a progressabr flush. First wait:
-                time.sleep(pbar.short_limit)
-                # now render_progress will render:
-                pbar.render_progress()
+    # redirection of stderr prevents Python BUT ALSO external libraries to print
+    # unwanted stuff on screen which might mess up the progressbar. Note that this
+    # should capture also warnings because they are normally directed to stderr. This
+    # is why warnings_filter is None, (also, this method is usually called inside a
+    # with statements ignoring warnings). Sub-processes will call (see below)
+    # create_processing_env with redirect_stderr=False (we do not want to mess up too
+    # much with leaking file descriptors, a complex topic) and
+    # warnings_filter='ignore', because we would have too many redundant messages
+    with create_processing_env(seg_len if show_progress else 0,
+                               redirect_stderr=True,
+                               warnings_filter=None) as pbar:
+        if show_progress and seg_len:
+            # if we are here we want to show the progressbar. Problem is, we can not
+            # know in how much time the progress bar will be rendered on the terminal
+            # (for heavy user-defined processing routines, this might happen in
+            # several minutes). Showing the progress bar immediately is therefore of
+            # help for the user (even if the bar has obviously no progress done yet).
+            # Is there a 'flush' method? Looking at click, it's 'render_progress()'.
+            # But the latter does not work if called within 'pbar.short_limit'
+            # seconds after the progressbar has been created. Therefore, let's force
+            # a progressabr flush. First wait:
+            time.sleep(pbar.short_limit)
+            # now render_progress will render:
+            pbar.render_progress()
 
-            if multi_process:
-                process_mp(session, pyfunc, config, get_slices(seg_ids, chunksize),
-                           writer, done_skipped_errors, pbar, num_processes)
-            else:
-                process_simple(session, pyfunc, config, get_slices(seg_ids, chunksize),
-                               writer, done_skipped_errors, pbar)
+        if multi_process:
+            yield process_mp(session, pyfunc, config, get_slices(seg_ids, chunksize),
+                       writer, done_skipped_errors, pbar, num_processes)
+        else:
+            yield process_simple(session, pyfunc, config, get_slices(seg_ids, chunksize),
+                           writer, done_skipped_errors, pbar)
 
     logger.info('')
     done, skipped, errors = done_skipped_errors
