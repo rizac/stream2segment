@@ -45,8 +45,6 @@ from stream2segment.utils import inputargs
 class clickutils(object):  # pylint: disable=invalid-name, too-few-public-methods
     """Container for Options validations, default settings so as not to pollute the click
     decorators"""
-    HELP_MAXWIDTH = 89
-    HELP_INDENT = 2
     DEFAULTDOC = yaml_load_doc(get_templates_fpath("download.yaml"))
     EQA = "(event search parameter)"
     DBURL_OR_YAML_ATTRS = dict(type=inputargs.extract_dburl_if_yamlpath,
@@ -96,8 +94,9 @@ class clickutils(object):  # pylint: disable=invalid-name, too-few-public-method
     def _config_cmd_kwargs(**kwargs):
         """Configures a new Command (or Group) with default arguments"""
         # increase width of help on terminal (default ~= 80):
-        context_settings = dict(max_content_width=clickutils.HELP_MAXWIDTH)
+        context_settings = dict(max_content_width=85)
         kwargs.setdefault('context_settings', context_settings)
+        kwargs.setdefault('options_metavar', '[options]')
         return kwargs
 
     class MyCommand(click.Command):
@@ -105,8 +104,6 @@ class clickutils(object):  # pylint: disable=invalid-name, too-few-public-method
         def __init__(self, *arg, **kwargs):
             # configure default arguments:
             super().__init__(*arg, **clickutils._config_cmd_kwargs(**kwargs))
-            self.option_metavar = 'option'
-            self.options_metavar = '[%ss]' % self.option_metavar   # instead of [OPTIONS]
 
         def format_options(self, ctx, formatter):
             """Write all the options into the formatter if they exist.
@@ -120,22 +117,16 @@ class clickutils(object):  # pylint: disable=invalid-name, too-few-public-method
                     opts.append(rv)
 
             # same as superclass, with slight modifications:
-            if opts:
+            if not opts:
+                return
 
-                # Write header ("Options:")
-                formatter.write("\n")
-                formatter.write(self.option_metavar.title() + 's:')
-
-                indent = clickutils.HELP_INDENT * " "
+            # formatter.section handles indentation and paragraphs:
+            with formatter.section('Options'):
                 for opt, opt_help in opts:
-                    opt_help = wrap_text(opt_help,
-                                         clickutils.HELP_MAXWIDTH -
-                                         clickutils.HELP_INDENT,
-                                         subsequent_indent=indent)
-                    formatter.write("\n\n")
-                    formatter.write(indent + opt)
-                    formatter.write("\n")
-                    formatter.write(indent + opt_help)
+                    formatter.write_paragraph()  # prints "\n"
+                    # write_text handles indentation for us:
+                    formatter.write_text(opt)
+                    formatter.write_text(opt_help)
 
 
     class MyGroup(click.Group):
@@ -143,76 +134,56 @@ class clickutils(object):  # pylint: disable=invalid-name, too-few-public-method
 
         def __init__(self, *arg, **kwargs):
             # configure default arguments:
+            kwargs.setdefault('options_metavar', '')
+            kwargs.setdefault('subcommand_metavar', "[command] [args]...")
             super().__init__(*arg, **clickutils._config_cmd_kwargs(**kwargs))
-            # With groupos, printing "command [OPTIONS] COMMAND [ARGS]
-            # is misleading. There is only one option (--help)
-            # so we can avoid writing [OPTIONS] above
-            self.options_metavar = ''  # instead of [OPTIONS]
-            self.command_metavar = "command"
-            self.subcommand_metavar = "[%s] [args]..." % self.command_metavar
 
-        def format_help(self, ctx, formatter):
-            """Subclass format help: moves around different help blocks
-            to be clearer, and inspect nested subcommands to provide
-            all subcommands help, not only direct children
-            """
-            self.format_usage(ctx, formatter)
-            self.format_help_text(ctx, formatter)
-            # self.format_options(ctx, formatter)
-            # the method above calls:
-            # Command.format_options(self, ctx, formatter)  # Comment out
-            # and (this we want to preserve):
+        def format_options(self, ctx, formatter):
+            """Customize help formatting (print no options, only commands)"""
+            # superclass (click.MultiCommand) code:
+            # Command.format_options(self, ctx, formatter)  # <- ignore opt
             self.format_commands(ctx, formatter)
-            self.format_epilog(ctx, formatter)
 
-        def format_commands(self, ctx, formatter):
-            """Format sub-commands.
-            Overwrite super implementation to provide custom formatiing
-            """
-            command_path = ctx.command_path
+        def format_commands(self, ctx, formatter, parent_cmd_name=""):
+            """Customize commands help formatting"""
             commands = []
-            for subcommand in list(self.commands):
-                cmd = self.get_command(ctx, subcommand)
+            for cmd_name in list(self.commands):
+                cmd = self.get_command(ctx, cmd_name)
                 # What is this, the tool lied about a command.  Ignore it
                 if cmd is None:
                     continue
                 if cmd.hidden:
                     continue
 
-                commands.append((subcommand, cmd))
+                commands.append((cmd_name, cmd))
 
-                # Now also add nested subcommands:
-                subcommands = []
-                # (a click.Group is also a Command object)
-                if isinstance(cmd, click.Group):
-                    subcommands = list((cmd, _) for _ in cmd.commands)
-                while subcommands:
-                    parent_cmd, subcmd_name = subcommands.pop(0)
-                    subcmd = parent_cmd.get_command(ctx, subcmd_name)
-                    commands.append(("%s %s" % (parent_cmd.name, subcmd_name),
-                                     subcmd))
-                    if isinstance(subcmd, click.Group):
-                        subcommands += list((subcmd, _) for _ in subcmd.commands)
+            if not commands:
+                return
 
-            # allow for 3 times the default spacing
-            if len(commands):
+            # formatter.section handles indentation and paragraphs:
+            with (formatter.section('Commands')
+                    if not parent_cmd_name else formatter.indentation()):
 
-                # Write header ("Commands:")
-                formatter.write("\n")
-                formatter.write(self.command_metavar.title() + 's:')
+                if not parent_cmd_name:
+                    parent_cmd_name = ctx.command_path  # used below
 
-                indent = clickutils.HELP_INDENT * " "
-                for subcommand, cmd in commands:
-                    cmd_help = wrap_text(cmd.get_short_help_str(),
-                                         clickutils.HELP_MAXWIDTH -
-                                         clickutils.HELP_INDENT,
-                                         subsequent_indent=indent)
-                    formatter.write("\n\n")
-                    formatter.write(indent + subcommand +
-                                    " (for details, type: %s %s --help)" %
-                                    (command_path, subcommand))
-                    formatter.write("\n")
-                    formatter.write(indent + cmd_help)
+                for cmd_name, cmd in commands:
+                    formatter.write_paragraph()  # prints "\n"
+                    formatter.write_text(cmd_name)
+
+                    is_group = isinstance(cmd, click.Group)
+
+                    if is_group:
+                        formatter.write_text(cmd.get_short_help_str() +
+                                             " (command group). Subcommands:")
+                        cmd.format_commands(ctx, formatter,
+                                            parent_cmd_name + " " + cmd_name)
+                        continue
+
+                    usage_pieces = [parent_cmd_name, cmd_name]
+                    usage_pieces += list(cmd.collect_usage_pieces(ctx))
+                    formatter.write_text('Usage: ' + " ".join(usage_pieces))
+                    formatter.write_text(cmd.get_short_help_str())
 
         def command(self, *args, **kwargs):
             """Force to return my subclasses of command"""
@@ -364,15 +335,15 @@ def init(outdir):
 @click.option('-maxmag', '--maxmagnitude', type=float,
               help=(clickutils.EQA + " Limit to events with a magnitude smaller than "
                     "the specified maximum"))
-def download(config, dburl, eventws, starttime, endtime, network,  # pylint: disable=unused-argument
-             station, location, channel, min_sample_rate,  # pylint: disable=unused-argument
-             dataws, traveltimes_model, timespan,  # pylint: disable=unused-argument
-             update_metadata, retry_url_err, retry_mseed_err,  # pylint: disable=unused-argument
-             retry_seg_not_found, retry_client_err,  # pylint: disable=unused-argument
-             retry_server_err, retry_timespan_err, inventory,  # pylint: disable=unused-argument
-             minlatitude, maxlatitude, minlongitude,  # pylint: disable=unused-argument
-             maxlongitude, mindepth, maxdepth, minmagnitude,  # pylint: disable=unused-argument
-             maxmagnitude):  # pylint: disable=unused-argument
+def download(config, dburl, eventws, starttime, endtime, network,  # noqa
+             station, location, channel, min_sample_rate,  # noqa
+             dataws, traveltimes_model, timespan,  # noqa
+             update_metadata, retry_url_err, retry_mseed_err,  # noqa
+             retry_seg_not_found, retry_client_err,  # noqa
+             retry_server_err, retry_timespan_err, inventory,  # noqa
+             minlatitude, maxlatitude, minlongitude,  # noqa
+             maxlongitude, mindepth, maxdepth, minmagnitude,  # noqa
+             maxmagnitude):  # noqa
     """Download waveform data segments with metadata in a specified database.
     NOTE: The config file (-c option, see below) is the only required option.
     All other options, if provided, will overwrite the corresponding value in the
@@ -384,13 +355,15 @@ def download(config, dburl, eventws, starttime, endtime, network,  # pylint: dis
     # https://www.tomrochette.com/problems/2020/03/07
     from stream2segment import main
 
-    # REMEMBER: NO LOCAL VARIABLES OTHERWISE WE MESS UP THE CONFIG OVERRIDES ARGUMENTS
+    # REMEMBER: NO LOCAL VARIABLES OTHERWISE WE MESS UP THE CONFIG OVERRIDES
+    # ARGUMENTS
     try:
         overrides = {k: v for k, v in _locals.items()
                      if v not in ((), {}, None) and k != 'config'}
         with warnings.catch_warnings():  # capture (ignore) warnings
             warnings.simplefilter("ignore")
-            ret = main.download(config, log2file=True, verbose=True, **overrides)
+            ret = main.download(config, log2file=True, verbose=True,
+                                **overrides)
     except inputargs.BadArgument as aerr:
         print(aerr)
         ret = 2
@@ -508,7 +481,7 @@ def show(dburl, configfile, pyfile):
         main.show(dburl, pyfile, configfile)
 
 
-@cli.group(short_help="Prefix denoting downloaded data analysis tools")
+@cli.group(short_help="Downloaded data analysis and inspection")
 def dl():  # pylint: disable=missing-docstring
     pass
 
@@ -605,7 +578,7 @@ def report(dburl, download_id, config, log, outfile):
         sys.exit(1)  # exit with 1 as normal python exceptions
 
 
-@cli.group(short_help="Prefix denoting database management tools")
+@cli.group(short_help="Database management")
 def db():  # pylint: disable=missing-docstring
     pass
 
@@ -720,7 +693,7 @@ def classlabel(dburl, add, rename, delete, no_prompt):
         sys.exit(1)  # exit with 1 as normal python exceptions
 
 
-@cli.group(short_help="Prefix denoting program utilities")
+@cli.group(short_help="Program utilities")
 def utils():  # pylint: disable=missing-docstring
     pass
 
