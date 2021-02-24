@@ -160,17 +160,16 @@ def get_classlabels(session, include_counts=True):
     ]
     ```
     :param include_counts: boolean (True by default). Whether to include the
-        'count' in each dict. Set to False if you don;t need the information
+        'count' in each dict. Set to False if you don't need the information
          as the function might be faster
     """
-    if not include_counts:
-        return [
-            {'id': c.id, 'label': c.label, 'description': c.description}
-            for c in session.query(Class)
-        ]
+    colnames = [Class.id.key, Class.label.key, Class.description.key, 'count']
 
-    colnames = [Class.id.key, Class.label.key, Class.description.key,
-                'count']
+    if not include_counts:
+        return [{colnames[0]: c.id,
+                 colnames[1]: c.label,
+                 colnames[2]: c.description} for c in session.query(Class)]
+
     # compose the query step by step:
     query = session.query(Class.id, Class.label, Class.description,
                           func.count(ClassLabelling.id).label(colnames[-1]))
@@ -187,7 +186,8 @@ def get_classlabels(session, include_counts=True):
 
 def _raiseifreturnsexception(func):
     """Decorator that makes a function raise the returned exception, if any
-    (otherwise no-op, and the function value is returned as it is)"""
+    (otherwise no-op, and the function value is returned as it is)
+    """
     def wrapping(*args, **kwargs):
         """wrapping func. which raises if the returned value is an exception"""
         ret = func(*args, **kwargs)

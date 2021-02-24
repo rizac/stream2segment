@@ -74,9 +74,6 @@ class BadArgument(Exception):
         else:
             p_name = str(self.param_name)
         p_name = '"' + p_name + '"'
-        # p_name = '"%s"' % (" / ".join('"%s"' % p for p in self.param_name)[1:-1]
-        #                   if isinstance(self.param_name, (list, tuple)) else
-        #                   str(self.param_name))
         msg_preamble = self.msg_preamble
         if msg_preamble:
             msg_preamble += ' '
@@ -555,11 +552,11 @@ def load_config_for_download(config, parseargs, **param_overrides):
     """Load download arguments from the given config (yaml file or dict) after
     parsing and checking some of the dict keys.
 
-    :return: a dict loaded from the given `config` and with parseed arguments
+    :return: a dict loaded from the given `config` and with parsed arguments
         (dict keys)
 
-    Raises `BadArgument` in case of parsing errors, missisng arguments,
-    conflicts etcetera
+    Raises `BadArgument` in case of parsing errors, missing arguments,
+    conflicts and so on
     """
     try:
         config_dict = yaml_load(config, **param_overrides)
@@ -596,8 +593,8 @@ def load_config_for_download(config, parseargs, **param_overrides):
         #           returning the correct parameter value
         params = [
             {
-                # dataws is a list of strings, but for backward compatibility we
-                # must accept strings too. Convert `dataws` to list AS FIRST
+                # dataws is a list of strings, but for backward compatibility
+                # we must accept strings too. Convert `dataws` to list AS FIRST
                 # ARGUMENT (I.E., this must be the FIRST dict of the list), so
                 # that any other parameter check below requiring dataws can
                 # safely work with lists:

@@ -147,8 +147,9 @@ def _escapedoc(string):
             string = string[:string.index(char)]
             break
     string = string.strip()
-    return string.replace('{', '&#123;').replace('}', '&#125;').replace("\"", "&quot;").\
-        replace("'", '&amp;').replace("<", "&lt;").replace(">", "&gt;")
+    return string.replace('{', '&#123;').replace('}', '&#125;').\
+        replace("\"", "&quot;").replace("'", '&amp;').replace("<", "&lt;").\
+        replace(">", "&gt;")
 
 
 def get_init_data(metadata=True, classes=True):

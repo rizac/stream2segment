@@ -171,8 +171,9 @@ def get_metadata(segment_id=None):
             return []
 
     insp = Inspector(segment or Segment)
-    attnames = insp.attnames(Inspector.PKEY | Inspector.QATT | Inspector.REL | Inspector.COL,
-                             sort=True, deep=True, exclude=excluded_colnames)
+    attfilter = Inspector.PKEY | Inspector.QATT | Inspector.REL | Inspector.COL
+    attnames = insp.attnames(attfilter, sort=True, deep=True,
+                             exclude=excluded_colnames)
     if segment_id is not None:
         # return a list of (attribute name, attribute value)
         return [(_, insp.attval(_)) for _ in attnames]
