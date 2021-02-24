@@ -38,7 +38,7 @@ from stream2segment.utils.resources import get_templates_fpath, yaml_load_doc
 from stream2segment.utils import inputargs
 
 
-class clickutils(object):  # pylint: disable=invalid-name, too-few-public-methods
+class clickutils(object):  # noqa
     """Container for Options validations, default settings so as not to
     pollute the click decorators
     """
@@ -113,7 +113,6 @@ class clickutils(object):  # pylint: disable=invalid-name, too-few-public-method
                     # write_text handles indentation for us:
                     formatter.write_text(opt)
                     formatter.write_text(opt_help)
-
 
     class MyGroup(click.Group):
         """Class used for any click Group of this module"""
@@ -245,43 +244,40 @@ def init(outdir):
     sys.exit(1)
 
 
-# NOTES BELOW:
-# Naming conventions:
+# Short recap here (READ BEFORE EDITING OPTIONS BELOW):
 # * option short name: any click option name starting with "-"
 # * option long name: any click option name starting with "--"
+#   IMPORTANT: Some YAML params accept different names (e.g., 'net', 'network'
+#   or 'networks'). By convention, these name(s) must be provided here as
+#   **long names**. Short names are not supposed to be used in the YAML and
+#   can be safely modified here.
 # * option default name: any click option name not starting with any "-"
 #   (see http://click.pocoo.org/5/parameters/#parameter-names)
-# * option help: the option help shown when issuing "--help" from the command line
-# * yaml param help: the help in the docstring immediately preceeding a yaml param name,
-#   (fetched from the default download.yaml file in the 'templates' folder)
-# 1. Option flags should all have default=None which lets us know that the flag is missing and use
-#    the corresponding yaml param values
-# 2. we want to set each option help from the corresponding yaml param help, so that we keep docs
-#    updated in only one place.
-#    This is done by the method `clickutils.set_help_from_yaml`, attached
-#    as callback to the option '--dburl' below, which has 'is_eager=True', meaning that the
-#    callback is executed before all other options, even when invoking the command with --help.
-# 3. Note: Don't set required = True with eager=True in a click option, as it forces that option
-#    to be always present, and thus raises if only --help is given
-# 4. For yaml param help, any string following "Implementation details:": will not be shown
-#    in the corresponding option help.
-# 5. Some yaml params accepts different names (e.g., 'net' will
-#    be recognized as 'networks'): by convention, these are provided as option long names.
-#    (Options short names can be changed without problems, in principle).
-#    For these options, you need also to provide an option default name which MUST MATCH
-#    the corresponding yaml param help, otherwise the option doc will not be found.
-@clickutils.options_missing_help_from_yaml
-@cli.command(short_help='Download waveform data segments saving data into an SQL database')
+# * option help: the option help shown when issuing "--help" from the command
+#   line.
+#   IMPORTANT: Option help not provided here will be set as the docstring
+#   of the same parameter in the YAML file ('download.yaml'), searching for the
+#   Option **long name** or, if the Option has multiple long names, the option
+#   **default name**. If no YAML parameter is found, or no Option default name
+#   is provided, the Option help will be left empty.
+# Reminder:
+# * option flags should all have default=None which lets us know that the flag
+#   is missing and use the corresponding yaml param values
+# * Don't set required = True with eager=True in a click option, as it forces
+#   that option to be always present, and thus raises if only --help is given
+@clickutils.options_missing_help_from_yaml  # autofill options help. See function above
+@cli.command(short_help='Download waveform data segments saving data into an '
+                        'SQL database')
 @click.option("-c", "--config",
               help="The path to the configuration file in yaml format "
                    "(https://learn.getgrav.org/advanced/yaml).",
               type=clickutils.ExistingPath, required=True)
-@click.option('-d', '--dburl', is_eager=True, callback=clickutils.set_help_from_yaml)
+@click.option('-d', '--dburl', is_eager=True)
 @click.option('-es', '--eventws')
-@click.option('-s', '--start', '--starttime', "starttime", type=inputargs.valid_date,
-              metavar='DATE or DATETIME')
-@click.option('-e', '--end', '--endtime', 'endtime', type=inputargs.valid_date,
-              metavar='DATE or DATETIME',)
+@click.option('-s', '--start', '--starttime', "starttime",
+              type=inputargs.valid_date, metavar='DATE or DATETIME')
+@click.option('-e', '--end', '--endtime', 'endtime',
+              type=inputargs.valid_date, metavar='DATE or DATETIME',)
 @click.option('-n', '--network', '--networks', '--net', 'network')
 @click.option('-z', '--station', '--stations', '--sta', 'station')
 @click.option('-l', '--location', '--locations', '--loc', 'location')
@@ -290,7 +286,8 @@ def init(outdir):
 @click.option('-ds', '--dataws')
 @click.option('-t', '--traveltimes-model')
 @click.option('-w', '--timespan', nargs=2, type=float)
-@click.option('-u', '--update-metadata', type=click.Choice(['true', 'false', 'only']), default=None)
+@click.option('-u', '--update-metadata',
+              type=click.Choice(['true', 'false', 'only']), default=None)
 @click.option('-r1', '--retry-url-err', is_flag=True, default=None)
 @click.option('-r2', '--retry-mseed-err', is_flag=True, default=None)
 @click.option('-r3', '--retry-seg-not-found', is_flag=True, default=None)
@@ -299,29 +296,29 @@ def init(outdir):
 @click.option('-r6', '--retry-timespan-err', is_flag=True, default=None)
 @click.option('-i', '--inventory', is_flag=True, default=None)
 @click.option('-minlat', '--minlatitude', type=float,
-              help=(clickutils.EQA + " Limit to events with a latitude larger than "
-                    "or equal to the specified minimum"))
+              help=clickutils.EQA + " Limit to events with a latitude larger "
+                                    "than or equal to the specified minimum")
 @click.option('-maxlat', '--maxlatitude', type=float,
-              help=(clickutils.EQA + " Limit to events with a latitude smaller than "
-                    "or equal to the specified maximum"))
+              help=clickutils.EQA + " Limit to events with a latitude smaller "
+                                    "than or equal to the specified maximum")
 @click.option('-minlon', '--minlongitude', type=float,
-              help=(clickutils.EQA + " Limit to events with a longitude larger than "
-                    "or equal to the specified minimum"))
+              help=clickutils.EQA + " Limit to events with a longitude larger "
+                                    "than or equal to the specified minimum")
 @click.option('-maxlon', '--maxlongitude', type=float,
-              help=(clickutils.EQA + " Limit to events with a longitude smaller than "
-                    "or equal to the specified maximum"))
+              help=clickutils.EQA + " Limit to events with a longitude smaller "
+                                    "than or equal to the specified maximum")
 @click.option('--mindepth', type=float,
-              help=(clickutils.EQA + " Limit to events with depth more than the "
-                    "specified minimum"))
+              help=clickutils.EQA + " Limit to events with depth more than the "
+                                    "specified minimum")
 @click.option('--maxdepth', type=float,
-              help=(clickutils.EQA + " Limit to events with depth less than the "
-                    "specified maximum"))
+              help=clickutils.EQA + " Limit to events with depth less than the "
+                                    "specified maximum")
 @click.option('-minmag', '--minmagnitude', type=float,
-              help=(clickutils.EQA + " Limit to events with a magnitude larger than "
-                    "the specified minimum"))
+              help=clickutils.EQA + " Limit to events with a magnitude larger "
+                                    "than the specified minimum")
 @click.option('-maxmag', '--maxmagnitude', type=float,
-              help=(clickutils.EQA + " Limit to events with a magnitude smaller than "
-                    "the specified maximum"))
+              help=clickutils.EQA + " Limit to events with a magnitude smaller "
+                                    "than the specified maximum")
 def download(config, dburl, eventws, starttime, endtime, network,  # noqa
              station, location, channel, min_sample_rate,  # noqa
              dataws, traveltimes_model, timespan,  # noqa
@@ -331,10 +328,10 @@ def download(config, dburl, eventws, starttime, endtime, network,  # noqa
              minlatitude, maxlatitude, minlongitude,  # noqa
              maxlongitude, mindepth, maxdepth, minmagnitude,  # noqa
              maxmagnitude):  # noqa
-    """Download waveform data segments with metadata in a specified database.
+    """Download waveform data segments and their metadata on a SQL database.
     NOTE: The config file (-c option, see below) is the only required option.
-    All other options, if provided, will overwrite the corresponding value in the
-    config file
+    All other options, if provided, will overwrite the corresponding value in
+    the config file
     """
     _locals = dict(locals())  # MUST BE THE FIRST STATEMENT
 
@@ -355,40 +352,44 @@ def download(config, dburl, eventws, starttime, endtime, network,  # noqa
         print(aerr)
         ret = 2
     except:  # @IgnorePep8 pylint: disable=bare-except
-        # do not print traceback, as we already did it by configuring loggers -> screen
+        # do not print traceback, as we already did it by configuring loggers
         ret = 3
     # ret might return 0 or 1 the latter in case of QuitDownload, but tests
     # expect a non-zero value thus we skip this feature for the moment
     sys.exit(0 if ret <= 1 else ret)
 
 
-@cli.command(short_help='Process downloaded waveform data segments by executing custom '
-                        'code on a user-defined selection of segments')
+@cli.command(short_help="Process downloaded waveform data segments by "
+                        "executing custom code on a user-defined selection of "
+                        "segments")
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option("-c", "--config",
               help="The path to the configuration file in yaml format "
                    "(https://learn.getgrav.org/advanced/yaml).",
               type=clickutils.ExistingPath, required=True)
 @click.option("-p", "--pyfile",
-              help="The path to the python file where the user-defined processing function "
-                   "is implemented. The function will be called iteratively on each segment "
-                   "selected in the config file", type=clickutils.ExistingPath, required=True)
+              help="The path to the Python file where the user-defined "
+                   "processing function is implemented. The function will be "
+                   "called iteratively on each segment selected in the config "
+                   "file",
+              type=clickutils.ExistingPath, required=True)
 @click.option("-f", "--funcname",
-              help="The name of the user-defined processing function in the given python file. "
-                   "Optional: defaults to '%s' when "
+              help="The name of the user-defined processing function in the "
+                   "given python file. Defaults to '%s' when "
                    "missing" % inputargs.default_processing_funcname())
 @click.option("-a", "--append", is_flag=True, default=False,
-              help="Append results to the output file (this flag is ignored if no output file "
-                   "is provided. The output file will be scanned to detect already processed "
-                   "segments and skip them: for huge files, this might be time-consuming). "
-                   "When missing, it defaults to false, meaning that an output file, if provided, "
-                   "will be overwritten if it exists")
+              help="Append results to the output file (this flag is ignored if "
+                   "no output file is provided. The output file will be "
+                   "scanned to detect already processed segments and skip them: "
+                   "for huge files, this might be time-consuming). When "
+                   "missing, it defaults to false, meaning that an output file, "
+                   "if provided, will be overwritten if it exists")
 @click.option("--no-prompt", is_flag=True, default=False,
-              help="Do not prompt the user when attempting to overwrite an existing output file. "
-                   "This flag is false by default, i.e. the user will be asked for  "
-                   "confirmation before overwriting an existing file. "
-                   "This flag is ignored if no output file is provided, or the 'append' "
-                   "flag is given")
+              help="Do not prompt the user when attempting to overwrite an "
+                   "existing output file. This flag is false by default, i.e. "
+                   "the user will be asked for confirmation before overwriting "
+                   "an existing file. This flag is ignored if no output file is "
+                   "provided, or the 'append' flag is given")
 @click.option("-mp", "--multi-process", is_flag=True,
               default=None,  # default=None let us know when arg is missing or not
               help="Use parallel sub-processes to speed up the execution. "
@@ -400,19 +401,20 @@ def download(config, dburl, eventws, starttime, endtime, network,  # noqa
                    "if --multi-process is not given")
 @click.argument('outfile', required=False)
 def process(dburl, config, pyfile, funcname, append, no_prompt,
-            multi_process, num_processes,  # pylint: disable=unused-argument
+            multi_process, num_processes,
             outfile):
-    """Process downloaded waveform data segments via a custom python file and a configuration
-    file.
+    """Process downloaded waveform data segments via a custom python file and a
+    configuration file.
 
-    [OUTFILE] (optional): the path of the CSV or HDF file where the output of the user-defined
-    processing function F will be written to (generally, one row per processed segment).
-    The given file extension will denote the type of output (.h5, .hdf5, .hdf for HDF files,
-    anything else: CSV).
-    All logging information, errors or warnings will be written to the file
-    [OUTFILE].[now].log (where [now] denotes the execution date-time, in iso format UTC).
-    If this argument is missing, then the output of F (if any) will be discarded,
-    and all logging messages will be saved to the file [pyfile].[now].log
+    [OUTFILE] (optional): the path of the tabular file (CSV or HDF) where the
+    output of the user-defined processing function will be written to
+    (generally, one row per processed segment. If this argument is missing,
+    then any output of the processing function will be ignored). The tabular
+    format will be inferred from the file extension provided (.h5, .hdf5, .hdf
+    for HDF files, anything else: CSV). All information, errors or warnings
+    will be logged to the file [OUTFILE].[now].log (where [now] denotes the
+    execution date and time. If no output file is provided, [OUTFILE] will be
+    replaced with [pyfile])
     """
     _locals = dict(locals())  # MUST BE THE FIRST STATEMENT
 
@@ -420,9 +422,11 @@ def process(dburl, config, pyfile, funcname, append, no_prompt,
     # https://www.tomrochette.com/problems/2020/03/07
     from stream2segment import main
 
-    # REMEMBER: NO LOCAL VARIABLES OTHERWISE WE MESS UP THE CONFIG OVERRIDES ARGUMENTS
+    # REMEMBER: NO LOCAL VARIABLES OTHERWISE WE MESS UP THE CONFIG OVERRIDES
+    # ARGUMENTS
     try:
-        if not append and outfile and os.path.isfile(outfile) and not no_prompt and \
+        if not append and outfile and os.path.isfile(outfile) \
+                and not no_prompt and \
                 not click.confirm("'%s' already exists in '%s'.\nOverwrite?" %
                                   (os.path.basename(os.path.abspath(outfile)),
                                    os.path.dirname(os.path.abspath(outfile)))):
@@ -430,35 +434,39 @@ def process(dburl, config, pyfile, funcname, append, no_prompt,
         else:
             # override config values for multi_process and num_processes
             overrides = {k: v for k, v in _locals.items()
-                         if v not in ((), {}, None) and k in ('multi_process', 'num_processes')}
+                         if v not in ((), {}, None) and k in
+                         ('multi_process', 'num_processes')}
             if overrides:
-                # if given, put these into 'advanced_settings' sub-dict. Note that
-                # nested dict will be merged with the values of the config
+                # if given, put these into 'advanced_settings' sub-dict. Note
+                # that nested dict will be merged with the values of the config
                 overrides = {'advanced_settings': overrides}
             with warnings.catch_warnings():  # capture (ignore) warnings
                 warnings.simplefilter("ignore")
-                ret = main.process(dburl, pyfile, funcname, config, outfile, log2file=True,
-                                   verbose=True, append=append, **overrides)
+                ret = main.process(dburl, pyfile, funcname, config, outfile,
+                                   log2file=True, verbose=True, append=append,
+                                   **overrides)
     except inputargs.BadArgument as aerr:
         print(aerr)
         ret = 2  # exit with 1 as normal python exceptions
     except:  # @IgnorePep8 pylint: disable=bare-except
-        # do not print traceback, as we already did it by configuring loggers -> screen
+        # do not print traceback, as we already did it by configuring loggers
         ret = 3
     sys.exit(ret)
 
 
-@cli.command(short_help='Show customizable waveform\'s plots in the browser')
+@cli.command(short_help='Show waveform plots and metadata in the browser')
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option("-c", "--configfile",
-              help="Optional: The path to the configuration file in yaml format "
-                   "(https://learn.getgrav.org/advanced/yaml).", type=clickutils.ExistingPath,
-              required=False)
-@click.option("-p", "--pyfile",
-              help="Optional: The path to the python file with the plot functions implemented",
+              help="Optional: The path to the configuration file in yaml "
+                   "format (https://learn.getgrav.org/advanced/yaml).",
+              type=clickutils.ExistingPath, required=False)
+@click.option("-p", "--pyfile", help="Optional: The path to the Python file "
+                                     "with the plot functions implemented",
               type=clickutils.ExistingPath, required=False)
 def show(dburl, configfile, pyfile):
-    """Show raw and processed downloaded waveform\'s plots in a browser"""
+    """Show waveform plots and metadata in the browser,
+    customizable with user-defined configuration and custom Plots
+    """
     # import here to improve slow click cli (at least when --help is invoked)
     # https://www.tomrochette.com/problems/2020/03/07
     from stream2segment import main
@@ -473,39 +481,43 @@ def dl():  # pylint: disable=missing-docstring
     pass
 
 
-@dl.command(short_help='Produce download summary statistics in either plain text or html format')
+@dl.command(short_help='Produce download summary statistics in either plain '
+                       'text or html format')
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option('-did', '--download-id', multiple=True, type=int,
-              help="Limit the download statistics to a specified set of download ids (integers) "
-                   "when missing, all downloads are shown. this option can be given multiple "
-                   "times: .. -did 1 --download_id 2 ...")
+              help="Limit the download statistics to a specified set of "
+                   "download ids (integers). when missing, all downloads are "
+                   "shown. this option can be given multiple times: "
+                   "... -did 1 --download_id 2 ...")
 @click.option('-g', '--maxgap-threshold', type=float, default=0.5,
               help="Optional: set the threshold (in number of samples) "
-                   "to identify segments with gaps/overlaps. "
-                   "Defaults to 0.5, meaning that segments whose maximum gap is greater "
-                   "than half a sample will be identified has having gaps, and segments "
-                   "whose maximum gap is lower than minus half a sample will "
-                   "be identified has having overlaps")
-@click.option('-htm', '--html', is_flag=True, help="Generate an interactive "
-              "dynamic web page where the download infos are visualized on a map, with statistics "
-              "on a per-station and data-center basis. A working internet connection is needed to"
-              "properly view the page")
+                   "to identify segments with gaps/overlaps. Defaults to 0.5, "
+                   "meaning that segments whose maximum gap is greater than "
+                   "half a sample will be identified has having gaps, and "
+                   "segments whose maximum gap is lower than minus half a "
+                   "sample will be identified has having overlaps")
+@click.option('-htm', '--html', is_flag=True,
+              help="Generate an interactive dynamic web page where the "
+                   "download info is visualized on a map, with statistics "
+                   "on a per-station and data-center basis. A working internet "
+                   "connection is needed to properly view the page")
 @click.argument("outfile", required=False, type=click.Path(file_okay=True,
-                                                           dir_okay=False, writable=True,
+                                                           dir_okay=False,
+                                                           writable=True,
                                                            readable=True))
 def stats(dburl, download_id, maxgap_threshold, html, outfile):
     """Produce download summary statistics either in plain text or html format.
 
-    [OUTFILE] (optional): the output file where the information will be saved to.
-    If missing, results will be printed to screen or opened in a web browser
-    (depending on the option '--html')
+    [OUTFILE] (optional): the output file where the information will be saved
+    to. If missing, results will be printed to screen or opened in a web
+    browser (depending on the option '--html')
     """
     # import here to improve slow click cli (at least when --help is invoked)
     # https://www.tomrochette.com/problems/2020/03/07
     from stream2segment import main
 
-    print('Fetching data, please wait (this might take a while depending on the '
-          'db size and connection)')
+    print('Fetching data, please wait (this might take a while depending on '
+          'the db size and connection)')
     try:
         with warnings.catch_warnings():  # capture (ignore) warnings
             warnings.simplefilter("ignore")
@@ -522,26 +534,25 @@ def stats(dburl, download_id, maxgap_threshold, html, outfile):
 @dl.command(short_help="Return download information for inspection")
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option('-did', '--download-id', multiple=True, type=int,
-              help="Limit the download statistics to a specified set of download ids (integers) "
-                   "when missing, all downloads are shown. This option can be given multiple "
-                   "times: .. -did 1 --download_id 2 ...")
+              help="Limit the download statistics to a specified set of "
+                   "download ids (integers) when missing, all downloads are "
+                   "shown. This option can be given multiple times: "
+                   "... -did 1 --download_id 2 ...")
 @click.option('-c', '--config', is_flag=True, default=None,
-              help="Returns only the config used (in YAML syntax) of the chosen download(s)")
+              help="Returns only the config used (in YAML syntax) of the "
+                   "chosen download(s)")
 @click.option('-l', '--log', is_flag=True, default=None,
               help="Returns only the log messages of the chosen download(s)")
-# @click.option('-htm', '--html', is_flag=True, help="Generate an interactive dynamic "
-#               "web page where the download infos are visualized on a map, with statistics "
-#               "on a per-station and data-center basis. A working internet connection "
-#               "is needed to properly view the page")
 @click.argument("outfile", required=False, type=click.Path(file_okay=True,
-                                                           dir_okay=False, writable=True,
+                                                           dir_okay=False,
+                                                           writable=True,
                                                            readable=True))
 def report(dburl, download_id, config, log, outfile):
     """Return download information.
 
-    [OUTFILE] (optional): the output file where the information will be saved to.
-    If missing, results will be printed to screen or opened in a web browser
-    (depending on the option '--html')
+    [OUTFILE] (optional): the output file where the information will be saved
+    to. If missing, results will be printed to screen or opened in a web
+    browser (depending on the option '--html')
     """
     # import here to improve slow click cli (at least when --help is invoked)
     # https://www.tomrochette.com/problems/2020/03/07
@@ -570,7 +581,8 @@ def db():  # pylint: disable=missing-docstring
     pass
 
 
-@db.command(short_help="Drop (delete) download executions and all associated segments")
+@db.command(short_help="Drop (delete) download executions and all associated "
+                       "segments")
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option('-did', '--download-id', multiple=True, type=int, required=True,
               help="The id(s) of the download execution(s) to be deleted. "
@@ -578,14 +590,15 @@ def db():  # pylint: disable=missing-docstring
                    "times: ... -did 1 --download_id 2 ...")
 def drop(dburl, download_id):
     """Drop (deletes) download executions. WARNING: this command deletes also
-    all segments, stations and channels downloaded with the given download execution
+    all segments, stations and channels downloaded with the given download
+    execution
     """
     # import here to improve slow click cli (at least when --help is invoked)
     # https://www.tomrochette.com/problems/2020/03/07
     from stream2segment import main
 
-    print('Fetching data, please wait (this might take a while depending on the '
-          'db size and connection)')
+    print('Fetching data, please wait (this might take a while depending on '
+          'the db size and connection)')
     try:
         with warnings.catch_warnings():  # capture (ignore) warnings
             warnings.simplefilter("ignore")
@@ -611,7 +624,8 @@ def drop(dburl, download_id):
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option('--add', multiple=True, nargs=2, type=str, required=False,
               help="Add a new class label: `--add label description`. You can "
-                   "provide this arguments multiple times to add several labels")
+                   "provide this arguments multiple times to add several "
+                   "labels")
 @click.option('--rename', multiple=True, nargs=3, type=str, required=False,
               help="Rename a class label: "
                    "`--rename old_label new_label new_description`. Set "
@@ -681,25 +695,27 @@ def classlabel(dburl, add, rename, delete, no_prompt):
 
 
 @cli.group(short_help="Program utilities")
-def utils():  # pylint: disable=missing-docstring
+def utils():  # noqa
     pass
 
 
-@utils.command(short_help='Print on screen quick help on stream2segment built-in math functions')
-@click.option("-t", "--type", type=click.Choice(['numpy', 'obspy', 'all']), default='all',
-              show_default=True,
-              help="Show help only for the function matching the given type. Numpy indicates "
-                   "functions operating on numpy arrays "
+@utils.command(short_help='Print on screen quick help on stream2segment '
+                          'built-in math functions')
+@click.option("-t", "--type", type=click.Choice(['numpy', 'obspy', 'all']),
+              default='all', show_default=True,
+              help="Show help only for the function matching the given type. "
+                   "Numpy indicates functions operating on numpy arrays "
                    "(module `stream2segment.process.math.ndarrays`). "
-                   "Obspy (module `stream2segment.process.math.traces`) the functions operating "
-                   "on obspy Traces, most of which are simply the numpy counterparts defined "
+                   "ObsPy (module `stream2segment.process.math.traces`) the "
+                   "functions operating on ObsPy Traces, most of which are "
+                   "simply the numpy counterparts defined "
                    "for Trace objects")
 @click.option("-f", "--filter", default='*', show_default=True,
-              help="Show doc only for the function whose name matches the given filter. "
-                   "Wildcards (* and ?) are allowed")
-def mathinfo(type, filter):  # @ReservedAssignment pylint: disable=redefined-outer-name
-    """Print on screen the doc-strings of the math functions implemented in this package,
-    according to the given type and filter
+              help="Show doc only for the function whose name matches the "
+                   "given filter. Wildcards (* and ?) are allowed")
+def mathinfo(type, filter):  # noqa
+    """Print on screen the doc-strings of the math functions implemented in
+    this package, according to the given type and filter
     """
     # import here to improve slow click cli (at least when --help is invoked)
     # https://www.tomrochette.com/problems/2020/03/07
@@ -710,4 +726,4 @@ def mathinfo(type, filter):  # @ReservedAssignment pylint: disable=redefined-out
 
 
 if __name__ == '__main__':
-    cli()  # pylint: disable=E1120
+    cli()  # noqa

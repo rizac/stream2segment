@@ -304,9 +304,9 @@ def get_session(dburl, for_process=False, raise_bad_argument=False,
     :param for_process: boolean (default: False) whether the session should be
         used for processing, i.e. the database is supposed to exist already and
         the `Segment` model has ObsPy method such as `Segment.stream()`
-    :param raise_bad_argument: boolean (default: False)if any exception should be wrapped into a
-        `BadArgument` exception,whose message will be prefixed with the
-        parameter name 'dburl'
+    :param raise_bad_argument: boolean (default: False)if any exception should
+        be wrapped into a `BadArgument` exception,whose message will be
+        prefixed with the parameter name 'dburl'
     :param scoped: boolean (False by default) if the session must be scoped
         session
     :param engine_args: optional keyword argument values for the
@@ -332,9 +332,10 @@ def get_session(dburl, for_process=False, raise_bad_argument=False,
         sess = sess_func(dburl, scoped=scoped, **engine_kwargs)
 
         # Check if database exist, which should not always be done (e.g.
-        # for_processing=True). Among other methods (https://stackoverflow.com/a/3670000
-        # https://stackoverflow.com/a/59736414) this seems to do what we need (we might
-        # also not check if that the tables length > 0 sometime):
+        # for_processing=True). Among other methods
+        # (https://stackoverflow.com/a/3670000
+        # https://stackoverflow.com/a/59736414) this seems to do what we need
+        # (we might also not check if that the tables length > 0 sometime):
         sess.bind.engine.table_names()
         return sess
     except Exception as exc:
@@ -567,8 +568,9 @@ def load_config_for_download(config, parseargs, **param_overrides):
 
     if parseargs:
         # few variables:
-        configfile = config if (isinstance(config, string_types) and os.path.isfile(config))\
-            else None
+        configfile = None
+        if isinstance(config, string_types) and os.path.isfile(config):
+            configfile = config
 
         # define first default event params in order to avoid typos
         def_evt_params = EVENTWS_SAFE_PARAMS
@@ -851,4 +853,3 @@ def load_config_for_process(dburl, pyfile, funcname=None, config=None,
 
     # nothing more to process
     return session, pyfunc, funcname, config
-
