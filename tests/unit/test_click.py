@@ -397,7 +397,7 @@ def test_click_funchelp(mock_helpmathiter):
 @patch("stream2segment.main.dstats", return_value=0)
 def test_click_dstats(mock_da):
 
-    prefix = ['utils', 'dstats']
+    prefix = ['dl', 'stats']
     runner = CliRunner()
     # assert help works:
     mock_da.reset_mock()
@@ -436,7 +436,7 @@ def test_click_dstats(mock_da):
 @patch("stream2segment.main.dreport", return_value=0)
 def test_click_dreport(mock_da):
 
-    prefix = ['utils', 'dreport']
+    prefix = ['dl', 'report']
     runner = CliRunner()
     # assert help works:
     mock_da.reset_mock()
@@ -486,3 +486,7 @@ def test_click_dreport(mock_da):
     result = runner.invoke(cli, prefix + ['-d', 'dburl', '-did', 'a'])
     assert not mock_da.called
     assert result.exit_code != 0
+
+
+# FINAL NOTE:
+# test_classlabel is implemented in test_process_db !!

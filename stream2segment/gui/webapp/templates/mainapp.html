@@ -34,7 +34,7 @@
 			<div class="flex-direction-row toolbar">
 				<!-- use checkbox class for all same level divs (bootstraps controls margins top and bottom intelligently -->
 				<div class="flex-direction-row toolbar" ng-show="segmentsCount>0">
-					<h4>Segment {{ segIdx + 1 }} of {{ segmentsCount }}</h4>
+					<h4>Segment {{ segIdx + 1 }} of {{ segmentsCount.toLocaleString('en-US') }}</h4>
 					<button class='btn btn-default center' ng-click="setPreviousSegment()">
 						<span class='arrow-left'></span>
 					</button>
@@ -123,12 +123,12 @@
 								<div ng-show="classes.length">
 									<div class="divider"></div>
 									<div ng-click="toggleDivVisibility('classes')">
-										classes <div ng-class="isDivVisible('classes') ? 'arrow-up' : 'arrow-down'"
+										class label <div ng-class="isDivVisible('classes') ? 'arrow-up' : 'arrow-down'"
 											style='float:right'></div>
 									</div>
 									<div ng-show="isDivVisible('classes')" class="panel-body">
 										<div ng-repeat="class in classes">
-					  						<label>
+					  						<label title="{{ class.description }}">
 												<input
 												    type="checkbox"
 												    value="{{ class.id }}"

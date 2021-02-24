@@ -16,7 +16,7 @@ from future.utils import string_types
 
 from stream2segment.utils.resources import yaml_load, get_ttable_fpath, \
     get_templates_fpath, normalizedpath
-from stream2segment.utils import strptime, load_source, _get_session
+from stream2segment.utils import strptime, load_source
 from stream2segment.traveltimes.ttloader import TTTable
 from stream2segment.io.db.models import Fdsnws
 from stream2segment.download.utils import Authorizer, EVENTWS_MAPPING,\
@@ -74,9 +74,6 @@ class BadArgument(Exception):
         else:
             p_name = str(self.param_name)
         p_name = '"' + p_name + '"'
-        # p_name = '"%s"' % (" / ".join('"%s"' % p for p in self.param_name)[1:-1]
-        #                   if isinstance(self.param_name, (list, tuple)) else
-        #                   str(self.param_name))
         msg_preamble = self.msg_preamble
         if msg_preamble:
             msg_preamble += ' '
@@ -291,29 +288,57 @@ def keyval_list_to_dict(value):
     return dict(zip(itr, itr))
 
 
-def get_session(dburl, for_process=False):
-    """Create an SQL-Alchemy session from dburl. Raises TypeError if dburl is
+def get_session(dburl, for_process=False, raise_bad_argument=False,
+                scoped=False, **engine_kwargs):
+    """Create an SQL-Alchemy session from dburl. Raises if `dburl` is
     not a string, or any SqlAlchemy exception if the session could not be
-    created
+    created. If `raise_bad_argument` is True (default False), raises
+    wraps any exception into a `BadArgument` associated to the parameter
+    'dburl'.
 
     :param dburl: string denoting a database url (currently postgres and sqlite
         supported
+    :param for_process: boolean (default: False) whether the session should be
+        used for processing, i.e. the database is supposed to exist already and
+        the `Segment` model has ObsPy method such as `Segment.stream()`
+    :param raise_bad_argument: boolean (default: False)if any exception should
+        be wrapped into a `BadArgument` exception,whose message will be
+        prefixed with the parameter name 'dburl'
+    :param scoped: boolean (False by default) if the session must be scoped
+        session
+    :param engine_args: optional keyword argument values for the
+        `create_engine` method. E.g., let's provide two engine arguments,
+        `echo` and `connect_args`:
+        ```
+        get_session(dbpath, ..., echo=True, connect_args={'connect_timeout': 10})
+        ```
+        For info see:
+        https://docs.sqlalchemy.org/en/14/core/engines.html#sqlalchemy.create_engine.params.connect_args
     """
-    if not isinstance(dburl, string_types):
-        raise TypeError('string required, %s found' % str(type(dburl)))
-    if for_process:
-        from stream2segment.process.db import get_session as _sess_func
-    else:
-        _sess_func = _get_session
+    try:
+        if not isinstance(dburl, string_types):
+            raise TypeError('string required, %s found' % str(type(dburl)))
+        # import in function to speed up module imports from cli:
+        if for_process:
+            # important, rename otherwise conflicts with this function name:
+            from stream2segment.process.db import get_session as sess_func
+        else:
+            # important, rename otherwise conflicts with this function name:
+            from stream2segment.io.db import get_session as sess_func
 
-    sess = _sess_func(dburl)
-    # If the session function above does not call SqAlchemy engine's 'create_all'
-    # (which is the case for processing), we need to manually check if we can
-    # connect to the db. Among other methods (https://stackoverflow.com/a/3670000
-    # https://stackoverflow.com/a/59736414) this seems to do what we need (we might
-    # also not check if that the tables length > 0 sometime):
-    sess.bind.engine.table_names()
-    return sess
+        sess = sess_func(dburl, scoped=scoped, **engine_kwargs)
+
+        # Check if database exist, which should not always be done (e.g.
+        # for_processing=True). Among other methods
+        # (https://stackoverflow.com/a/3670000
+        # https://stackoverflow.com/a/59736414) this seems to do what we need
+        # (we might also not check if that the tables length > 0 sometime):
+        sess.bind.engine.table_names()
+        return sess
+    except Exception as exc:
+        if raise_bad_argument:
+            raise BadArgument('dburl', exc)
+        raise
 
 
 def create_auth(restricted_data, dataws, configfile=None):
@@ -527,11 +552,11 @@ def load_config_for_download(config, parseargs, **param_overrides):
     """Load download arguments from the given config (yaml file or dict) after
     parsing and checking some of the dict keys.
 
-    :return: a dict loaded from the given `config` and with parseed arguments
+    :return: a dict loaded from the given `config` and with parsed arguments
         (dict keys)
 
-    Raises `BadArgument` in case of parsing errors, missisng arguments,
-    conflicts etcetera
+    Raises `BadArgument` in case of parsing errors, missing arguments,
+    conflicts and so on
     """
     try:
         config_dict = yaml_load(config, **param_overrides)
@@ -540,8 +565,9 @@ def load_config_for_download(config, parseargs, **param_overrides):
 
     if parseargs:
         # few variables:
-        configfile = config if (isinstance(config, string_types) and os.path.isfile(config))\
-            else None
+        configfile = None
+        if isinstance(config, string_types) and os.path.isfile(config):
+            configfile = config
 
         # define first default event params in order to avoid typos
         def_evt_params = EVENTWS_SAFE_PARAMS
@@ -567,8 +593,8 @@ def load_config_for_download(config, parseargs, **param_overrides):
         #           returning the correct parameter value
         params = [
             {
-                # dataws is a list of strings, but for backward compatibility we
-                # must accept strings too. Convert `dataws` to list AS FIRST
+                # dataws is a list of strings, but for backward compatibility
+                # we must accept strings too. Convert `dataws` to list AS FIRST
                 # ARGUMENT (I.E., this must be the FIRST dict of the list), so
                 # that any other parameter check below requiring dataws can
                 # safely work with lists:
@@ -792,7 +818,7 @@ def load_config_for_process(dburl, pyfile, funcname=None, config=None,
     will be empty in this latter case)
     """
     try:
-        session = get_session(dburl, True)
+        session = get_session(dburl, for_process=True)
     except Exception as exc:
         raise BadArgument('dburl', exc)
 
@@ -824,10 +850,3 @@ def load_config_for_process(dburl, pyfile, funcname=None, config=None,
 
     # nothing more to process
     return session, pyfunc, funcname, config
-
-
-def load_session_for_dinfo(dburl):
-    try:
-        return get_session(dburl)
-    except Exception as exc:
-        raise BadArgument('dburl', exc)

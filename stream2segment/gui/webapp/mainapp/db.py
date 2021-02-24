@@ -1,142 +1,105 @@
-'''
-Db utitlties for the 'show' command
+"""
+Db utilities for the 'show' command
 
 Created on 16 Apr 2020
 
 @author: riccardo
-'''
-import os
+"""
+# import os
+# import threading
+
 import numpy as np
 from sqlalchemy import func
 
 # from flask import g
 from stream2segment.process.db import (Segment, Class, ClassLabelling,
                                        Station, Download,
-                                       get_session as _getsess)
+                                       get_session as _getsess,
+                                       get_classlabels as _get_classes)
 from stream2segment.io.db.sqlevalexpr import exprquery, Inspector
 from stream2segment.utils import secure_dburl
 # import atexit
-
-# rationale: Remember that from the GUI the user can navigate back and forward
-# with the button, not by typing segment ids (there is the selection <form>
-# for that). So, when th GUI shows up we need a fast way to know the number
-# of total segments, load the first one and later load somehow efficiently
-# the 'next' or 'previous' queried segment.
-# Loading once all segment ids into SEG_IDS below might be the best solutions,
-# but for huge database is inefficient. So when the page shows up,
-# we query only the number N of segments to show via `get_segments_count`, and
-# we set SEG_IDS as a numpy array of N NaNs (the method should be relatively
-# fast as it issues an SQL count). After that, When querying for a segment
-# at given index (position), if SEG_IDS[index] is NaN, a block of
-# SEG_QUERY_BLOCK segment ids (only ids, to speed up things) is loaded
-# into SEG_IDS at the right position, and then with the segment id we can
-# query the desired Segment.
-SEG_IDS = []  # numpy array of segments ids (for better storage): filled with NaNs,
-# populated on demand witht the block below:
-SEG_QUERY_BLOCK = 50
 
 _session = None  # pylint: disable=invalid-name
 
 
 def init(app, dbpath):
-    '''Initializes the database. this method must be called after the Flask
+    """Initialize the database. this method must be called after the Flask
     app has been created nd before using it
-    '''
+    """
     # https://nestedsoftware.com/2018/06/11/flask-and-sqlalchemy-without-the-flask-sqlalchemy-extension-3cf8.34704.html
     # and
     # https://flask.palletsprojects.com/en/1.1.x/appcontext/#storing-data
 
-    # we store _dbpath globally
-    global _session  # pylint: disable=global-statement, invalid-name
+    global _session  # noqa
     _session = _getsess(dbpath, scoped=True)
 
     # we add a listener that whn a request is ended, the session should be
     # removed (see get_session below)
     @app.teardown_appcontext
     def close_db(error):
-        """Closes the database again at the end of the request."""
+        """Close the database again at the end of the request."""
         # if hasattr(g, 'session'):
         #     g.session.remove()
         get_session().remove()
 
 
 def get_session():
-    '''Returns a sqlalchemy scoped session for interacting with the database'''
+    """Return a sqlalchemy scoped session for interacting with the database"""
     # (see init above)
     return _session
 
 
 def get_db_url(safe=True):
-    '''Returns the db url (with password hidden, if present in the url)'''
+    """Return the db url (with password hidden, if present in the url)"""
     return secure_dburl(str(get_session().bind.engine.url))
 
 
 def get_segments_count(conditions):
-    '''Returns the number of segments to show (int) according to the given
-    `conditions` (dict of selection expressions usually resulting from the
-    'segment_select' parameter in the YAML config)
-    '''
+    """Compute the number of segments to show (int) according to the given
+    `conditions` and stores it in the global varibale
+    _segments_count
+
+    :param conditions: dict of selection expressions usually resulting from the
+        'segment_select' parameter in the YAML config)
+    """
     session = get_session()
-    num_segments = _query4gui(session.query(func.count(Segment.id)), conditions).scalar()
-    if num_segments > 0:
-        global SEG_IDS  # pylint: disable=global-statement
-        SEG_IDS = np.full(num_segments, np.nan)
-    return num_segments
+    return _query4gui(session.query(func.count(Segment.id)),
+                                    conditions).scalar()
 
 
 def _query4gui(what2query, conditions, orderby=None):
     return exprquery(what2query, conditions=conditions, orderby=orderby)
 
 
-def get_segment_id(seg_index, conditions):
-    '''Returns the segment id (int) at a given index (position) in the GUI'''
-    if np.isnan(SEG_IDS[seg_index]):
-        # segment id not queryed yet: load chunks of segment ids:
-        # Note that this is the best compromise between
-        # 1) Querying by index, limiting by 1 and keeping track of the
-        # offset: FAST at startup, TOO SLOW for each segment request
-        # 2) Load all ids at once at the beginning: TOO SLOW at startup, FAST for each
-        # segment request
-        # (fast and slow refer to a remote db with 10millions row without config
-        # and pyfile)
-        limit = SEG_QUERY_BLOCK
-        offset = int(seg_index / float(SEG_QUERY_BLOCK)) * SEG_QUERY_BLOCK
-        limit = min(len(SEG_IDS) - offset, SEG_QUERY_BLOCK)
-        segids = get_segment_ids(conditions,
-                                 offset=offset, limit=limit)
-        SEG_IDS[offset:offset+limit] = segids
-    return int(SEG_IDS[seg_index])
-
-
-def get_segment_ids(conditions, limit=50, offset=0):
-    '''Fetches from the database a block of segments ids and returns them
-    as list of integers'''
+def get_segment_id(seg_index, segment_count, conditions):
+    """Fetch from the database a block of segments ids and returns them
+    as list of integers"""
     session = get_session()
-    # querying all segment ids is faster later when selecting a segment
-    orderby = [('event.time', 'desc'), ('event_distance_deg', 'asc'),
-               ('id', 'asc')]
+    # NOTE: sort by id only, is way FASTER:
+    orderby = [('id', 'desc')]
+    if seg_index > segment_count / 2.0:
+        # The search might still take a lot if we want to select last elements:
+        # reverse the sort order and the seg_index:
+        orderby = [('id', 'asc')]
+        seg_index = segment_count - seg_index - 1
     return [_[0] for _ in _query4gui(session.query(Segment.id),
-                                     conditions, orderby).limit(limit).offset(offset)]
+                                     conditions, orderby).limit(1).offset(seg_index)]
 
 
 def get_segment(segment_id):  # , cols2load=None):
-    '''Returns the segment identified by id `segment_id`'''
-    # Some history: we initially wanted to use some sort of cache, because displaying
-    # several plots might be time consuming. Solution 1: complex caching
-    # mechanism, with ad hoc classes and methods: it's a pain to test and maintain
-    # 2. Simpler approach: cache a segment at a time. When a new segment is requested,
-    # discard the previously cached (if any), and cache the new segment,
-    # so that when e.g., a user chooses only a different
-    # custom plot in the GUI (or checks/unchecks the 'preprocessing'
+    """Return the segment identified by id `segment_id`"""
+    # We might want to cache segments, so that when e.g., a user chooses only a
+    # different custom plot in the GUI (or checks/unchecks the 'preprocessing'
     # button) we do not need to reload the segment from the DB, neither we
     # need to re-open the segment stream from the Bytes sequence.
     # Now, we might use the session identity_map (https://stackoverflow.com/a/48988010)
     # but it seems that the identity_map will always be empty, as it is
     # cleared automatically at the end of each method using a db session
     # (i.e., the method sqlalchemy.orm.state.InstanceState._cleanup is called)
-    # Thus, we opted for solution 3: avoid any form of caching, also in account
+    # Thus, let's avoid any form of caching, also in account
     # of the fact that most Flask example suggest to release the db session after
-    # each request. We followed this pattern (see 'init' function) and we
+    # each request (see `init` function above) and we
     # just use query.get (see below) which avoids querying the db if the
     # segment instance is already in the session. As we saw,
     # this should never happen, but just in case.
@@ -161,8 +124,7 @@ def get_segment(segment_id):  # , cols2load=None):
 
 
 def get_classes(segment_id=None):
-    '''
-    If `segment_id` is given (int not None), returns a list of classes ids
+    """If `segment_id` is given (int not None), returns a list of classes ids
     (integers) denoting the classes associated to the given segment, or the
     empty list if no classes are set.
 
@@ -173,34 +135,29 @@ def get_classes(segment_id=None):
     [
         ... ,
         {
-         'id': (int)
-         'labe;': (str)
-         'count': (int) (number of segments labelled with this label)
+         'id': int
+         'label': str,
+         'description': str
+         'count': int (number of segments labelled with this label)
         },
         ...
     ]
     ```
-    Note that 'id' and 'label' might change depending on the ORM implementation
-    '''
+    """
     if segment_id is not None:
         segment = get_segment(segment_id)
         return [] if not segment else sorted(c.id for c in segment.classes)
 
-    session = get_session()
-    colnames = [Class.id.key, Class.label.key, 'count']
-    # Note isouter which produces a left outer join, important when we have no class labellings
-    # (i.e. third column all zeros) otherwise with a normal join we would have no results
-    data = session.query(Class.id, Class.label, func.count(ClassLabelling.id).label(colnames[-1])).\
-        join(ClassLabelling, ClassLabelling.class_id == Class.id, isouter=True).group_by(Class.id).\
-        order_by(Class.id)
-    return [{name: val for name, val in zip(colnames, d)} for d in data]
+    return _get_classes(get_session(), include_counts=True)
 
 
 def get_metadata(segment_id=None):
-    '''Returns a list of tuples (column, column_type) if `segment_id` is None or
-    (column, column_value) if segment is not None. In the first case, `column_type` is the
-    string representation of the column python type (str, datetime,...), in the latter,
-    it is the value of `segment` for that column'''
+    """Return a list of tuples (column, column_type) if `segment_id` is None or
+    (column, column_value) if segment is not None. In the first case,
+    `column_type` is the string representation of the column python type
+    (str, datetime,...), in the latter, it is the value of `segment` for that
+    column
+    """
     excluded_colnames = set([Station.inventory_xml, Segment.data, Download.log,
                              Download.config, Download.errors, Download.warnings,
                              Download.program_version, Class.description])
@@ -214,8 +171,9 @@ def get_metadata(segment_id=None):
             return []
 
     insp = Inspector(segment or Segment)
-    attnames = insp.attnames(Inspector.PKEY | Inspector.QATT | Inspector.REL | Inspector.COL,
-                             sort=True, deep=True, exclude=excluded_colnames)
+    attfilter = Inspector.PKEY | Inspector.QATT | Inspector.REL | Inspector.COL
+    attnames = insp.attnames(attfilter, sort=True, deep=True,
+                             exclude=excluded_colnames)
     if segment_id is not None:
         # return a list of (attribute name, attribute value)
         return [(_, insp.attval(_)) for _ in attnames]

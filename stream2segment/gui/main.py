@@ -17,17 +17,16 @@ from flask import Flask
 
 
 def create_s2s_show_app(dbpath, pyfile=None, configfile=None):
-    """
-        Creates a new app for processing. Note that config_py_file is the stream2segment gui
-        config, not the config passed to Flask `app.config.from_pyfile`.
+    """Create a new app for processing. Note that config_py_file is the
+    stream2segment GUI config, not the config passed to Flask
+    `app.config.from_pyfile`.
     """
     from stream2segment.gui import webapp
     # http://flask.pocoo.org/docs/0.12/patterns/appfactories/#basic-factories
     app = Flask(webapp.__name__)
 
-    from stream2segment.gui.webapp.mainapp import db, core
-    db.init(app, dbpath)
-    core.init(app, pyfile, configfile)
+    from stream2segment.gui.webapp.mainapp import core
+    core.init(app, dbpath, pyfile, configfile)
 
     # Note that the templae_folder of the Blueprint and the static paths in
     # the HTML are relative to the path of THIS MODULE, so execute the lines

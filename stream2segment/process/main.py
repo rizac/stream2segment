@@ -36,7 +36,7 @@ import numpy as np
 
 from stream2segment.io.db.sqlevalexpr import exprquery
 from stream2segment.utils import get_progressbar  #, StringIO
-from stream2segment.process.db import get_session, configure_classes
+from stream2segment.process.db import get_session
 from stream2segment.io.db.models import Segment, Station, Channel # Event, DataCenter
 from stream2segment.utils.inputargs import load_pyfunc
 
@@ -87,9 +87,6 @@ def run(session, pyfunc, writer, config=None, show_progress=False):
     # approach can save up to 9 hours with almost no memory perf issue (2.4% vs 0.7%).
     # So we define a chunk size whereby we load all segments:
 
-    # set/update classes, if written in the config, so that we can set instance classes
-    # in the processing, if we want:
-    configure_classes(session, config.get('class_labels', []))
     session.close()  # expunge all, clear all states
 
     with writer:

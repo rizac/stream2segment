@@ -33,7 +33,7 @@ import jinja2
 from sqlalchemy.sql.expression import func
 
 from stream2segment.utils.inputargs import load_config_for_process, \
-    load_config_for_download, load_session_for_dinfo
+    load_config_for_download, get_session
 from stream2segment.utils.log import configlog4download, configlog4processing,\
     closelogger, logfilepath
 from stream2segment.io.db.models import Download, Segment
@@ -48,7 +48,6 @@ from stream2segment.download.utils import FailedDownload
 from stream2segment.gui.dinfo import DReport, DStats
 from stream2segment.resources.templates import DOCVARS
 from stream2segment.process.writers import get_writer
-
 
 
 if PY2:
@@ -346,6 +345,10 @@ def closesession(session):
 
 def show(dburl, pyfile, configfile):
     """Show downloaded data plots in a system browser dynamic web page"""
+    # Session is created inside the function below. In case you want to
+    # do it here (catching dburl messages and raising BadArgument errors):
+    # session = get_session(dburl, for_process=True, scoped=True,
+    #                       raise_bad_argument=True)
     run_in_browser(create_s2s_show_app(dburl, pyfile, configfile))
     return 0
 
@@ -353,7 +356,7 @@ def show(dburl, pyfile, configfile):
 def init(outpath, prompt=True, *filenames):
     """Initialize an output directory writing therein the given template files
 
-    :param prompt: bool (default: True) telling if a prompt message (python
+    :param prompt: bool (default: True) telling if a prompt message (Python
         `input` function) should be issued to warn the user when overwriting
         files. The user should return a string or integer where '1' means
         'overwrite all files', '2' means 'overwrite only non-existing', and any
@@ -401,7 +404,7 @@ def init(outpath, prompt=True, *filenames):
 
 
 def helpmathiter(type, filter):  # noqa
-    """iterator yielding the doc-string of
+    """Iterator yielding the doc-string of
     :module:`stream2segment.process.math.ndarrays` or
     :module:`stream2segment.process.math.traces`
 
@@ -485,7 +488,7 @@ def dstats(dburl, download_ids=None, maxgap_threshold=0.5, html=False,
 def _get_download_info(info_generator, dburl, download_ids=None, html=False,
                        outfile=None):
     """Process dinfo or dstats"""
-    session = load_session_for_dinfo(dburl)
+    session = get_session(dburl, raise_bad_argument=True)
     if html:
         openbrowser = False
         if not outfile:
@@ -522,7 +525,7 @@ def ddrop(dburl, download_ids, prompt=True):
         - an exception (if the download id could not be deleted)
     """
     ret = {}
-    session = load_session_for_dinfo(dburl)
+    session = get_session(dburl, raise_bad_argument=True)
     try:
         ids = [_[0] for _ in
                session.query(Download.id).filter(Download.id.in_(download_ids))]

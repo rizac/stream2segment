@@ -33,5 +33,3 @@ root_dir: '/var/tmp'
 amp_ratio_threshold: 0.8
 
 # {{ PROCESS_YAML_ADVANCEDSETTINGS }}
-
-# {{ PROCESS_YAML_CLASSLABELS }}

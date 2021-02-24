@@ -9,15 +9,17 @@ import os
 import sys
 from itertools import product
 import mock
+from click.testing import CliRunner
 from mock import patch
 import pandas as pd
 import pytest
 
 from stream2segment.cli import cli
-from stream2segment.io.db.models import Event, Station, Segment,\
-    Channel, Download, DataCenter
+from stream2segment.io.db.models import Event, Station, Segment, \
+    Channel, Download, DataCenter, Class, ClassLabelling
 from stream2segment.utils.resources import get_templates_fpath
-from stream2segment.process.db import get_inventory, get_stream
+from stream2segment.process.db import (get_inventory, get_stream,
+                                       get_classlabels)
 from stream2segment.utils.log import configlog4processing as o_configlog4processing
 from stream2segment.process.main import query4process
 
@@ -204,3 +206,87 @@ class Test(object):
             if segs.all():
                 assert segment.id in (sg1.id, sg2.id, sg3.id)
                 assert len(segs.all()) == 2
+
+    @patch('stream2segment.main.input', side_effect=lambda *a, **kw: 'y')
+    def test_classlabel_cmd(self,
+                            mock_input,
+                            # fixtures:
+                            db4process):
+
+        # legacy code: get_classlabels was get_classes, feel lazy:
+        get_classes = get_classlabels
+
+        classes = get_classes(db4process.session)
+        assert not classes
+        runner = CliRunner()
+        # test add a class from the command line argument
+        result = runner.invoke(cli, ['db', 'classlabel',
+                                     '-d', db4process.dburl,
+                                     '--add', 'label', 'description'])
+        assert not result.exception
+        assert 'label (description)' in result.output
+        classes = get_classes(db4process.session)
+        assert classes[0]['label'] == 'label'
+        assert classes[0]['description'] == 'description'
+        # store id to be sure we will have from now on the same id:
+        id_ = classes[0]['id']
+
+        # test rename a class from the command line argument
+        # only label, no description
+        result = runner.invoke(cli, ['db', 'classlabel',
+                                     '-d', db4process.dburl,
+                                     '--rename', 'label', 'label2', ''])
+        assert not result.exception
+        assert 'label2 (description)' in result.output
+        classes = get_classes(db4process.session)
+        assert classes[0]['label'] == 'label2'
+        assert classes[0]['description'] == 'description'
+        assert classes[0]['id'] == id_
+
+        # test rename a class and the description from the command line argument
+        # only label, no description
+        result = runner.invoke(cli, ['db', 'classlabel',
+                                     '-d', db4process.dburl,
+                                     '--rename', 'label2', 'label2',
+                                     'description2'])
+        assert not result.exception
+        assert 'label2 (description2)' in result.output
+        classes = get_classes(db4process.session)
+        assert classes[0]['label'] == 'label2'
+        assert classes[0]['description'] == 'description2'
+        assert classes[0]['id'] == id_
+
+        # add a class labelling
+        assert len(db4process.session.query(ClassLabelling).all()) == 0
+        segments = db4process.segments(False, False, False).all()
+        cl = ClassLabelling(class_id=classes[0]['id'], segment_id=segments[0].id)
+        db4process.session.add(cl)
+        db4process.session.commit()
+        assert len(db4process.session.query(ClassLabelling).all()) == 1
+
+        # test delete a class from the command line argument
+        # (non existing label)
+        ccount =  mock_input.call_count
+        assert ccount > 0
+        result = runner.invoke(cli, ['db', 'classlabel',
+                                     '--no-prompt'
+                                     '-d', db4process.dburl,
+                                     '--delete', 'label'])
+        assert mock_input.call_count == ccount
+        # The method assert result.exception
+        # still same class:
+        classes = get_classes(db4process.session)
+        assert classes[0]['label'] == 'label2'
+        assert classes[0]['description'] == 'description2'
+        assert classes[0]['id'] == id_
+
+        # test delete a class from the command line argument
+        result = runner.invoke(cli, ['db', 'classlabel',
+                                     '-d', db4process.dburl,
+                                     '--delete', 'label2'])
+        assert not result.exception
+        assert 'None' in result.output
+        assert mock_input.call_count == ccount + 1
+        classes = get_classes(db4process.session)
+        assert not classes
+        assert len(db4process.session.query(ClassLabelling).all()) == 0

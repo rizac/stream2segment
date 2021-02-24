@@ -1,14 +1,15 @@
-'''
+"""
 Core functionalities for the main GUI web application (show command)
 
 :date: Jul 31, 2016
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
-'''
+"""
 import os
 
-# make the following(s) behave like python3 counterparts if running from python2.7.x
+# make the following(s) behave like python3 counterparts if running from py2.7+
 # (http://python-future.org/imports.html#explicit-imports):
+
 from builtins import zip
 
 from itertools import cycle
@@ -25,9 +26,10 @@ from stream2segment.gui.webapp.mainapp.jsplot import Plot, isoformat
 from stream2segment.gui.webapp.mainapp import db
 from stream2segment.process.math.traces import sn_split
 
-
-NPTS_WIDE = 900  # FIXME: automatic retrieve by means of Segment class relationships?
+# number of points per plot. Used to resample points:
+NPTS_WIDE = 900  # FIXME: automatic retrieve from the GUI?
 NPTS_SHORT = 900  # FIXME: see above
+# segment_select parameter name in cofnig:
 SEL_STR = 'segment_select'
 
 
@@ -41,20 +43,22 @@ g_config = {  # pylint: disable=invalid-name
 
 
 def _reset_global_config():
-    '''mainly used for testing purposes and within the init method'''
+    """mainly used for testing purposes and within the init method"""
     g_config.clear()
     g_config[SEL_STR] = {}
 
 
-def _default_preprocessfunc(*args, **kwargs):
-    '''No function decorated with '@gui.preprocess'
-
-    REAL DOC: (the string above is meaningless, it's just what we will be
-    displayed on the browser if no custom process function is implemented):
-    this is the default preprocess function - i.e. no-op - and might be changed
-    dynamically by the user implemented one, see below)
-    '''
-    raise Exception("No function decorated with '@gui.preprocess'")
+def _default_preprocessfunc(segment, config):
+    """Default pre-process function: remove the instrumental response
+    assuming output unit in m/s and water level for deconvolution = 60
+    """
+    s = Stream()
+    inventory = segment.inventory()
+    for t in segment.stream():
+        t.remove_response(inventory)
+        s.append(t)
+    return t if len(s) == 1 else s
+    # raise Exception("No function decorated with '@gui.preprocess'")
 
 
 _preprocessfunc = _default_preprocessfunc  # pylint: disable=invalid-name
@@ -65,24 +69,26 @@ userdefined_plots = []  # pylint: disable=invalid-name
 
 
 def _reset_global_functions():
-    '''mainly used for testing purposes and within the init method'''
+    """mainly used for testing purposes and within the init method"""
     global _preprocessfunc  # pylint: disable=global-statement, invalid-name
     _preprocessfunc = _default_preprocessfunc
     del g_functions[1:]
     del userdefined_plots[:]
 
 
-def init(app, pyfile=None, configfile=None):
-    '''Initializes global variables. This method must be called once
+def init(app, dbpath, pyfile=None, configfile=None):
+    """Initialize global variables. This method must be called once
     after the Flask app has been created and before using it
-    '''
+    """
+    db.init(app, dbpath)
+
     if pyfile:
         _pymodule = load_source(pyfile)
         _reset_global_functions()
         for function in iterfuncs(_pymodule):
             att, pos, xaxis, yaxis = gui.get_func_attrs(function)
             if att == 'gui.preprocess':
-                global _preprocessfunc  # pylint: disable=invalid-name, global-statement
+                global _preprocessfunc  # noqa
                 _preprocessfunc = function
             elif att == 'gui.plot':
                 userdefined_plots.append(
@@ -104,18 +110,30 @@ def init(app, pyfile=None, configfile=None):
             g_config.update(newconfig)
 
 
-def has_preprocess_func():
-    '''Returns true if a custom pre-process function has been defined in
-    the user defined python file'''
-    return _preprocessfunc is not _default_preprocessfunc
+def get_segments_count(segselect=None):
+    """Compute the segment count to be shown according if the given
+    `segment_select` is given (dict), and returns the number if block=True
+    otherwise returns None
+    """
+    if segselect is not None:
+        num_segments = db.get_segments_count(segselect)
+        set_select_conditions(segselect)
+    else:
+        num_segments = db.get_segments_count(get_select_conditions())
+    return num_segments
+
+
+def get_db_url(safe=True):
+    return db.get_db_url(safe=safe)
 
 
 def get_func_doc(index=-1):
-    '''Returns the documentation for the given custom function.
-    :param index: if negative, returns the doc for the preprocess function, otherwise
-    is the index of the i-th function (index 0 refers to the main function plotting the
-    segment stream)
-    '''
+    """Return the documentation for the given custom function.
+
+    :param index: if negative, returns the doc for the preprocess function,
+        otherwise is the index of the i-th function (index 0 refers to the main
+        function plotting the segment stream)
+    """
     if index < 0:
         return _escapedoc(getattr(_preprocessfunc, "__doc__", ''))
     return userdefined_plots[index]['doc']
@@ -129,8 +147,9 @@ def _escapedoc(string):
             string = string[:string.index(char)]
             break
     string = string.strip()
-    return string.replace('{', '&#123;').replace('}', '&#125;').replace("\"", "&quot;").\
-        replace("'", '&amp;').replace("<", "&lt;").replace(">", "&gt;")
+    return string.replace('{', '&#123;').replace('}', '&#125;').\
+        replace("\"", "&quot;").replace("'", '&amp;').replace("<", "&lt;").\
+        replace(">", "&gt;")
 
 
 def get_init_data(metadata=True, classes=True):
@@ -141,12 +160,12 @@ def get_init_data(metadata=True, classes=True):
 
 
 def get_config(asstr=False):
-    '''Returns the current config as YAML formatted string (if `asstr` is True)
+    """Returns the current config as YAML formatted string (if `asstr` is True)
     or as dict. In the former case, the parameter SEL_STR ('segment_select')
     is not included, becaue the configuration is itnended to be displayed in a
     browser editor (and the 'segment selection is handled separately in
     another form dialog)
-    '''
+    """
     config_dict = dict(g_config)
     if not asstr:
         return config_dict
@@ -158,10 +177,10 @@ def get_config(asstr=False):
 
 
 def validate_config_str(string_data):
-    '''Validates the YAML formatted string and returns the corresponding
+    """Validates the YAML formatted string and returns the corresponding
     Python dict. Raises ValueError if SEL_STR ('segment_select') is in the
     parsed config (there is a dedicated button in the page)
-    '''
+    """
     sio = StringIO(string_data)
     ret = yaml.safe_load(sio.getvalue())
     if SEL_STR in ret:
@@ -171,39 +190,40 @@ def validate_config_str(string_data):
 
 
 def get_select_conditions():
-    '''Returns a dict representing the current select conditions (parameter
+    """Return a dict representing the current select conditions (parameter
     'segment_select' of the YAML file)
-    '''
+    """
     return dict(g_config[SEL_STR])
 
 
 def set_select_conditions(newdict):
-    '''Sets a new a dict representing the current select conditions (parameter
+    """Set a new a dict representing the current select conditions (parameter
     'segment_select' of the YAML file)
 
     :param newdict: a dict of new select expressions all in str format
-    '''
+    """
     # FIXME: handle concurrency with locks?
     g_config[SEL_STR] = newdict
 
 
 def get_segment(segment_id):
-    '''returns  the Segment object of the given segment id'''
+    """Return  the Segment object of the given segment id"""
     return db.get_segment(segment_id)
 
 
-def get_segment_id(segment_index):
-    '''Returns the segment id corresponding to the given segment index in
-    the GUI'''
-    return db.get_segment_id(segment_index, get_select_conditions())
+def get_segment_id(segment_index, segment_count):
+    """Return the segment id corresponding to the given segment index in
+    the GUI"""
+    return db.get_segment_id(segment_index, segment_count,
+                             get_select_conditions())
 
 
 def set_class_id(seg_id, class_id, value):
-    '''Sets the given class to the given segment (value=True), or removes it
+    """Set the given class to the given segment (value=True), or removes it
     from the given segment (value=False)
-    '''
+    """
     segment = get_segment(seg_id)
-    annotator = 'web app labeller'  # in the future we might use a session or computer username
+    annotator = 'web app labeller'  # FIXME: use a session or computer username?
     if value:
         segment.add_classes(class_id, annotator=annotator)
     else:
@@ -213,28 +233,27 @@ def set_class_id(seg_id, class_id, value):
 
 def get_segment_data(seg_id, plot_indices, all_components, preprocessed,
                      zooms, metadata=False, classes=False, config=None):
-    """Returns the segment data, depending on the arguments
+    """Return the segment data, depending on the arguments
 
     :param seg_id: the segment id (int)
-    :param plot_indices: a list of plots to be calculated from the given `plotmanager`
-        (which caches its plot for performance speed)
-    :param all_components: boolean, whether or not the `plotmanager` should give all
-        components for the main plot (plot representing the given segment's data, whose
-        plot index is currently 0). Ignored if 0 is not in `plot_indices`
-    :param preprocessed: boolean, whether or not the `plotmanager` should calculate the
-        plots on the pre-processing function defined in the config (if any), or on
-        the raw obspy Stream
-    :param zooms: a list of **all plots** defined in the plotmanager, or None.
-        Each element is either None, or a tuple of [xmin, xmax] values (xmin and xmax can
-        be both None, to conform python slicing behaviour). Thus, the length of `zooms`
-        most likely differs from that of `plot_indices`. the zooms of interest are,
-        roughly speaking, [zooms[i] for i in plot_indices] (if zoom is not None)
-    :param metadata: boolean, whether or not to return a list of the segment metadata.
-        The list is a list of tuples ('column', value). A list is used to preserve order
-        for client-side javascript parsing
-    :param classes: boolean, whether to return the integers classes ids (if any) of the
-        given segment
-    :param config: a dict of new confiog values. Can be falsy to skip updating the config
+    :param plot_indices: a list of plots to be calculated
+    :param all_components: boolean, whether or not the returned plots should
+        include all segments components (channel orientations). Ignored if 0 is
+        not in `plot_indices`
+    :param preprocessed: boolean, whether or not the plot should be returned on
+        the pre-processing function defined in the config (if any), or on the
+        raw ObsPy Stream
+    :param zooms: the plot bounds, list or None. If list, each element is
+        either None,  or a tuple of [xmin, xmax] values (xmin and xmax can
+        be both None, to conform python slicing behaviour). If None, defaults
+        to a list of [None, None] elemeents (one for each plot)
+    :param metadata: boolean, whether or not to return a list of the segment
+        metadata. The list is a list of tuples ('column', value). A list is
+        used to preserve order for client-side javascript parsing
+    :param classes: boolean, whether to return the integers classes ids (if
+        any) of the given segment
+    :param config: a dict of new config values. Can be falsy to skip updating
+        the config
     """
     plots = []
     zooms_ = parse_zooms(zooms, plot_indices)
@@ -243,11 +262,10 @@ def get_segment_data(seg_id, plot_indices, all_components, preprocessed,
         g_config.update(**config)
 
     if plot_indices:
-        # plots = plotmanager.get_plots(session, seg_id, plot_indices, preprocessed, all_components)
         plots = get_plots(seg_id, plot_indices, preprocessed, all_components)
         try:
-            # return always sn_windows, as we already calculated them. IT is better
-            # to call this method AFTER get_plots_func defined above
+            # return always sn_windows, as we already calculated them. It is
+            # better to call this method AFTER get_plots_func defined above
             sn_windows = [sorted([isoformat(x[0]), isoformat(x[1])])
                           for x in exec_func(get_segment(seg_id),
                                              preprocessed,
@@ -266,13 +284,12 @@ def get_segment_data(seg_id, plot_indices, all_components, preprocessed,
 
 
 def parse_zooms(zooms, plot_indices):
-    '''parses the zoom received from the frontend. Basically, if any zoom is a string,
-    tries to parse it to datetime
-    :param zooms: a list of 2-element tuples, or None's. The elements of the tuple can be number,
-    Nones or strings (in datetime format)
-    :return: an iterator over zooms. Uses itertools cycle so that this method can be safely used
-    with izip never estinguishing it
-    '''
+    """Parse the zoom received from the frontend.
+
+    :param zooms: a list of 2-element tuples, or None's. The elements of the
+        tuple can be number, Nones or strings (in datetime format)
+    :return: an iterator over zooms
+    """
     if not zooms or not plot_indices:
         zooms = cycle([None, None])  # to be safe in iterations
     _zooms = []
@@ -286,12 +303,12 @@ def parse_zooms(zooms, plot_indices):
 
 
 def get_plots(seg_id, plot_indices, preprocessed, all_components):
-    '''Returns the plots
+    """Return the plots
 
-    :param all_components: if 0 is not in plot_indices, it is ingored. Otherwise
-        returns in plot[I] all components (where I =
-        argwhere(plot_indices == 0)
-    '''
+    :param all_components: if 0 is not in plot_indices, it is ignored.
+        Otherwise returns in plot[I] all components
+        (where I = argwhere(plot_indices == 0)
+    """
     segment = get_segment(seg_id)
     plots = [get_plot(segment, preprocessed, i) for i in plot_indices]
     if all_components and (0 in plot_indices):
@@ -307,7 +324,7 @@ def get_plots(seg_id, plot_indices, preprocessed, all_components):
 
 
 def get_plot(segment, preprocessed, func_index):
-    '''Returns a jsplot.Plot object corresponding to the given function
+    """Return a jsplot.Plot object corresponding to the given function
     applied on the given segment
 
     :param segment: a Segment instance
@@ -316,7 +333,7 @@ def get_plot(segment, preprocessed, func_index):
     :param func_index: the index of the function to be called. It is one
         implemented in the python module with the relative decorator, and must
         have signature: func(segment, config)
-    '''
+    """
     try:
         plt = convert2plot(exec_func(segment, preprocessed,
                                      g_functions[func_index]))
@@ -334,28 +351,27 @@ def get_plot(segment, preprocessed, func_index):
 
 
 def exec_func(segment, preprocessed, function):
-    '''
-    Executes the given function, setting the internal stream
-        to the preprocessed one of needed and restoring to its original
-        before returning. `func` signature must be: func(segment, config)
-        (config is the global g_config variable)
-    '''
+    """Execute the given function, setting the internal stream
+    to the preprocessed one of needed and restoring to its original
+    before returning. `func` signature must be: func(segment, config)
+    (config is the global g_config variable)
+    """
     with prepare_for_function(segment, preprocessed):
         return function(segment, g_config)
 
 
 @contextlib.contextmanager
 def prepare_for_function(segment, preprocessed=False):
-    '''contextmanager to be used before applying a custom function on a
+    """contextmanager to be used before applying a custom function on a
     segment
-    '''
+    """
     # side note: we might cache the stream, the preprocessed stream and so
-    # on, so that each time we do not need to read or process the mseed,
-    # but this has no big impact. Caching ALL subplots is a pain (we already
-    # tried ending up with unmaintainable code). Note however that
-    # within the same request timespan, in case the same segment stream is needed,
-    # it is cached inside the Segment object (same holds for the segment's
-    # inventory (obspy Response object)
+    # on, so that each time we do not need to read or process the miniSEED,
+    # but this has no big impact. Caching ALL subplots is a pain (we
+    # already tried ending up with unmaintainable code). Note however that
+    # within the same request timespan, in case the same segment stream is
+    # needed, it is cached inside the Segment object (same holds for the
+    # segment's inventory (obspy Response object)
     tmpstream = None
     try:
         tmpstream = segment.stream().copy()
@@ -386,10 +402,12 @@ def prepare_for_function(segment, preprocessed=False):
 
 
 def convert2plot(funcres):
-    '''converts the result of a function to a plot. Raises if funcres is not
-    in any valid format'''
+    """Convert the result of a function to a plot. Raises if `funcres` is not
+    in any valid format
+
+    :param funcres: the function result of :func:`exdc_func`
+    """
     if isinstance(funcres, Plot):
-            # this should be called internally when generating main plot:
         plt = funcres
     elif isinstance(funcres, Trace):
         plt = Plot.fromtrace(funcres)
@@ -415,9 +433,9 @@ def convert2plot(funcres):
                     try:
                         x0, dx, y = obj
                     except ValueError:
-                        raise ValueError(("Cannot create plot from tuple (length=%d): "
-                                          "Expected (x0, dx, y) or (x0, dx, y, label)"
-                                          "") % len(obj))
+                        raise ValueError(("Cannot create plot from tuple "
+                                          "(length=%d): Expected (x0, dx, y) "
+                                          "or (x0, dx, y, label)") % len(obj))
                 plt.add(x0, dx, y, label)
             elif isinstance(obj, Trace):
                 plt.addtrace(obj, label)
@@ -425,18 +443,18 @@ def convert2plot(funcres):
                 for trace in obj:
                     plt.addtrace(trace, label)
             else:
-                raise ValueError(("Cannot create plot from %s (length=%d): ") %
+                raise ValueError("Cannot create plot from %s (length=%d): " %
                                  str(type(obj)))
     return plt
 
 
 def get_sn_windows(segment, config):
-    '''Returns returns the two tuples (s_start, s_end), (n_start, n_end)
+    """Return returns the two tuples (s_start, s_end), (n_start, n_end)
     where all arguments are `UTCDateTime`s and the first tuple refers to the
     signal window, the latter to the noise window. Both windows are
     calculated on the given segment, according to the given config
     (dict)
-    '''
+    """
     if len(segment.stream()) != 1:
         raise ValueError(("Unable to get sn-windows: %d traces in stream "
                           "(possible gaps/overlaps)") % len(segment.stream()))

@@ -34,7 +34,7 @@ def readfile(outfile):
 class Test(object):
 
     # define ONCE HERE THE command name, so if we change it in the cli it will be easier to fix here
-    CMD_NAME = 'dstats'
+    CMD_PREFIX = ['dl', 'stats']
 
     # execute this fixture always even if not provided as argument:
     # https://docs.pytest.org/en/documentation-restructure/how-to/fixture.html#autouse-fixtures-xunit-setup-on-steroids
@@ -119,7 +119,7 @@ class Test(object):
                 db.session.add(seg)
                 db.session.commit()
 
-        with patch('stream2segment.utils.inputargs.get_session',
+        with patch('stream2segment.main.get_session',
                    return_value=db.session) as mock_session:
             yield
 
@@ -135,7 +135,8 @@ class Test(object):
 
         # text output, to file
         outfile = pytestdir.newfile('.txt')
-        result = runner.invoke(cli, ['utils', self.CMD_NAME, '--dburl', db.dburl, outfile])
+        result = runner.invoke(cli, self.CMD_PREFIX + ['--dburl', db.dburl,
+                                                       outfile])
 
         assert not result.exception
         content = readfile(outfile)
@@ -152,7 +153,7 @@ download statistics written to """)
         assert not mock_gettempdir.called
 
         # text output, to stdout
-        result = runner.invoke(cli, ['utils', self.CMD_NAME, '--dburl', db.dburl])
+        result = runner.invoke(cli, self.CMD_PREFIX + ['--dburl', db.dburl])
         assert not result.exception
         assert """
                               OK        OK         Time                 Segment           Internal       
@@ -190,7 +191,8 @@ TOTAL                      3         1          2      1      1      1        1 
 
         # html output, to file
         outfile = pytestdir.newfile('.html')
-        result = runner.invoke(cli, ['utils', self.CMD_NAME, '--html',  '--dburl', db.dburl, outfile])
+        result = runner.invoke(cli, self.CMD_PREFIX + ['--html',  '--dburl',
+                                                       db.dburl, outfile])
 
         assert not result.exception
         content = readfile(outfile)
@@ -251,8 +253,9 @@ download statistics written to """)
 
         # html output, to file, setting maxgap to 0.2, so that S1a' has all three ok segments
         # with gaps
-        result = runner.invoke(cli, ['utils', self.CMD_NAME, '-g', '0.15', '--html',
-                                     '--dburl', db.dburl, outfile])
+        result = runner.invoke(cli, self.CMD_PREFIX + ['-g', '0.15', '--html',
+                                                       '--dburl', db.dburl,
+                                                       outfile])
 
         assert not result.exception
 
@@ -316,7 +319,8 @@ download statistics written to """)
         mytmpdir = pytestdir.makedir()
         assert not os.listdir(mytmpdir)
         mock_gettempdir.side_effect = lambda *a, **v: mytmpdir
-        result = runner.invoke(cli, ['utils', self.CMD_NAME, '--html', '--dburl',  db.dburl])
+        result = runner.invoke(cli, self.CMD_PREFIX + ['--html', '--dburl',
+                                                       db.dburl])
         assert not result.exception
         assert mock_open_in_browser.called
         assert mock_gettempdir.called
@@ -337,7 +341,8 @@ download statistics written to """)
 
         # text output, to file
         outfile = pytestdir.newfile('.txt')
-        result = runner.invoke(cli, ['utils', self.CMD_NAME, '--dburl', db.dburl, outfile])
+        result = runner.invoke(cli, self.CMD_PREFIX + ['--dburl', db.dburl,
+                                                       outfile])
 
         assert not result.exception
         content = readfile(outfile)
@@ -368,5 +373,6 @@ No segments downloaded
         assert expected_string2 in content[content.index(expected_string):]
 
         # run with html, test just that everything works fine
-        result = runner.invoke(cli, ['utils', self.CMD_NAME, '--html', '--dburl', db.dburl, outfile])
+        result = runner.invoke(cli, self.CMD_PREFIX + ['--html', '--dburl',
+                                                       db.dburl, outfile])
         assert not result.exception

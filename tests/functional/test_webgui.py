@@ -137,7 +137,21 @@ class Test(object):
                               )
                 c.segments.append(seg)
 
+                # if c.location == '05gap_unmerged' and  c.channel == 'HHZ' and \
+                #         ev.event_id == 'event1':
+                #     # this segment will be used to test plot requests:
+                #     self.segment_id = seg.id
+
             session.commit()
+
+            # get ref segment to be used in tests below to mock plots
+            # calcualtions:
+            self.segment_id = session.query(Segment).join(Segment.channel,
+                                                          Segment.event).filter(
+                (Channel.location == '01') &
+                (Channel.channel == 'HHE') &
+                (Event.event_id == 'event1')
+            ).one().id
 
             # set inventory
             self.inventory = data.read_inv("GE.FLT1.xml")
@@ -155,21 +169,19 @@ class Test(object):
         if isinstance(_data, bytes):
             _data = _data.decode('utf8')
         return json.loads(_data)
-    
-    def index_of(self, segment_id):
-        '''Returns the index of the segment with given id. 
-        The web application gets data from segment index'''
 
-        segsids = db_module.get_segment_ids(core_module.get_select_conditions(),
-                                            limit=1000, offset=0)
-        for i, _ in enumerate(segsids):
-            if _ == segment_id:
-                return i
-        raise ValueError('segment id %d not found' % segment_id)
 
+    @patch('stream2segment.gui.webapp.mainapp.views.core.get_segment_id')
     def test_root_no_config_and_pyfile_and_classes(self,
+                                                   mock_get_segment_id,
                                                    # fixtures:
                                                    db):
+
+        # test some combinations of plots. Return always the same segment,
+        # so mock the function returning a segment from a given index:
+        def _(*a, **v):
+            return self.segment_id
+        mock_get_segment_id.side_effect = _
 
         # assure this function is run once for each given dburl
         with self.app.test_request_context():
@@ -180,8 +192,6 @@ class Test(object):
             assert not self.session.query(Class).all()
             # https://github.com/pallets/flask/issues/716 is bytes in python3. Fix for both 2 and 3:
             response_data = resp.data.decode('utf-8')
-            assert '"hasPreprocessFunc": true' in response_data \
-                or "'hasPreprocessFunc': true" in response_data
             assert '"config": {}' not in response_data and "'config': {}" not in response_data
 
         # ------------------------
@@ -198,8 +208,6 @@ class Test(object):
             assert resp.status_code == 200
             assert not self.session.query(Class).all()
             response_data = resp.data.decode('utf-8')
-            assert '"hasPreprocessFunc": false' in response_data \
-                or "'hasPreprocessFunc': false" in response_data
             # we do not inject the config in the html anymore:
             assert "config:" not in response_data
             
@@ -217,8 +225,9 @@ class Test(object):
             assert resp.status_code == 200
             data = self.jsonloads(resp.data)
             assert not data['error_msg'] and not data['data']
-            
-            d = dict(seg_index=1,
+
+            d = dict(seg_index=1,  # whatever, not used
+                     seg_count=1,  # whatever, not used
                      pre_processed=True,
                      # zooms = data['zooms']
                      plot_indices=[0],  # data['plotIndices']
@@ -289,7 +298,6 @@ class Test(object):
                   # fixtures:
                   db):
 
-        core_module.g_config['class_labels'] = {'wtf': 'abc'}
         # assure this function is run once for each given dburl
         with self.app.test_request_context():
             app = self.app.test_client()
@@ -297,39 +305,13 @@ class Test(object):
             assert clz == 0
 
             resp = app.get('/')
-            clz = self.session.query(Class).all()
-            assert len(clz) == 1 and clz[0].label == 'wtf' and clz[0].description == 'abc'
+
             assert resp.status_code == 200
             response_data = resp.data.decode('utf-8')
-            # we do not inject the config in the html anymore:
-#             # assert global yaml config vars are injected as javascript from jinja rendering:
-#             # (be relaxed, if we change the template yaml file we do not want to fail)
-#             expected_str = """var __SETTINGS = {"config": {"""
-#             # https://github.com/pallets/flask/issues/716 is bytes in python3. Fix for both 2 and 3:
-#             assert expected_str in response_data
 
-            # simple test:
-            assert '"hasPreprocessFunc": true' in response_data \
-                or "'hasPreprocessFunc': true" in response_data
-
-            expected_str = ["""<div class='plot-wrapper' ng-show='plots[{0:d}].visible'>""",
-                            """<div data-plot='time-series' data-plotindex={0:d} class='plot'></div>"""]
             # In the default processing, we implemented 6 plots, assure they are there:
             for plotindex in range(6):
                 assert "<div id='plot-{0:d}' class='plot'".format(plotindex) in response_data
-
-            self.session.query(Class).delete()
-            self.session.commit()
-            clz = self.session.query(Class).count()
-            assert clz == 0
- 
-            # now the plotmanager does not set any class:
-            del core_module.g_config['class_labels']
-            resp = app.get('/')
-            assert resp.status_code == 200
-            clz = self.session.query(Class).count()
-            # assert nothing has changed (same as previous assert):
-            assert clz == 0
 
     def test_get_segs(self, db):  # db is a fixture (see conftest.py). Even if not used, it will
         # assure this function is run once for each given dburl
@@ -406,22 +388,13 @@ class Test(object):
             assert len(segment.classes) == 0
             assert resp.status_code == 200
 
-            # toggle again and run test_get_seg with a class set
-#             resp = app.post("/set_class_id", data=json.dumps({'segment_id':segid, 'class_id':cid,
-#                                                                'value': True}),
-#                                    headers={'Content-Type': 'application/json'})
-#             # need to remove the session and query again from a new one (WHY?):
-#             self.session.remove()
-#             segment = self.session.query(Segment).filter(Segment.id == segid).first()
-#             # check the segment has classes:
-#             assert len(segment.classes) == 1
-#             assert resp.status_code == 200
-#             self._tst_get_seg(app)
 
     @pytest.mark.parametrize('has_labellings', [True, False])
     @patch('stream2segment.process.db.get_stream',
-          side_effect=original_get_stream)
+           side_effect=original_get_stream)
+    @patch('stream2segment.gui.webapp.mainapp.views.core.get_segment_id')
     def test_get_segment(self,
+                         mock_get_segment_id,
                          mock_get_stream,
                          has_labellings,
                          # fixtures:
@@ -457,51 +430,68 @@ class Test(object):
             # thus keep only has_data':'true' in the selection):
             app.post("/set_selection", data=json.dumps(dict(segment_select={'has_data':'true'})),
                                headers={'Content-Type': 'application/json'})
-            # self._tst_get_seg(app)
 
-        # do not ue pytest parametrize, as it causes hundreds of db creation
-        # destruction (see init) and is inefficient. Also  postgres complains about
-        # too many connections (but FIXME: this should never happen,
-        # as the session should be removed after each request)
-        for plot_indices,preprocessed,metadata,classes,all_components in \
-            product([[0, 1, 2], [], [0]],
-                         [True, False],
-                         [True, False],
-                         [True, False],
-                         [True, False]):
-            mock_get_stream.reset_mock()
-            d = dict(seg_index=self.index_of(1),
-                     pre_processed=preprocessed,
-                     # zooms = data['zooms']
-                     plot_indices=plot_indices,  # data['plotIndices']
-                     metadata=metadata,
-                     classes=classes,
-                     all_components=all_components)
+            # test some combinations of plots. Return always the same segment,
+            # so mock the function returning a segment from a given index:
+            def _(*a, **v):
+                return self.segment_id
+            mock_get_segment_id.side_effect = _
 
-            resp = app.post("/get_segment", data=json.dumps(d),
-                          headers={'Content-Type': 'application/json'})
-            expected_stream_call_count = 1 if len(plot_indices) else 0
-            if 0 in plot_indices and all_components:
-                expected_stream_call_count += 3  # we should actually check
-                # if we have components on the db, we actually have for the
-                # segment id 1 so it's fine
-            assert mock_get_stream.call_count == expected_stream_call_count
-            # https: 
-            data = self.jsonloads(resp.data)
-            assert len(data['plots']) == len(d['plot_indices'])
-            assert bool(len(data['metadata'])) == metadata
-            assert bool(len(data['classes'])) == (classes and has_labellings)
+            # do not ue pytest parametrize, as it causes hundreds of db creation
+            # destruction (see init) and is inefficient. Also  postgres complains about
+            # too many connections (but FIXME: this should never happen,
+            # as the session should be removed after each request)
+            for plot_indices,preprocessed,metadata,classes,all_components in \
+                product([[0, 1, 2], [], [0]],
+                             [True, False],
+                             [True, False],
+                             [True, False],
+                             [True, False]):
+                mock_get_stream.reset_mock()
+                d = dict(seg_index=1,  # whatever, not used (see patch above)
+                         seg_count=1,  # whatever, not used
+                         pre_processed=preprocessed,
+                         # zooms = data['zooms']
+                         plot_indices=plot_indices,  # data['plotIndices']
+                         metadata=metadata,
+                         classes=classes,
+                         all_components=all_components)
 
-            if 0 in plot_indices:
-                traces_in_first_plot = len(data['plots'][plot_indices.index(0)][1])
-                assert (traces_in_first_plot == 1 and not all_components) or traces_in_first_plot >= 1
-            # we should add a a test for the pre_processed case also 
-            # we should add a test for the zooms, too
+                resp = app.post("/get_segment", data=json.dumps(d),
+                                headers={'Content-Type': 'application/json'})
+                expected_stream_call_count = 1 if len(plot_indices) else 0
+                if 0 in plot_indices and all_components:
+                    expected_stream_call_count += 3  # we should actually check
+                    # if we have components on the db, we actually have for the
+                    # segment id 1 so it's fine
+                assert mock_get_stream.call_count == expected_stream_call_count
+                # https:
+                data = self.jsonloads(resp.data)
+                assert len(data['plots']) == len(d['plot_indices'])
+                assert bool(len(data['metadata'])) == metadata
+                assert bool(len(data['classes'])) == (classes and has_labellings)
 
+                if 0 in plot_indices:
+                    traces_in_first_plot = len(data['plots'][plot_indices.index(0)][1])
+                    assert (traces_in_first_plot == 1 and not all_components) or traces_in_first_plot >= 1
+                # we should add a a test for the pre_processed case also
+                # we should add a test for the zooms, too
+                db.session.remove()
+
+    @patch('stream2segment.gui.webapp.mainapp.views.core.get_segment_id')
     def test_segment_sa_station_inv_errors_in_preprocessed_traces(self,
+                                                                  mock_get_segment_id,
                                                                   # fixtures:
                                                                   db):
         ''''''
+
+        # test some combinations of plots. Return always the same segment,
+        # so mock the function returning a segment from a given index:
+        def _(*a, **v):
+            return self.segment_id
+
+        mock_get_segment_id.side_effect = _
+
         plot_indices = [0]
         metadata = False
         classes = False
@@ -517,7 +507,8 @@ class Test(object):
                      data=json.dumps(dict(segment_select={'has_data':'true'})),
                      headers={'Content-Type': 'application/json'})
             
-            d = dict(seg_index=self.index_of(1),
+            d = dict(seg_index=1, # whatever, not used
+                     seg_count=1,  # whatever, not used
                      pre_processed=False,
                      # zooms = data['zooms']
                      plot_indices=plot_indices,  # data['plotIndices']
@@ -535,7 +526,8 @@ class Test(object):
         # Now we exited the session, we try with pre_processed=True
         with self.app.test_request_context():
             app = self.app.test_client()
-            d = dict(seg_index=self.index_of(1),
+            d = dict(seg_index=1,  # whatever, not used
+                     seg_count=1,  # whatever, not used
                      pre_processed=True,
                      # zooms = data['zooms']
                      plot_indices=plot_indices,  # data['plotIndices']
@@ -552,7 +544,10 @@ class Test(object):
 
 
     @pytest.mark.parametrize('calculate_sn_spectra', [True, False])
-    def test_change_config(self, calculate_sn_spectra,
+    @patch('stream2segment.gui.webapp.mainapp.views.core.get_segment_id')
+    def test_change_config(self,
+                           mock_get_segment_id,
+                           calculate_sn_spectra,
                            # fixtures:
                            db):
         '''test a change in the config from within the GUI'''
@@ -567,6 +562,13 @@ class Test(object):
         metadata = False
         classes = False
 
+        # test some combinations of plots. Return always the same segment,
+        # so mock the function returning a segment from a given index:
+        def _(*a, **v):
+            return self.segment_id
+
+        mock_get_segment_id.side_effect = _
+
         with self.app.test_request_context():
             app = self.app.test_client()
             
@@ -578,7 +580,8 @@ class Test(object):
                      data=json.dumps(dict(segment_select={'has_data':'true'})),
                      headers={'Content-Type': 'application/json'})
             
-            d = dict(seg_index=self.index_of(1),
+            d = dict(seg_index=1,  # whatever, not used
+                     seg_count=1,  # whatever, not used
                      pre_processed=False,
                      # zooms = data['zooms']
                      plot_indices=plot_indices,  # data['plotIndices']

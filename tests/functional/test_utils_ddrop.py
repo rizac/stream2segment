@@ -27,7 +27,7 @@ from stream2segment.download.utils import s2scodes
 class Test(object):
 
     # define ONCE HERE THE command name, so if we change it in the cli it will be easier to fix here
-    CMD_NAME = 'ddrop'
+    CMD_PREFIX = ['db', 'drop']
 
     # execute this fixture always even if not provided as argument:
     # https://docs.pytest.org/en/documentation-restructure/how-to/fixture.html#autouse-fixtures-xunit-setup-on-steroids
@@ -104,7 +104,7 @@ class Test(object):
                 db.session.add(seg)
                 db.session.commit()
 
-        with patch('stream2segment.utils.inputargs.get_session',
+        with patch('stream2segment.main.get_session',
                    return_value=db.session) as mock_session:
             yield
 
@@ -127,7 +127,7 @@ class Test(object):
 
         runner = CliRunner()
         # text no download id provided
-        result = runner.invoke(cli, ['utils', self.CMD_NAME, '--dburl', db.dburl])
+        result = runner.invoke(cli, self.CMD_PREFIX + ['--dburl', db.dburl])
         assert result.exception
         assert result.exit_code != 0
         assert not mock_input.called
@@ -136,7 +136,7 @@ class Test(object):
             or ("Missing option '-did' / '--download-id'" in result.output)
 
         # text output, to file
-        result = runner.invoke(cli, ['utils', self.CMD_NAME, '--dburl', db.dburl, '-did', 4])
+        result = runner.invoke(cli, self.CMD_PREFIX + ['--dburl', db.dburl, '-did', 4])
         assert not result.exception
         assert "Nothing to delete" in result.output
         assert result.exit_code == 0
@@ -159,7 +159,7 @@ class Test(object):
         # add list of the form ['--did', 1, '--did',  2, ...]:
         dids_args = [item for pair in zip(cycle(['-did']), ids_to_delete) for item in pair]
         #  db.session.query(Download.id, ).join(Download.segments)
-        result = runner.invoke(cli, ['utils', self.CMD_NAME, '--dburl', db.dburl] +
+        result = runner.invoke(cli, self.CMD_PREFIX + ['--dburl', db.dburl] +
                                dids_args)
         assert not result.exception
         assert mock_input.called
