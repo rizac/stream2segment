@@ -133,7 +133,7 @@ def run(session, pyfunc, writer, config=None, show_progress=False):
     logger.info('')
 
 
-def fetch_segments_ids(session, config, writer):
+def fetch_segments_ids(session, config, writer=None):
     """Return the numpy array of segments ids to process
 
     :return: the numpy array of integers denoting the ids of the segments to process
@@ -155,15 +155,16 @@ def fetch_segments_ids(session, config, writer):
     qry = query4process(session, config.get('segment_select', {}))
 
     skip_already_processed = False
-    if writer.append:
-        if not writer.outputfileexists:
-            logger.info('Ignoring `append` functionality: output file does not exist '
-                        'or not provided')
-        else:
-            logger.info('Appending results to existing file')
-            skip_already_processed = True
-    elif writer.outputfileexists:
-        logger.info('Overwriting existing output file')
+    if writer is not None:
+        if writer.append:
+            if not writer.outputfileexists:
+                logger.info('Ignoring `append` functionality: output file does not '
+                            'exist or not provided')
+            else:
+                logger.info('Appending results to existing file')
+                skip_already_processed = True
+        elif writer.outputfileexists:
+            logger.info('Overwriting existing output file')
 
     logger.info("Fetching segments to process (please wait)")
     seg_ids = np.array(qry.all(), dtype=int).flatten()
