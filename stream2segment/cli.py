@@ -19,13 +19,9 @@ from builtins import (ascii, bytes, chr, dict, filter, hex, input,
                       int, map, next, oct, open, pow, range, round,
                       str, super, zip)
 
-# NOTE: do not use future aliased imports, they fail with urllib related functions
-# with multithreading (see utils.url module). In principle, aliases let use safely, e.g.
-# collections.UserDict, collections.UserList,
-# collections.UserString, urllib.parse, urllib.request, urllib.response, urllib.robotparser,
-# urllib.error, itertools.filterfalse, itertools.zip_longest, subprocess.getoutput,
-# subprocess.getstatusoutput, sys.intern (a full list available on
-# http://python-future.org/imports.html#aliased-imports)
+# NOTE: do not use future aliased imports
+# (http://python-future.org/imports.html#aliased-imports), they fail with urllib
+# related  functions with multithreading (see utils.url module)
 
 import sys
 import os
@@ -43,43 +39,33 @@ from stream2segment.utils import inputargs
 
 
 class clickutils(object):  # pylint: disable=invalid-name, too-few-public-methods
-    """Container for Options validations, default settings so as not to pollute the click
-    decorators"""
+    """Container for Options validations, default settings so as not to
+    pollute the click decorators
+    """
     DEFAULTDOC = yaml_load_doc(get_templates_fpath("download.yaml"))
     EQA = "(event search parameter)"
     DBURL_OR_YAML_ATTRS = dict(type=inputargs.extract_dburl_if_yamlpath,
                                metavar='TEXT or PATH',
-                               help=("Database url where data has been saved. "
-                                     "It can also be the path of a yaml file "
-                                     "containing the property 'dburl' "
-                                     "(e.g., the config file used for "
-                                     "downloading)"),
+                               help=("Database URL where data has been saved. "
+                                     "It can also be the path of a YAML file "
+                                     "with the property 'dburl' (e.g., the "
+                                     "config file used for downloading). "
+                                     "IMPORTANT: if the URL contains passwords "
+                                     "we STRONGLY suggest to use a file instead "
+                                     "of typing the URL on the terminal"),
                                required=True)
-    ExistingPath = click.Path(exists=True, file_okay=True, dir_okay=False, writable=False,
-                              readable=True)
+    ExistingPath = click.Path(exists=True, file_okay=True, dir_okay=False,
+                              writable=False, readable=True)
 
     @classmethod
-    def set_help_from_yaml(cls, ctx, param, value):
-        """
-        When attaching this function as `callback` argument to an Option (`click.Option`),
-        it will set
-        an automatic help for all Options of the same command, which do not have an `help`
-        specified and are found in the default config file for downloading
-        (currently `download.yaml`).
-        The Option having as callback this function must also have `is_eager=True`.
-        Example:
-        Assuming opt1, opt2, opt3 are variables of the config yaml file, and opt4 not, this
-        sets the default help for opt1 and opt2:
-        ```
-        click.option('--opt1', ..., callback=set_help_from_yaml, is_eager=True,...)
-        click.option('--opt2'...)
-        click.option('--opt3'..., help='my custom help. Do not fetch help from config')
-        click.option('--opt4'...)
-        ...
-        ```
+    def options_missing_help_from_yaml(cls, command, *args, **kwargs):
+        """Decorator to the `download`command to set missing options help
+        from the relative YAML parameter, if found in the YAML file
+        "download.yaml"
         """
         cfg_doc = cls.DEFAULTDOC
-        for option in (opt for opt in ctx.command.params if opt.param_type_name == 'option'):
+        for option in (opt for opt in command.params if
+                       opt.param_type_name == 'option'):
             if option.help is None:
                 option.help = cfg_doc.get(option.name, "")
                 # remove implementation details from the cli (avoid too much information,
@@ -88,7 +74,7 @@ class clickutils(object):  # pylint: disable=invalid-name, too-few-public-method
                 if idx > -1:
                     option.help = option.help[:idx]
 
-        return value
+        return command
 
     @staticmethod
     def _config_cmd_kwargs(**kwargs):
@@ -284,6 +270,7 @@ def init(outdir):
 #    (Options short names can be changed without problems, in principle).
 #    For these options, you need also to provide an option default name which MUST MATCH
 #    the corresponding yaml param help, otherwise the option doc will not be found.
+@clickutils.options_missing_help_from_yaml
 @cli.command(short_help='Download waveform data segments saving data into an SQL database')
 @click.option("-c", "--config",
               help="The path to the configuration file in yaml format "
