@@ -37,7 +37,8 @@ from stream2segment.utils.inputargs import load_config_for_process, \
 from stream2segment.utils.log import configlog4download, configlog4processing,\
     closelogger, logfilepath
 from stream2segment.io.db.models import Download, Segment
-from stream2segment.process.main import run as run_process
+from stream2segment.process.main import run as run_process, run_and_yield, \
+    fetch_segments_ids
 from stream2segment.download.main import run as run_download, new_db_download
 from stream2segment.utils import secure_dburl, strconvert, iterfuncs, \
     open2writetext, ascii_decorate, yaml_safe_dump
@@ -148,7 +149,7 @@ def download(config, log2file=True, verbose=False, **param_overrides):
 
         stime = time.time()
         run_download(download_id=download_id, isterminal=verbose, **yaml_dict)
-        logger.info("Completed in %s", str(totimedelta(stime)))
+        logger.info("Completed in %s", str(elapsedtime(stime)))
         if log2file:
             errs, warns = loghandlers[0].errors, loghandlers[0].warnings
             logger.info("%d error%s, %d warning%s", errs,
@@ -283,8 +284,9 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None,
         log2file = logfilepath(outfile or pyfile)  # auto create log file
     else:
         log2file = log2file or ''  # assure we have a string
-    loghandlers = configlog4processing(logger, log2file, verbose)
+
     try:
+        loghandlers = configlog4processing(logger, log2file, verbose)
         abp = os.path.abspath
         info = [
             "Input database:      %s" % secure_dburl(dburl),
@@ -301,7 +303,7 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None,
         run_process(session, pyfunc, get_writer(outfile, append,
                                                 writer_options),
                     config_dict, verbose)
-        logger.info("Completed in %s", str(totimedelta(stime)))
+        logger.info("Completed in %s", str(elapsedtime(stime)))
         return 0  # contrarily to download, an exception should always raise
         # and log as error with the stack trace
         # (this includes pymodule exceptions e.g. TypeError)
@@ -315,8 +317,32 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None,
         closesession(session)
         closelogger(logger)
 
+# runiter(session, seg_ids, pyfunc, config, multi_process=False,
+#             num_processes=None, chunksize=None, show_progress=False):
 
-def totimedelta(t0_sec, t1_sec=None):
+def s2smap(pyfunc, dburl, segment_selection, config=None,
+           logfile='', show_progress=False, multi_process=False, num_processes=None,
+           chunksize=None):
+    session = get_session(dburl, for_process=True, raise_bad_argument=True)
+    try:
+        loghandlers = configlog4processing(logger, logfile, show_progress)
+        stime = time.time()
+        yield from run_and_yield(session, fetch_segments_ids(session, segment_selection),
+                                 pyfunc, config, multi_process, num_processes, chunksize,
+                                 show_progress)
+        logger.info("Completed in %s", str(elapsedtime(stime)))
+    except KeyboardInterrupt:
+        logger.critical("Aborted by user")  # see comment above
+        raise
+    except:  # @IgnorePep8 pylint: disable=broad-except
+        logger.critical("Process aborted", exc_info=True)  # see comment above
+        raise
+    finally:
+        closesession(session)
+        closelogger(logger)
+
+
+def elapsedtime(t0_sec, t1_sec=None):
     """Time elapsed from `t0_sec` until `t1_sec`, as `timedelta` object rounded
     to seconds. If `t1_sec` is None, it will default to `time.time()` (the
     current time since the epoch, in seconds)

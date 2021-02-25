@@ -77,8 +77,8 @@ def run(session, pyfunc, writer, config=None, show_progress=False):
 
     with writer:
         for output, segment_id in \
-                runiter(session, seg_ids, pyfunc, config, show_progress,
-                        multi_process, num_processes, chunksize):
+                run_and_yield(session, seg_ids, pyfunc, config, show_progress,
+                              multi_process, num_processes, chunksize):
             if not writer.isbasewriter and output is not None:
                 writer.write(segment_id, output)
                 written += 1
@@ -89,8 +89,8 @@ def run(session, pyfunc, writer, config=None, show_progress=False):
     logger.info('')
 
 
-def runiter(session, seg_ids, pyfunc, config, multi_process=False,
-            num_processes=None, chunksize=None, show_progress=False):
+def run_and_yield(session, seg_ids, pyfunc, config, multi_process=False,
+                  num_processes=None, chunksize=None, show_progress=False):
     """FIXME doic needed!"""
     done, errors = 0, 0
     seg_len = len(seg_ids)
