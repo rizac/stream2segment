@@ -69,8 +69,10 @@ def run(session, pyfunc, writer, config=None, show_progress=False):
     seg_ids = fetch_segments_ids(session, config, writer)
 
     with writer:
-        for seg_id, result in \
-            runiter(session, seg_ids, pyfunc, writer, config, show_progress):
+        for output, segment_id in \
+                runiter(session, seg_ids, pyfunc, writer, config, show_progress):
+            if not writer.isbasewriter and output is not None:
+                writer.write(segment_id, output)
 
 
 def runiter(session, seg_ids, pyfunc, config=None, show_progress=False):
@@ -124,11 +126,16 @@ def runiter(session, seg_ids, pyfunc, config=None, show_progress=False):
             pbar.render_progress()
 
         if multi_process:
-            yield process_mp(session, pyfunc, config, get_slices(seg_ids, chunksize),
+            itr = process_mp(session, pyfunc, config, get_slices(seg_ids, chunksize),
                        writer, done_skipped_errors, pbar, num_processes)
         else:
-            yield process_simple(session, pyfunc, config, get_slices(seg_ids, chunksize),
+            itr = process_simple(session, pyfunc, config, get_slices(seg_ids, chunksize),
                            writer, done_skipped_errors, pbar)
+
+        for result, is_ok, segment_id in itr:
+            _preprocess_output(result, is_ok, segment_id, done_skipped_errors)
+            if is_ok:
+                yield result, segment_id
 
     logger.info('')
     done, skipped, errors = done_skipped_errors
@@ -232,6 +239,21 @@ def _get_chunksize_defaults():
     This function is implemented mainly for mocking in tests
     """
     return 600, 10
+
+
+def _preprocess_output(output, is_ok, segment_id, done_skipped_errors):
+    """FIXME: rewrite doc. Function processing the output of `:func:process_segment`
+    This function MUST be executed in the main python-process, and not from within
+    sub-processes"""
+    if is_ok:
+        if output is not None:
+            # writer.write(segment_id, output)
+            done_skipped_errors[0] += 1
+        else:
+            done_skipped_errors[1] += 1
+    else:
+        logger.warning("segment (id=%d): %s", segment_id, str(output))
+        done_skipped_errors[2] += 1
 
 
 def process_mp(session, pyfunc, config, seg_ids_chunks, writer, done_skipped_errors,
@@ -419,24 +441,6 @@ def process_segment(segment, config, pyfunc):
         return valueerr, False
     except Exception:
         raise
-
-
-def process_output(output, is_ok, segment_id, writer, done_skipped_errors):
-    """Function processing the output of `:func:process_segment`
-    This function MUST be executed in the main python-process, and not from within
-    sub-processes"""
-    if is_ok:
-        if writer.isbasewriter:
-            done_skipped_errors[0] += 1
-        else:
-            if output is not None:
-                writer.write(segment_id, output)
-                done_skipped_errors[0] += 1
-            else:
-                done_skipped_errors[1] += 1
-    else:
-        logger.warning("segment (id=%d): %s", segment_id, str(output))
-        done_skipped_errors[2] += 1
 
 
 def query4process(session, conditions=None):
