@@ -133,10 +133,10 @@ def runiter(session, seg_ids, pyfunc, config=None, show_progress=False):
 
         if multi_process:
             itr = process_mp(session, pyfunc, config, get_slices(seg_ids, chunksize),
-                       writer, done_skipped_errors, pbar, num_processes)
+                             pbar, num_processes)
         else:
             itr = process_simple(session, pyfunc, config, get_slices(seg_ids, chunksize),
-                           writer, done_skipped_errors, pbar)
+                                 pbar)
 
         for output, is_ok, segment_id in itr:
             if is_ok:
@@ -249,8 +249,7 @@ def _get_chunksize_defaults():
     return 600, 10
 
 
-def process_mp(session, pyfunc, config, seg_ids_chunks, writer, done_skipped_errors,
-               pbar, num_processes):
+def process_mp(session, pyfunc, config, seg_ids_chunks, pbar, num_processes):
     """Execute `pyfunc` using the multiprocessing Python module
 
     :param seg_ids_chunks: iterable yielding numpy arrays of segment ids
@@ -279,7 +278,7 @@ def process_mp(session, pyfunc, config, seg_ids_chunks, writer, done_skipped_err
                                       pyfunc.__name__)
                                      for seg_ids_chunk in seg_ids_chunks)):
             for output, is_ok, segment_id in results:
-                process_output(output, is_ok, segment_id, writer, done_skipped_errors)
+                yield output, is_ok, segment_id
             pbar.update(len(results))
     except:  # @IgnorePep8 pylint: disable=bare-except
         pool.terminate()
@@ -300,8 +299,7 @@ def _mp_initializer():
     signal.signal(signal.SIGINT, signal.SIG_IGN)
 
 
-def process_simple(session, pyfunc, config, seg_ids_chunks, writer, done_skipped_errors,
-                   pbar):
+def process_simple(session, pyfunc, config, seg_ids_chunks, pbar):
     """Execute `pyfunc` in a single system process
 
     :param seg_ids_chunks: iterable yielding numpy arrays of segment ids
@@ -322,7 +320,7 @@ def process_simple(session, pyfunc, config, seg_ids_chunks, writer, done_skipped
             # `process_segment` yields also station_id and inventory with the only
             # purpose to perform the same inventory cache mechanism also on the first
             # segment of the next `seg_sta_chunk` loop (see above)
-            process_output(output, is_ok, segment.id, writer, done_skipped_errors)
+            yield output, is_ok, segment.id
 
         _clear_session(session, segment)
         pbar.update(len(seg_ids_chunk))
