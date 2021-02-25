@@ -66,12 +66,18 @@ def run(session, pyfunc, writer, config=None, show_progress=False):
     if config is None:
         config = {}
 
+    adv_settings = config.get('advanced_settings', {})  # dict
+    multi_process = adv_settings.get('multi_process', False)
+    num_processes = adv_settings.get('num_processes', None)
+    chunksize = adv_settings.get('segments_chunksize', None)
+
     seg_ids = fetch_segments_ids(session, config, writer)
     written = 0
 
     with writer:
         for output, segment_id in \
-                runiter(session, seg_ids, pyfunc, writer, config, show_progress):
+                runiter(session, seg_ids, pyfunc, config, show_progress,
+                        multi_process, num_processes, chunksize):
             if not writer.isbasewriter and output is not None:
                 writer.write(segment_id, output)
                 written += 1
@@ -81,14 +87,15 @@ def run(session, pyfunc, writer, config=None, show_progress=False):
     logger.info('')
 
 
-def runiter(session, seg_ids, pyfunc, config=None, show_progress=False):
+def runiter(session, seg_ids, pyfunc, config, multi_process=False,
+            num_processes=None, chunksize=None, show_progress=False):
     """FIXME doic needed!"""
     done, errors = 0, 0
-
     seg_len = len(seg_ids)
-    # get total segment length (in numpy it is equivalent to len(seg_sta_ids)):
-    chunksize, multi_process, num_processes = \
-        get_advanced_settings(config, seg_len, show_progress)
+    multi_process, num_processes, chunksize = \
+        normalize_mp_settings(multi_process, num_processes, chunksize,
+                              seg_len, show_progress)
+
     # Note on chunksize above:
     # When loading segments, we have two strategies:
     # A) load only a Segment with its id (and defer loading of other
@@ -214,8 +221,9 @@ def fetch_segments_ids(session, config, writer=None):
     return seg_ids
 
 
-def get_advanced_settings(config, segments_count, show_progress):
-    """Extract the advanced settings from the given config, returning their defaults
+def normalize_mp_settings(multi_process, num_processes, chunksize,
+                          segments_count, show_progress):
+    """FIXME: doc Extract the advanced settings from the given config, returning their defaults
     if not given.
 
     :return: the tuple:
@@ -223,12 +231,8 @@ def get_advanced_settings(config, segments_count, show_progress):
         (chunksize:int, multi_process:bool = False, num_processes:int = cpu_count)
         ```
     """
-    adv_settings = config.get('advanced_settings', {})  # dict
-    multi_process = adv_settings.get('multi_process', False)
-    num_processes = adv_settings.get('num_processes', None)
     if num_processes is None:
         num_processes = cpu_count()
-    chunksize = adv_settings.get('segments_chunksize', None)
     if chunksize is None:
         default_chuknksize, min_pbar_iterations = _get_chunksize_defaults()
         if not show_progress or segments_count >= 2 * default_chuknksize:
@@ -238,8 +242,35 @@ def get_advanced_settings(config, segments_count, show_progress):
             # use np.true_divide so that py2/3 division is not a problem:
             chunksize = max(1, int(np.true_divide(segments_count,
                                                   min_pbar_iterations).item()))
-    return chunksize, multi_process, num_processes
+    return multi_process, num_processes, chunksize
 
+
+# def get_advanced_settings(config, segments_count, show_progress):
+#     """Extract the advanced settings from the given config, returning their defaults
+#     if not given.
+#
+#     :return: the tuple:
+#         ```
+#         (chunksize:int, multi_process:bool = False, num_processes:int = cpu_count)
+#         ```
+#     """
+#     adv_settings = config.get('advanced_settings', {})  # dict
+#     multi_process = adv_settings.get('multi_process', False)
+#     num_processes = adv_settings.get('num_processes', None)
+#     if num_processes is None:
+#         num_processes = cpu_count()
+#     chunksize = adv_settings.get('segments_chunksize', None)
+#     if chunksize is None:
+#         default_chuknksize, min_pbar_iterations = _get_chunksize_defaults()
+#         if not show_progress or segments_count >= 2 * default_chuknksize:
+#             chunksize = default_chuknksize
+#         else:
+#             # determine the chunksize in order to have `min_pbar_iterations` iterations
+#             # use np.true_divide so that py2/3 division is not a problem:
+#             chunksize = max(1, int(np.true_divide(segments_count,
+#                                                   min_pbar_iterations).item()))
+#     return chunksize, multi_process, num_processes
+#
 
 def _get_chunksize_defaults():
     """Return a 2 element tuple with
