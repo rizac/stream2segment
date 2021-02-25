@@ -67,17 +67,23 @@ def run(session, pyfunc, writer, config=None, show_progress=False):
         config = {}
 
     seg_ids = fetch_segments_ids(session, config, writer)
+    written = 0
 
     with writer:
         for output, segment_id in \
                 runiter(session, seg_ids, pyfunc, writer, config, show_progress):
             if not writer.isbasewriter and output is not None:
                 writer.write(segment_id, output)
+                written += 1
+
+    logger.info("%d of %d segment(s) successfully written to output",
+                written, len(seg_ids))
+    logger.info('')
 
 
 def runiter(session, seg_ids, pyfunc, config=None, show_progress=False):
     """FIXME doic needed!"""
-    done_skipped_errors = [0, 0, 0]
+    done, errors = 0, 0
 
     seg_len = len(seg_ids)
     # get total segment length (in numpy it is equivalent to len(seg_sta_ids)):
@@ -132,17 +138,19 @@ def runiter(session, seg_ids, pyfunc, config=None, show_progress=False):
             itr = process_simple(session, pyfunc, config, get_slices(seg_ids, chunksize),
                            writer, done_skipped_errors, pbar)
 
-        for result, is_ok, segment_id in itr:
-            _preprocess_output(result, is_ok, segment_id, done_skipped_errors)
+        for output, is_ok, segment_id in itr:
             if is_ok:
-                yield result, segment_id
+                done += 1
+                yield output, segment_id
+            else:
+                logger.warning("segment (id=%d): %s", segment_id, str(output))
+                errors += 1
 
     logger.info('')
-    done, skipped, errors = done_skipped_errors
 
     logger.info("%d of %d segment(s) successfully processed", done, seg_len)
-    if skipped:  # this is the case when ondone is provided AND pyfunc returned None
-        logger.info("%d of %d segment(s) skipped without messages", skipped, seg_len)
+    # if skipped:  # this is the case when ondone is provided AND pyfunc returned None
+    #     logger.info("%d of %d segment(s) skipped without messages", skipped, seg_len)
     logger.info("%d of %d segment(s) skipped with error message "
                 "reported in the log file", errors, seg_len)
     logger.info('')
@@ -239,21 +247,6 @@ def _get_chunksize_defaults():
     This function is implemented mainly for mocking in tests
     """
     return 600, 10
-
-
-def _preprocess_output(output, is_ok, segment_id, done_skipped_errors):
-    """FIXME: rewrite doc. Function processing the output of `:func:process_segment`
-    This function MUST be executed in the main python-process, and not from within
-    sub-processes"""
-    if is_ok:
-        if output is not None:
-            # writer.write(segment_id, output)
-            done_skipped_errors[0] += 1
-        else:
-            done_skipped_errors[1] += 1
-    else:
-        logger.warning("segment (id=%d): %s", segment_id, str(output))
-        done_skipped_errors[2] += 1
 
 
 def process_mp(session, pyfunc, config, seg_ids_chunks, writer, done_skipped_errors,
