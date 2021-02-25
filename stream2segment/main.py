@@ -317,19 +317,17 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None,
         closesession(session)
         closelogger(logger)
 
-# runiter(session, seg_ids, pyfunc, config, multi_process=False,
-#             num_processes=None, chunksize=None, show_progress=False):
 
-def s2smap(pyfunc, dburl, segment_selection, config=None,
-           logfile='', show_progress=False, multi_process=False, num_processes=None,
-           chunksize=None):
+def s2smap(pyfunc, dburl, segment_selection=None, config=None,
+           logfile='', yield_exceptions=False, show_progress=False,
+           multi_process=False, num_processes=None, chunksize=None):
     session = get_session(dburl, for_process=True, raise_bad_argument=True)
     try:
         loghandlers = configlog4processing(logger, logfile, show_progress)
         stime = time.time()
         yield from run_and_yield(session, fetch_segments_ids(session, segment_selection),
-                                 pyfunc, config, multi_process, num_processes, chunksize,
-                                 show_progress)
+                                 pyfunc, config, yield_exceptions, show_progress,
+                                 multi_process, num_processes, chunksize)
         logger.info("Completed in %s", str(elapsedtime(stime)))
     except KeyboardInterrupt:
         logger.critical("Aborted by user")  # see comment above

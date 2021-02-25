@@ -77,8 +77,9 @@ def run(session, pyfunc, writer, config=None, show_progress=False):
 
     with writer:
         for output, segment_id in \
-                run_and_yield(session, seg_ids, pyfunc, config, show_progress,
-                              multi_process, num_processes, chunksize):
+                run_and_yield(session, seg_ids, pyfunc, config, False,
+                              show_progress, multi_process, num_processes,
+                              chunksize):
             if not writer.isbasewriter and output is not None:
                 writer.write(segment_id, output)
                 written += 1
@@ -86,11 +87,12 @@ def run(session, pyfunc, writer, config=None, show_progress=False):
     # FIXME: a new newline here, check oputput!
     logger.info("%d of %d segment(s) successfully written to the provided output",
                 written, len(seg_ids))
-    logger.info('')
+    # logger.info('')
 
 
-def run_and_yield(session, seg_ids, pyfunc, config, multi_process=False,
-                  num_processes=None, chunksize=None, show_progress=False):
+def run_and_yield(session, seg_ids, pyfunc, config, yield_exceptions=False,
+                  show_progress=False, multi_process=False, num_processes=None,
+                  chunksize=None):
     """FIXME doic needed!"""
     done, errors = 0, 0
     seg_len = len(seg_ids)
@@ -150,19 +152,20 @@ def run_and_yield(session, seg_ids, pyfunc, config, multi_process=False,
         for output, is_ok, segment_id in itr:
             if is_ok:
                 done += 1
-                yield output, segment_id
             else:
                 logger.warning("segment (id=%d): %s", segment_id, str(output))
                 errors += 1
+            if is_ok or yield_exceptions:
+                yield output, segment_id
 
-    logger.info('')
+    # logger.info('')
 
     logger.info("%d of %d segment(s) successfully processed", done, seg_len)
     # if skipped:  # this is the case when ondone is provided AND pyfunc returned None
     #     logger.info("%d of %d segment(s) skipped without messages", skipped, seg_len)
     logger.info("%d of %d segment(s) skipped with error message "
                 "reported in the log file", errors, seg_len)
-    logger.info('')
+    # logger.info('')
 
 
 def fetch_segments_ids(session, segment_selection:dict, writer=None):  # FIXME wrtite doc
