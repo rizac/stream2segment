@@ -56,7 +56,7 @@ def run(session, pyfunc, writer, config=None, show_progress=False):
         def __call__(segment_id, result):  # result is surely not None
         ```
     where result is an iterable of values/objects, and segment_id is ... the segment id.
-    :param config: dict of configuration parameters, ususally the result of an associated
+    :param config: dict of configuration parameters, usually the result of an associated
         YAML configuration file
     :param skip_ids: an iterable of integers denoting segments to be skipped among the
         selected ones. None (the default) is equivalent to pass the empty list []
@@ -82,7 +82,8 @@ def run(session, pyfunc, writer, config=None, show_progress=False):
                 writer.write(segment_id, output)
                 written += 1
 
-    logger.info("%d of %d segment(s) successfully written to output",
+    # FIXME: a new newline here, check oputput!
+    logger.info("%d of %d segment(s) successfully written to the provided output",
                 written, len(seg_ids))
     logger.info('')
 
