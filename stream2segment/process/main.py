@@ -71,7 +71,8 @@ def run(session, pyfunc, writer, config=None, show_progress=False):
     num_processes = adv_settings.get('num_processes', None)
     chunksize = adv_settings.get('segments_chunksize', None)
 
-    seg_ids = fetch_segments_ids(session, config, writer)
+    segment_selection = config.get('segment_select', {})
+    seg_ids = fetch_segments_ids(session, segment_selection, writer)
     written = 0
 
     with writer:
@@ -134,7 +135,7 @@ def runiter(session, seg_ids, pyfunc, config, multi_process=False,
             # Is there a 'flush' method? Looking at click, it's 'render_progress()'.
             # But the latter does not work if called within 'pbar.short_limit'
             # seconds after the progressbar has been created. Therefore, let's force
-            # a progressabr flush. First wait:
+            # a progressbar flush. First wait:
             time.sleep(pbar.short_limit)
             # now render_progress will render:
             pbar.render_progress()
@@ -164,7 +165,7 @@ def runiter(session, seg_ids, pyfunc, config, multi_process=False,
     logger.info('')
 
 
-def fetch_segments_ids(session, config, writer=None):
+def fetch_segments_ids(session, segment_selection:dict, writer=None):  # FIXME wrtite doc
     """Return the numpy array of segments ids to process
 
     :return: the numpy array of integers denoting the ids of the segments to process
@@ -183,7 +184,7 @@ def fetch_segments_ids(session, config, writer=None):
     # Thus, load first the id attributes of each segment and station, sorted by station.
     # Note that querying attributes instead of instances does not cache the results
     # (i.e., after the line below we do not need to issue session.expunge_all()
-    qry = query4process(session, config.get('segment_select', {}))
+    qry = query4process(session, segment_selection)
 
     skip_already_processed = False
     if writer is not None:
