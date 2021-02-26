@@ -44,7 +44,7 @@ from stream2segment.utils.inputargs import load_pyfunc
 logger = logging.getLogger(__name__)
 
 
-# Disclaimer: this module is overdocumented to keep track of all implementation
+# Disclaimer: this module is over-documented to keep track of all implementation
 # details addressing the following issues when handling big data and a RDBMS:
 # 1. Memory leaks (too many objects in the RDBMS session)
 # 2. Slowdowns (long RDBMS queries)
