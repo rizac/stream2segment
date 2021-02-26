@@ -158,9 +158,12 @@ def run_and_yield(session, seg_ids, pyfunc, config, yield_exceptions=False,
                 "reported in the log file", errors, seg_len)
 
 
-def fetch_segments_ids(session, segment_selection:dict, writer=None):  # FIXME wrtite doc
+def fetch_segments_ids(session, segment_selection:dict, writer=None):
     """Return the numpy array of segments ids to process
 
+    :param writer: A Writer or None. See :module:`stream2segment.process.writers`.
+        If not None, the writer is used to fetch the already processed segments
+        and return only segments to process
     :return: the numpy array of integers denoting the ids of the segments to process
         according to `config` and `writer` settings
     """
