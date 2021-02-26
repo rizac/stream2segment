@@ -44,6 +44,14 @@ from stream2segment.utils.inputargs import load_pyfunc
 logger = logging.getLogger(__name__)
 
 
+# Disclaimer: this module is overdocumented to keep track of all implementation
+# details addressing the following issues when handling big data and a RDBMS:
+# 1. Memory leaks (too many objects in the RDBMS session)
+# 2. Slowdowns (long RDBMS queries)
+# 3. Undesired printouts (external ObsPy C libraries that have to be caught)
+# 4. Python multiprocessing with RDBMS queries
+
+
 def run(session, pyfunc, writer, config=None, show_progress=False):
     """Run `pyfunc` according to the given `config`, outputting result to `writer`
 
@@ -113,31 +121,13 @@ def run_and_yield(session, seg_ids, pyfunc, config, yield_exceptions=False,
         normalize_mp_settings(multi_process, num_processes, chunksize,
                               seg_len, show_progress)
 
-    # Note on chunksize above:
-    # When loading segments, we have two strategies:
-    # A) load only a Segment with its id (and defer loading of other
-    # attributes upon access) or B) load a Segment with all attributes
-    # (columns). From experiments on a 16 GB memory Mac:
-    # Querying A) and then accessing (=loading) later two likely used attributes
-    # (data and arrival_time) we take:
-    # ~= 0.043 secs/segment, Peak memory (Kb): 111792 (0.650716 %)
-    # Querying B) and then accessing the already loaded data and arrival_time attributes,
-    # we get:
-    # 0.024 secs/segment, Peak memory (Kb): 409194 (2.381825 %).
-    # With millions of segments, the latter
-    # approach can save up to 9 hours with almost no memory perf issue (2.4% vs 0.7%).
-    # So we define a chunk size whereby we load all segments:
-
     session.close()  # expunge all, clear all states
 
-    # redirection of stderr prevents Python BUT ALSO external libraries to print
-    # unwanted stuff on screen which might mess up the progressbar. Note that this
-    # should capture also warnings because they are normally directed to stderr. This
-    # is why warnings_filter is None, (also, this method is usually called inside a
-    # with statements ignoring warnings). Sub-processes will call (see below)
-    # create_processing_env with redirect_stderr=False (we do not want to mess up too
-    # much with leaking file descriptors, a complex topic) and
-    # warnings_filter='ignore', because we would have too many redundant messages
+    # `create_processing_env` redirects Python BUT ALSO external libraries errors which
+    # might mess up the terminal printout (e.g. progressbar). Python warnings should be
+    # redirected as well because normally printed to `stderr`, so avoid capturing them
+    # (`warnings_filter=None`). `create_processing_env` is also called in Python
+    # subprocesses, if present. For info see :func:`process_segments_mp`
     with create_processing_env(seg_len if show_progress else 0,
                                redirect_stderr=True,
                                warnings_filter=None) as pbar:
@@ -174,19 +164,15 @@ def fetch_segments_ids(session, segment_selection:dict, writer=None):  # FIXME w
     :return: the numpy array of integers denoting the ids of the segments to process
         according to `config` and `writer` settings
     """
-
-    # (Over commenting this module to keep track of all choices done)
-
     # the query is always loaded in memory, see:
     # https://stackoverflow.com/a/11769768
-    # thus we load it as np.array to save memory.
-    # We might want to avoid this by querying chunks of segments using limit and order
-    # keywords or query yielding:
+    # thus we load it as np.array to save memory. We might want to avoid this by querying
+    # chunks of segments using limit and order keywords or query yielding:
     # http://docs.sqlalchemy.org/en/latest/orm/query.html#sqlalchemy.orm.query.Query.yield_per
-    # but that makes code too complex
-    # Thus, load first the id attributes of each segment and station, sorted by station.
-    # Note that querying attributes instead of instances does not cache the results
-    # (i.e., after the line below we do not need to issue session.expunge_all()
+    # but that makes code too complex. Thus, load first the id attributes of each segment
+    # and station, sorted by station. Note that querying attributes instead of instances
+    # does not cache the results. I.e., after the line below we do not need to issue
+    # `session.expunge_all()`
     qry = query4process(session, segment_selection, ids_only=True)
 
     skip_already_processed = False
@@ -263,7 +249,7 @@ def process_mp(session, pyfunc, config, seg_ids_chunks, pbar, num_processes):
     # The two actions here below are a little hacky in that we might simply pass
     # strings to this functions (dburl and python module path), but this would require
     # checking for well formed dburl and paths here, which is what we do BEFORE, and
-    # also, the non pythin-multiprocessing case benefits of having already db session
+    # also, the non Python multiprocessing case benefits of having already db session
     # object and python function loaded.
 
     # 1. The db engine has to be disposed now if we want to use multi-processing:
@@ -362,6 +348,9 @@ def process_segments_mp(args):
     session = get_session(dburl)
     ret = []
 
+    # Do not capture external C libraries errors (we do it already in the parent process,
+    # and we do not want to mess up too much with leaking file descriptors, a complex
+    # topic) but use warnings_filter='ignore', to avoid redundant messages
     with create_processing_env(0, redirect_stderr=False, warnings_filter='ignore'):
         try:
             for output, is_ok, segment in \
@@ -394,6 +383,13 @@ def process_segments(session, seg_ids_chunk, config, pyfunc):
     # removing the sort does not improves significantly performances)
     segments = query4process(session, conditions=None, ids_only=False).\
         filter(Segment.id.in_(seg_ids_chunk.tolist()))
+
+    # Note that we could have loaded only the segment ids, deferring the load of all
+    # other Segment attribute upon access (see SQLAlchemy `load_only`). Performance tests
+    # accessing attributes on several segments reported:
+    # defer load: 0.043 secs/segment, Peak memory (Kb): 111792 (0.650716 %)
+    # full load:  0.024 secs/segment, Peak memory (Kb): 409194 (2.381825 %).
+    # So we go for the full load
     for segment in segments:
         output, is_ok = process_segment(segment, config, pyfunc)
         yield output, is_ok, segment
@@ -424,8 +420,8 @@ def query4process(session, conditions=None, ids_only=True):
 
     :param session: the sql-alchemy session
     :param conditions: a dict of segment attribute names mapped to a select expression,
-        each identifying a filter (sql WHERE clause). See `:ref:sqlevalexpr.py`. Can be
-        empty (no filter)
+        each identifying a filter (sql WHERE clause). See :module:`sqlevalexpr.py`. It
+        can be empty (no filter)
 
     :return: a query yielding the tuples: ```(Segment.id, Segment.station.id)```
     """
@@ -446,9 +442,7 @@ def query4process(session, conditions=None, ids_only=True):
     # arguments, and preferably primary keys (or any indexed column, I suspect) might be
     # better
 
-    # Now parse selection:
     if conditions:
-        # parse user defined conditions (as dict of key:value <=> "column": "expr")
         query = exprquery(query, conditions=conditions, orderby=None)
 
     return query
