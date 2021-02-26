@@ -168,12 +168,12 @@ def fetch_segments_ids(session, segment_selection:dict, writer=None):
         according to `config` and `writer` settings
     """
     # The query is always loaded in memory (https://stackoverflow.com/a/11769768), thus
-    # we load ids only into a numpy for speed and to save memory. Querying with offset
+    # we load ids only into a numpy array for efficiency. Querying with offset
     # and limit is not necessarily faster (if offset is close to "the end", the db might
     # build anyway the full list of segments, we experienced it in the GUI), other
     # solutions as query and yielding make the code too complex
-    # (http://docs.sqlalchemy.org/en/latest/orm/query.html#sqlalchemy.orm.query.Query.yield_per)
-    # `query4process` below is thus called with "ids_only" (see function doc for details)
+    # (http://docs.sqlalchemy.org/en/latest/orm/query.html#sqlalchemy.orm.query.Query.yield_per).
+    # `query4process` below is thus called with "ids_only" (see doc for details).
     # Note that querying attributes instead of the full instances does not cache the
     # results. I.e., after the line below we do not need to issue `session.expunge_all()`
     qry = query4process(session, segment_selection, ids_only=True)
