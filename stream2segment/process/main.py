@@ -164,15 +164,15 @@ def fetch_segments_ids(session, segment_selection:dict, writer=None):  # FIXME w
     :return: the numpy array of integers denoting the ids of the segments to process
         according to `config` and `writer` settings
     """
-    # the query is always loaded in memory, see:
-    # https://stackoverflow.com/a/11769768
-    # thus we load it as np.array to save memory. We might want to avoid this by querying
-    # chunks of segments using limit and order keywords or query yielding:
-    # http://docs.sqlalchemy.org/en/latest/orm/query.html#sqlalchemy.orm.query.Query.yield_per
-    # but that makes code too complex. Thus, load first the id attributes of each segment
-    # and station, sorted by station. Note that querying attributes instead of instances
-    # does not cache the results. I.e., after the line below we do not need to issue
-    # `session.expunge_all()`
+    # The query is always loaded in memory (https://stackoverflow.com/a/11769768), thus
+    # we load ids only into a numpy to save memory. Querying with offset and limit is not
+    # necessarily faster (if offset is close to "the end", the db might build anyway the
+    # full list of segments, we experienced it in the GUI), other solutions as query and
+    # yielding make the code too complex
+    # (http://docs.sqlalchemy.org/en/latest/orm/query.html#sqlalchemy.orm.query.Query.yield_per)
+    # Thus, load first the id attribute of each segment, sorted by station. Note that
+    # querying attributes instead of the full instances does not cache the results.
+    # I.e., after the line below we do not need to issue `session.expunge_all()`
     qry = query4process(session, segment_selection, ids_only=True)
 
     skip_already_processed = False
