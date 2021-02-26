@@ -187,7 +187,7 @@ def fetch_segments_ids(session, segment_selection:dict, writer=None):  # FIXME w
     # Thus, load first the id attributes of each segment and station, sorted by station.
     # Note that querying attributes instead of instances does not cache the results
     # (i.e., after the line below we do not need to issue session.expunge_all()
-    qry = query4process(session, segment_selection)
+    qry = query4process(session, segment_selection, ids_only=True)
 
     skip_already_processed = False
     if writer is not None:
@@ -427,9 +427,9 @@ def process_segments_mp(args):
 
 
 def process_segments(session, seg_ids_chunk, config, pyfunc):
-    """Function that proceses a chunk of segments and yield the resulted output. Yields
+    """Process a chunk of segments and yield the resulted output. Yields
     a list of (output, is_ok, segment_id, station_id, inventory) tuples, where output is
-    the output of the processing funcion name (either iterable or Exception), is_ok
+    the output of the processing function name (either iterable or Exception), is_ok
     (boolean) tells if `output` is NOT an Exception, segment_id is the id of the segment
     processed, station_id the segment station id, inventory is the station inventory,
     which might be None if an inventory was not requested in `pyfunc` implementation, or
@@ -443,9 +443,10 @@ def process_segments(session, seg_ids_chunk, config, pyfunc):
     if this function is called in a loop on the same python process. Otherwise ignore
     (pass None)
     """
-    # To make the query with "in" operator return segments in the same order
-    # (station id, then event id etceters) use joinandorder:
-    segments = joinandorder(session.query(Segment)).\
+    # We reuse `query4process` for simplicity. The query will sort segments returning
+    # them in the same order as the given indices (this is not a strict requirement but
+    # removing the sort does not improves significantly performances)
+    segments = query4process(session, conditions=None, ids_only=False).\
         filter(Segment.id.in_(seg_ids_chunk.tolist()))
     for segment in segments:
         output, is_ok = process_segment(segment, config, pyfunc)
@@ -470,7 +471,7 @@ def process_segment(segment, config, pyfunc):
         raise
 
 
-def query4process(session, conditions=None):
+def query4process(session, conditions=None, ids_only=True):
     """Return a query yielding the the segments ids (and their stations ids) for the
     processing. The returned tuples are sorted by station id, event id, channel location
     and channel's channel
@@ -482,27 +483,29 @@ def query4process(session, conditions=None):
 
     :return: a query yielding the tuples: ```(Segment.id, Segment.station.id)```
     """
-    # Note: without the join below, rows would be duplicated
-    qry = joinandorder(session.query(Segment.id))
+
+    if ids_only:
+        query = session.query(Segment.id)
+    else:
+        query = session.query(Segment)
+
+    # Querying segments for processing should be sorted by station id first (so that a
+    # segment station inventory is likely cached from a previously processed segment)
+    # and segment id then (to return consistent ordering across queries):
+    query = query.join(Segment.station).order_by(Station.id, Segment.id)
+
+    # Performance hints based on remote Postgres tests: the number of joined tables and
+    # number of arguments to `order_by` might affect performances, but the latter depends
+    # heavily on what is being queried, and its size. So, jsust as a rule of thumb, few
+    # arguments, and preferably primary keys (or any indexed column, I suspect) might be
+    # better
+
     # Now parse selection:
     if conditions:
         # parse user defined conditions (as dict of key:value <=> "column": "expr")
-        qry = exprquery(qry, conditions=conditions, orderby=None)
-    return qry
+        query = exprquery(query, conditions=conditions, orderby=None)
 
-
-def joinandorder(query):
-    """Given an already built query for processing, add joins and order_by to the
-    query in order to return segments ordered by station id, then event, and then
-    channel's location and channel's channel.
-
-    :param query: an sql-alchemy query object
-    :return: a new query identical to the passed `query` argument with joined table and
-        order_by applied
-    """
-
-    return query.join(Segment.station, Segment.channel).\
-        order_by(Station.id, Segment.event_id, Channel.location, Channel.channel)
+    return query
 
 
 @contextmanager
