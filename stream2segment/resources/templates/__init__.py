@@ -617,7 +617,9 @@ Settings for computing the 'signal' and 'noise' time windows on a segment wavefo
 PROCESS_YAML_ADVANCEDSETTINGS = '''
 Advanced settings tuning the process routine:
 advanced_settings:
-  # Use parallel sub-processes to speed up the execution.
+  # Use parallel sub-processes to speed up the execution (true or false). Advanced users
+  # can also provide a numeric value > 0 to set directly the Pool processes 
+  # (https://docs.python.org/3/library/multiprocessing.html#module-multiprocessing.pool)
   multi_process: false
   # The number of sub-processes. If null, it is set as the the number of CPUs in the
   # system. This option is ignored if multi_process is false

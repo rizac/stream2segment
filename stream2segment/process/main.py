@@ -75,8 +75,12 @@ def run(session, pyfunc, writer, config=None, show_progress=False):
 
     adv_settings = config.get('advanced_settings', {})  # dict
     multi_process = adv_settings.get('multi_process', False)
-    num_processes = adv_settings.get('num_processes', None)
     chunksize = adv_settings.get('segments_chunksize', None)
+    # the number of Pool processes can now be set directly to multi_process (which
+    # accepts bool or int). Previously, there was a separate parameter for that,
+    # num_processes. Let' implement backward compatibility here:
+    if multi_process is True and 'num_processes' in adv_settings:
+        multi_process = adv_settings['num_processes']
 
     segment_selection = config.get('segment_select', {})
     seg_ids = fetch_segments_ids(session, segment_selection, writer)
@@ -85,8 +89,7 @@ def run(session, pyfunc, writer, config=None, show_progress=False):
     with writer:
         for output, segment_id in \
                 run_and_yield(session, seg_ids, pyfunc, config, False,
-                              show_progress, multi_process, num_processes,
-                              chunksize):
+                              show_progress, multi_process, chunksize):
             if not writer.isbasewriter and output is not None:
                 writer.write(segment_id, output)
                 written += 1
@@ -96,8 +99,7 @@ def run(session, pyfunc, writer, config=None, show_progress=False):
 
 
 def run_and_yield(session, seg_ids, pyfunc, config, yield_exceptions=False,
-                  show_progress=False, multi_process=False, num_processes=None,
-                  chunksize=None):
+                  show_progress=False, multi_process=False, chunksize=None):
     """Run `pyfunc(segment, config)` on each given segment and yields its output
     as the tuple
     ```(output, segment_id)```
@@ -114,12 +116,21 @@ def run_and_yield(session, seg_ids, pyfunc, config, yield_exceptions=False,
     :param show_progress: (boolean, default False) whether or not to show progress bar
         and other info (e.g. remaining time, successfully processed segments) on the
         standard output (usually, the terminal window)
+    :param multi_process: (bool, or numeric) Use multiprocessing.Pool. A numeric value
+        will be equal to true, using a Pool with the specified number of processes
     """
     done, errors = 0, 0
     seg_len = len(seg_ids)
-    multi_process, num_processes, chunksize = \
-        normalize_mp_settings(multi_process, num_processes, chunksize,
-                              seg_len, show_progress)
+
+    if multi_process is True:
+        num_processes = cpu_count()  # or None (let's set it directly here though)
+    elif multi_process is not (0, False):
+        num_processes = int(multi_process)
+    else:
+        multi_process = False
+
+    if chunksize is None:
+        chunksize = get_default_chunksize(seg_len, show_progress)
 
     session.close()  # expunge all, clear all states
 
@@ -158,9 +169,10 @@ def run_and_yield(session, seg_ids, pyfunc, config, yield_exceptions=False,
                 "reported in the log file", errors, seg_len)
 
 
-def fetch_segments_ids(session, segment_selection:dict, writer=None):
+def fetch_segments_ids(session, segment_selection, writer=None):
     """Return the numpy array of segments ids to process
 
+    :param segment_selection: dict denoting a segment selection
     :param writer: A Writer or None. See :module:`stream2segment.process.writers`.
         If not None, the writer is used to fetch the already processed segments
         and return only segments to process
@@ -215,26 +227,22 @@ def fetch_segments_ids(session, segment_selection:dict, writer=None):
     return seg_ids
 
 
-def normalize_mp_settings(multi_process, num_processes, chunksize,
-                          segments_count, show_progress):
-    """Normalizes the multiprocessing settings according to the segments to
+def get_default_chunksize(segments_count, show_progress):
+    """Get the segments chunksize according to the segments to
     process (`segments_count`) and whether the progress bar is being shown
 
     :return: the tuple: `multi_process, num_processes, chunksize`
         (int, bool, int)
     """
-    if num_processes is None:
-        num_processes = cpu_count()
-    if chunksize is None:
-        default_chuknksize, min_pbar_iterations = _get_chunksize_defaults()
-        if not show_progress or segments_count >= 2 * default_chuknksize:
-            chunksize = default_chuknksize
-        else:
-            # determine the chunksize in order to have `min_pbar_iterations` iterations
-            # use np.true_divide so that py2/3 division is not a problem:
-            chunksize = max(1, int(np.true_divide(segments_count,
-                                                  min_pbar_iterations).item()))
-    return multi_process, num_processes, chunksize
+    default_chuknksize, min_pbar_iterations = _get_chunksize_defaults()
+    if not show_progress or segments_count >= 2 * default_chuknksize:
+        chunksize = default_chuknksize
+    else:
+        # determine the chunksize in order to have `min_pbar_iterations` iterations
+        # use np.true_divide so that py2/3 division is not a problem:
+        chunksize = max(1, int(np.true_divide(segments_count,
+                                              min_pbar_iterations).item()))
+    return chunksize
 
 
 def _get_chunksize_defaults():
