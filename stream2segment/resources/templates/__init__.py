@@ -628,12 +628,11 @@ advanced_settings:
   # can also provide a numeric value > 0 to set directly the Pool processes 
   # (https://docs.python.org/3/library/multiprocessing.html#module-multiprocessing.pool)
   multi_process: false
-  # Although each segment is processed one at a time, loading segments in chunks from the
-  # database is faster: the number below defines the chunk size. If multi_process is on,
-  # the chunk size also defines how many segments will be loaded in each Python sub-process.
-  # Increasing this number might speed up execution but increases the memory usage.
-  # When null, the chunk size defaults to {1:d} if the number N of
-  # segments to be processed is > {1:d}, otherwise N/{2:d}.
+  # Set the size, in number of segments, of each chunk of data that will be loaded from 
+  # the database. Increasing this number speeds up the load but also increases memory 
+  # usage. Null means: set the chunk size automatically ({1:d} if the number N of 
+  # segments to be processed is > {1:d}, otherwise N/{2:d}). If multi_process is on, the
+  # chunk size also defines how many segments will be loaded in each Python sub-process.
   segments_chunksize: null
   # Optional arguments for the output writer. Ignored for CSV output, for HDF output see:
   # https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.HDFStore.append.html

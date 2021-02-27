@@ -350,11 +350,11 @@ def s2smap(pyfunc, dburl, segment_selection=None, config=None,
         'has_data': 'true' is basically a default to be provided in most cases)
     :param config: dict of additional needed arguments to be passed to `pyfunc`,
         usually defining configuration parameters
-    :param yield_exceptions: boolean, default False. This function will raise
-        any exception raised by `pyfunc`, with a special case:`ValueError`s will be
-        caught, logged to file (if logging is enabled, see `logfile`) and not yielded.
-        However, if this parameter is True, `output` might also be an instance of
-        `ValueError`, and the user is responsible to check that.
+    :param safe_exceptions: tuple of Python exceptions that will not interrupt the whole
+        execution. Instead, they will be logged to file, with the relative segment id.
+        If `logfile` (see below) is empty, then safe exceptions will be yielded. In this
+        case, the `output` variable can be either the returned value of `pyfunc`, or any
+        given safe exception, and the user is responsible to check that
     :param logfile: string. When not empty, it denotes the path of the log file
         where exceptions will be logged, with the relative segment id
     :param show_progress: print progress bar to standard output (usually, the terminal
@@ -364,8 +364,8 @@ def s2smap(pyfunc, dburl, segment_selection=None, config=None,
         exact number of subprocesses to be allocated (only for advanced users. True is
         fine in most cases)
     :param chunksize: the size, in number of segments, of each chunk of data that will
-        be loaded from the database. Increasing this number increases speed but also
-        memory cinsumption. None (the default): set the size automatically
+        be loaded from the database. Increasing this number speeds up the load but also
+        increases memory consumption. None (the default) means: set size automatically
     """
     session = get_session(dburl, for_process=True, raise_bad_argument=True)
     try:
