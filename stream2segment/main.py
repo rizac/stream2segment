@@ -276,7 +276,7 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None,
     # process to finish
 
     # checks dic values (modify in place) and returns dic value(s) needed here:
-    session, pyfunc, funcname, config_dict = \
+    session, pyfunc, funcname, config_dict, multi_process, chunksize = \
         load_config_for_process(dburl, pyfile, funcname, config, outfile,
                                 **param_overrides)
 
@@ -302,7 +302,7 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None,
             get('writer_options', {})
         run_process(session, pyfunc, get_writer(outfile, append,
                                                 writer_options),
-                    config_dict, verbose)
+                    config_dict, verbose, multi_process, chunksize)
         logger.info("Completed in %s", str(elapsedtime(stime)))
         return 0  # contrarily to download, an exception should always raise
         # and log as error with the stack trace
@@ -321,11 +321,57 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None,
 def s2smap(pyfunc, dburl, segment_selection=None, config=None,
            yield_exceptions=False, logfile='', show_progress=False,
            multi_process=False, chunksize=None):
+    """Return an iterator that applies the function `pyfunc` to every segment
+    found on the database at the URL `dburl`, processing only segments matching
+    the given selection (`segment_selection`), yielding the results in the form
+    of the tuple:
+    ```
+        (output:Any, segment_id:int)
+    ```
+    (where output is the return value of `pyfunc`)
+
+    :param pyfunc: a Python function with signature (= accepting arguments):
+        `(segment:Segment, config:dict)`. The first argument is the segment
+        object which will be automatically passed from this function
+    :param dburl: the database URL. Supported formats are Sqlite and Postgres
+        (See https://docs.sqlalchemy.org/en/14/core/engines.html#database-urls).
+    :param segment_selection: a dict[str, str] of Segments attributes mapped to
+        a given selection expression, e.g.:
+        ```
+        {
+            'event.magnitude': '<=6',
+            'channel.channel': 'HHZ',
+            'maxgap_numsamples': '(-0.5, 0.5)',
+            'has_data': 'true'
+        }
+        ```
+        (the last two keys assure segments with no gaps, and with data.
+        'has_data': 'true' is basically a default to be provided in most cases)
+    :param config: dict of additional needed arguments to be passed to `pyfunc`,
+        usually defining configuration parameters
+    :param yield_exceptions: boolean, default False. This function will raise
+        any exception raised by `pyfunc`, with a special case:`ValueError`s will be
+        caught, logged to file (if logging is enabled, see `logfile`) and not yielded.
+        However, if this parameter is True, `output` might also be an instance of
+        `ValueError`, and the user is responsible to check that.
+    :param logfile: string. When not empty, it denotes the path of the log file
+        where exceptions will be logged, with the relative segment id
+    :param show_progress: print progress bar to standard output (usually, the terminal
+        window) and estimated remaining time
+    :param multi_process: enable multi process (parallel sub-processes) to speed up
+        execution. When not boolean, this parameter can be an integer denoting the
+        exact number of subprocesses to be allocated (only for advanced users. True is
+        fine in most cases)
+    :param chunksize: the size, in number of segments, of each chunk of data that will
+        be loaded from the database. Increasing this number increases speed but also
+        memory cinsumption. None (the default): set the size automatically
+    """
     session = get_session(dburl, for_process=True, raise_bad_argument=True)
     try:
         loghandlers = configlog4processing(logger, logfile, show_progress)
         stime = time.time()
-        yield from run_and_yield(session, fetch_segments_ids(session, segment_selection),
+        yield from run_and_yield(session,
+                                 fetch_segments_ids(session, segment_selection),
                                  pyfunc, config, yield_exceptions, show_progress,
                                  multi_process, chunksize)
         logger.info("Completed in %s", str(elapsedtime(stime)))

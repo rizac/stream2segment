@@ -52,7 +52,8 @@ logger = logging.getLogger(__name__)
 # 4. Python multiprocessing with RDBMS queries
 
 
-def run(session, pyfunc, writer, config=None, show_progress=False):
+def run(session, pyfunc, writer, config=None, show_progress=False,
+        multi_process=False, chunksize=None):
     """Run `pyfunc` according to the given `config`, outputting result to `writer`
 
     :param session: the SQLAlchemy database session
@@ -72,15 +73,6 @@ def run(session, pyfunc, writer, config=None, show_progress=False):
     """
     if config is None:
         config = {}
-
-    adv_settings = config.get('advanced_settings', {})  # dict
-    multi_process = adv_settings.get('multi_process', False)
-    chunksize = adv_settings.get('segments_chunksize', None)
-    # the number of Pool processes can now be set directly to multi_process (which
-    # accepts bool or int). Previously, there was a separate parameter for that,
-    # num_processes. Let' implement backward compatibility here:
-    if multi_process is True and 'num_processes' in adv_settings:
-        multi_process = adv_settings['num_processes']
 
     segment_selection = config.get('segment_select', {})
     seg_ids = fetch_segments_ids(session, segment_selection, writer)
@@ -117,7 +109,8 @@ def run_and_yield(session, seg_ids, pyfunc, config, yield_exceptions=False,
         and other info (e.g. remaining time, successfully processed segments) on the
         standard output (usually, the terminal window)
     :param multi_process: (bool, or numeric) Use multiprocessing.Pool. A numeric value
-        will be equal to true, using a Pool with the specified number of processes
+        will be equal to true, using a Pool with the specified number of processes (only
+        for advanced users: true is fine and sufficient in most cases)
     """
     done, errors = 0, 0
     seg_len = len(seg_ids)
