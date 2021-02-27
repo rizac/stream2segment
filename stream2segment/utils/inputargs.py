@@ -830,6 +830,32 @@ def load_config_for_process(dburl, pyfile, funcname=None, config=None,
     try:
         # yaml_load accepts a file name or a dict
         config = yaml_load({} if config is None else config, **param_overrides)
+
+        adv_settings = config.get('advanced_settings', {})  # dict
+        multi_process = adv_settings.get('multi_process', False)
+        # the number of Pool processes can now be set directly to multi_process (which
+        # accepts bool or int). Previously, there was a separate parameter for that,
+        # num_processes. Let' implement backward compatibility here:
+        if multi_process is True and 'num_processes' in adv_settings:
+            multi_process = adv_settings['num_processes']
+
+        # check parameters:
+        if multi_process not in (True, False):
+            try:
+                int(multi_process)
+                assert multi_process >= 0
+            except:
+                raise ValueError('advanced_settings.multi_process must be '
+                                 'boolean or non negative int')
+        chunksize = adv_settings.get('segments_chunksize', None)
+        if chunksize is not None:
+            try:
+                int(chunksize)
+                assert chunksize > 0
+            except:
+                raise ValueError('advanced_settings.chunksize must be '
+                                 'null or positive int')
+
     except Exception as exc:
         raise BadArgument('config', exc)
 
@@ -849,4 +875,4 @@ def load_config_for_process(dburl, pyfile, funcname=None, config=None,
             raise BadArgument('outfile', exc)
 
     # nothing more to process
-    return session, pyfunc, funcname, config
+    return session, pyfunc, funcname, config, multi_process, chunksize

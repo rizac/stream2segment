@@ -625,7 +625,7 @@ advanced_settings:
   # system. This option is ignored if multi_process is false
   num_processes: null
   # Although each segment is processed one at a time, loading segments in chunks from the
-  # database is faster: the number below defines the chunk size. If multi_process is true,
+  # database is faster: the number below defines the chunk size. If multi_process is on,
   # the chunk size also defines how many segments will be loaded in each Python sub-process.
   # Increasing this number might speed up execution but increases the memory usage.
   # When null, the chunk size defaults to {1:d} if the number N of
