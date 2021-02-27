@@ -128,6 +128,8 @@ def run_and_yield(session, seg_ids, pyfunc, config, safe_excetpions=tuple(),
     if chunksize is None:
         chunksize = get_default_chunksize(seg_len, show_progress)
 
+    safe_excetpions = tuple(safe_excetpions)  # for safety, in case list
+
     session.close()  # expunge all, clear all states
 
     # `create_processing_env` redirects Python BUT ALSO external libraries errors which
@@ -146,10 +148,10 @@ def run_and_yield(session, seg_ids, pyfunc, config, safe_excetpions=tuple(),
 
         if multi_process:
             itr = process_mp(session, pyfunc, config, get_slices(seg_ids, chunksize),
-                             pbar, num_processes)
+                             pbar, num_processes, safe_excetpions)
         else:
             itr = process_simple(session, pyfunc, config, get_slices(seg_ids, chunksize),
-                                 pbar)
+                                 safe_excetpions, pbar)
 
         for output, is_ok, segment_id in itr:
             if is_ok:
@@ -248,7 +250,8 @@ def _get_chunksize_defaults():
     return 600, 10
 
 
-def process_mp(session, pyfunc, config, seg_ids_chunks, pbar, num_processes):
+def process_mp(session, pyfunc, config, seg_ids_chunks, pbar, num_processes,
+               safe_exceptions_tuple):
     """Execute `pyfunc` using the multiprocessing Python module
 
     :param seg_ids_chunks: iterable yielding numpy arrays of segment ids
@@ -272,7 +275,7 @@ def process_mp(session, pyfunc, config, seg_ids_chunks, pbar, num_processes):
         for results in \
                 pool.imap_unordered(process_segments_mp,
                                     ((seg_ids_chunk, dburl, config, pyfile,
-                                      pyfunc.__name__)
+                                      pyfunc.__name__, safe_exceptions_tuple)
                                      for seg_ids_chunk in seg_ids_chunks)):
             for output, is_ok, segment_id in results:
                 yield output, is_ok, segment_id
@@ -296,7 +299,7 @@ def _mp_initializer():
     signal.signal(signal.SIGINT, signal.SIG_IGN)
 
 
-def process_simple(session, pyfunc, config, seg_ids_chunks, pbar):
+def process_simple(session, pyfunc, config, seg_ids_chunks, safe_exceptions_tuple, pbar):
     """Execute `pyfunc` in a single system process
 
     :param seg_ids_chunks: iterable yielding numpy arrays of segment ids
@@ -308,7 +311,8 @@ def process_simple(session, pyfunc, config, seg_ids_chunks, pbar):
 
     for seg_ids_chunk in seg_ids_chunks:
         for output, is_ok, segment in \
-                process_segments(session, seg_ids_chunk, config, pyfunc):
+                process_segments(session, seg_ids_chunk, config, pyfunc,
+                                 safe_exceptions_tuple):
             yield output, is_ok, segment.id
 
         _clear_session(session, segment)
@@ -350,7 +354,7 @@ def process_segments_mp(args):
         (boolean) tells if `output` is NOT an Exception, and segment_id is the id of the
         segment processed
     """
-    seg_ids_chunk, dburl, config, pyfile, funcname = args
+    seg_ids_chunk, dburl, config, pyfile, funcname, safe_exceptions_tuple = args
     pyfunc = load_pyfunc(pyfile, funcname)
     session = get_session(dburl)
     ret = []
@@ -361,7 +365,8 @@ def process_segments_mp(args):
     with create_processing_env(0, redirect_stderr=False, warnings_filter='ignore'):
         try:
             for output, is_ok, segment in \
-                        process_segments(session, seg_ids_chunk, config, pyfunc):
+                        process_segments(session, seg_ids_chunk, config, pyfunc,
+                                         safe_exceptions_tuple):
                 ret.append((output, is_ok, segment.id))
             return ret
         finally:
@@ -369,7 +374,7 @@ def process_segments_mp(args):
             session.bind.engine.dispose()
 
 
-def process_segments(session, seg_ids_chunk, config, pyfunc):
+def process_segments(session, seg_ids_chunk, config, pyfunc, safe_exceptions_tuple):
     """Process a chunk of segments and yield the resulted output. Yields
     tuples of the form `(output, is_ok, segment_id)`, where output is the output of the
     `pyfunc`, is_ok (boolean) tells if `pyfunc` run successfully, segment_id is the id
@@ -384,6 +389,8 @@ def process_segments(session, seg_ids_chunk, config, pyfunc):
     :param seg_ids_chunk: a numpy array of segment ids
     :param config: the config dict
     :param pyfunc: a Python function to be invoked on each segment
+    :param safe_exceptions_tuple: a tuple of Exceptions to be caught and returned
+        instead of raising
     """
     # We reuse `query4process` for simplicity. The query will sort segments returning
     # them in the same order as the given indices (this is not a strict requirement but
@@ -398,11 +405,11 @@ def process_segments(session, seg_ids_chunk, config, pyfunc):
     # full load:  0.024 secs/segment, Peak memory (Kb): 409194 (2.381825 %).
     # So we go for the full load
     for segment in segments:
-        output, is_ok = process_segment(segment, config, pyfunc)
+        output, is_ok = process_segment(segment, config, pyfunc, safe_exceptions_tuple)
         yield output, is_ok, segment
 
 
-def process_segment(segment, config, pyfunc):
+def process_segment(segment, config, pyfunc, safe_exceptions_tuple):
     """Process a single segment and return the output of `pyfunc(segment, config)`
 
     :return: the tuple (output, is_ok), where output is either an iterable or a
@@ -414,8 +421,8 @@ def process_segment(segment, config, pyfunc):
     """
     try:
         return pyfunc(segment, config), True
-    except ValueError as valueerr:
-        return valueerr, False
+    except safe_exceptions_tuple as exc:
+        return exc, False
     except Exception:
         raise
 
