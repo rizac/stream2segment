@@ -276,9 +276,9 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None,
     # process to finish
 
     # checks dic values (modify in place) and returns dic value(s) needed here:
-    session, pyfunc, funcname, config_dict, multi_process, chunksize = \
-        load_config_for_process(dburl, pyfile, funcname, config, outfile,
-                                **param_overrides)
+    session, pyfunc, funcname, config_dict, multi_process, chunksize, \
+        safe_exceptions = load_config_for_process(dburl, pyfile, funcname, config,
+                                                  outfile, **param_overrides)
 
     if log2file is True:
         log2file = logfilepath(outfile or pyfile)  # auto create log file
@@ -302,7 +302,8 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None,
             get('writer_options', {})
         run_process(session, pyfunc, get_writer(outfile, append,
                                                 writer_options),
-                    config_dict, verbose, multi_process, chunksize)
+                    config_dict, safe_exceptions, False,
+                    verbose, multi_process, chunksize)
         logger.info("Completed in %s", str(elapsedtime(stime)))
         return 0  # contrarily to download, an exception should always raise
         # and log as error with the stack trace
@@ -319,7 +320,7 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None,
 
 
 def s2smap(pyfunc, dburl, segment_selection=None, config=None,
-           yield_exceptions=False, logfile='', show_progress=False,
+           safe_exceptions=tuple(), logfile='', show_progress=False,
            multi_process=False, chunksize=None):
     """Return an iterator that applies the function `pyfunc` to every segment
     found on the database at the URL `dburl`, processing only segments matching
@@ -372,8 +373,8 @@ def s2smap(pyfunc, dburl, segment_selection=None, config=None,
         stime = time.time()
         yield from run_and_yield(session,
                                  fetch_segments_ids(session, segment_selection),
-                                 pyfunc, config, yield_exceptions, show_progress,
-                                 multi_process, chunksize)
+                                 pyfunc, config, safe_exceptions, not logfile,
+                                 show_progress, multi_process, chunksize)
         logger.info("Completed in %s", str(elapsedtime(stime)))
     except KeyboardInterrupt:
         logger.critical("Aborted by user")  # see comment above

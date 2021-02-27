@@ -52,8 +52,9 @@ logger = logging.getLogger(__name__)
 # 4. Python multiprocessing with RDBMS queries
 
 
-def run(session, pyfunc, writer, config=None, show_progress=False,
-        multi_process=False, chunksize=None):
+def run(session, pyfunc, writer, config=None, safe_exceptions=tuple(),
+        yield_safe_exceptions=False, show_progress=False, multi_process=False,
+        chunksize=None):
     """Run `pyfunc` according to the given `config`, outputting result to `writer`
 
     :param session: the SQLAlchemy database session
@@ -80,8 +81,9 @@ def run(session, pyfunc, writer, config=None, show_progress=False,
 
     with writer:
         for output, segment_id in \
-                run_and_yield(session, seg_ids, pyfunc, config, False,
-                              show_progress, multi_process, chunksize):
+                run_and_yield(session, seg_ids, pyfunc, config, safe_exceptions,
+                              yield_safe_exceptions, show_progress, multi_process,
+                              chunksize):
             if not writer.isbasewriter and output is not None:
                 writer.write(segment_id, output)
                 written += 1
@@ -90,8 +92,9 @@ def run(session, pyfunc, writer, config=None, show_progress=False,
                 written, len(seg_ids))
 
 
-def run_and_yield(session, seg_ids, pyfunc, config, yield_exceptions=False,
-                  show_progress=False, multi_process=False, chunksize=None):
+def run_and_yield(session, seg_ids, pyfunc, config, safe_excetpions=tuple(),
+                  yield_safe_exceptions=False, show_progress=False, multi_process=False,
+                  chunksize=None):
     """Run `pyfunc(segment, config)` on each given segment and yields its output
     as the tuple
     ```(output, segment_id)```
@@ -154,7 +157,7 @@ def run_and_yield(session, seg_ids, pyfunc, config, yield_exceptions=False,
             else:
                 logger.warning("segment (id=%d): %s", segment_id, str(output))
                 errors += 1
-            if is_ok or yield_exceptions:
+            if is_ok or yield_safe_exceptions:
                 yield output, segment_id
 
     logger.info("%d of %d segment(s) successfully processed", done, seg_len)

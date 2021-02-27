@@ -856,6 +856,20 @@ def load_config_for_process(dburl, pyfile, funcname=None, config=None,
                 raise ValueError('advanced_settings.chunksize must be '
                                  'null or positive int')
 
+        exc_names = adv_settings.get('continue_execution_on', 'ValueError')
+        if exc_names is None or isinstance(exc_names, string_types):
+            exc_names = [exc_names]
+        exceptions = []
+        for exc_name in exc_names:
+            if exc_name is None:
+                continue
+            exc_class = __builtins__[exc_name]
+            if not issubclass(exc_class, Exception):
+                raise ValueError('%s can be a Python exception name or null '
+                                 '(in advanced_settings.continue_execution_on)'
+                                 % exc_name)
+            exceptions.append(exc_class)
+
     except Exception as exc:
         raise BadArgument('config', exc)
 
@@ -875,4 +889,5 @@ def load_config_for_process(dburl, pyfile, funcname=None, config=None,
             raise BadArgument('outfile', exc)
 
     # nothing more to process
-    return session, pyfunc, funcname, config, multi_process, chunksize
+    return session, pyfunc, funcname, config, multi_process, chunksize,\
+        tuple(exceptions)

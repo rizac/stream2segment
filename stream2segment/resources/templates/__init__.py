@@ -617,11 +617,12 @@ Settings for computing the 'signal' and 'noise' time windows on a segment wavefo
 PROCESS_YAML_ADVANCEDSETTINGS = '''
 Advanced settings tuning the process routine:
 advanced_settings:
-  # Set the Python exceptions that will not stop the whole execution but only that of the
-  # segment being processed: the program will then simply move to the next segment and the 
-  # exception will be logged to file (with the relative segment id) for later inspection.
-  # For info see: https://docs.python.org/3/library/exceptions.html#exception-hierarchy
-  continue_execution_on:
+  # List the Python exceptions that are safe, i.e. that should not interrupting the whole 
+  # execution but be caught and logged to file for inspection (with the relative segment 
+  # id) before resuming to the next segment. Provide null to be strict (no safe exceptions),
+  # provide several names or base class names to be more relaxed. For info see: 
+  # https://docs.python.org/3/library/exceptions.html#exception-hierarchy
+  safe_exceptions:
     - ValueError
   # Use parallel sub-processes to speed up the execution (true or false). Advanced users
   # can also provide a numeric value > 0 to set directly the Pool processes 
