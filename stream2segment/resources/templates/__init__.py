@@ -617,13 +617,16 @@ Settings for computing the 'signal' and 'noise' time windows on a segment wavefo
 PROCESS_YAML_ADVANCEDSETTINGS = '''
 Advanced settings tuning the process routine:
 advanced_settings:
+  # Set the Python exceptions that will not stop the whole execution but only that of the
+  # segment being processed: the program will then simply move to the next segment and the 
+  # exception will be logged to file (with the relative segment id) for later inspection.
+  # For info see: https://docs.python.org/3/library/exceptions.html#exception-hierarchy
+  continue_execution_on:
+    - ValueError
   # Use parallel sub-processes to speed up the execution (true or false). Advanced users
   # can also provide a numeric value > 0 to set directly the Pool processes 
   # (https://docs.python.org/3/library/multiprocessing.html#module-multiprocessing.pool)
   multi_process: false
-  # The number of sub-processes. If null, it is set as the the number of CPUs in the
-  # system. This option is ignored if multi_process is false
-  num_processes: null
   # Although each segment is processed one at a time, loading segments in chunks from the
   # database is faster: the number below defines the chunk size. If multi_process is on,
   # the chunk size also defines how many segments will be loaded in each Python sub-process.
