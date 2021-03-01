@@ -157,7 +157,8 @@ def run_and_yield(session, seg_ids, pyfunc, config, safe_excetpions=tuple(),
             if is_ok:
                 done += 1
             else:
-                logger.warning("segment (id=%d): %s", segment_id, str(output))
+                logger.warning("segment (id=%d): %s (%s)", segment_id, str(output),
+                               str(output.__class__.__name__))
                 errors += 1
             if is_ok or yield_safe_exceptions:
                 yield output, segment_id
@@ -303,8 +304,6 @@ def process_simple(session, pyfunc, config, seg_ids_chunks, pbar, safe_exception
     """Execute `pyfunc` in a single system process
 
     :param seg_ids_chunks: iterable yielding numpy arrays of segment ids
-    :param done_skipped_errors: list of three int elements denoting segments done,
-        skipped, anddiscarded (due to errors), respectively
     """
     segment = None  # currently processed segment id (will be used later)
     _clear_session(session)

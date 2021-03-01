@@ -87,8 +87,8 @@ class gui(object):  # pylint: disable=invalid-name, useless-object-inheritance
             getattr(func, '_s2s_yaxis', {})
 
 
-
 class SkipSegment(Exception):
-
-    def __init__(self, message):
-        super()
+    """Stream2segment exception indicating a segment error while processing that should
+    resume to the next segment without interrupting the whole routine
+    """
+    pass
