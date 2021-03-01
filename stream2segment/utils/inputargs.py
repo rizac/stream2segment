@@ -11,6 +11,7 @@ import os
 # import re
 from datetime import datetime, timedelta
 from itertools import chain
+import importlib
 
 from future.utils import string_types
 
@@ -863,7 +864,12 @@ def load_config_for_process(dburl, pyfile, funcname=None, config=None,
         for exc_name in exc_names:
             if exc_name is None:
                 continue
-            exc_class = __builtins__[exc_name]
+            if '.' in exc_name:
+                idx = exc_name.rfind('.')
+                module, exc_name = exc_name[:idx], exc_name[idx+1:]
+                exc_class = getattr(importlib.import_module(module), exc_name)
+            else:
+                exc_class = __builtins__[exc_name]
             if not issubclass(exc_class, Exception):
                 raise ValueError('%s can be a Python exception name or null '
                                  '(in advanced_settings.continue_execution_on)'

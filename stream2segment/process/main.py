@@ -151,7 +151,7 @@ def run_and_yield(session, seg_ids, pyfunc, config, safe_excetpions=tuple(),
                              pbar, num_processes, safe_excetpions)
         else:
             itr = process_simple(session, pyfunc, config, get_slices(seg_ids, chunksize),
-                                 safe_excetpions, pbar)
+                                 pbar, safe_excetpions)
 
         for output, is_ok, segment_id in itr:
             if is_ok:
@@ -299,7 +299,7 @@ def _mp_initializer():
     signal.signal(signal.SIGINT, signal.SIG_IGN)
 
 
-def process_simple(session, pyfunc, config, seg_ids_chunks, safe_exceptions_tuple, pbar):
+def process_simple(session, pyfunc, config, seg_ids_chunks, pbar, safe_exceptions_tuple):
     """Execute `pyfunc` in a single system process
 
     :param seg_ids_chunks: iterable yielding numpy arrays of segment ids
