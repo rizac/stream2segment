@@ -14,6 +14,7 @@ from itertools import chain
 import importlib
 
 from future.utils import string_types
+from stream2segment.process import SkipSegment
 
 from stream2segment.utils.resources import yaml_load, get_ttable_fpath, \
     get_templates_fpath, normalizedpath
@@ -857,19 +858,16 @@ def load_config_for_process(dburl, pyfile, funcname=None, config=None,
                 raise ValueError('advanced_settings.chunksize must be '
                                  'null or positive int')
 
-        exc_names = adv_settings.get('continue_execution_on', 'ValueError')
+        exceptions = [SkipSegment]
+        # In case we want to customize skip exceptions from config, below the
+        # code snippet (this is momentarily hidden in the config documentation):
+        exc_names = adv_settings.get('skip_exceptions', [])
         if exc_names is None or isinstance(exc_names, string_types):
             exc_names = [exc_names]
-        exceptions = []
         for exc_name in exc_names:
             if exc_name is None:
                 continue
-            if '.' in exc_name:
-                idx = exc_name.rfind('.')
-                module, exc_name = exc_name[:idx], exc_name[idx+1:]
-                exc_class = getattr(importlib.import_module(module), exc_name)
-            else:
-                exc_class = __builtins__[exc_name]
+            exc_class = __builtins__[exc_name]
             if not issubclass(exc_class, Exception):
                 raise ValueError('%s can be a Python exception name or null '
                                  '(in advanced_settings.continue_execution_on)'

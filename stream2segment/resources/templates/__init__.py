@@ -205,6 +205,15 @@ in the "in-place modification" potential problems described above.
 :return: a Trace object.
 """
 
+_PROCESS_EXCEPTIONS_POLICY = """
+any exception raised will interrupt the whole processing routine with one special case: 
+`stream2segment.process.SkipSegment` exceptions will be logged to file and the execution
+will resume from the next segment. Raise them to programmatically skip a segment, e.g.:
+```
+if segment.sample_rate < 60: 
+    raise SkipSegment("segment sample rate too low")`
+```
+""".strip()
 
 PROCESS_PY_MAINFUNC = """
 Main processing function. The user should implement here the processing for any given
@@ -216,13 +225,7 @@ selected segment. Useful links for functions, libraries and utilities:
 - `ObsPy Stream <https://docs.obspy.org/packages/autogen/obspy.core.stream.Stream.html>_`
 - `ObsPy Trace <https://docs.obspy.org/packages/autogen/obspy.core.trace.Trace.html>_`
 
-IMPORTANT: Any exception raised by this routine will interrupt the whole execution, only 
-    `stream2segment.process.SkipSegment` exceptions will interrupt the execution of the 
-    currently processed segment and continue to the next segment. E.g.:
-    ```
-    if snr < 0.4:
-        raise SkipSegment('SNR ratio too low')
-    ```
+IMPORTANT: {0}
 
 :param: segment (Python object): An object representing a waveform data to be processed,
     reflecting the relative database table row. See above for a detailed list
@@ -264,7 +267,7 @@ IMPORTANT: Any exception raised by this routine will interrupt the whole executi
      Returning None or nothing is also valid: in this case the segment will be silently 
      skipped.
 
-     A column named '{0}' with the segment database id (an integer uniquely identifying
+     A column named '{1}' with the segment database id (an integer uniquely identifying
      the segment) will be automatically added to the dict / Series, or to each row of the
      DataFrame, before writing it to file.
 
@@ -276,7 +279,7 @@ IMPORTANT: Any exception raised by this routine will interrupt the whole executi
      https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.read_hdf.html
      https://pandas.pydata.org/pandas-docs/stable/user_guide/io.html#io-hdf5
 
-""".format(SEGMENT_ID_COLNAME)
+""".format(_PROCESS_EXCEPTIONS_POLICY, SEGMENT_ID_COLNAME)
 
 PROCESS_PY_MAIN = """
 ===================================================================================
@@ -291,9 +294,9 @@ sections below. **All these functions must have the same signature**:
 where `segment` is the Python object representing a waveform data segment to be processed
 and `config` is the Python dictionary representing the given configuration file.
 
-After editing, this file can be invoked from the command line commands `s2s process` and 
-`s2s show` with the `-p` / `--pyfile` option (type `s2s process --help` or 
-`s2s show --help` for details).
+After editing this file, you can pass its path to the commands `s2s process` and 
+`s2s show` (option `-p` / `--pyfile`. Type `s2s process --help` or `s2s show --help` for 
+details).
 In the first case, see section 'Processing' below, otherwise see section
 'Visualization (web GUI)'.
 
@@ -393,14 +396,13 @@ processing and visualization must have the same signature:
 
 any Exception raised will be handled this way:
 
-* if the function is called for visualization, the exception will be caught and its
+* if the function is called for visualization: the exception will be caught and its
   message displayed on the plot
 
-* if the function is called for processing, the exception interrupt the whole routine
-  (as usual) with one special case: `stream2segment.process.SkipSegment` exceptions will 
-  be logged to file and the execution will resume from the next segment. Example: 
-  `raise SkipSegment("segment sample rate too low")`
+* if the function is called for processing: """ + \
+                  _PROCESS_EXCEPTIONS_POLICY.replace("\n", "\n  ")
 
+PROCESS_PY_MAIN += """
 Conventions and suggestions
 ---------------------------
 
@@ -636,14 +638,6 @@ Settings for computing the 'signal' and 'noise' time windows on a segment wavefo
 PROCESS_YAML_ADVANCEDSETTINGS = """
 Advanced settings tuning the process routine:
 advanced_settings:
-  # List of builtin Python exceptions behaving like `stream2segment.process.SkipSegment`:
-  # when the exception is raised, do not interrupting the whole execution but log it to 
-  # file for inspection (with the relative segment id) before resuming to the next 
-  # segment. A list of a single null entry means: ignore this parameter (use only 
-  # 'SkipSegment' to skip a segment). For a list of possible names to be provided, see: 
-  # https://docs.python.org/3/library/exceptions.html#exception-hierarchy. 
-  skip_exceptions:
-    - null
   # Use parallel sub-processes to speed up the execution (true or false). Advanced users
   # can also provide a numeric value > 0 to set directly the Pool processes 
   # (https://docs.python.org/3/library/multiprocessing.html#module-multiprocessing.pool)

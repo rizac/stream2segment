@@ -120,7 +120,7 @@ def run_and_yield(session, seg_ids, pyfunc, config, safe_excetpions=tuple(),
 
     if multi_process is True:
         num_processes = cpu_count()  # or None (let's set it directly here though)
-    elif multi_process is not (0, False):
+    elif multi_process not in (0, False):
         num_processes = int(multi_process)
     else:
         multi_process = False
