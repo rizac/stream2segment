@@ -179,97 +179,118 @@ segment.download.program_version      str
 
 
 PROCESS_PY_BANDPASSFUNC = """
-Applies a pre-process on the given segment waveform by filtering the signal and removing 
-the instrumental response. When using this function during processing (see e.g. the 
-`main` function) remember that it modifies the segment stream in-place: further calls to 
-`segment.stream()` will return the pre-processed stream. You can change this behaviour by
-implementing your own code, or store the raw stream beforehand, e.g.: 
-`raw_trace=segment.stream().copy()`
+Apply a pre-process on the given segment waveform by filtering the signal and
+removing the instrumental response. 
 
-The filter algorithm has the following steps:
+This function is used for processing (see `main` function) and plots visualization
+(see the `@gui.preprocess` decorator and its documentation above)
+
+The steps performed are:
 1. Sets the max frequency to 0.9 of the Nyquist frequency (sampling rate /2)
    (slightly less than Nyquist seems to avoid artifacts)
 2. Offset removal (subtract the mean from the signal)
 3. Tapering
 4. Pad data with zeros at the END in order to accommodate the filter transient
-5. Apply bandpass filter, where the lower frequency is set according to the magnitude
+5. Apply bandpass filter, where the lower frequency is magnitude dependent
 6. Remove padded elements
 7. Remove the instrumental response
 
-Side notes for uses with the Graphical User Interface (GUI): being decorated with
-'@gui.preprocess', this function must return either a Trace or Stream object that will be
-used as input for all visualized plots whenever the "pre-process" check-box is on.
-The GUI always passes here segments with a copy of the raw stream, so it will never incur
-in the "in-place modification" potential problems described above.
+IMPORTANT: This function modifies the segment stream in-place: further calls to 
+`segment.stream()` will return the pre-processed stream. During visualization, this
+is not an issue because Stream2segment always caches a copy of the raw trace.
+During processing (see `main` function) you need to be more careful: if needed, you
+can store the raw stream beforehand (`raw_trace=segment.stream().copy()`) or reload
+the segment stream afterwards with `segment.stream(reload=True)`.
 
-:return: a Trace object.
+:return: a Trace object (a Stream is also valid value for functions decorated with
+    `@gui.preprocess`)
 """
 
-_PROCESS_EXCEPTIONS_POLICY = """
-any exception raised will interrupt the whole processing routine with one special case: 
-`stream2segment.process.SkipSegment` exceptions will be logged to file and the execution
-will resume from the next segment. Raise them to programmatically skip a segment, e.g.:
-```
-if segment.sample_rate < 60: 
-    raise SkipSegment("segment sample rate too low")`
-```
-""".strip()
 
 PROCESS_PY_MAINFUNC = """
-Main processing function. The user should implement here the processing for any given
-selected segment. Useful links for functions, libraries and utilities:
+Main processing function. The user should implement here the processing for any
+given selected segment. Useful links for functions, libraries and utilities:
 
-- `stream2segment.process.math.traces` (small processing library implemented in this 
-   program, most of its functions are imported here by default)
+- `stream2segment.process.math.traces` (small processing library implemented in
+   this program, most of its functions are imported here by default)
 - `ObpPy <https://docs.obspy.org/packages/index.html>`_
 - `ObsPy Stream <https://docs.obspy.org/packages/autogen/obspy.core.stream.Stream.html>_`
 - `ObsPy Trace <https://docs.obspy.org/packages/autogen/obspy.core.trace.Trace.html>_`
 
-IMPORTANT: {0}
+IMPORTANT: any exception raised here or from any sub-function will interrupt the
+whole processing routine with one special case: `stream2segment.process.SkipSegment`
+exceptions will be logged to file and the execution will resume from the next 
+segment. Raise them to programmatically skip a segment, e.g.:
+```
+if segment.sample_rate < 60: 
+    raise SkipSegment("segment sample rate too low")`
+```
 
-:param: segment (Python object): An object representing a waveform data to be processed,
-    reflecting the relative database table row. See above for a detailed list
-    of attributes and methods
+Handling exceptions at any point of the processing is non trivial: you might want
+the execution to skip a segment and continue smoothly, e.g., if its inventory is
+malformed and could not be read, but at the same time you want the routine to stop
+if your code has bugs, to let you fix them.
 
-:param: config (Python dict): a dictionary reflecting what has been implemented in the 
-    configuration file. You can write there whatever you want (in yaml format, e.g. 
-    "propertyname: 6.7" ) and it will be accessible as usual via `config['propertyname']`
+The first recommendation is to spend some time on the configuration file segment
+selection: you might find that your code runs smoothly and faster by simply
+skipping certain segments in the first place.
 
-:return: If the processing routine calling this function needs not to generate a file 
-    output, the returned value of this function, if given, will be ignored.
+Moreover, try to run your code on a smaller and possibly heterogeneous dataset
+first (change temporarily the segment selection in the configuration file). For any
+exception raised, if it is not a bug and you want to ignore the exception, then
+"try ... catch" the part of code affected, and re-raise a `SkipSegment`, which
+will log the exception to file.
+Still, be aware to not overuse `SkipSegment`s, they might hide code bugs and it's
+quite frustrating to find out that too many (or all) segments where mistakenly
+skipped. Therefore, in time consuming tasks, after everything is set, inspect the
+log file, especially at the beginning, to spot these problems in time.
+
+:param: segment (Python object): An object representing a waveform data to be
+    processed, reflecting the relative database table row. See above for a detailed
+    list of attributes and methods
+
+:param: config (Python dict): a dictionary reflecting what has been implemented in
+    the configuration file. You can write there whatever you want (in yaml format,
+    e.g. "propertyname: 6.7" ) and it will be accessible as usual via
+    `config['propertyname']`
+
+:return: If the processing routine calling this function needs not to generate a
+    file output, the returned value of this function, if given, will be ignored.
     Otherwise:
 
-    * For CSV output, this function must return an iterable that will be written as a row
-      of the resulting file (e.g. list, tuple, numpy array, dict. You must always return 
-      the same type of object, e.g. not lists or dicts conditionally).
+    * For CSV output, this function must return an iterable that will be written
+      as a row of the resulting file (e.g. list, tuple, numpy array, dict. You must
+      always return the same type of object, e.g. not lists or dicts conditionally).
 
-      Returning None or nothing is also valid: in this case the segment will be silently 
-      skipped
+      Returning None or nothing is also valid: in this case the segment will be
+      silently skipped
 
-      The CSV file will have a row header only if `dict`s are returned (the dict keys
-      will be the CSV header columns). For Python version < 3.6, if you want to preserve 
-      in the CSV the order of the dict keys as the were inserted, use `OrderedDict`.
+      The CSV file will have a row header only if `dict`s are returned (the dict
+      keys will be the CSV header columns). For Python version < 3.6, if you want
+      to preserve in the CSV the order of the dict keys as the were inserted, use
+      `OrderedDict`.
 
-      A column with the segment database id (an integer uniquely identifying the segment)
-      will be automatically inserted as first element of the iterable, before writing it 
-      to file.
+      A column with the segment database id (an integer uniquely identifying the
+      segment) will be automatically inserted as first element of the iterable, 
+      before writing it to file.
 
-      SUPPORTED TYPES as elements of the returned iterable: any Python object, but we
-      suggest to use only strings or numbers: any other object will be converted to 
-      string via `str(object)`: if this is not what you want, convert it to the numeric 
-      or string representation of your choice. E.g., for Python `datetime`s you might 
-      want to set `datetime.isoformat()` (string), for ObsPy's `UTCDateTime`s 
+      SUPPORTED TYPES as elements of the returned iterable: any Python object, but
+      we suggest to use only strings or numbers: any other object will be converted
+      to string via `str(object)`: if this is not what you want, convert it to the
+      numeric or string representation of your choice. E.g., for Python `datetime`s
+      you might want to set `datetime.isoformat()` (string), for ObsPy `UTCDateTime`s
       `float(utcdatetime)` (numeric)
 
-   * For HDF output, this function must return a dict, pandas Series or pandas DataFrame
-     that will be written as a row of the resulting file (or rows, in case of DataFrame).
+   * For HDF output, this function must return a dict, pandas Series or pandas
+     DataFrame that will be written as a row of the resulting file (or rows, in case
+     of DataFrame).
 
-     Returning None or nothing is also valid: in this case the segment will be silently 
-     skipped.
+     Returning None or nothing is also valid: in this case the segment will be
+     silently skipped.
 
-     A column named '{1}' with the segment database id (an integer uniquely identifying
-     the segment) will be automatically added to the dict / Series, or to each row of the
-     DataFrame, before writing it to file.
+     A column named '{0}' with the segment database id (an integer uniquely
+     identifying the segment) will be automatically added to the dict / Series, or
+     to each row of the DataFrame, before writing it to file.
 
      SUPPORTED TYPES as elements of the returned dict/Series/DataFrame: all types 
      supported by pandas: 
@@ -279,50 +300,54 @@ IMPORTANT: {0}
      https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.read_hdf.html
      https://pandas.pydata.org/pandas-docs/stable/user_guide/io.html#io-hdf5
 
-""".format(_PROCESS_EXCEPTIONS_POLICY, SEGMENT_ID_COLNAME)
+""".format(SEGMENT_ID_COLNAME)
 
 PROCESS_PY_MAIN = """
-===================================================================================
-stream2segment Python file for the processing/visualization subroutines: User guide
-===================================================================================
+==========================================================
+Stream2segment processing+visualization module: User guide
+==========================================================
 
-This module needs to implement one or more functions which will be described in the 
-sections below. **All these functions must have the same signature**:
-```
-    def myfunction(segment, config):
-```
-where `segment` is the Python object representing a waveform data segment to be processed
-and `config` is the Python dictionary representing the given configuration file.
+This editable module implements the necessary code to process and visualize
+downloaded data in a web Graphical User Interface (GUI). Edit this file and
+pass its path `<module_path>` to the following commands from the terminal:
 
-After editing this file, you can pass its path to the commands `s2s process` and 
-`s2s show` (option `-p` / `--pyfile`. Type `s2s process --help` or `s2s show --help` for 
-details).
-In the first case, see section 'Processing' below, otherwise see section
-'Visualization (web GUI)'.
+`s2s process -p <module_path> -c <config_path>`  (data processing)
+`s2s show -p <module_path> -c <config_path>`     (data visualization / web GUI)
+
+(`s2s process --help` or `s2s show --help` for details. <config_path> is the
+path of the associated a configuration file in YAML format).
+
+You can also split visualization and process routines in two different Python
+modules (the current single implementation is just for convenience), providing
+in each single file the requirements described below.
 
 
 Processing
 ==========
 
-When processing, the program will search for a function called "main", e.g.:
+When processing, Stream2segment will search for a function called "main", e.g.:
 ```
 def main(segment, config)
 ```
-the program will iterate over each selected segment (according to 'segment_select'
-parameter in the config) and execute the function, writing its output to the given file,
-if given. If you do not need to use this module for visualizing stuff, skip the section
-'Visualization' below and go to "Functions implementation".
+and execute the function on each selected segment (according to 'segment_select'
+parameter in the config). See the function docstring of this module for implementation
+details.
 
 
 Visualization (web GUI)
 =======================
 
-When visualizing, the program will fetch all segments (according
-to 'segment_select' parameter in the config), and open a web page where the user can
-browse and visualize each segment one at a time.
-The page shows by default on the upper left corner a plot representing the segment 
-trace(s). The GUI can be customized by providing here functions decorated with
-"@gui.preprocess" (pre-process function) or "@gui.plot" (plot function).
+When visualizing, Stream2segment will fetch all segments (according to 'segment_select'
+parameter in the config), and open a web page where the user can browse and visualize 
+each segment. The page shows a plot representing the segment trace(s) and its metadata.
+In addition, Stream2segment will search for all module functions with signature:
+```
+def function_name(segment, config)
+```
+and decorated with either "@gui.preprocess" (pre-process function) or "@gui.plot" (plot
+function), to display custom widgets and plots on the page (see below). Note that during
+visualization any Exception raised anywhere in the code will be caught and its message 
+displayed on the plot
 
 Pre-process function
 --------------------
@@ -385,65 +410,29 @@ successive equally spaced points (x values) in any of these forms:
   name to be displayed on the plot legend (and will override the 'label' argument, if
   provided)
 
-Functions implementation
-========================
-
-The implementation of the functions is user-dependent. As said, all functions needed for
-processing and visualization must have the same signature:
-```
-    def myfunction(segment, config):
-```
-
-any Exception raised will be handled this way:
-
-* if the function is called for visualization: the exception will be caught and its
-  message displayed on the plot
-
-* if the function is called for processing: """ + \
-                  _PROCESS_EXCEPTIONS_POLICY.replace("\n", "\n  ")
-
-PROCESS_PY_MAIN += """
-Conventions and suggestions
----------------------------
-
-Handling exceptions at any point of the processing is non trivial: you might want the 
-execution to skip a segment and continue smoothly, e.g., if its inventory is malformed
-and could not be read, but at the same time you want the routine to stop if your code has
-bugs, to let you fix them.
-
-We therefore suggest to run your code on a smaller and possibly heterogeneous dataset
-first (change temporarily the segment selection in the configuration file). For any 
-exception raised, if it is not a bug and you want to ignore the exception, then 
-"try ... catch" the part of code affected, and re-raise a `SkipSegment`, which will log 
-the exception to file.
-However, do not overuse `SkipSegment`s in your code, it might hide code bugs and it's 
-quite frustrating to find out that too many (or all) segments where mistakenly skipped.
-Therefore, in time consuming tasks, try to inspect the log file, especially at the
-beginning, to spot these problems in time.
-
-Spend some time on the configuration file segment selection: you might find that your
-code runs smoothly and faster by simply skipping certain segments in the first place.
-
-This module is designed to encourage the decoupling of code and configuration. Avoid 
-having e.g., several almost identical Python modules which differ only for a small set of
-hard coded parameters: implement a single Python module and write different parameter 
-sets in several YAML configurations in case.
-
 
 Functions arguments
--------------------
+===================
+
+As described above, all functions needed for processing and visualization must have the
+same signature, i.e. they accepts the same arguments `(segment, config)` (in this order).
 
 config (dict)
 ~~~~~~~~~~~~~
 
-This is the dictionary representing the chosen configuration file (usually, via command
-line) in YAML format (see documentation therein). Any property defined in the
-configuration file, e.g.:
+This is the dictionary representing the chosen configuration file, in YAML format.
+Any property defined in the file, e.g.:
 ```
 outfile: '/home/mydir/root'
 mythreshold: 5.67
 ```
-will be accessible via `config['outfile']`, `config['mythreshold']`
+will be accessible via `config['outfile']`, `config['mythreshold']`.
+
+The purpose of the `config` is to encourage decoupling of code and configuration for
+better and more maintainable code: try to avoid many similar Python modules differing 
+by few hard-coded parameters. Try instead to implement a single Python module
+with the program functionality, and put those parameters in different config YAML
+files to run the same module in different scenarios.
 
 segment (object)
 ~~~~~~~~~~~~~~~~
@@ -553,7 +542,7 @@ NOTE: **this file is written in YAML syntax**, which uses Python-style indentati
 
 PROCESS_YAML_MAIN = """
 ==========================================================================
-# stream2segment config file to tune the processing/visualization subroutine
+# Stream2segment config file to tune the processing/visualization subroutine
 # ==========================================================================
 #
 # This editable template defines the configuration parameters which will

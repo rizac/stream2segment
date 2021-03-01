@@ -1,12 +1,9 @@
-'''
-This editable template shows how to save raw and pre-processed segments from the database
-on the file system. Files will be saved as miniSEED in a seiscomp3-compatible directory structure
-under a user-defined root directory (defined in the associated configuration file).
-When used for visualization, this template implements a pre-processing function that
-can be toggled with a checkbox from within the GUI, and no additional custom plot
+"""
+Stream2segment processing+visualization module saving raw and pre-processed segments
+from the database on the file system.
 
 {{ PROCESS_PY_MAIN }}
-'''
+"""
 
 from __future__ import division
 
