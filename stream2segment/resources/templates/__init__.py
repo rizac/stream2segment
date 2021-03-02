@@ -182,7 +182,7 @@ PROCESS_PY_BANDPASSFUNC = """
 Apply a pre-process on the given segment waveform by filtering the signal and
 removing the instrumental response. 
 
-This function is used for processing (see `main` function) and plots visualization
+This function is used for processing (see `main` function) and visualization
 (see the `@gui.preprocess` decorator and its documentation above)
 
 The steps performed are:
@@ -226,24 +226,17 @@ if segment.sample_rate < 60:
     raise SkipSegment("segment sample rate too low")`
 ```
 
-Handling exceptions at any point of the processing is non trivial: you might want
-the execution to skip a segment and continue smoothly, e.g., if its inventory is
-malformed and could not be read, but at the same time you want the routine to stop
-if your code has bugs, to let you fix them.
-
-The first recommendation is to spend some time on the configuration file segment
-selection: you might find that your code runs smoothly and faster by simply
-skipping certain segments in the first place.
-
-Moreover, try to run your code on a smaller and possibly heterogeneous dataset
-first (change temporarily the segment selection in the configuration file). For any
-exception raised, if it is not a bug and you want to ignore the exception, then
-"try ... catch" the part of code affected, and re-raise a `SkipSegment`, which
-will log the exception to file.
-Still, be aware to not overuse `SkipSegment`s, they might hide code bugs and it's
-quite frustrating to find out that too many (or all) segments where mistakenly
-skipped. Therefore, in time consuming tasks, after everything is set, inspect the
-log file, especially at the beginning, to spot these problems in time.
+Handling exceptions at any point of the processing is non trivial: some have to
+be skipped to save precious time, some must not be ignored and should interrupt 
+the routine to fix bugs preventing output mistakes.
+Therefore, we recommend to try to run your code on a smaller and possibly 
+heterogeneous dataset first: change temporarily the segment selection in the
+configuration file, and then analyze any exception raised, if you want to ignore 
+the exception (e.g., it's not due to a bug in your code), then you can wrap only 
+the part of code affected in a “try ... catch" statement, and raise a `SkipSegment`.
+Also, please spend some time on the configuration file segment selection: you might
+find that your code runs smoothly and faster by simply skipping certain segments in 
+the first place.
 
 :param: segment (Python object): An object representing a waveform data to be
     processed, reflecting the relative database table row. See above for a detailed
@@ -307,19 +300,19 @@ PROCESS_PY_MAIN = """
 Stream2segment processing+visualization module: User guide
 ==========================================================
 
-This editable module implements the necessary code to process and visualize
-downloaded data in a web Graphical User Interface (GUI). Edit this file and
-pass its path `<module_path>` to the following commands from the terminal:
+The module implements the necessary code to process and visualize downloaded data
+in a web Graphical User Interface (GUI). Edit this file and pass its path 
+`<module_path>` to the following commands from the terminal:
 
 `s2s process -p <module_path> -c <config_path>`  (data processing)
+
 `s2s show -p <module_path> -c <config_path>`     (data visualization / web GUI)
 
-(`s2s process --help` or `s2s show --help` for details. <config_path> is the
-path of the associated a configuration file in YAML format).
-
-You can also split visualization and process routines in two different Python
-modules (the current single implementation is just for convenience), providing
-in each single file the requirements described below.
+You can always type `s2s process --help` or `s2s show --help` for details
+(`<config_path>` is the path of the associated a configuration file in YAML 
+format). You can also separate visualization and process routines in two different
+Python modules, as long as in each single file the requirements described below 
+are provided.
 
 
 Processing
@@ -337,17 +330,20 @@ details.
 Visualization (web GUI)
 =======================
 
-When visualizing, Stream2segment will fetch all segments (according to 'segment_select'
-parameter in the config), and open a web page where the user can browse and visualize 
-each segment. The page shows a plot representing the segment trace(s) and its metadata.
-In addition, Stream2segment will search for all module functions with signature:
+When visualizing, Stream2segment will open a web page where the user can browse 
+and visualize the data. Contrarily to the processing, the `show` command can be
+invoked with no argument: this will show by default all database segments, 
+their metadata and a plot of their raw waveform (main plot).
+When `show` is invoked with module and config files, Stream2segment will fetch
+all segments (according to 'segment_select' parameter in the config) and search
+for all module functions with signature:
 ```
 def function_name(segment, config)
 ```
-and decorated with either "@gui.preprocess" (pre-process function) or "@gui.plot" (plot
-function), to display custom widgets and plots on the page (see below). Note that during
-visualization any Exception raised anywhere in the code will be caught and its message 
-displayed on the plot
+and decorated with either "@gui.preprocess" or "@gui.plot". In the former case,
+the function will be recognized as pre-process function, in all other cases, the
+functions will be recognized as plot functions. Note that any Exception raised 
+anywhere by any function will be caught and its message displayed on the plot.
 
 Pre-process function
 --------------------
@@ -364,14 +360,14 @@ which **must thus return an ObsPy Stream or Trace object**.
 Plot functions
 --------------
 
-The function decorated with "@gui.plot", e.g.:
+The functions decorated with "@gui.plot", e.g.:
 ```
 @gui.plot
 def cumulative(segment, config)
 ...
 ```
-will be associated to (i.e., its output will be displayed in) the plot below the main 
-plot. You can also call @gui.plot with arguments, e.g.:
+will be associated to (i.e., its output will be displayed in) the plot below 
+the main plot. You can also call @gui.plot with arguments, e.g.:
 ```
 @gui.plot(position='r', xaxis={'type': 'log'}, yaxis={'type': 'log'})
 def spectra(segment, config)
