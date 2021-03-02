@@ -418,7 +418,7 @@ As described above, all functions needed for processing and visualization must h
 same signature, i.e. they accepts the same arguments `(segment, config)` (in this order).
 
 config (dict)
-~~~~~~~~~~~~~
+-------------
 
 This is the dictionary representing the chosen configuration file, in YAML format.
 Any property defined in the file, e.g.:
@@ -435,7 +435,7 @@ with the program functionality, and put those parameters in different config YAM
 files to run the same module in different scenarios.
 
 segment (object)
-~~~~~~~~~~~~~~~~
+----------------
 
 Technically it's like an 'SqlAlchemy` ORM instance but for the user it is enough to
 consider and treat it as a normal Python object. It features special methods and
@@ -443,8 +443,7 @@ several attributes returning Python "scalars" (float, int, str, bool, datetime, 
 Each attribute can be considered as segment metadata: it reflects a segment column
 (or an associated database table via a foreign key) and returns the relative value.
 
-segment methods:
-----------------
+### segment methods: ###
 
 * segment.stream(reload=False): the `obspy.Stream` object representing the waveform data
   associated to the segment. Please remember that many ObsPy functions modify the
@@ -475,7 +474,7 @@ segment methods:
 * segment.inventory(reload=False): the `obspy.core.inventory.inventory.Inventory`.
   This object is useful e.g., for removing the instrumental response from
   `segment.stream()`: note that it will be available only if the inventories in xml
-  format were downloaded in the downloaded subroutine. As for `stream`, you can also pass
+  format were downloaded (by default, they are). As for `stream`, you can also pass
   a boolean value (False by default when missing) to `inventory` to force reloading it
   from the database.
 
@@ -528,8 +527,7 @@ segment methods:
   you probably want to import stream2segment in custom code. See the github documentation
   in case
 
-segment attributes:
--------------------
+### segment attributes ###
 
 """ + _SEGMENT_ATTRS
 
