@@ -904,5 +904,7 @@ def load_config_for_process(dburl, pyfile, funcname=None, config=None,
             raise BadArgument('outfile', exc)
 
     # nothing more to process
-    return session, pyfunc, funcname, config, multi_process, chunksize,\
+    segment_selection = config.get('segment_selection', config.get('segment_select', {}))
+
+    return session, pyfunc, funcname, config, segment_selection, chunksize,\
         tuple(exceptions)

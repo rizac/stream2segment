@@ -322,7 +322,7 @@ When processing, Stream2segment will search for a function called "main", e.g.:
 ```
 def main(segment, config)
 ```
-and execute the function on each selected segment (according to 'segment_select'
+and execute the function on each selected segment (according to 'segment_selection'
 parameter in the config). See the function docstring of this module for implementation
 details.
 
@@ -335,7 +335,7 @@ and visualize the data. Contrarily to the processing, the `show` command can be
 invoked with no argument: this will show by default all database segments, 
 their metadata and a plot of their raw waveform (main plot).
 When `show` is invoked with module and config files, Stream2segment will fetch
-all segments (according to 'segment_select' parameter in the config) and search
+all segments (according to 'segment_selection' parameter in the config) and search
 for all module functions with signature:
 ```
 def function_name(segment, config)
@@ -484,7 +484,7 @@ Each attribute can be considered as segment metadata: it reflects a segment colu
   - 'datacenter', 'event', 'station', 'channel': returns all segments of the same
     datacenter, event, station or channel, all identified by the associated database id.
   `condition` is a dict of expression to filter the returned element. the argument
-  `config['segment_select]` can be passed here to return only siblings selected for
+  `config['segment_selection']` can be passed here to return only siblings selected for
   processing. NOTE: Use with care when providing a `parent` argument, as the amount of
   segments might be huge (up to hundreds of thousands of segments). The amount of
   returned segments is increasing (non linearly) according to the following order of the
@@ -543,7 +543,7 @@ PROCESS_YAML_MAIN = """
 # be accessible in the associated processing / visualization Python file.
 #
 # You are free to implement here anything you need: there are no mandatory parameters but
-# we strongly suggest to keep 'segment_select' and 'sn_windows', which add also special 
+# we strongly suggest to keep 'segment_selection' and 'sn_windows', which add also special 
 # features to the GUI.
 """
 
@@ -552,13 +552,13 @@ _SEGMENT_ATTRS_YAML = "\n# ".join(s[8:] for s in _SEGMENT_ATTRS.splitlines())
 
 
 PROCESS_YAML_SEGMENTSELECT = """
-The parameter 'segment_select' defines which segments to be processed or visualized.
+The parameter 'segment_selection' defines which segments to be processed or visualized.
 # PLEASE USE THIS PARAMETER. If missing, all segments will be loaded, including segment
 # with no (or malformed) waveform data: this is in practically always useless and slows
 # down considerably the processing or visualization routine. The selection is made via
 # the list-like argument:
 #
-# segment_select:
+# segment_selection:
 #   <att>: "<expression>"
 #   <att>: "<expression>"
 #   ...
@@ -567,27 +567,27 @@ The parameter 'segment_select' defines which segments to be processed or visuali
 # string expression. Example:
 #
 # 1. To select and work on segments with downloaded data (at least one byte of data):
-# segment_select:
+# segment_selection:
 #   has_data: "true"
 #
 # 2. To select and work on segments of stations activated in 2017 only:
-# segment_select:
+# segment_selection:
 #   station.start_time: "[2017-01-01, 2018-01-01T00:00:00)"
 # (brackets denote intervals. Square brackets include end-points, round brackets exclude
 # endpoints)
 #
 # 3. To select segments from specified ids, e.g. 1, 4, 342, 67 (e.g., ids which raised
 # errors during a previous run and whose id where logged might need inspection in the GUI):
-# segment_select:
+# segment_selection:
 #   id: "1 4 342 67"
 #
 # 4. To select segments whose event magnitude is greater than 4.2:
-# segment_select:
+# segment_selection:
 #   event.magnitude: ">4.2"
 # (the same way work the operators: =, >=, <=, <, !=)
 #
 # 5. To select segments with a particular channel sensor description:
-# segment_select:
+# segment_selection:
 #   channel.sensor_description: "'GURALP CMG-40T-30S'"
 # (note: for attributes with str values and spaces, we need to quote twice, as otherwise
 # "GURALP CMG-40T-30S" would match 'GURALP' and 'CMG-40T-30S', but not the whole string.

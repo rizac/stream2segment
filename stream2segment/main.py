@@ -276,9 +276,10 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None,
     # process to finish
 
     # checks dic values (modify in place) and returns dic value(s) needed here:
-    session, pyfunc, funcname, config_dict, multi_process, chunksize, \
-        safe_exceptions = load_config_for_process(dburl, pyfile, funcname, config,
-                                                  outfile, **param_overrides)
+    session, pyfunc, funcname, config_dict, segment_selection, multi_process, \
+        chunksize, safe_exceptions = load_config_for_process(dburl, pyfile, funcname,
+                                                             config, outfile,
+                                                             **param_overrides)
 
     if log2file is True:
         log2file = logfilepath(outfile or pyfile)  # auto create log file
@@ -302,7 +303,7 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None,
             get('writer_options', {})
         run_process(session, pyfunc, get_writer(outfile, append,
                                                 writer_options),
-                    config_dict, safe_exceptions, False,
+                    config_dict, segment_selection, safe_exceptions, False,
                     verbose, multi_process, chunksize)
         logger.info("Completed in %s", str(elapsedtime(stime)))
         return 0  # contrarily to download, an exception should always raise

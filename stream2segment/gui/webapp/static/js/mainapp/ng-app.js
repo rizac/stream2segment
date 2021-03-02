@@ -105,7 +105,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	};
 	
 	$scope.selectSegments = function(selExprObject){
-		// sets selExprObject as 'segment_select' in the config, and refreshes the
+		// sets selExprObject as 'segment_selection' in the config, and refreshes the
 		// current view with the first of such selected segments.
 		// If the argument is undefined, the current selection on the server config
 		// is used

@@ -29,7 +29,7 @@ from stream2segment.process.math.traces import sn_split
 # number of points per plot. Used to resample points:
 NPTS_WIDE = 900  # FIXME: automatic retrieve from the GUI?
 NPTS_SHORT = 900  # FIXME: see above
-# segment_select parameter name in cofnig:
+# segment_selection parameter name in config:
 SEL_STR = 'segment_select'
 
 
@@ -112,7 +112,7 @@ def init(app, dbpath, pyfile=None, configfile=None):
 
 def get_segments_count(segselect=None):
     """Compute the segment count to be shown according if the given
-    `segment_select` is given (dict), and returns the number if block=True
+    `segment_selection` is given (dict), and returns the number if block=True
     otherwise returns None
     """
     if segselect is not None:
@@ -161,7 +161,7 @@ def get_init_data(metadata=True, classes=True):
 
 def get_config(asstr=False):
     """Returns the current config as YAML formatted string (if `asstr` is True)
-    or as dict. In the former case, the parameter SEL_STR ('segment_select')
+    or as dict. In the former case, the parameter SEL_STR ('segment_selection')
     is not included, becaue the configuration is itnended to be displayed in a
     browser editor (and the 'segment selection is handled separately in
     another form dialog)
@@ -178,7 +178,7 @@ def get_config(asstr=False):
 
 def validate_config_str(string_data):
     """Validates the YAML formatted string and returns the corresponding
-    Python dict. Raises ValueError if SEL_STR ('segment_select') is in the
+    Python dict. Raises ValueError if SEL_STR ('segment_selection') is in the
     parsed config (there is a dedicated button in the page)
     """
     sio = StringIO(string_data)
@@ -191,14 +191,14 @@ def validate_config_str(string_data):
 
 def get_select_conditions():
     """Return a dict representing the current select conditions (parameter
-    'segment_select' of the YAML file)
+    'segment_selection' of the YAML file)
     """
     return dict(g_config[SEL_STR])
 
 
 def set_select_conditions(newdict):
     """Set a new a dict representing the current select conditions (parameter
-    'segment_select' of the YAML file)
+    'segment_selection' of the YAML file)
 
     :param newdict: a dict of new select expressions all in str format
     """

@@ -61,7 +61,7 @@ def get_segments_count(conditions):
     _segments_count
 
     :param conditions: dict of selection expressions usually resulting from the
-        'segment_select' parameter in the YAML config)
+        'segment_selection' parameter in the YAML config)
     """
     session = get_session()
     return _query4gui(session.query(func.count(Segment.id)),

@@ -52,9 +52,9 @@ logger = logging.getLogger(__name__)
 # 4. Python multiprocessing with RDBMS queries
 
 
-def run(session, pyfunc, writer, config=None, safe_exceptions=tuple(),
-        yield_safe_exceptions=False, show_progress=False, multi_process=False,
-        chunksize=None):
+def run(session, pyfunc, writer, config=None, segment_selection=None,
+        safe_exceptions=tuple(), yield_safe_exceptions=False, show_progress=False,
+        multi_process=False, chunksize=None):
     """Run `pyfunc` according to the given `config`, outputting result to `writer`
 
     :param session: the SQLAlchemy database session
@@ -66,7 +66,7 @@ def run(session, pyfunc, writer, config=None, safe_exceptions=tuple(),
         See :module:`stream2segment.process.writers`
     :param config: dict of configuration parameters, usually the result of an associated
         YAML configuration file, to be passed as second argument of `pyfunc`. The
-        parameter "segment_select" inside the `config` will be used to select the
+        parameter "segment_selection" inside the `config` will be used to select the
         segments to process (if not given, all segments will be processed)
     :param show_progress: (boolean, default False) whether or not to show progress bar
         and other info (e.g. remaining time, successfully processed segments) on the
@@ -74,8 +74,9 @@ def run(session, pyfunc, writer, config=None, safe_exceptions=tuple(),
     """
     if config is None:
         config = {}
+    if segment_selection is None:
+        segment_selection = {}
 
-    segment_selection = config.get('segment_select', {})
     seg_ids = fetch_segments_ids(session, segment_selection, writer)
     written = 0
 
