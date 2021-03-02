@@ -622,7 +622,7 @@ PROCESS_YAML_ADVANCEDSETTINGS = """
 Advanced settings tuning the process routine:
 advanced_settings:
   # Use parallel sub-processes to speed up the execution (true or false). Advanced users
-  # can also provide a numeric value > 0 to set directly the Pool processes 
+  # can also provide a numeric value > 0 to tune the number of processes in the Pool 
   # (https://docs.python.org/3/library/multiprocessing.html#module-multiprocessing.pool)
   multi_process: false
   # Set the size, in number of segments, of each chunk of data that will be loaded from 

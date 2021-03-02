@@ -26,7 +26,7 @@ from stream2segment.main import configlog4download as o_configlog4download,\
     new_db_download as o_new_db_download, configlog4processing as o_configlog4processing, \
     process as o_process, download as o_download
 from stream2segment.utils.inputargs import get_session as o_get_session, \
-    nslc_param_value_aslist
+    nslc_param_value_aslist, load_config_for_process
 from stream2segment.io.db.models import Download
 from stream2segment.utils import secure_dburl
 from stream2segment.utils.resources import get_templates_fpath, yaml_load, get_templates_fpaths
@@ -621,6 +621,25 @@ def test_process_bad_types(pytestdir):
     assert result.exit_code != 0
     assert msgin('Error: Invalid value for "config"', result.output)
 
+    # test an old python module without the SkipSegment import
+    with open(p_py_file) as _:
+        content =  _.read()
+    import_statement = 'from stream2segment.process import gui, SkipSegment'
+    assert import_statement in content
+    content = content.replace(import_statement,
+                              "from stream2segment.process import gui")
+    assert import_statement not in content
+    p_py_file2 = pytestdir.newfile(".py", True)
+    with open(p_py_file2, 'wt') as _:
+        _.write(content)
+
+    result = CliRunner().invoke(cli, ['process', '-c', p_yaml_file,
+                                      '-p', p_py_file2,
+                                      '-d', "sqlite://"])
+    assert result.exit_code != 0
+    assert msgin('Invalid value for "pyfile": the module seems to be outdated.',
+                 result.output)
+
 
 @patch('stream2segment.utils.inputargs.get_session')
 @patch('stream2segment.main.closesession')
@@ -876,3 +895,26 @@ def test_nslc_param_value_aslist_locations(val, exp_value):
                 nslc_param_value_aslist(val)
         else:
             assert nslc_param_value_aslist(val) == exp_value
+
+@pytest.mark.parametrize('adv_set, exp_multiprocess_value',
+                         [({'multi_process': True, 'num_processes': 4}, 4),
+                          ({'multi_process': False, 'num_processes': 4}, False),
+                          ({'multi_process': 3, 'num_processes': 4}, 3),
+                          ])
+def test_processing_advanced_settings_num_processes(adv_set,
+                                                    exp_multiprocess_value):
+    """Test old and new multi_process ploicy in advanced_settings
+    (before: two params, multi_process and num_propcesses, now single
+    param multi_process accepting bool or int
+    """
+    p_yaml_file, p_py_file = \
+        get_templates_fpaths("paramtable.yaml", "paramtable.py")
+
+
+    session, pyfunc, funcname, config_dict, multi_process, chunksize, \
+        safe_exceptions = load_config_for_process("sqlite:///",
+                                                  p_py_file, None,
+                                                  config=p_yaml_file,
+                                                  outfile=None,
+                                                  advanced_settings=adv_set)
+    assert exp_multiprocess_value == multi_process

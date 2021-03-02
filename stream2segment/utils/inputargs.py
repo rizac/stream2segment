@@ -6,9 +6,11 @@ the command line interface (cli), e.g. download and process.
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
+import inspect
 import os
 # import sys
 # import re
+import sys
 from datetime import datetime, timedelta
 from itertools import chain
 import importlib
@@ -776,6 +778,15 @@ def load_pyfunc(pyfile, funcname):
         raise Exception('file does not exist')
 
     pymoduledict = load_source(pyfile).__dict__
+
+    # check for new style module: SkipSegment instead of ValueError
+    if 'SkipSegment' not in pymoduledict:
+        raise ValueError('The module seems to be outdated. You need to import '
+                         'SkipSegment\n("from stream2segment.process import '
+                         'SkipSegment") and check your code:\nevery time you '
+                         'write "raise ValueError(..." to skip a segment, replace'
+                         'it with "raise SkipSegment(..."')
+
     if funcname not in pymoduledict:
         raise Exception('function "%s" not found in %s' %
                         (str(funcname), pyfile))
