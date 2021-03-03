@@ -869,20 +869,16 @@ def load_config_for_process(dburl, pyfile, funcname=None, config=None,
     from `config` which must denote a path to a yaml file, or None (config_dict
     will be empty in this latter case)
     """
-    try:
-        session = get_session(dburl, for_process=True)
-    except Exception as exc:
-        raise BadArgument('dburl', exc)
+    session = validate_param("dburl", dburl, get_session, for_process=True)
+    funcname = validate_param("funcname", funcname, get_funcname)
+    pyfunc = validate_param("pyfile", pyfile, load_pyfunc, funcname)
+    config = validate_param("config", config or {}, yaml_load, **param_overrides)
+    if outfile is not None:
+        validate_param('outfile', outfile, filewritable)
+        # (ignore return value of filewritable: it's outfile, we already have it)
+    seg_sel = extract_segments_selection(config)
 
     try:
-        funcname = get_funcname(funcname)
-    except Exception as exc:
-        raise BadArgument('funcname', exc)
-
-    try:
-        # yaml_load accepts a file name or a dict
-        config = yaml_load({} if config is None else config, **param_overrides)
-
         adv_settings = config.get('advanced_settings', {})  # dict
         multi_process = adv_settings.get('multi_process', False)
         # the number of Pool processes can now be set directly to multi_process (which
@@ -909,51 +905,18 @@ def load_config_for_process(dburl, pyfile, funcname=None, config=None,
                                  'null or positive int')
 
     except Exception as exc:
-        raise BadArgument('config', exc)
+        raise BadArgument('config.advanced_settings', exc)
 
-    # NOTE: contrarily to the download routine, we cannot check the types of
-    # the config because no parameter is mandatory, and thus they might NOT be
-    # present in the config.
-
-    try:
-        pyfunc = load_pyfunc(pyfile, funcname)
-    except Exception as exc:
-        raise BadArgument('pyfile', exc)
-
-    if outfile is not None:
-        try:
-            filewritable(outfile)
-        except Exception as exc:
-            raise BadArgument('outfile', exc)
-
-    # nothing more to process
-    seg_selection = config.get('segment_selection', config.get('segment_select', {}))
-
-    return session, pyfunc, funcname, config, seg_selection, multi_process, chunksize
+    return session, pyfunc, funcname, config, seg_sel, multi_process, chunksize
 
 
 def load_config_for_visualization(dburl, pyfile=None, config=None):
-    """Check visualization arguments. Returns the tuple session, pyfunc, config_dict
+    """Check visualization arguments and return a tuple of well formed args.
+    Raise BadArgument
     """
     session = validate_param('dburl', dburl, get_session, for_process=True, scoped=True)
-    # try:
-    #     session = get_session(dburl, for_process=True, scoped=True)
-    # except Exception as exc:
-    #     raise BadArgument('dburl', exc)
-
     pymodule = None if not pyfile else validate_param('pyfile', pyfile, load_source)
-    # try:
-    #     pymodule = None if not pyfile else load_source(pyfile)
-    # except Exception as exc:
-    #     raise BadArgument('pyfile', exc)
-
     config_dict = {} if not config else validate_param('configfile', config, yaml_load)
-    # try:
-    #     # yaml_load accepts a file name or a dict
-    #     config_dict = yaml_load({} if config is None else config)
-    # except Exception as exc:
-    #     raise BadArgument('config', exc)
-
     seg_sel = extract_segments_selection(config_dict)
 
     return session, pymodule, config_dict, seg_sel
