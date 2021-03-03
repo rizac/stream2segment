@@ -591,7 +591,7 @@ def check_search_radius(search_radius):
     return search_radius
 
 
-def load_config_for_download(config, validate_keys, **param_overrides):
+def load_config_for_download(config, validate_dict, **param_overrides):
     """Load download arguments from the given config (yaml file or dict) after
     parsing and checking some of the dict keys.
 
@@ -603,7 +603,7 @@ def load_config_for_download(config, validate_keys, **param_overrides):
     """
     config_dict = validate_param("config", config, yaml_load, **param_overrides)
 
-    if validate_keys:
+    if validate_dict:
         # few variables:
         configfile = None
         if isinstance(config, string_types) and os.path.isfile(config):
