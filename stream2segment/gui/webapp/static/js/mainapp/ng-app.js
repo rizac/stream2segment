@@ -105,15 +105,15 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	};
 	
 	$scope.selectSegments = function(selExprObject){
-		// sets selExprObject as 'segment_selection' in the config, and refreshes the
+		// sets selExprObject as 'segments_selection' in the config, and refreshes the
 		// current view with the first of such selected segments.
 		// If the argument is undefined, the current selection on the server config
 		// is used
 		if (typeof selExprObject === 'object'){
-			var data = {segment_select: selExprObject};
+			var data = {segments_selection: selExprObject};
 			var selectionEmpty = Object.keys(selExprObject).length == 0;
 		}else{
-			var data = {segment_select: null};
+			var data = {segments_selection: null};
 			var selectionEmpty = false;
 		}
 		$scope.setLoading("Selecting segments (please wait, it might take a while for large databases)");
@@ -160,8 +160,8 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		if ($scope.config.showForm){
 			return;
 		}
-		$scope.setLoading("Fetching config");
-		$http.post("/get_config", {asstr: false}, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
+		$scope.setLoading("Fetching selection");
+		$http.post("/get_selection", {}, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
 		    $scope.setLoading("");
 		    var errMsg = response.data.error_msg || '';
 		    if (errMsg){
@@ -169,7 +169,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		        return false;
 		    }
 		    $scope.selection.selExpr = {};
-		    var segSelect = response.data.data.segment_select;
+		    var segSelect = response.data.data;
 		    for (var key of Object.keys(segSelect || {})){
 		    	$scope.selection.selExpr[key] = segSelect[key];
 		    }

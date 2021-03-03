@@ -47,6 +47,14 @@ def get_config():
         return jsonify({'error_msg': str(exc), 'data': {}})
 
 
+@main_app.route("/get_selection", methods=['POST'])
+def get_selection():
+    try:
+        return jsonify({'error_msg': '', 'data': core.get_select_conditions()})
+    except Exception as exc:  # pylint: disable=broad-except
+        return jsonify({'error_msg': str(exc), 'data': {}})
+
+
 @main_app.route("/validate_config_str", methods=['POST'])
 def validate_config_str():
     data = request.get_json()
@@ -61,7 +69,7 @@ def validate_config_str():
 def set_selection():
     try:
         data = request.get_json()
-        seg_select = data.get('segment_select', None)
+        seg_select = data.get('segments_selection', None)
         num_segments = core.get_segments_count(seg_select)
         return jsonify({'num_segments': num_segments, 'error_msg': ''})
 

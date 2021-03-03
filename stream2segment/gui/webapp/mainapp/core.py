@@ -29,23 +29,15 @@ from stream2segment.process.math.traces import sn_split
 # number of points per plot. Used to resample points:
 NPTS_WIDE = 900  # FIXME: automatic retrieve from the GUI?
 NPTS_SHORT = 900  # FIXME: see above
-# segment_selection parameter name in config:
-SEL_STR = 'segment_select'
-
 
 # Note that the use of global variables like this should be investigted
 # in production (which is not the intended goal of the web GUI for the moment):
 
 
-g_config = {  # pylint: disable=invalid-name
-    SEL_STR: {}
-}
+g_config = {}  # noqa
 
 
-def _reset_global_config():
-    """mainly used for testing purposes and within the init method"""
-    g_config.clear()
-    g_config[SEL_STR] = {}
+g_selection = {}
 
 
 def _default_preprocessfunc(segment, config):
@@ -76,16 +68,15 @@ def _reset_global_functions():
     del userdefined_plots[:]
 
 
-def init(app, dbpath, pyfile=None, configfile=None):
+def init(app, dbpath, pymodule=None, config=None, segments_selection=None):
     """Initialize global variables. This method must be called once
     after the Flask app has been created and before using it
     """
     db.init(app, dbpath)
 
-    if pyfile:
-        _pymodule = load_source(pyfile)
+    if pymodule:
         _reset_global_functions()
-        for function in iterfuncs(_pymodule):
+        for function in iterfuncs(pymodule):
             att, pos, xaxis, yaxis = gui.get_func_attrs(function)
             if att == 'gui.preprocess':
                 global _preprocessfunc  # noqa
@@ -103,16 +94,24 @@ def init(app, dbpath, pyfile=None, configfile=None):
                 )
                 g_functions.append(function)
 
-    if configfile:
-        with open(configfile) as _opn:
-            newconfig = yaml.safe_load(_opn)
-            _reset_global_config()
-            g_config.update(newconfig)
+    _reset_global_vars()
+
+    if config:
+        g_config.update(config)
+
+    if segments_selection:
+        g_selection.update(segments_selection)
+
+
+def _reset_global_vars():
+    """mainly used for testing purposes and within the init method"""
+    g_config.clear()
+    g_selection.clear()
 
 
 def get_segments_count(segselect=None):
     """Compute the segment count to be shown according if the given
-    `segment_selection` is given (dict), and returns the number if block=True
+    `segments_selection` is given (dict), and returns the number if block=True
     otherwise returns None
     """
     if segselect is not None:
@@ -161,15 +160,12 @@ def get_init_data(metadata=True, classes=True):
 
 def get_config(asstr=False):
     """Returns the current config as YAML formatted string (if `asstr` is True)
-    or as dict. In the former case, the parameter SEL_STR ('segment_selection')
-    is not included, becaue the configuration is itnended to be displayed in a
-    browser editor (and the 'segment selection is handled separately in
-    another form dialog)
+    or as dict. The returned value does not include the segments selection,
+    if given from the command line
     """
     config_dict = dict(g_config)
     if not asstr:
         return config_dict
-    config_dict.pop(SEL_STR, None)  # for safety
     if not config_dict:  # if dict is empty,
         # avoid returning: "{}\n", instead return emtpy string:
         return ''
@@ -178,32 +174,29 @@ def get_config(asstr=False):
 
 def validate_config_str(string_data):
     """Validates the YAML formatted string and returns the corresponding
-    Python dict. Raises ValueError if SEL_STR ('segment_selection') is in the
-    parsed config (there is a dedicated button in the page)
+    Python dict.
     """
     sio = StringIO(string_data)
     ret = yaml.safe_load(sio.getvalue())
-    if SEL_STR in ret:
-        raise ValueError('invalid parameter %s: use the dedicated button' %
-                         SEL_STR)
     return ret
 
 
 def get_select_conditions():
     """Return a dict representing the current select conditions (parameter
-    'segment_selection' of the YAML file)
+    'segments_selection' of the YAML file)
     """
-    return dict(g_config[SEL_STR])
+    return dict(g_selection)
 
 
 def set_select_conditions(newdict):
     """Set a new a dict representing the current select conditions (parameter
-    'segment_selection' of the YAML file)
+    'segments_selection' of the YAML file)
 
     :param newdict: a dict of new select expressions all in str format
     """
     # FIXME: handle concurrency with locks?
-    g_config[SEL_STR] = newdict
+    g_selection.clear()
+    g_selection.update(newdict)
 
 
 def get_segment(segment_id):

@@ -33,7 +33,7 @@ import jinja2
 from sqlalchemy.sql.expression import func
 
 from stream2segment.utils.inputargs import load_config_for_process, \
-    load_config_for_download, get_session
+    load_config_for_download, get_session, load_config_for_visualization
 from stream2segment.utils.log import configlog4download, configlog4processing,\
     closelogger, logfilepath
 from stream2segment.io.db.models import Download, Segment
@@ -276,7 +276,7 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None,
     # process to finish
 
     # checks dic values (modify in place) and returns dic value(s) needed here:
-    session, pyfunc, funcname, config_dict, segment_selection, multi_process, \
+    session, pyfunc, funcname, config_dict, segments_selection, multi_process, \
         chunksize, safe_exceptions = load_config_for_process(dburl, pyfile, funcname,
                                                              config, outfile,
                                                              **param_overrides)
@@ -303,7 +303,7 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None,
             get('writer_options', {})
         run_process(session, pyfunc, get_writer(outfile, append,
                                                 writer_options),
-                    config_dict, segment_selection, safe_exceptions, False,
+                    config_dict, segments_selection, safe_exceptions, False,
                     verbose, multi_process, chunksize)
         logger.info("Completed in %s", str(elapsedtime(stime)))
         return 0  # contrarily to download, an exception should always raise
@@ -320,12 +320,12 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None,
         closelogger(logger)
 
 
-def s2smap(pyfunc, dburl, segment_selection=None, config=None,
+def s2smap(pyfunc, dburl, segments_selection=None, config=None,
            safe_exceptions=tuple(), logfile='', show_progress=False,
            multi_process=False, chunksize=None):
     """Return an iterator that applies the function `pyfunc` to every segment
     found on the database at the URL `dburl`, processing only segments matching
-    the given selection (`segment_selection`), yielding the results in the form
+    the given selection (`segments_selection`), yielding the results in the form
     of the tuple:
     ```
         (output:Any, segment_id:int)
@@ -337,7 +337,7 @@ def s2smap(pyfunc, dburl, segment_selection=None, config=None,
         object which will be automatically passed from this function
     :param dburl: the database URL. Supported formats are Sqlite and Postgres
         (See https://docs.sqlalchemy.org/en/14/core/engines.html#database-urls).
-    :param segment_selection: a dict[str, str] of Segments attributes mapped to
+    :param segments_selection: a dict[str, str] of Segments attributes mapped to
         a given selection expression, e.g.:
         ```
         {
@@ -373,7 +373,7 @@ def s2smap(pyfunc, dburl, segment_selection=None, config=None,
         loghandlers = configlog4processing(logger, logfile, show_progress)
         stime = time.time()
         yield from run_and_yield(session,
-                                 fetch_segments_ids(session, segment_selection),
+                                 fetch_segments_ids(session, segments_selection),
                                  pyfunc, config, safe_exceptions, not logfile,
                                  show_progress, multi_process, chunksize)
         logger.info("Completed in %s", str(elapsedtime(stime)))
@@ -417,11 +417,9 @@ def closesession(session):
 
 def show(dburl, pyfile, configfile):
     """Show downloaded data plots in a system browser dynamic web page"""
-    # Session is created inside the function below. In case you want to
-    # do it here (catching dburl messages and raising BadArgument errors):
-    # session = get_session(dburl, for_process=True, scoped=True,
-    #                       raise_bad_argument=True)
-    run_in_browser(create_s2s_show_app(dburl, pyfile, configfile))
+    session, pymodule, config_dict, segments_selection = \
+        load_config_for_visualization(dburl, pyfile, configfile)
+    run_in_browser(create_s2s_show_app(dburl, pyfile, configfile, segments_selection))
     return 0
 
 

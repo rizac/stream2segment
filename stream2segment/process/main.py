@@ -52,7 +52,7 @@ logger = logging.getLogger(__name__)
 # 4. Python multiprocessing with RDBMS queries
 
 
-def run(session, pyfunc, writer, config=None, segment_selection=None,
+def run(session, pyfunc, writer, config=None, segments_selection=None,
         safe_exceptions=tuple(), yield_safe_exceptions=False, show_progress=False,
         multi_process=False, chunksize=None):
     """Run `pyfunc` according to the given `config`, outputting result to `writer`
@@ -65,19 +65,20 @@ def run(session, pyfunc, writer, config=None, segment_selection=None,
         use :class:`writers.BaseWriter` for a no-op class.
         See :module:`stream2segment.process.writers`
     :param config: dict of configuration parameters, usually the result of an associated
-        YAML configuration file, to be passed as second argument of `pyfunc`. The
-        parameter "segment_selection" inside the `config` will be used to select the
-        segments to process (if not given, all segments will be processed)
+        YAML configuration file, to be passed as second argument of `pyfunc`
+    :param segments_selection: dict denoting the segments to be selected in form of
+        segment attribute mapped to a selection expression in string format
+         (if not given, all segments will be processed)
     :param show_progress: (boolean, default False) whether or not to show progress bar
         and other info (e.g. remaining time, successfully processed segments) on the
         standard output (usually, the terminal window)
     """
     if config is None:
         config = {}
-    if segment_selection is None:
-        segment_selection = {}
+    if segments_selection is None:
+        segments_selection = {}
 
-    seg_ids = fetch_segments_ids(session, segment_selection, writer)
+    seg_ids = fetch_segments_ids(session, segments_selection, writer)
     written = 0
 
     with writer:
@@ -158,8 +159,7 @@ def run_and_yield(session, seg_ids, pyfunc, config, safe_excetpions=tuple(),
             if is_ok:
                 done += 1
             else:
-                logger.warning("segment (id=%d): %s (%s)", segment_id, str(output),
-                               str(output.__class__.__name__))
+                logger.warning("segment (id=%d): %s", segment_id, str(output))
                 errors += 1
             if is_ok or yield_safe_exceptions:
                 yield output, segment_id
@@ -169,10 +169,10 @@ def run_and_yield(session, seg_ids, pyfunc, config, safe_excetpions=tuple(),
                 "reported in the log file", errors, seg_len)
 
 
-def fetch_segments_ids(session, segment_selection, writer=None):
+def fetch_segments_ids(session, segments_selection, writer=None):
     """Return the numpy array of segments ids to process
 
-    :param segment_selection: dict denoting a segment selection
+    :param segments_selection: dict[str, str] denoting a segment selection
     :param writer: A Writer or None. See :module:`stream2segment.process.writers`.
         If not None, the writer is used to fetch the already processed segments
         and return only segments to process
@@ -188,7 +188,7 @@ def fetch_segments_ids(session, segment_selection, writer=None):
     # `query4process` below is thus called with "ids_only" (see doc for details).
     # Note that querying attributes instead of the full instances does not cache the
     # results. I.e., after the line below we do not need to issue `session.expunge_all()`
-    qry = query4process(session, segment_selection, ids_only=True)
+    qry = query4process(session, segments_selection, ids_only=True)
 
     skip_already_processed = False
     if writer is not None:

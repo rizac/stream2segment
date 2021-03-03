@@ -85,7 +85,6 @@ class BadArgument(Exception):
         if err_msg:
             # lower case first letter as err_msg will follow a ":"
             err_msg = ": " + err_msg[0].lower() + err_msg[1:]
-        # ret = (msg % p_name) + ": " + err_msg
         ret = msg_preamble + p_name + err_msg
         return ret[0:1].upper() + ret[1:]
 
@@ -123,13 +122,17 @@ def parse_arguments(yaml_dic, *params):
         names = param['names']
         if not isinstance(names, (list, tuple)):
             names = (names,)
-        name, value = get(yaml_dic, names, param['defvalue']) \
-            if 'defvalue' in param else get(yaml_dic, names)
-        parsefunc = param.get('newvalue', lambda val: val)
-        try:
-            newvalue = parsefunc(value)
-        except Exception as exc:
-            raise BadArgument(name, exc)
+        name, value = get_param_from_dict(yaml_dic, names, param['defvalue']) \
+            if 'defvalue' in param else get_param_from_dict(yaml_dic, names)
+        validation_func = param.get('newvalue', lambda val: val)
+        newvalue = validate_param(name, value, validation_func)
+
+        # FIXME: REMOVE
+        # try:
+        #     newvalue = parsefunc(value)
+        # except Exception as exc:
+        #     raise BadArgument(name, exc)
+
         # names[0] is the key that will be set on yaml_dct,
         # if newname is missing:
         newname = param.get('newname', names[0])
@@ -146,7 +149,32 @@ def parse_arguments(yaml_dic, *params):
 _DEF_GET_MISSING_ARG_ = object()
 
 
-def get(dic, names, default_ifmissing=_DEF_GET_MISSING_ARG_):
+def validate_param_from_dict(p_name_or_names, p_dict, default=_DEF_GET_MISSING_ARG_,
+                             validation_func=None, *args, **kwargs):
+    names = p_name_or_names
+    if not isinstance(names, (list, tuple)):
+        names = (names,)
+    name, value = get_param_from_dict(p_dict, names, default)
+    newvalue = validate_param(name, value, validation_func)
+    # p_name_or_names[0] is the key that will be set on the dict:
+    newname = p_name_or_names[0]
+    # if the newname is not names[0], remove name (not names[0])
+    # from yanl_dic:
+    if newname != name:
+        p_dict.pop(name, None)
+    # set new name and new (parsed) value:
+    p_dict[newname] = newvalue
+    return newvalue
+
+
+def pop_param_from_dict(dic, names, default_if_missing=_DEF_GET_MISSING_ARG_):
+    name, val = get_param_from_dict(dic, names, default_if_missing)
+    if name in dic:
+        dic.pop(name)
+    return val
+
+
+def get_param_from_dict(dic, names, default_ifmissing=_DEF_GET_MISSING_ARG_):
     """Similar to `dic.get` with optional (multi) keys. I.e., it calls
     iteratively `dic.get(key)` for each key in `names` and stops at the first
     key found `n`. Returns the tuple `(n, dic[n])` and raises
@@ -180,6 +208,17 @@ def get(dic, names, default_ifmissing=_DEF_GET_MISSING_ARG_):
         raise
     except Exception as _:  # for safety
         raise BadArgument(names, _)
+
+
+def validate_param(param_name, value, validation_func, *v_args, **v_kwargs):
+    """Validate a parameter calling `validation_func(value, *v_args, **v_kwargs)`.
+    and returning the function value. In case of exceptions, raises
+    `BadArgument(param_name, exception)`
+    """
+    try:
+        return validation_func(value, *v_args, **v_kwargs)
+    except Exception as exc:
+        raise BadArgument(param_name, exc)
 
 
 def typesmatch(value, *other_values):
@@ -908,3 +947,35 @@ def load_config_for_process(dburl, pyfile, funcname=None, config=None,
 
     return session, pyfunc, funcname, config, segment_selection, chunksize,\
         tuple(exceptions)
+
+
+def load_config_for_visualization(dburl, pyfile=None, config=None):
+    """Check visualization arguments. Returns the tuple session, pyfunc, config_dict
+    """
+    session = validate_param('dburl', dburl, get_session, for_process=True, scoped=True)
+    # try:
+    #     session = get_session(dburl, for_process=True, scoped=True)
+    # except Exception as exc:
+    #     raise BadArgument('dburl', exc)
+
+    pymodule = None if not pyfile else validate_param('pyfile', pyfile, load_source)
+    # try:
+    #     pymodule = None if not pyfile else load_source(pyfile)
+    # except Exception as exc:
+    #     raise BadArgument('pyfile', exc)
+
+    config_dict = {} if not config else validate_param('configfile', config, yaml_load)
+    # try:
+    #     # yaml_load accepts a file name or a dict
+    #     config_dict = yaml_load({} if config is None else config)
+    # except Exception as exc:
+    #     raise BadArgument('config', exc)
+
+    seg_sel = extract_segments_selection(config_dict)
+
+    return session, pymodule, config_dict, seg_sel
+
+
+def extract_segments_selection(config):
+    return pop_param_from_dict(config, ['segments_selection', 'segment_select'], {})
+
