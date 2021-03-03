@@ -54,7 +54,7 @@ logger = logging.getLogger(__name__)
 
 
 def run(session, pyfunc, writer, config=None, segments_selection=None,
-        skip_excetpions=None, show_progress=False,
+        skip_exceptions=None, show_progress=False,
         multi_process=False, chunksize=None):
     """Run `pyfunc` according to the given `config`, outputting result to `writer`
 

@@ -591,7 +591,7 @@ def check_search_radius(search_radius):
     return search_radius
 
 
-def load_config_for_download(config, parseargs, **param_overrides):
+def load_config_for_download(config, validate_keys, **param_overrides):
     """Load download arguments from the given config (yaml file or dict) after
     parsing and checking some of the dict keys.
 
@@ -601,12 +601,9 @@ def load_config_for_download(config, parseargs, **param_overrides):
     Raises `BadArgument` in case of parsing errors, missing arguments,
     conflicts and so on
     """
-    try:
-        config_dict = yaml_load(config, **param_overrides)
-    except Exception as exc:
-        raise BadArgument('config', exc)
+    config_dict = validate_param("config", config, yaml_load, **param_overrides)
 
-    if parseargs:
+    if validate_keys:
         # few variables:
         configfile = None
         if isinstance(config, string_types) and os.path.isfile(config):
