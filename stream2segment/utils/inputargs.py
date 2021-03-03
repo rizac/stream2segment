@@ -93,111 +93,110 @@ class BadArgument(Exception):
         return "Error: %s" % self.message
 
 
-def parse_arguments(yaml_dic, *params):
-    """Parse `yaml_dic` parameters according to `params`, updating the
-    `yaml_dict`. Raises `BadArgument` exception in case of parameter errors.
-    WARNING: this method modifies `yaml_dic` in-place!
-
-    :param params: a list of dicts. Each dict defines how to parse the given
-        parameter and can have the keys and values:
-        'names': (mandatory) list / tuple of the parameter name(s): if list or
-            tuple, a `BadArgument` is raised in case of conflicts (more than
-            one name is found in `yaml_dic` keys). If string, it is converted
-            to a list with that string as only element
-        'defvalue': (optional) when provided, and no parameter name is found in
-            `yaml_dic`, this is the parameter value. If not provided and no
-            name in `names` is in `yaml_dic`, a `BadArgument` is raised
-        'newname': (optional) string denoting the new parameter name which will
-            replace the old one in `yaml_dict`. When missing, it defaults to
-            `names[0]`
-        'newvalue': (optional) a callable which accepts as argument the
-            parameter value and returns a new value.
-            `yaml_dic[newname] = newvalue` will be then called. The callable
-            can safely raise, any exception will be converted to `BadArgument`
-            and re-raised
-
-    :raise: BadArgument
-    """
-    for param in params:
-        names = param['names']
-        if not isinstance(names, (list, tuple)):
-            names = (names,)
-        name, value = get_param_from_dict(yaml_dic, names, param['defvalue']) \
-            if 'defvalue' in param else get_param_from_dict(yaml_dic, names)
-        validation_func = param.get('newvalue', lambda val: val)
-        newvalue = validate_param(name, value, validation_func)
-
-        # FIXME: REMOVE
-        # try:
-        #     newvalue = parsefunc(value)
-        # except Exception as exc:
-        #     raise BadArgument(name, exc)
-
-        # names[0] is the key that will be set on yaml_dct,
-        # if newname is missing:
-        newname = param.get('newname', names[0])
-        # if the newname is not names[0], remove name (not names[0])
-        # from yanl_dic:
-        if newname != name:
-            yaml_dic.pop(name, None)
-        # set new name and new (parsed) value:
-        yaml_dic[newname] = newvalue
+# def parse_arguments(yaml_dic, *params):
+#     """Parse `yaml_dic` parameters according to `params`, updating the
+#     `yaml_dict`. Raises `BadArgument` exception in case of parameter errors.
+#     WARNING: this method modifies `yaml_dic` in-place!
+#
+#     :param params: a list of dicts. Each dict defines how to parse the given
+#         parameter and can have the keys and values:
+#         'names': (mandatory) list / tuple of the parameter name(s): if list or
+#             tuple, a `BadArgument` is raised in case of conflicts (more than
+#             one name is found in `yaml_dic` keys). If string, it is converted
+#             to a list with that string as only element
+#         'defvalue': (optional) when provided, and no parameter name is found in
+#             `yaml_dic`, this is the parameter value. If not provided and no
+#             name in `names` is in `yaml_dic`, a `BadArgument` is raised
+#         'newname': (optional) string denoting the new parameter name which will
+#             replace the old one in `yaml_dict`. When missing, it defaults to
+#             `names[0]`
+#         'newvalue': (optional) a callable which accepts as argument the
+#             parameter value and returns a new value.
+#             `yaml_dic[newname] = newvalue` will be then called. The callable
+#             can safely raise, any exception will be converted to `BadArgument`
+#             and re-raised
+#
+#     :raise: BadArgument
+#     """
+#     for param in params:
+#         names = param['names']
+#         if not isinstance(names, (list, tuple)):
+#             names = (names,)
+#         name, value = get_param_from_dict(yaml_dic, names, param['defvalue']) \
+#             if 'defvalue' in param else get_param_from_dict(yaml_dic, names)
+#         validation_func = param.get('newvalue', lambda val: val)
+#         newvalue = validate_param(name, value, validation_func)
+#
+#         # FIXME: REMOVE
+#         # try:
+#         #     newvalue = parsefunc(value)
+#         # except Exception as exc:
+#         #     raise BadArgument(name, exc)
+#
+#         # names[0] is the key that will be set on yaml_dct,
+#         # if newname is missing:
+#         newname = param.get('newname', names[0])
+#         # if the newname is not names[0], remove name (not names[0])
+#         # from yanl_dic:
+#         if newname != name:
+#             yaml_dic.pop(name, None)
+#         # set new name and new (parsed) value:
+#         yaml_dic[newname] = newvalue
 
 
 # to make None a passable argument to the next function
 # (See https://stackoverflow.com/a/14749388/3526777):
-_DEF_GET_MISSING_ARG_ = object()
+_RAISE_IF_MISSING_ = object()
 
 
-def validate_param_from_dict(p_name_or_names, p_dict, default=_DEF_GET_MISSING_ARG_,
-                             validation_func=None, *args, **kwargs):
-    names = p_name_or_names
-    if not isinstance(names, (list, tuple)):
-        names = (names,)
-    name, value = get_param_from_dict(p_dict, names, default)
-    newvalue = validate_param(name, value, validation_func)
-    # p_name_or_names[0] is the key that will be set on the dict:
-    newname = p_name_or_names[0]
-    # if the newname is not names[0], remove name (not names[0])
-    # from yanl_dic:
-    if newname != name:
-        p_dict.pop(name, None)
-    # set new name and new (parsed) value:
-    p_dict[newname] = newvalue
-    return newvalue
+# def validate_param_from_dict(p_name_or_names, p_dict, default=_DEF_GET_MISSING_ARG_,
+#                              validation_func=None, *args, **kwargs):
+#     names = p_name_or_names
+#     if not isinstance(names, (list, tuple)):
+#         names = (names,)
+#     name, value = get_param_from_dict(p_dict, names, default)
+#     newvalue = validate_param(name, value, validation_func)
+#     # p_name_or_names[0] is the key that will be set on the dict:
+#     newname = p_name_or_names[0]
+#     # if the newname is not names[0], remove name (not names[0])
+#     # from yanl_dic:
+#     if newname != name:
+#         p_dict.pop(name, None)
+#     # set new name and new (parsed) value:
+#     p_dict[newname] = newvalue
+#     return newvalue
 
 
-def pop_param_from_dict(dic, names, default_if_missing=_DEF_GET_MISSING_ARG_):
-    name, val = get_param_from_dict(dic, names, default_if_missing)
+def pop_param(dic, name_or_names, default=_RAISE_IF_MISSING_):
+    name, val = get_param(dic, name_or_names, default)
     if name in dic:
         dic.pop(name)
-    return val
+    return name, val
 
 
-def get_param_from_dict(dic, names, default_ifmissing=_DEF_GET_MISSING_ARG_):
+def get_param(dic, name_or_names, default=_RAISE_IF_MISSING_):
     """Similar to `dic.get` with optional (multi) keys. I.e., it calls
     iteratively `dic.get(key)` for each key in `names` and stops at the first
     key found `n`. Returns the tuple `(n, dic[n])` and raises
     :class:`BadArgument` in case
 
     :param dic: the source dict
-    :param names: list/tuple of `dic` keys to be searched.. It can be also a
-        string, in which case the function behaves as if `names` was a list
-        with that string as only element
-    :param default_ifmissing: if provided and not None (the default), then
+    :param name_or_names: str or list/tuple of strings (multiple names)
+    :param default: if provided and not None (the default), then
         this is the value returned if no name is found. If not provided, and no
         name is found in `dic`, :class:`MissingArg` is raised
     """
-    if not isinstance(names, (list, tuple)):
-        names = (names,)
+    names = name_or_names
+    if not isinstance(name_or_names, (list, tuple)):
+        names = (name_or_names,)
 
     try:
         keys_in = [par for par in names if par in dic]
         if len(keys_in) > 1:
             raise BadArgument(keys_in, '', "Conflicting names")
         elif not keys_in:
-            if default_ifmissing is not _DEF_GET_MISSING_ARG_:
-                return names[0], default_ifmissing
+            if default is not _RAISE_IF_MISSING_:
+                return names[0], default
             raise KeyError()
             # KeyError caught below. Note that a KeyError will
             # prepend the 'Missing value' in BadArgument
@@ -495,23 +494,39 @@ def dict_or_none(value):
     raise ValueError('dict/None required, found: %s' % str(type(value)))
 
 
-def between(min, max, include_start=True, include_end=True, pass_if_none=True):
-    def func(val):
-        if val is None:
-            if pass_if_none:
-                return val
-            raise ValueError('value is None/null')
-        is_ok = min is None or val > min or (include_start and val >= min)
-        if not is_ok:
-            raise ValueError('%s must be %s %s' %
-                             (str(val), '>=' if include_start else '>', str(min)))
-        is_ok = max is None or val < max or (include_start and val <= max)
-        if not is_ok:
-            raise ValueError('%s must be %s %s' %
-                             (str(val), '<=' if include_end else '<', str(max)))
-        return val
+# def between(min, max, include_start=True, include_end=True, pass_if_none=True):
+#     def func(val):
+#         if val is None:
+#             if pass_if_none:
+#                 return val
+#             raise ValueError('value is None/null')
+#         is_ok = min is None or val > min or (include_start and val >= min)
+#         if not is_ok:
+#             raise ValueError('%s must be %s %s' %
+#                              (str(val), '>=' if include_start else '>', str(min)))
+#         is_ok = max is None or val < max or (include_start and val <= max)
+#         if not is_ok:
+#             raise ValueError('%s must be %s %s' %
+#                              (str(val), '<=' if include_end else '<', str(max)))
+#         return val
+#
+#     return func
 
-    return func
+
+def between(val, min, max, include_start=True, include_end=True, pass_if_none=True):
+    if val is None:
+        if pass_if_none:
+            return val
+        raise ValueError('value is None/null')
+    is_ok = min is None or val > min or (include_start and val >= min)
+    if not is_ok:
+        raise ValueError('%s must be %s %s' %
+                         (str(val), '>=' if include_start else '>', str(min)))
+    is_ok = max is None or val < max or (include_start and val <= max)
+    if not is_ok:
+        raise ValueError('%s must be %s %s' %
+                         (str(val), '<=' if include_end else '<', str(max)))
+    return val
 
 
 def parse_download_advanced_settings(advanced_settings):
@@ -609,8 +624,6 @@ def load_config_for_download(config, validate, **param_overrides):
         if isinstance(config, string_types) and os.path.isfile(config):
             configfile = config
 
-        # define first default event params in order to avoid typos
-        def_evt_params = EVENTWS_SAFE_PARAMS
 
         # now, what we want to do here is basically convert config_dict keys
         # into suitable arguments for stream2segment functions: this includes
@@ -631,130 +644,84 @@ def load_config_for_download(config, validate, **param_overrides):
         # newvalue: function accepting a value (the parameter value) raising
         #           whatever is needed if the parameter is invalid, and
         #           returning the correct parameter value
-        params = [
-            {
-                # dataws is a list of strings, but for backward compatibility
-                # we must accept strings too. Convert `dataws` to list AS FIRST
-                # ARGUMENT (I.E., this must be the FIRST dict of the list), so
-                # that any other parameter check below requiring dataws can
-                # safely work with lists:
-                'names': ['dataws'],
-                'newvalue': lambda _: [_] if isinstance(_, string_types) else _
-            },
-            {
-                'names': def_evt_params[:2],  # ['minlatitude', 'minlat'],
-                'defvalue': None,  # None: param not added (see below)
-                'newvalue': between(-90.0, 90.0)
-            },
-            {
-                'names': def_evt_params[2:4],  # ['maxlatitude', 'maxlat'],
-                'defvalue': None,  # None: param not added (see below)
-                'newvalue': between(-90.0, 90.0)
-            },
-            {
-                'names': def_evt_params[4:6],  # ['minlongitude', 'minlon'],
-                'defvalue': None,  # None: param not added (see below)
-                'newvalue': between(-180.0, 180.0)
-            },
-            {
-                'names': def_evt_params[6:8],  # ['maxlongitude', 'maxlon'],
-                'defvalue': None,  # None: param not added (see below)
-                'newvalue': between(-180.0, 180.0)
-            },
-            {
-                'names': def_evt_params[8:10],  # ['minmagnitude', 'minmag'],
-                'defvalue': None  # None: param not added (see below)
-            },
-            {
-                'names': def_evt_params[10:12],  # ['maxmagnitude', 'maxmag'],
-                'defvalue': None  # None: param not added (see below)
-            },
-            {
-                'names': def_evt_params[12:13],  # ['mindepth'],
-                'defvalue': None  # None: param not added (see below)
-            },
-            {
-                'names': def_evt_params[13:14],  # ['maxdepth'],
-                'defvalue': None  # None: param not added (see below)
-            },
-            {
-                'names': ['update_metadata'],
-                'newvalue': parse_update_metadata
-            },
-            {
-                'names': ['restricted_data'],
-                'newname': 'authorizer',
-                'newvalue': lambda val: create_auth(val,
-                                                    config_dict['dataws'],
-                                                    configfile)
-            },
-            {
-                 'names': ['eventws'],
-                 'newvalue': lambda url: valid_fdsn(url, is_eventws=True,
-                                                    configfile=configfile)
-            },
-            {
-                 'names': ['dataws'],
-                 'newvalue': lambda urls: [valid_fdsn(url, is_eventws=False)
-                                           for url in urls]
-            },
-            {
-                 'names': ['dburl'],
-                 'newname': 'session',
-                 'newvalue': get_session
-            },
-            {
-                 'names': ['traveltimes_model'],
-                 'newname': 'tt_table',
-                 'newvalue': load_tt_table
-            },
-            {
-                 'names': ('starttime', 'start'),
-                 'newvalue': valid_date
-            },
-            {
-                 'names': ('endtime', 'end'),
-                 'newvalue': valid_date
-            },
-            {
-                 'names': ('network', 'net', 'networks'),
-                 'defvalue': [],
-                 'newvalue': nslc_param_value_aslist
-            },
-            {
-                 'names': ('station', 'sta', 'stations'),
-                 'defvalue': [],
-                 'newvalue': nslc_param_value_aslist
-            },
-            {
-                 'names': ('location', 'loc', 'locations'),
-                 'defvalue': [],
-                 'newvalue': nslc_param_value_aslist
-            },
-            {
-                 'names': ('channel', 'cha', 'channels'),
-                 'defvalue': [],
-                 'newvalue': nslc_param_value_aslist
-            },
-            {
-                'names': ['eventws_params', 'eventws_query_args'],
-                'defvalue': {},
-                'newvalue': dict_or_none
-            },
-            {
-                 'names': ['advanced_settings'],
-                 'newvalue': parse_download_advanced_settings
-            },
-            {
-                 'names': ['search_radius'],
-                 'newvalue': check_search_radius
-            },
-            {
-                'names': ['min_sample_rate'],
-                'defvalue': 0,
-                'newvalue': int
-            }
-        ]
+        new_config = {}
+
+        # dataws is a list of strings, but for backward compatibility
+        # we must accept strings too. Convert `dataws` to list AS FIRST
+        # ARGUMENT (I.E., this must be the FIRST dict of the list), so
+        # that any other parameter check below requiring dataws can
+        # safely work with lists:
+        pname, pval = pop_param(config_dict, 'dataws')
+        if isinstance(pval, string_types):
+            pval = [pval]
+        dataws = validate_param(pname, pval,
+                                lambda urls: [valid_fdsn(url, is_eventws=False)
+                                              for url in urls])
+        new_config[pname] = dataws
+
+        pname, pval = pop_param(config_dict, 'update_metadata')
+        new_config[pname] = validate_param(pname, pval, parse_update_metadata)
+
+        pname, pval = pop_param(config_dict, 'restricted_data')
+        new_config['authorizer'] = validate_param(pname, pval, create_auth,
+                                                  dataws, configfile)
+
+        pname, pval = pop_param(config_dict, 'eventws')
+        new_config[pname] = validate_param(pname, pval, valid_fdsn,
+                                           is_eventws=True, configfile=configfile)
+
+        pname, pval = pop_param(config_dict, 'dburl')
+        new_config['session'] = validate_param(pname, pval, get_session)
+
+        pname, pval = pop_param(config_dict, 'traveltimes_model')
+        new_config['tt_table'] = validate_param(pname, pval, load_tt_table)
+
+        pname, pval = pop_param(config_dict, ('starttime', 'start'))
+        new_config[pname] = validate_param(pname, pval, valid_date)
+
+        pname, pval = pop_param(config_dict, ('endtime', 'end'))
+        new_config[pname] = validate_param(pname, pval, valid_date)
+
+        pname, pval = pop_param(config_dict, ('network', 'net', 'networks'), [])
+        new_config[pname] = validate_param(pname, pval, nslc_param_value_aslist)
+
+        pname, pval = pop_param(config_dict,  ('station', 'sta', 'stations'), [])
+        new_config[pname] = validate_param(pname, pval, nslc_param_value_aslist)
+
+        pname, pval = pop_param(config_dict, ('location', 'loc', 'locations'), [])
+        new_config[pname] = validate_param(pname, pval, nslc_param_value_aslist)
+
+        pname, pval = pop_param(config_dict, ('channel', 'cha', 'channels'), [])
+        new_config[pname] = validate_param(pname, pval, nslc_param_value_aslist)
+
+        pname, pval = pop_param(config_dict, 'advanced_settings')
+        new_config[pname] = validate_param(pname, pval, parse_download_advanced_settings)
+
+        pname, pval = pop_param(config_dict, 'search_radius')
+        new_config[pname] = validate_param(pname, pval, check_search_radius)
+
+        pname, pval = pop_param(config_dict, 'min_sample_rate', 0)
+        new_config[pname] = validate_param(pname, pval, int)
+
+        # at last, parse eventws parameters:
+        evt_parnames = ('eventws_params', 'eventws_query_args')
+
+        pname, pval = pop_param(config_dict, evt_parnames, {})
+        # pop all event params from the dict pval:
+        evt_params = pop_event_params(validate_param(pname, pval, dict_or_none) or {})
+        new_config[pname] = evt_params
+        # now pop all event params from the "outer" config_dict:
+        evt_params2 = pop_event_params(config_dict)
+        # and merge (but check conflicts beforehand):
+        conflicts_evtpars = set(evt_params) & set(evt_params2)
+        if conflicts_evtpars:
+            raise BadArgument(evt_parnames[0], 'conflicting parameter(s) "%s"'
+                              % "/".join(conflicts_evtpars))
+        # merge:
+        evt_params.update(evt_params2)
+
+
+
 
         # store all keys now because we might change them (see below):
         all_keys = set(config_dict)
@@ -788,21 +755,57 @@ def load_config_for_download(config, validate, **param_overrides):
         if missing_keys:
             raise BadArgument(list(missing_keys), KeyError())
 
-        # At last, put all event-related parameters (except starttime and
-        # endtime): and in the eventws_params dict (the latter is an OPTIONAL
-        # dict which can be set in the config for ADDITIONAL eventws
-        # parameters) and check for conflicts:
-        # IF A PRAMETER IS NONE IT IS NOT ADDED
-        _esp = 'eventws_params'
-        eventsearchparams = config_dict[_esp]
-        for par in def_evt_params:
-            if par in eventsearchparams:  # conflict:
-                raise BadArgument(_esp, 'conflicting parameter "%s"' % par)
-            value = config_dict.pop(par, None)
-            if value is not None:
-                eventsearchparams[par] = value
-
     return config_dict
+
+
+def pop_event_params(evt_params_dict):
+    """pops event params and returns a new dict"""
+    # define first default event params in order to avoid typos
+    def_evt_params = EVENTWS_SAFE_PARAMS
+    # returned dict:
+    evt_params2 = {}
+
+    pnames = def_evt_params[:2]  # ['minlatitude', 'minlat']
+    pname, pval = pop_param(evt_params_dict, pnames, None)
+    if pval is not None:
+        evt_params2[pname] = validate_param(pname, pval, between, -90.0, 90.0)
+
+    pnames = def_evt_params[2:4]  # ['maxlatitude', 'maxlat'],
+    pname, pval = pop_param(evt_params_dict, pnames, None)
+    if pval is not None:
+        evt_params2[pname] = validate_param(pname, pval, between, -90.0, 90.0)
+
+    pnames = def_evt_params[4:6]  # ['minlongitude', 'minlon'],
+    pname, pval = pop_param(evt_params_dict, pnames, None)
+    if pval is not None:
+        evt_params2[pname] = validate_param(pname, pval, between, -180.0, 180.0)
+
+    pnames = def_evt_params[6:8]  # ['maxlongitude', 'maxlon'],
+    pname, pval = pop_param(evt_params_dict, pnames, None)
+    if pval is not None:
+        evt_params2[pname] = validate_param(pname, pval, between, -180.0, 180.0)
+
+    pnames = def_evt_params[8:10]  # ['minmagnitude', 'minmag'],
+    pname, pval = pop_param(evt_params_dict, pnames, None)
+    if pval is not None:
+        evt_params2[pname] = validate_param(pname, pval, float)
+
+    pnames = def_evt_params[10:12]  # ['maxmagnitude', 'maxmag'],
+    pname, pval = pop_param(evt_params_dict, pnames, None)
+    if pval is not None:
+        evt_params2[pname] = validate_param(pname, pval, float)
+
+    pnames = def_evt_params[12:13]  # ['mindepth'],
+    pname, pval = pop_param(evt_params_dict, pnames, None)
+    if pval is not None:
+        evt_params2[pname] = validate_param(pname, pval, float)
+
+    pnames = def_evt_params[13:14]  # ['maxdepth'],
+    pname, pval = pop_param(evt_params_dict, pnames, None)
+    if pval is not None:
+        evt_params2[pname] = validate_param(pname, pval, float)
+
+    return evt_params2
 
 
 def load_pyfunc(pyfile, funcname):
@@ -920,5 +923,5 @@ def load_config_for_visualization(dburl, pyfile=None, config=None):
 
 
 def extract_segments_selection(config):
-    return pop_param_from_dict(config, ['segments_selection', 'segment_select'], {})
+    return pop_param(config, ['segments_selection', 'segment_select'], {})[1]
 
