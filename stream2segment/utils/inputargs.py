@@ -908,22 +908,6 @@ def load_config_for_process(dburl, pyfile, funcname=None, config=None,
                 raise ValueError('advanced_settings.chunksize must be '
                                  'null or positive int')
 
-        exceptions = [SkipSegment]
-        # In case we want to customize skip exceptions from config, below the
-        # code snippet (this is momentarily hidden in the config documentation):
-        exc_names = adv_settings.get('skip_exceptions', [])
-        if exc_names is None or isinstance(exc_names, string_types):
-            exc_names = [exc_names]
-        for exc_name in exc_names:
-            if exc_name is None:
-                continue
-            exc_class = __builtins__[exc_name]
-            if not issubclass(exc_class, Exception):
-                raise ValueError('%s can be a Python exception name or null '
-                                 '(in advanced_settings.continue_execution_on)'
-                                 % exc_name)
-            exceptions.append(exc_class)
-
     except Exception as exc:
         raise BadArgument('config', exc)
 
@@ -943,10 +927,9 @@ def load_config_for_process(dburl, pyfile, funcname=None, config=None,
             raise BadArgument('outfile', exc)
 
     # nothing more to process
-    segment_selection = config.get('segment_selection', config.get('segment_select', {}))
+    seg_selection = config.get('segment_selection', config.get('segment_select', {}))
 
-    return session, pyfunc, funcname, config, segment_selection, chunksize,\
-        tuple(exceptions)
+    return session, pyfunc, funcname, config, seg_selection, multi_process, chunksize
 
 
 def load_config_for_visualization(dburl, pyfile=None, config=None):

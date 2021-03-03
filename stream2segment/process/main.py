@@ -35,6 +35,7 @@ import numpy as np
 # from sqlalchemy.orm import load_only
 
 from stream2segment.io.db.sqlevalexpr import exprquery
+from stream2segment.process import SkipSegment
 from stream2segment.utils import get_progressbar
 from stream2segment.process.db import get_session
 from stream2segment.io.db.models import Segment, Station
@@ -53,7 +54,7 @@ logger = logging.getLogger(__name__)
 
 
 def run(session, pyfunc, writer, config=None, segments_selection=None,
-        safe_exceptions=tuple(), yield_safe_exceptions=False, show_progress=False,
+        skip_excetpions=None, show_progress=False,
         multi_process=False, chunksize=None):
     """Run `pyfunc` according to the given `config`, outputting result to `writer`
 
@@ -83,8 +84,8 @@ def run(session, pyfunc, writer, config=None, segments_selection=None,
 
     with writer:
         for output, segment_id in \
-                run_and_yield(session, seg_ids, pyfunc, config, safe_exceptions,
-                              yield_safe_exceptions, show_progress, multi_process,
+                run_and_yield(session, seg_ids, pyfunc, config, skip_exceptions,
+                              show_progress, multi_process,
                               chunksize):
             if not writer.isbasewriter and output is not None:
                 writer.write(segment_id, output)
@@ -94,8 +95,8 @@ def run(session, pyfunc, writer, config=None, segments_selection=None,
                 written, len(seg_ids))
 
 
-def run_and_yield(session, seg_ids, pyfunc, config, safe_excetpions=tuple(),
-                  yield_safe_exceptions=False, show_progress=False, multi_process=False,
+def run_and_yield(session, seg_ids, pyfunc, config, skip_excetpions=None,
+                  show_progress=False, multi_process=False,
                   chunksize=None):
     """Run `pyfunc(segment, config)` on each given segment and yields its output
     as the tuple
@@ -130,7 +131,9 @@ def run_and_yield(session, seg_ids, pyfunc, config, safe_excetpions=tuple(),
     if chunksize is None:
         chunksize = get_default_chunksize(seg_len, show_progress)
 
-    safe_excetpions = tuple(safe_excetpions)  # for safety, in case list
+    if skip_excetpions is None:
+        skip_excetpions = [SkipSegment]
+    safe_excetpions = tuple(skip_excetpions)  # for safety, in case list
 
     session.close()  # expunge all, clear all states
 
@@ -161,7 +164,7 @@ def run_and_yield(session, seg_ids, pyfunc, config, safe_excetpions=tuple(),
             else:
                 logger.warning("segment (id=%d): %s", segment_id, str(output))
                 errors += 1
-            if is_ok or yield_safe_exceptions:
+            if is_ok:
                 yield output, segment_id
 
     logger.info("%d of %d segment(s) successfully processed", done, seg_len)

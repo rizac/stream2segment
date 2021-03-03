@@ -910,11 +910,10 @@ def test_processing_advanced_settings_num_processes(adv_set,
     p_yaml_file, p_py_file = \
         get_templates_fpaths("paramtable.yaml", "paramtable.py")
 
-
-    session, pyfunc, funcname, config_dict, multi_process, chunksize, \
-        safe_exceptions = load_config_for_process("sqlite:///",
-                                                  p_py_file, None,
-                                                  config=p_yaml_file,
-                                                  outfile=None,
-                                                  advanced_settings=adv_set)
+    session, pyfunc, funcname, config, segment_selection, multi_process, chunksize =\
+        load_config_for_process("sqlite:///",
+                                p_py_file, None,
+                                config=p_yaml_file,
+                                outfile=None,
+                                advanced_settings=adv_set)
     assert exp_multiprocess_value == multi_process
