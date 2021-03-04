@@ -33,56 +33,63 @@ class BadArgument(Exception):
     output in the terminal but it can be used outside a command line interface
     environment
     """
-    def __init__(self, param_name_or_names, error, errmsg_preamble=''):
+    def __init__(self, param_name_or_names, error, preamble=''):
         """Initialize a BadArgument object. Formats the message according to
         the given parameters. The formatted output string, depending on the
         value of the arguments will be:
 
-        'Error: %(msg_preamble) "%(param_name)": %(error)'
-        'Error: "%(param_name)": %(error)"'
-        'Error: "%(param_name)"'
+        'Error: %(msg_preamble) "%(param_name_or_names)": %(error)'
+        'Error: "%(param_name_or_names)": %(error)"'
+        'Error: "%(param_name_or_names)"'
 
         :param param_name_or_names: the parameter name (string), or a list of
             parameter names (if the parameter supports several optional names)
         :param error: the original exception, or a string message. If exception
             in (TypeError, KeyError), it will determine the message preamble,
             if not explicitly passed (see below)
-        :param errmsg_preamble: the optional message preamble, as string. If not
+        :param preamble: the optional message preamble, as string. If not
             provided (empty string by default), it will default to a string
             according to `error` type, e.g. KeyError => 'Missing value for'
         """
-        if not errmsg_preamble:
-            msg_preamble = "Invalid value for"
+        if not preamble:
+            preamble = "Invalid value for"
             if isinstance(error, KeyError):
-                msg_preamble = "Missing value for"
+                preamble = "Missing value for"
                 error = ''
             elif isinstance(error, TypeError):
-                msg_preamble = "Invalid type for"
+                preamble = "Invalid type for"
 
         if isinstance(error, BadArgument):
-            err_msg = error.error_message
+            err_msg = error.message
         else:
             err_msg = str(error)
 
         super(BadArgument, self).__init__(err_msg)
-        self.error_message_preamble = errmsg_preamble
-        self.param_name = param_name_or_names
+        self.preamble = preamble
+        if isinstance(param_name_or_names, (list, tuple)):
+            self.param_names = tuple(param_name_or_names)
+        else:
+            self.param_names = (str(param_name_or_names),)
+        # self.param_names = param_name_or_names
 
     @property
-    def error_message(self):
+    def message(self):
         return str(self.args[0] or '')
 
-    @error_message.setter
-    def error_message(self, message):
-        self.args[0] = message
+    @message.setter
+    def message(self, message):
+        # in superclasses, self.args is a tuple and stores as 1st arg. the error message
+        args = list(self.args)
+        args[0] = message
+        self.args = tuple(args)
 
-    @property
-    def _params2str(self):
-        if isinstance(self.param_name, (list, tuple)):
-            p_name = " / ".join('"%s"' % p for p in self.param_name)
-        else:
-            p_name = '"' + str(self.param_name) + '"'
-        return p_name
+    # @property
+    # def _params2str(self):
+    #     if isinstance(self.param_name, (list, tuple)):
+    #         p_name = " / ".join('"%s"' % p for p in self.param_name)
+    #     else:
+    #         p_name = '"' + str(self.param_name) + '"'
+    #     return p_name
 
     # @property
     # def message(self):
@@ -106,16 +113,16 @@ class BadArgument(Exception):
 
     def __str__(self):
         """String representation of this object"""
-        p_name = self._params2str
-        msg_preamble = self.error_message_preamble
+        p_name = " / ".join('"%s"' % p for p in self.param_names)
+        msg_preamble = self.preamble
         if msg_preamble:
             msg_preamble += ' '
-        err_msg = self.error_message
+        err_msg = self.message
         if err_msg:
             # lower case first letter as err_msg will follow a ":"
             err_msg = ": " + err_msg[0].lower() + err_msg[1:]
         full_msg = msg_preamble + p_name + err_msg
-        return "Error: %s" % full_msg.strip().title()
+        return "Error: %s" % full_msg.strip()
 
 
 # to make None a passable argument to the next function
@@ -277,25 +284,28 @@ def keyval_list_to_dict(value):
     return dict(zip(itr, itr))
 
 
-def get_session(dburl, for_process=False, raise_bad_argument=False,
-                scoped=False, **engine_kwargs):
+def get_session(dburl, for_process=False, scoped=False, **engine_kwargs):
     """Create an SQL-Alchemy session from dburl. Raises if `dburl` is
     not a string, or any SqlAlchemy exception if the session could not be
-    created. If `raise_bad_argument` is True (default False), raises
-    wraps any exception into a `BadArgument` associated to the parameter
-    'dburl'.
+    created.
+
+    IMPORTANT: This function is intended to be called through `validate_param`,
+    so that if the database session could not be created, a meaningful message
+    with the parameter name (usually, "dburl" from the cli) can be raised. Example:
+    ```
+    session = validate_param('dburl', <variable_name>, get_session, *args, **kwargs)
+    ```
+    will raise in case of failure an error message like:
+    "Error: invalid value for "dburl": <message>"
 
     :param dburl: string denoting a database url (currently postgres and sqlite
         supported
     :param for_process: boolean (default: False) whether the session should be
         used for processing, i.e. the database is supposed to exist already and
         the `Segment` model has ObsPy method such as `Segment.stream()`
-    :param raise_bad_argument: boolean (default: False)if any exception should
-        be wrapped into a `BadArgument` exception,whose message will be
-        prefixed with the parameter name 'dburl'
     :param scoped: boolean (False by default) if the session must be scoped
         session
-    :param engine_args: optional keyword argument values for the
+    :param engine_kwargs: optional keyword argument values for the
         `create_engine` method. E.g., let's provide two engine arguments,
         `echo` and `connect_args`:
         ```
@@ -304,30 +314,25 @@ def get_session(dburl, for_process=False, raise_bad_argument=False,
         For info see:
         https://docs.sqlalchemy.org/en/14/core/engines.html#sqlalchemy.create_engine.params.connect_args
     """
-    try:
-        if not isinstance(dburl, string_types):
-            raise TypeError('string required, %s found' % str(type(dburl)))
-        # import in function to speed up module imports from cli:
-        if for_process:
-            # important, rename otherwise conflicts with this function name:
-            from stream2segment.process.db import get_session as sess_func
-        else:
-            # important, rename otherwise conflicts with this function name:
-            from stream2segment.io.db import get_session as sess_func
+    if not isinstance(dburl, string_types):
+        raise TypeError('string required, %s found' % str(type(dburl)))
+    # import in function to speed up module imports from cli:
+    if for_process:
+        # important, rename otherwise conflicts with this function name:
+        from stream2segment.process.db import get_session as sess_func
+    else:
+        # important, rename otherwise conflicts with this function name:
+        from stream2segment.io.db import get_session as sess_func
 
-        sess = sess_func(dburl, scoped=scoped, **engine_kwargs)
+    sess = sess_func(dburl, scoped=scoped, **engine_kwargs)
 
-        # Check if database exist, which should not always be done (e.g.
-        # for_processing=True). Among other methods
-        # (https://stackoverflow.com/a/3670000
-        # https://stackoverflow.com/a/59736414) this seems to do what we need
-        # (we might also not check if that the tables length > 0 sometime):
-        sess.bind.engine.table_names()
-        return sess
-    except Exception as exc:
-        if raise_bad_argument:
-            raise BadArgument('dburl', exc)
-        raise
+    # Check if database exist, which should not always be done (e.g.
+    # for_processing=True). Among other methods
+    # (https://stackoverflow.com/a/3670000
+    # https://stackoverflow.com/a/59736414) this seems to do what we need
+    # (we might also not check if the tables length > 0 sometime):
+    sess.bind.engine.table_names()
+    return sess
 
 
 def create_auth(restricted_data, dataws, configfile=None):
@@ -573,12 +578,15 @@ def load_config_for_download(config, validate, **param_overrides):
     if isinstance(config, string_types) and os.path.isfile(config):
         configfile = config
 
-    # put validated params into a new dict, which will be eventually returned:
-    new_config = {}
+    # =====================
+    # Parameters validation
+    # =====================
 
-    # Validate `dataws` FIRST becasue it is used by other parameters below:
-    pname = 'dataws'
-    pval = pop_param(config_dict, pname)
+    # put validated params into a new dict, which will be eventually returned:
+    old_config, new_config = config_dict, {}
+
+    pname = 'dataws'  # validate this FIRST because it is used by other params later
+    pval = pop_param(old_config, pname)
     if isinstance(pval, string_types):  # backward compatibility
         pval = [pval]
     dataws = validate_param(pname, pval,
@@ -587,63 +595,62 @@ def load_config_for_download(config, validate, **param_overrides):
     new_config[pname] = dataws
 
     pname = 'update_metadata'
-    pval = pop_param(config_dict, pname)
+    pval = pop_param(old_config, pname)
     new_config[pname] = validate_param(pname, pval, parse_update_metadata)
 
     pname = 'eventws'
-    pval = pop_param(config_dict, pname)
+    pval = pop_param(old_config, pname)
     new_config[pname] = validate_param(pname, pval, valid_fdsn,
                                        is_eventws=True, configfile=configfile)
 
     pname = 'advanced_settings'
-    pval = pop_param(config_dict, pname)
+    pval = pop_param(old_config, pname)
     new_config[pname] = validate_param(pname, pval, parse_download_advanced_settings)
 
     pname = 'search_radius'
-    pval = pop_param(config_dict, pname)
+    pval = pop_param(old_config, pname)
     new_config[pname] = validate_param(pname, pval, check_search_radius)
 
     pname = 'min_sample_rate'
-    pval = pop_param(config_dict, pname, 0)
+    pval = pop_param(old_config, pname, 0)
     new_config[pname] = validate_param(pname, pval, int)
 
     pname = 'restricted_data'
-    pval = pop_param(config_dict, pname)
-    new_config[pname] = validate_param(pname, pval, create_auth,
-                                              dataws, configfile)
+    pval = pop_param(old_config, pname)
+    new_config[pname] = validate_param(pname, pval, create_auth, dataws, configfile)
 
     pname = 'dburl'
-    pval = pop_param(config_dict, pname)
+    pval = pop_param(old_config, pname)
     new_config[pname] = validate_param(pname, pval, get_session)
 
     pname = 'traveltimes_model'
-    pval = pop_param(config_dict, pname)
+    pval = pop_param(old_config, pname)
     new_config[pname] = validate_param(pname, pval, load_tt_table)
 
     # parameters with multiple allowed names:
 
     pnames = ('starttime', 'start')
-    pval = pop_param(config_dict, pnames)
+    pval = pop_param(old_config, pnames)
     new_config[pnames[0]] = validate_param(pnames, pval, valid_date)
 
     pnames = ('endtime', 'end')
-    pval = pop_param(config_dict, pnames)
+    pval = pop_param(old_config, pnames)
     new_config[pnames[0]] = validate_param(pnames, pval, valid_date)
 
     pnames = ('network', 'net', 'networks')
-    pval = pop_param(config_dict, pnames, [])
+    pval = pop_param(old_config, pnames, [])
     new_config[pnames[0]] = validate_param(pnames, pval, nslc_param_value_aslist)
 
     pnames = ('station', 'sta', 'stations')
-    pval = pop_param(config_dict,  pnames, [])
+    pval = pop_param(old_config,  pnames, [])
     new_config[pnames[0]] = validate_param(pnames, pval, nslc_param_value_aslist)
 
     pnames = ('location', 'loc', 'locations')
-    pval = pop_param(config_dict, pnames, [])
+    pval = pop_param(old_config, pnames, [])
     new_config[pnames[0]] = validate_param(pnames, pval, nslc_param_value_aslist)
 
     pnames = ('channel', 'cha', 'channels')
-    pval = pop_param(config_dict,pnames, [])
+    pval = pop_param(old_config,pnames, [])
     new_config[pnames[0]] = validate_param(pnames, pval, nslc_param_value_aslist)
 
     # At last, eventws parameters. These parameters can be supplied in the
@@ -652,9 +659,9 @@ def load_config_for_download(config, validate, **param_overrides):
 
     pnames = ('eventws_params', 'eventws_query_args')
     # get the name of the parameter we should print in case of errors later:
-    pname = pnames[1] if pnames[1] in config_dict else pnames[0]
+    pname = pnames[1] if pnames[1] in old_config else pnames[0]
     # pop all event params from the dict pval:
-    pval = pop_param(config_dict, pnames, {}) or {}
+    pval = pop_param(old_config, pnames, {}) or {}
     pval = validate_param(pname, pval, typesmatch, {})
     try:
         evt_params = pop_event_params(pval)
@@ -664,7 +671,7 @@ def load_config_for_download(config, validate, **param_overrides):
 
     new_config[pnames[0]] = evt_params
     # now pop all event params from the "outer" config_dict:
-    evt_params2 = pop_event_params(config_dict)
+    evt_params2 = pop_event_params(old_config)
     # and merge (but check conflicts beforehand):
     conflicts_evtpars = set(evt_params) & set(evt_params2)
     if conflicts_evtpars:
@@ -672,17 +679,17 @@ def load_config_for_download(config, validate, **param_overrides):
                           'conflicting parameter(s)')
     evt_params.update(evt_params2)  # merge
 
-    # ==========================================================
-    # Done withj parameter validation. Just perform final checks
-    # ==========================================================
+    # =========================================================
+    # Done with parameter validation. Just perform final checks
+    # =========================================================
 
     # load original config (default in this package) to perform some checks:
     orig_config_dict = yaml_load(get_templates_fpath("download.yaml"))
 
     # Now check for params supplied here NOT in the default config, and supplied
     # here but with different type in the original config
-    for pname in config_dict:
-        pval = config_dict.pop(pname)
+    for pname in old_config:
+        pval = old_config.pop(pname)
         try:
             other_value = orig_config_dict[pname]
         except KeyError:

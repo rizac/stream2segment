@@ -33,7 +33,7 @@ import jinja2
 from sqlalchemy.sql.expression import func
 
 from stream2segment.utils.inputargs import load_config_for_process, \
-    load_config_for_download, get_session, load_config_for_visualization
+    load_config_for_download, get_session, load_config_for_visualization, validate_param
 from stream2segment.utils.log import configlog4download, configlog4processing,\
     closelogger, logfilepath
 from stream2segment.io.db.models import Download, Segment
@@ -384,7 +384,7 @@ def s2smap(pyfunc, dburl, segments_selection=None, config=None, *,
         be loaded from the database. Increasing this number speeds up the load but also
         increases memory consumption. None (the default) means: set size automatically
     """
-    session = get_session(dburl, for_process=True, raise_bad_argument=True)
+    session = validate_param('dburl', dburl, get_session, for_process=True)
     try:
         loghandlers = configlog4processing(logger, logfile, show_progress)
         stime = time.time()
@@ -574,7 +574,7 @@ def dstats(dburl, download_ids=None, maxgap_threshold=0.5, html=False,
 def _get_download_info(info_generator, dburl, download_ids=None, html=False,
                        outfile=None):
     """Process dinfo or dstats"""
-    session = get_session(dburl, raise_bad_argument=True)
+    session = validate_param('dburl', dburl, get_session)
     if html:
         openbrowser = False
         if not outfile:
@@ -611,7 +611,7 @@ def ddrop(dburl, download_ids, prompt=True):
         - an exception (if the download id could not be deleted)
     """
     ret = {}
-    session = get_session(dburl, raise_bad_argument=True)
+    session = validate_param('dburl', dburl, get_session)
     try:
         ids = [_[0] for _ in
                session.query(Download.id).filter(Download.id.in_(download_ids))]

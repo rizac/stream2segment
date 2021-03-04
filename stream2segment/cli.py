@@ -677,8 +677,8 @@ def classlabel(dburl, add, rename, delete, no_prompt):
             if input(msg) != 'y':
                 sys.exit(1)
 
-        session = inputargs.get_session(dburl, for_process=False,
-                                        scoped=False, raise_bad_argument=True)
+        session = inputargs.validate_param("dburl", dburl, inputargs.get_session,
+                                           for_process=False, scoped=False)
         configure_classlabels(session, add=add_arg, rename=rename_arg,
                               delete=delete_arg)
         print('Done. Current class labels on the database:')
