@@ -565,128 +565,136 @@ def load_config_for_download(config, validate, **param_overrides):
     """
     config_dict = validate_param("config", config, yaml_load, **param_overrides)
 
-    if validate:
-        # few variables:
-        configfile = None
-        if isinstance(config, string_types) and os.path.isfile(config):
-            configfile = config
+    if not validate:
+        return config_dict
 
-        # put validated params into a new dict, which will be eventually returned:
-        new_config = {}
+    # few variables:
+    configfile = None
+    if isinstance(config, string_types) and os.path.isfile(config):
+        configfile = config
 
-        # Validate `dataws` FIRST becasue it is used by other parameters below:
-        pname = 'dataws'
-        pval = pop_param(config_dict, pname)
-        if isinstance(pval, string_types):  # backward compatibility
-            pval = [pval]
-        dataws = validate_param(pname, pval,
-                                lambda urls: [valid_fdsn(url, is_eventws=False)
-                                              for url in urls])
-        new_config[pname] = dataws
+    # put validated params into a new dict, which will be eventually returned:
+    new_config = {}
 
-        pname = 'update_metadata'
-        pval = pop_param(config_dict, pname)
-        new_config[pname] = validate_param(pname, pval, parse_update_metadata)
+    # Validate `dataws` FIRST becasue it is used by other parameters below:
+    pname = 'dataws'
+    pval = pop_param(config_dict, pname)
+    if isinstance(pval, string_types):  # backward compatibility
+        pval = [pval]
+    dataws = validate_param(pname, pval,
+                            lambda urls: [valid_fdsn(url, is_eventws=False)
+                                          for url in urls])
+    new_config[pname] = dataws
 
-        pname = 'eventws'
-        pval = pop_param(config_dict, pname)
-        new_config[pname] = validate_param(pname, pval, valid_fdsn,
-                                           is_eventws=True, configfile=configfile)
+    pname = 'update_metadata'
+    pval = pop_param(config_dict, pname)
+    new_config[pname] = validate_param(pname, pval, parse_update_metadata)
 
-        pname = 'advanced_settings'
-        pval = pop_param(config_dict, pname)
-        new_config[pname] = validate_param(pname, pval, parse_download_advanced_settings)
+    pname = 'eventws'
+    pval = pop_param(config_dict, pname)
+    new_config[pname] = validate_param(pname, pval, valid_fdsn,
+                                       is_eventws=True, configfile=configfile)
 
-        pname = 'search_radius'
-        pval = pop_param(config_dict, pname)
-        new_config[pname] = validate_param(pname, pval, check_search_radius)
+    pname = 'advanced_settings'
+    pval = pop_param(config_dict, pname)
+    new_config[pname] = validate_param(pname, pval, parse_download_advanced_settings)
 
-        pname = 'min_sample_rate'
-        pval = pop_param(config_dict, pname, 0)
-        new_config[pname] = validate_param(pname, pval, int)
+    pname = 'search_radius'
+    pval = pop_param(config_dict, pname)
+    new_config[pname] = validate_param(pname, pval, check_search_radius)
 
-        pname = 'restricted_data'
-        pval = pop_param(config_dict, pname)
-        new_config[pname] = validate_param(pname, pval, create_auth,
-                                                  dataws, configfile)
+    pname = 'min_sample_rate'
+    pval = pop_param(config_dict, pname, 0)
+    new_config[pname] = validate_param(pname, pval, int)
 
-        pname = 'dburl'
-        pval = pop_param(config_dict, pname)
-        new_config[pname] = validate_param(pname, pval, get_session)
+    pname = 'restricted_data'
+    pval = pop_param(config_dict, pname)
+    new_config[pname] = validate_param(pname, pval, create_auth,
+                                              dataws, configfile)
 
-        pname = 'traveltimes_model'
-        pval = pop_param(config_dict, pname)
-        new_config[pname] = validate_param(pname, pval, load_tt_table)
+    pname = 'dburl'
+    pval = pop_param(config_dict, pname)
+    new_config[pname] = validate_param(pname, pval, get_session)
 
-        # parameters with multiple allowed names:
+    pname = 'traveltimes_model'
+    pval = pop_param(config_dict, pname)
+    new_config[pname] = validate_param(pname, pval, load_tt_table)
 
-        pnames = ('starttime', 'start')
-        pval = pop_param(config_dict, pnames)
-        new_config[pnames[0]] = validate_param(pnames, pval, valid_date)
+    # parameters with multiple allowed names:
 
-        pnames = ('endtime', 'end')
-        pval = pop_param(config_dict, pnames)
-        new_config[pnames[0]] = validate_param(pnames, pval, valid_date)
+    pnames = ('starttime', 'start')
+    pval = pop_param(config_dict, pnames)
+    new_config[pnames[0]] = validate_param(pnames, pval, valid_date)
 
-        pnames = ('network', 'net', 'networks')
-        pval = pop_param(config_dict, pnames, [])
-        new_config[pnames[0]] = validate_param(pnames, pval, nslc_param_value_aslist)
+    pnames = ('endtime', 'end')
+    pval = pop_param(config_dict, pnames)
+    new_config[pnames[0]] = validate_param(pnames, pval, valid_date)
 
-        pnames = ('station', 'sta', 'stations')
-        pval = pop_param(config_dict,  pnames, [])
-        new_config[pnames[0]] = validate_param(pnames, pval, nslc_param_value_aslist)
+    pnames = ('network', 'net', 'networks')
+    pval = pop_param(config_dict, pnames, [])
+    new_config[pnames[0]] = validate_param(pnames, pval, nslc_param_value_aslist)
 
-        pnames = ('location', 'loc', 'locations')
-        pval = pop_param(config_dict, pnames, [])
-        new_config[pnames[0]] = validate_param(pnames, pval, nslc_param_value_aslist)
+    pnames = ('station', 'sta', 'stations')
+    pval = pop_param(config_dict,  pnames, [])
+    new_config[pnames[0]] = validate_param(pnames, pval, nslc_param_value_aslist)
 
-        pnames = ('channel', 'cha', 'channels')
-        pval = pop_param(config_dict,pnames, [])
-        new_config[pnames[0]] = validate_param(pnames, pval, nslc_param_value_aslist)
+    pnames = ('location', 'loc', 'locations')
+    pval = pop_param(config_dict, pnames, [])
+    new_config[pnames[0]] = validate_param(pnames, pval, nslc_param_value_aslist)
 
-        # At last, eventws parameters:
+    pnames = ('channel', 'cha', 'channels')
+    pval = pop_param(config_dict,pnames, [])
+    new_config[pnames[0]] = validate_param(pnames, pval, nslc_param_value_aslist)
 
-        pnames = ('eventws_params', 'eventws_query_args')
-        # get the name of the parameter we should print in case of errors later:
-        pname = pnames[1] if pnames[1] in config_dict else pnames[0]
-        # pop all event params from the dict pval:
-        pval = pop_param(config_dict, pnames, {}) or {}
-        pval = validate_param(pname, pval, typesmatch, {})
+    # At last, eventws parameters. These parameters can be supplied in the
+    # main config but also in the eventws_params dict, which was formerly
+    # named eventws_query_args (keep backward compatibility)
+
+    pnames = ('eventws_params', 'eventws_query_args')
+    # get the name of the parameter we should print in case of errors later:
+    pname = pnames[1] if pnames[1] in config_dict else pnames[0]
+    # pop all event params from the dict pval:
+    pval = pop_param(config_dict, pnames, {}) or {}
+    pval = validate_param(pname, pval, typesmatch, {})
+    try:
+        evt_params = pop_event_params(pval)
+    except BadArgument as barg:
+        barg.error_message += " ( in " + pname + ")"
+        raise barg
+
+    new_config[pnames[0]] = evt_params
+    # now pop all event params from the "outer" config_dict:
+    evt_params2 = pop_event_params(config_dict)
+    # and merge (but check conflicts beforehand):
+    conflicts_evtpars = set(evt_params) & set(evt_params2)
+    if conflicts_evtpars:
+        raise BadArgument(conflicts_evtpars, 'in config and config.' + pname,
+                          'conflicting parameter(s)')
+    evt_params.update(evt_params2)  # merge
+
+    # ==========================================================
+    # Done withj parameter validation. Just perform final checks
+    # ==========================================================
+
+    # load original config (default in this package) to perform some checks:
+    orig_config_dict = yaml_load(get_templates_fpath("download.yaml"))
+
+    # Now check for params supplied here NOT in the default config, and supplied
+    # here but with different type in the original config
+    for pname in config_dict:
+        pval = config_dict.pop(pname)
         try:
-            evt_params = pop_event_params(pval)
-        except BadArgument as barg:
-            barg.error_message += " ( in " + pname + ")"
-            raise barg
+            other_value = orig_config_dict[pname]
+        except KeyError:
+            raise BadArgument(pname, '', 'No such option')
+        new_config[pname] = validate_param(pname, pval,typesmatch, other_value)
 
-        new_config[pnames[0]] = evt_params
-        # now pop all event params from the "outer" config_dict:
-        evt_params2 = pop_event_params(config_dict)
-        # and merge (but check conflicts beforehand):
-        conflicts_evtpars = set(evt_params) & set(evt_params2)
-        if conflicts_evtpars:
-            raise BadArgument(conflicts_evtpars, 'in config and config.' + pname,
-                              'conflicting parameter(s)')
-        evt_params.update(evt_params2)  # merge
+    # And finally, check for params in the default config not supplied here:
+    missing_keys = set(orig_config_dict) - set(new_config)
+    if missing_keys:
+        raise BadArgument(list(missing_keys), KeyError())
 
-        # load original config (default in this package) to perform some checks:
-        orig_config_dict = yaml_load(get_templates_fpath("download.yaml"))
-
-        # Now check for params supplied here NOT in the default config, and supplied
-        # here but with different type in the original config
-        for pname in config_dict:
-            pval = config_dict.pop(pname)
-            try:
-                other_value = orig_config_dict[pname]
-            except KeyError:
-                raise BadArgument(pname, '', 'No such option')
-            new_config[pname] = validate_param(pname, pval,typesmatch, other_value)
-
-        # And finally, check for params in the default config not supplied here:
-        missing_keys = set(orig_config_dict) - set(new_config)
-        if missing_keys:
-            raise BadArgument(list(missing_keys), KeyError())
-
-    return config_dict
+    return new_config
 
 
 def pop_event_params(evt_params_dict):
