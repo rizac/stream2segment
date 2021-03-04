@@ -624,35 +624,12 @@ def load_config_for_download(config, validate, **param_overrides):
         if isinstance(config, string_types) and os.path.isfile(config):
             configfile = config
 
-
-        # now, what we want to do here is basically convert config_dict keys
-        # into suitable arguments for stream2segment functions: this includes
-        # renaming params, parsing/converting their values, raising
-        # BadArgument exceptions and so on
-
-        # Let's configure a 'params' list, a list of dicts where each dict is a
-        # 'param checker' with the following keys (at least one should be
-        # provided):
-        # names: list of strings. provide it in order to check for optional
-        #        names, check that only one param is provided, and
-        #        replace whatever is found with the first item in the list
-        # newname: string, provide it if you want to replace names above with
-        #          this value instead first item in 'names'
-        # defvalue: if provided, then the parameter is optional and will be set
-        #           to this value if not provided, then the parameter is
-        #           mandatory (BadArgument is raised in case)
-        # newvalue: function accepting a value (the parameter value) raising
-        #           whatever is needed if the parameter is invalid, and
-        #           returning the correct parameter value
+        # put validated params into a new dict, which will be eventually returned:
         new_config = {}
 
-        # dataws is a list of strings, but for backward compatibility
-        # we must accept strings too. Convert `dataws` to list AS FIRST
-        # ARGUMENT (I.E., this must be the FIRST dict of the list), so
-        # that any other parameter check below requiring dataws can
-        # safely work with lists:
+        # Validate `dataws` FIRST becasue it is used by other parameters below:
         pname, pval = pop_param(config_dict, 'dataws')
-        if isinstance(pval, string_types):
+        if isinstance(pval, string_types):  # backward compatibility
             pval = [pval]
         dataws = validate_param(pname, pval,
                                 lambda urls: [valid_fdsn(url, is_eventws=False)
@@ -704,8 +681,8 @@ def load_config_for_download(config, validate, **param_overrides):
         new_config[pname] = validate_param(pname, pval, int)
 
         # at last, parse eventws parameters:
-        evt_parnames = ('eventws_params', 'eventws_query_args')
 
+        evt_parnames = ('eventws_params', 'eventws_query_args')
         pname, pval = pop_param(config_dict, evt_parnames, {})
         # pop all event params from the dict pval:
         evt_params = pop_event_params(validate_param(pname, pval, dict_or_none) or {})
@@ -717,41 +694,28 @@ def load_config_for_download(config, validate, **param_overrides):
         if conflicts_evtpars:
             raise BadArgument(evt_parnames[0], 'conflicting parameter(s) "%s"'
                               % "/".join(conflicts_evtpars))
-        # merge:
-        evt_params.update(evt_params2)
+        evt_params.update(evt_params2)  # merge
 
+        # load original config (default in this package) to perform some checks:
+        orig_config_dict = yaml_load(get_templates_fpath("download.yaml"))
 
-
-
-        # store all keys now because we might change them (see below):
-        all_keys = set(config_dict)
-        # do the check (this MODIFIES config_dict in place!):
-        parse_arguments(config_dict, *params)
-
-        # Now check for:
-        # 1a. parameter supplied here NOT in the default config
-        # 1b. parameter supplied here with different type of the default config
-        # 2. Parameters in the default config not supplied here
-
-        # First, create some sets of params names:
-        # the parsed keys (all names defined above):
-        parsed_keys = set(chain(*(_['names'] for _ in params)))
-        # load original configuration (default in this package):
-        orig_config = yaml_load(get_templates_fpath("download.yaml"))
-
-        # Check 1a. and 1b.:
-        for key in all_keys - parsed_keys:
+        # Now check for params supplied here NOT in the default config, and supplied
+        # here but with different type in the original config
+        for pname in config_dict:
+            pval = config_dict.pop(pname)
             try:
-                other_value = orig_config[key]
+                other_value = orig_config_dict[pname]
             except KeyError:
-                raise BadArgument(key, '', 'No such option')
-            try:
-                typesmatch(config_dict[key], other_value)
-            except Exception as exc:
-                raise BadArgument(key, exc)
+                raise BadArgument(pname, '', 'No such option')
+            new_config[pname] = validate_param(pname, pval,typesmatch, other_value)
 
-        # Check 2. :
-        missing_keys = set(orig_config) - all_keys - parsed_keys
+        # And finally, check for params in the default config not supplied here
+        # first remove keys that we renamed in new_config:
+        orig_config_dict.pop('restricted_data')
+        orig_config_dict.pop('dburl')
+        orig_config_dict.pop('traveltimes_model')
+        # now check:
+        missing_keys = set(orig_config_dict) - set(new_config)
         if missing_keys:
             raise BadArgument(list(missing_keys), KeyError())
 
