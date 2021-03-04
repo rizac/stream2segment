@@ -115,30 +115,44 @@ def download(config, log2file=True, verbose=False, **param_overrides):
             raise ValueError('`log2file` can be True only if `config` is a '
                              'string denoting an existing file')
 
-        # check and parse config values (modify in place):
-        yaml_dict = load_config_for_download(config, True, **param_overrides)
-        # get the session object (needed separately, see below):
-        session = yaml_dict['session']
-        # print yaml_dict to terminal if needed. Do not use input_yaml_dict as
-        # params needs to be shown as expanded/converted so the user can check
-        # their correctness. Do no use loggers yet:
-        if verbose:
-            print(_to_pretty_str(yaml_dict,
-                                 load_config_for_download(config, False,
-                                                          **param_overrides)))
+        real_yaml_dict = load_config_for_download(config, False, **param_overrides)
 
-        # configure logger and habdlers:
+        if verbose:
+            # print yaml_dict to terminal if needed
+            tmp_cfg = dict(real_yaml_dict)
+            # split into subdicts to mock some sort of order:
+            safe_dburl = secure_dburl(tmp_cfg.pop('dburl'))
+            stime = tmp_cfg.pop('starttime', tmp_cfg.pop('start'))
+            etime = tmp_cfg.pop('dburl', tmp_cfg.pop('end'))
+            advse = tmp_cfg.pop('advanced_settings', {})
+            ret = [
+                "Input parameters",
+                "----------------",
+                yaml_safe_dump({'dburl': safe_dburl}),
+                yaml_safe_dump({'starttime': stime}),
+                yaml_safe_dump({'endtime': etime}),
+                yaml_safe_dump(tmp_cfg),
+                yaml_safe_dump({'advanced_settings': advse}),
+            ]
+            print("%s\n" % ('\n'.join(ret)).strip())
+
+        # configure logger and handlers:
         if log2file is True:
             log2file = logfilepath(config)  # auto create log file
         else:
             log2file = log2file or ''  # assure we have a string
         loghandlers = configlog4download(logger, log2file, verbose)
 
+        # load a dict of keyword arguments for the download(**kwargs) function below
+        d_kwargs = load_config_for_download(config, True, **param_overrides)
+        # replace kwargs that change name in the function signatuire:
+        authorizer = d_kwargs.pop('restricted_data')
+        session = d_kwargs.pop('dburl')
+        tt_table = d_kwargs.pop('traveltimes_model')
+
         # create download row with unprocessed config (yaml_load function)
         # Note that we call again load_config with parseargs=False:
-        download_id = new_db_download(session,
-                                      load_config_for_download(config, False,
-                                                               **param_overrides))
+        download_id = new_db_download(session, real_yaml_dict)
         if log2file and verbose:  # (=> loghandlers not empty)
             print("Log file: '%s'"
                   "\n(if the download ends with no errors, the file will be "
@@ -148,7 +162,9 @@ def download(config, log2file=True, verbose=False, **param_overrides):
                                                        Download.log.key))
 
         stime = time.time()
-        run_download(download_id=download_id, isterminal=verbose, **yaml_dict)
+        run_download(download_id=download_id, isterminal=verbose,
+                     authorizer=authorizer, session=session, tt_table=tt_table,
+                     **d_kwargs)
         logger.info("Completed in %s", str(elapsedtime(stime)))
         if log2file:
             errs, warns = loghandlers[0].errors, loghandlers[0].warnings
@@ -186,44 +202,44 @@ def download(config, log2file=True, verbose=False, **param_overrides):
     return ret
 
 
-def _to_pretty_str(yaml_dict, unparsed_yaml_dict):
-    """Return a pretty printed string from yaml_dict
-
-    :param yaml_dict: the PARSED yaml as dict. It might contain variables, such as
-        `session`, not in the original yaml file (these variables are not returned
-        in this function)
-    :param unparsed_yaml_dict: the UNPARSED yaml dict.
-    """
-
-    # the idea is: get the param value from yaml_dict, if not present get it from
-    # unparsed_yaml_dict. Use this list of params so we can control order
-    # (this works only in PyYaml>=5.1 and Python 3.6+, otherwise yaml_dict
-    # keys order can not be known):
-    params = ['dburl', 'starttime', 'endtime', 'eventws',
-              # These variables are merged into eventws_params in yaml_dict,
-              # so do not show them:
-              # 'minlatitude', 'maxlatitude', 'minlongitude', 'maxlongitude',
-              # 'mindepth', 'maxdepth', 'minmagnitude', 'maxmagnitude',
-              'eventws_params', 'channel', 'network', 'station', 'location',
-              'min_sample_rate', 'update_metadata', 'inventory',
-              'search_radius', 'dataws', 'traveltimes_model', 'timespan',
-              'restricted_data', 'retry_seg_not_found', 'retry_url_err',
-              'retry_mseed_err', 'retry_client_err', 'retry_server_err',
-              'retry_timespan_err', 'advanced_settings']
-
-    newdic = {}
-    for k in params:  # add yaml_dic[k] or unparsed_yaml_dict[k]:
-        if k in yaml_dict:
-            newdic[k] = yaml_dict[k]
-        elif k in unparsed_yaml_dict:
-            newdic[k] = unparsed_yaml_dict[k]
-    newdic['dburl'] = secure_dburl(newdic['dburl'])  # don't show passowrd, if present
-    ret = [
-        "Parsed input parameters",
-        "-----------------------",
-        yaml_safe_dump(newdic)
-    ]
-    return "%s\n" % ('\n'.join(ret)).strip()
+# def _to_pretty_str(yaml_dict, unparsed_yaml_dict):
+#     """Return a pretty printed string from yaml_dict
+#
+#     :param yaml_dict: the PARSED yaml as dict. It might contain variables, such as
+#         `session`, not in the original yaml file (these variables are not returned
+#         in this function)
+#     :param unparsed_yaml_dict: the UNPARSED yaml dict.
+#     """
+#
+#     # the idea is: get the param value from yaml_dict, if not present get it from
+#     # unparsed_yaml_dict. Use this list of params so we can control order
+#     # (this works only in PyYaml>=5.1 and Python 3.6+, otherwise yaml_dict
+#     # keys order can not be known):
+#     params = ['dburl', 'starttime', 'endtime', 'eventws',
+#               # These variables are merged into eventws_params in yaml_dict,
+#               # so do not show them:
+#               # 'minlatitude', 'maxlatitude', 'minlongitude', 'maxlongitude',
+#               # 'mindepth', 'maxdepth', 'minmagnitude', 'maxmagnitude',
+#               'eventws_params', 'channel', 'network', 'station', 'location',
+#               'min_sample_rate', 'update_metadata', 'inventory',
+#               'search_radius', 'dataws', 'traveltimes_model', 'timespan',
+#               'restricted_data', 'retry_seg_not_found', 'retry_url_err',
+#               'retry_mseed_err', 'retry_client_err', 'retry_server_err',
+#               'retry_timespan_err', 'advanced_settings']
+#
+#     newdic = {}
+#     for k in params:  # add yaml_dic[k] or unparsed_yaml_dict[k]:
+#         if k in yaml_dict:
+#             newdic[k] = yaml_dict[k]
+#         elif k in unparsed_yaml_dict:
+#             newdic[k] = unparsed_yaml_dict[k]
+#     newdic['dburl'] = secure_dburl(newdic['dburl'])  # don't show passowrd, if present
+#     ret = [
+#         "Parsed input parameters",
+#         "-----------------------",
+#         yaml_safe_dump(newdic)
+#     ]
+#     return "%s\n" % ('\n'.join(ret)).strip()
 
 
 def process(dburl, pyfile, funcname=None, config=None, outfile=None,
