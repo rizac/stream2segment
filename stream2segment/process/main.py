@@ -39,7 +39,7 @@ from stream2segment.process import SkipSegment
 from stream2segment.utils import get_progressbar
 from stream2segment.process.db import get_session
 from stream2segment.io.db.models import Segment, Station
-from stream2segment.utils.inputargs import load_pyfunc
+from stream2segment.utils.inputargs import valid_pyfunc
 
 
 logger = logging.getLogger(__name__)
@@ -353,12 +353,12 @@ def process_segments_mp(args):
         module (string) and funcname is the processing function name to be called
 
     :return: a list of (output, is_ok, segment_id) tuples, where output is the
-        output of the processing funcion name (either iterable or Exception), is_ok
+        output of the processing function name (either iterable or Exception), is_ok
         (boolean) tells if `output` is NOT an Exception, and segment_id is the id of the
         segment processed
     """
     seg_ids_chunk, dburl, config, pyfile, funcname, safe_exceptions_tuple = args
-    pyfunc = load_pyfunc(pyfile, funcname)
+    pyfunc = valid_pyfunc(pyfile, funcname)
     session = get_session(dburl)
     ret = []
 

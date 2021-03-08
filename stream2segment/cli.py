@@ -44,7 +44,7 @@ class clickutils(object):  # noqa
     """
     DEFAULTDOC = yaml_load_doc(get_templates_fpath("download.yaml"))
     EQA = "(event search parameter)"
-    DBURL_OR_YAML_ATTRS = dict(type=inputargs.extract_dburl_if_yamlpath,
+    DBURL_OR_YAML_ATTRS = dict(type=inputargs.valid_dburl_or_download_yamlpath,
                                metavar='TEXT or PATH',
                                help=("Database URL where data has been saved. "
                                      "It can also be the path of a YAML file "
@@ -348,8 +348,8 @@ def download(config, dburl, eventws, starttime, endtime, network,  # noqa
             warnings.simplefilter("ignore")
             ret = main.download(config, log2file=True, verbose=True,
                                 **overrides)
-    except inputargs.BadArgument as aerr:
-        print(aerr)
+    except inputargs.BadParam as err:
+        print(err)
         ret = 2
     except:  # @IgnorePep8 pylint: disable=bare-except
         # do not print traceback, as we already did it by configuring loggers
@@ -376,7 +376,7 @@ def download(config, dburl, eventws, starttime, endtime, network,  # noqa
 @click.option("-f", "--funcname",
               help="The name of the user-defined processing function in the "
                    "given python file. Defaults to '%s' when "
-                   "missing" % inputargs.default_processing_funcname())
+                   "missing" % inputargs.valid_default_processing_funcname())
 @click.option("-a", "--append", is_flag=True, default=False,
               help="Append results to the output file (this flag is ignored if "
                    "no output file is provided. The output file will be "
@@ -445,8 +445,8 @@ def process(dburl, config, pyfile, funcname, append, no_prompt,
                 ret = main.process(dburl, pyfile, funcname, config, outfile,
                                    log2file=True, verbose=True, append=append,
                                    **overrides)
-    except inputargs.BadArgument as aerr:
-        print(aerr)
+    except inputargs.BadParam as err:
+        print(err)
         ret = 2  # exit with 1 as normal python exceptions
     except:  # @IgnorePep8 pylint: disable=bare-except
         # do not print traceback, as we already did it by configuring loggers
@@ -526,8 +526,8 @@ def stats(dburl, download_id, maxgap_threshold, html, outfile):
         if outfile is not None:
             print("download statistics written to '%s'" % outfile)
         sys.exit(0)
-    except inputargs.BadArgument as aerr:
-        print(aerr)
+    except inputargs.BadParam as err:
+        print(err)
         sys.exit(1)  # exit with 1 as normal python exceptions
 
 
@@ -571,8 +571,8 @@ def report(dburl, download_id, config, log, outfile):
         if outfile is not None:
             print("download report written to '%s'" % outfile)
         sys.exit(0)
-    except inputargs.BadArgument as aerr:
-        print(aerr)
+    except inputargs.BadParam as err:
+        print(err)
         sys.exit(1)  # exit with 1 as normal python exceptions
 
 
@@ -615,8 +615,8 @@ def drop(dburl, download_id):
                 msg += "DELETED (%d associated segments deleted)" % val
             print(msg)
         sys.exit(0)
-    except inputargs.BadArgument as aerr:
-        print(aerr)
+    except inputargs.BadParam as err:
+        print(err)
         sys.exit(1)  # exit with 1 as normal python exceptions
 
 
@@ -689,8 +689,8 @@ def classlabel(dburl, add, rename, delete, no_prompt):
             for clbl in clabels:
                 print("%s (%s)" % (clbl['label'], clbl['description']))
         sys.exit(0)
-    except inputargs.BadArgument as aerr:
-        print(aerr)
+    except inputargs.BadParam as err:
+        print(err)
         sys.exit(1)  # exit with 1 as normal python exceptions
 
 

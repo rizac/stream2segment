@@ -32,8 +32,9 @@ import jinja2
 
 from sqlalchemy.sql.expression import func
 
-from stream2segment.utils.inputargs import load_config_for_process, \
-    load_config_for_download, get_session, load_config_for_visualization, validate_param
+from stream2segment.utils.inputargs import load_config_for_process, pop_param,\
+    load_config_for_download, valid_session, load_config_for_visualization, \
+    validate_param
 from stream2segment.utils.log import configlog4download, configlog4processing,\
     closelogger, logfilepath
 from stream2segment.io.db.models import Download, Segment
@@ -103,38 +104,42 @@ def download(config, log2file=True, verbose=False, **param_overrides):
     # - return 0 otherwise (meaning: success). This includes the case where,
     #   acording to our config, there are not segments to download
 
+    # short check (this should just raise, so execute this before configuring loggers):
+    isfile = isinstance(config, string_types) and os.path.isfile(config)
+    if not isfile and log2file is True:
+        raise ValueError('`log2file` can be True only if `config` is a '
+                         'string denoting an existing file')
+
+    # Validate params converting them in dict of args for the download function. Also in
+    # this case do it before configuring loggers, we simply need to raise `BadParam`s in
+    # case of problems:
+    d_kwargs, session, authorizer, tt_table = \
+        load_config_for_download(config, True, **param_overrides)
+
     ret = 0
     noexc_occurred = True
     loghandlers = None
-    session = None
     download_id = None
     try:
-        # short check:
-        isfile = isinstance(config, string_types) and os.path.isfile(config)
-        if not isfile and log2file is True:
-            raise ValueError('`log2file` can be True only if `config` is a '
-                             'string denoting an existing file')
-
         real_yaml_dict = load_config_for_download(config, False, **param_overrides)
-
         if verbose:
-            # print yaml_dict to terminal if needed
+            # print yaml_dict to terminal if needed. Unfortunately we need a bit of
+            # workaround just to print relevant params first (YAML sorts by key)
             tmp_cfg = dict(real_yaml_dict)
-            # split into subdicts to mock some sort of order:
-            safe_dburl = secure_dburl(tmp_cfg.pop('dburl'))
-            stime = tmp_cfg.pop('starttime', tmp_cfg.pop('start'))
-            etime = tmp_cfg.pop('dburl', tmp_cfg.pop('end'))
-            advse = tmp_cfg.pop('advanced_settings', {})
-            ret = [
+            # provide sorting in the printed yaml by splitting into subdicts:
+            tmp_cfg_pre = [list(pop_param(tmp_cfg, 'dburl')),  # needs to be mutable
+                           pop_param(tmp_cfg, ('starttime', 'start')),
+                           pop_param(tmp_cfg, ('endtime', 'end'))]
+            tmp_cfg_pre[0][1] = secure_dburl(tmp_cfg_pre[0][1])
+            tmp_cfg_post = [pop_param(tmp_cfg, 'advanced_settings', {})]
+            _pretty_printed_yaml = "\n".join(_.strip() for _ in [
                 "Input parameters",
                 "----------------",
-                yaml_safe_dump({'dburl': safe_dburl}),
-                yaml_safe_dump({'starttime': stime}),
-                yaml_safe_dump({'endtime': etime}),
+                yaml_safe_dump(dict(tmp_cfg_pre)),
                 yaml_safe_dump(tmp_cfg),
-                yaml_safe_dump({'advanced_settings': advse}),
-            ]
-            print("%s\n" % ('\n'.join(ret)).strip())
+                yaml_safe_dump(dict(tmp_cfg_post)),
+            ])
+            print("%s\n" % _pretty_printed_yaml.strip())
 
         # configure logger and handlers:
         if log2file is True:
@@ -142,13 +147,6 @@ def download(config, log2file=True, verbose=False, **param_overrides):
         else:
             log2file = log2file or ''  # assure we have a string
         loghandlers = configlog4download(logger, log2file, verbose)
-
-        # load a dict of keyword arguments for the download(**kwargs) function below
-        d_kwargs = load_config_for_download(config, True, **param_overrides)
-        # replace kwargs that change name in the function signatuire:
-        authorizer = d_kwargs.pop('restricted_data')
-        session = d_kwargs.pop('dburl')
-        tt_table = d_kwargs.pop('traveltimes_model')
 
         # create download row with unprocessed config (yaml_load function)
         # Note that we call again load_config with parseargs=False:
@@ -384,7 +382,7 @@ def s2smap(pyfunc, dburl, segments_selection=None, config=None, *,
         be loaded from the database. Increasing this number speeds up the load but also
         increases memory consumption. None (the default) means: set size automatically
     """
-    session = validate_param('dburl', dburl, get_session, for_process=True)
+    session = validate_param('dburl', dburl, valid_session, for_process=True)
     try:
         loghandlers = configlog4processing(logger, logfile, show_progress)
         stime = time.time()
@@ -574,7 +572,7 @@ def dstats(dburl, download_ids=None, maxgap_threshold=0.5, html=False,
 def _get_download_info(info_generator, dburl, download_ids=None, html=False,
                        outfile=None):
     """Process dinfo or dstats"""
-    session = validate_param('dburl', dburl, get_session)
+    session = validate_param('dburl', dburl, valid_session)
     if html:
         openbrowser = False
         if not outfile:
@@ -611,7 +609,7 @@ def ddrop(dburl, download_ids, prompt=True):
         - an exception (if the download id could not be deleted)
     """
     ret = {}
-    session = validate_param('dburl', dburl, get_session)
+    session = validate_param('dburl', dburl, valid_session)
     try:
         ids = [_[0] for _ in
                session.query(Download.id).filter(Download.id.in_(download_ids))]

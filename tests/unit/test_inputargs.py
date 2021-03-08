@@ -25,8 +25,8 @@ from stream2segment.cli import cli
 from stream2segment.main import configlog4download as o_configlog4download,\
     new_db_download as o_new_db_download, configlog4processing as o_configlog4processing, \
     process as o_process, download as o_download
-from stream2segment.utils.inputargs import get_session as o_get_session, \
-    nslc_param_value_aslist, load_config_for_process
+from stream2segment.utils.inputargs import valid_session as o_get_session, \
+    valid_nslc as nslc_param_value_aslist, load_config_for_process
 from stream2segment.io.db.models import Download
 from stream2segment.utils import secure_dburl
 from stream2segment.utils.resources import get_templates_fpath, yaml_load, get_templates_fpaths
@@ -102,7 +102,7 @@ class Test(object):
                        side_effect=o_new_db_download) as _:
                 self.mock_new_db_download = _
 
-                with patch('stream2segment.utils.inputargs.get_session') as _:
+                with patch('stream2segment.utils.inputargs.valid_session') as _:
                     def csess(dbpath, *a, **v):
                         if dbpath == db.dburl:
                             return db.session
@@ -145,9 +145,37 @@ class Test(object):
         dcount = 0
 
         # test that eventws_params is optional if not provided
-        result = run_cli_download(removals=['eventws_params'])  # conflict
+        result = run_cli_download(removals=['eventws_params'])
         assert result.exit_code == 0
         dcount += 1
+
+        # now check parameters supplied in config and in `eventws` subdict
+        result = run_cli_download(eventws_params={'maxmagnitude': 5})
+        assert result.exit_code == 0
+        dcount += 1
+        # check maxmagnitude is NOT in the eventws params:
+        eventws_params = self.mock_run_download.call_args_list[-1][1]['eventws_params']
+        assert 'maxmagnitude' in eventws_params
+
+        # same as above, but let's check a type error? No, it does not raise
+        # because the validation function is float (and float('5') works)
+        result = run_cli_download(eventws_params={'maxmagnitude': '5'})
+        assert result.exit_code == 0
+        dcount += 1
+
+        # same as above, but let's check real a type error, because in this case
+        # the validation function is stream2segment 'valid_between''
+        result = run_cli_download(minlatitude = '5')
+        assert result.exit_code != 0
+        assert msgin('Error: Invalid type for "minlatitude":', result.output)
+
+        # same as above, but with conflicts:
+        # COMMENT OUT: THIS IS IMPLEMENTED IN test_download_eventws_query_args:
+        # for param_name in ['minlat', 'maxlatitude']:
+        #     result = run_cli_download(eventws_params={param_name: 5})
+        #     assert result.exit_code != 0
+        #     assert msgin('Conflicting names ', result.output)
+        #     assert msgin('"eventws_params"', result.output)
 
         eventswparams = ['minlat', 'minlatitude', 'maxlat', 'maxlatitude',
                          'minlon', 'minlongitude', 'maxlon', 'maxlongitude']
@@ -159,6 +187,10 @@ class Test(object):
         result = run_cli_download(min_sample_rate='abc')  # conflict
         assert result.exit_code != 0
         assert msgin('"min_sample_rate"', result.output)
+        # sometimes we move functions, messing around with what should be logged
+        # or not. In most of the tests of this function, the exception traceback should
+        # not be there. Perform the check in this case:
+        assert "traceback" not in result.output.lower()
 
         result = run_cli_download(removals=['min_sample_rate'])  # conflict
         assert self.mock_run_download.call_args_list[-1][1]['min_sample_rate'] == 0
@@ -193,18 +225,24 @@ class Test(object):
         assert msgin('Error: Conflicting names "network" / "networks"', result.output)
         # assert we did not write to the db, cause the error threw before setting up db:
         assert db.session.query(Download).count() == dcount
+        # to be sure we have printed the bad parameter message only:
+        assert len(result.output.strip().split('\n')) == 1
 
         result = run_cli_download(network='!*')  # invalid value
         assert result.exit_code != 0
         assert msgin('Error: Invalid value for "network": ', result.output)
         # assert we did not write to the db, cause the error threw before setting up db:
         assert db.session.query(Download).count() == dcount
+        # to be sure we have printed the bad parameter message only:
+        assert len(result.output.strip().split('\n')) == 1
 
         result = run_cli_download(net='!*')  # conflicting names
         assert result.exit_code != 0
         assert msgin('Error: Conflicting names "network" / "net"', result.output)
         # assert we did not write to the db, cause the error threw before setting up db:
         assert db.session.query(Download).count() == dcount
+        # to be sure we have printed the bad parameter message only:
+        assert len(result.output.strip().split('\n')) == 1
 
         # test error from the command line. Result is the same as above as the check is made
         # AFTER click
@@ -368,12 +406,10 @@ class Test(object):
 
         result = run_cli_download(advanced_settings={})  # remove an opt. param.
         assert result.exit_code != 0
-        assert ('Error: Invalid value for "advanced_settings": '
-                'missing value for "download_blocksize"') in result.output
+        assert 'Error: Missing value for "advanced_settings.download_blocksize"' \
+               in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
         assert db.session.query(Download).count() == dcount
-
-
 
         # search radius:
         for search_radius in [{'min': 5}, {'min': 5, 'max': 6, 'minmag': 7}]:
@@ -430,15 +466,24 @@ class Test(object):
         adv = dict(self.yaml_def_params['advanced_settings'])
         adv['max_concurrent_downloads'] = 2
         result = run_cli_download(advanced_settings=adv)
+        # Test max_concurrent_downloads checking the printed config (hacky but quick):
         assert 'max_concurrent_downloads: 2' in \
                result.output[result.output.index('advanced_settings'):]
         # now provide a "old" config and check we converted to the new param:
+
+        # with patch('stream2segment.main.run_download') as mock_r_d:
+
         adv.pop('max_concurrent_downloads')
         adv['max_thread_workers'] = 55
         result = run_cli_download(advanced_settings=adv)
-        assert 'max_concurrent_downloads: 55' in \
+        # in the printed config, we still have mac_thread_workers
+        assert 'max_thread_workers: 55' in \
                result.output[result.output.index('advanced_settings'):]
-
+        # But not in the advanced settings dict passed to the download routine:
+        adv_settings = self.mock_run_download.call_args[-1]['advanced_settings']
+        # adv_settings = mock_r_d.call_args[-1]['advanced_settings']
+        assert 'max_thread_workers' not in adv_settings
+        assert adv_settings['max_concurrent_downloads'] == 55
 
 
 @patch('stream2segment.main.run_download', side_effect=lambda *a, **v: None)
@@ -495,8 +540,10 @@ def test_download_eventws_query_args(mock_isfile, mock_run_download,
             result = run_cli_download(par1, '15.5',
                                       eventws_params={par2.replace('-', ''): 15.5})
             assert result.exit_code != 1
-            assert 'conflict' in result.output
-            assert msgin('Invalid value for "eventws_params"', result.output)
+            assert msgin('Conflicting name(s) ', result.output)
+            assert msgin('"eventws_params"', result.output)
+            # assert 'conflict' in result.output
+            # assert msgin('Invalid value for "eventws_params"', result.output)
 
     # test a eventws supplied as non existing file and not valid fdsnws:
     mock_isfile.reset_mock()
@@ -641,7 +688,7 @@ def test_process_bad_types(pytestdir):
                  result.output)
 
 
-@patch('stream2segment.utils.inputargs.get_session')
+@patch('stream2segment.utils.inputargs.valid_session')
 @patch('stream2segment.main.closesession')
 @patch('stream2segment.main.configlog4processing')
 @patch('stream2segment.main.run_process')
@@ -737,7 +784,7 @@ def test_process_verbosity(mock_run_process, mock_configlog, mock_closesess, moc
     assert vars['numloggers'] == 0
 
 
-@patch('stream2segment.utils.inputargs.get_session')
+@patch('stream2segment.utils.inputargs.valid_session')
 @patch('stream2segment.main.closesession')
 @patch('stream2segment.main.configlog4download')
 @patch('stream2segment.main.run_download')
