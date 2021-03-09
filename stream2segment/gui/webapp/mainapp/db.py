@@ -46,7 +46,7 @@ def init(app, session):
 
 
 def get_session():
-    """Return a sqlalchemy scoped session for interacting with the database"""
+    """Return a SQLAlchemy scoped session for interacting with the database"""
     # (see init above)
     return _session
 

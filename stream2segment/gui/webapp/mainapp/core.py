@@ -68,11 +68,17 @@ def _reset_global_functions():
     del userdefined_plots[:]
 
 
-def init(app, dbpath, pymodule=None, config=None, segments_selection=None):
+def init(app, session, pymodule=None, config=None, segments_selection=None):
     """Initialize global variables. This method must be called once
-    after the Flask app has been created and before using it
+    after the Flask app has been created and before using it.
+
+    :param session: a SQLAlchemy SCOPED session
+    :param pymodule: Python module
+    :param config: dict of the current configuration
+    :param segments_selection: dict[str, str] of segment attributes mapped to a
+        selection expression (str)
     """
-    db.init(app, dbpath)
+    db.init(app, session)
 
     if pymodule:
         _reset_global_functions()

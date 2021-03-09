@@ -432,7 +432,8 @@ def show(dburl, pyfile, configfile):
     """Show downloaded data plots in a system browser dynamic web page"""
     session, pymodule, config_dict, segments_selection = \
         load_config_for_visualization(dburl, pyfile, configfile)
-    run_in_browser(create_s2s_show_app(dburl, pyfile, configfile, segments_selection))
+    run_in_browser(create_s2s_show_app(session, pymodule, config_dict,
+                                       segments_selection))
     return 0
 
 

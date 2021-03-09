@@ -684,7 +684,7 @@ def test_process_bad_types(pytestdir):
                                       '-p', p_py_file2,
                                       '-d', "sqlite://"])
     assert result.exit_code != 0
-    assert msgin('Invalid value for "pyfile": the module seems to be outdated.',
+    assert msgin('Invalid value for "pyfile": the provided Python module looks outdated.',
                  result.output)
 
 
