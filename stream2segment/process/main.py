@@ -165,6 +165,7 @@ def run_and_yield(session, seg_ids, pyfunc, config, show_progress=False,
             if is_ok:
                 yield output, segment_id
 
+    logger.info('')
     logger.info("%d of %d segment(s) successfully processed", done, seg_len)
     logger.info("%d of %d segment(s) skipped with error message "
                 "reported in the log file", errors, seg_len)

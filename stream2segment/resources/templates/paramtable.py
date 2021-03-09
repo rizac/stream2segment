@@ -54,7 +54,7 @@ def main(segment, config):
     # If you want to preserve the original stream, store trace.copy() beforehand.
     # Also, use a 'try catch': sometimes Inventories are corrupted and ObsPy raises
     # a TypeError, which would break the WHOLE processing execution.
-    # Raising a ValueError will stop the execution of the currently processed
+    # Raising a SkipSegment will stop the execution of the currently processed
     # segment only (logging the error message):
     try:
         trace = bandpass_remresp(segment, config)

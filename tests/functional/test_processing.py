@@ -19,6 +19,7 @@ from click.testing import CliRunner
 from stream2segment.cli import cli
 from stream2segment.io.db.models import Event, Station, Segment,\
     Channel, Download, DataCenter
+from stream2segment.process import SkipSegment
 from stream2segment.utils.resources import get_templates_fpath
 from stream2segment.utils.log import configlog4processing as o_configlog4processing
 from stream2segment.process.main import run as process_main_run
@@ -474,7 +475,7 @@ def main(""")
     # station_inventory in [true, false] and segment.data in [ok, with_gaps, empty]
     # use db4process(with_inventory, with_data, with_gap) to return sqlalchemy query for
     # those segments in case. For info see db4process in conftest.py
-    @pytest.mark.parametrize("err_type", [None, ValueError])
+    @pytest.mark.parametrize("err_type", [None, SkipSegment])
     def test_errors_process_completed(self, err_type,
                                       # fixtures:
                                       pytestdir, db4process, yamlfile):
@@ -500,12 +501,15 @@ def main(""")
         with open(pyfile, 'r') as opn:
             content = opn.read()
 
-        if err_type == ValueError:
+        if err_type == SkipSegment:
             # create the exception. Implement a bad signature whci hraises a TypeError
             content = content.replace("def main(", """def main2(segment, config):
-    return int('4d')
+    # return int('4d')
+    raise SkipSegment(ValueError("invalid literal for .* with base 10: '4d'"))
 
 def main(""")
+            # why SkipSegment(ValueError...) above? to test that it behaves as passing the string
+            # directly
         else:
             # rename main to main2, as we will call 'main2' as funcname in 'runner.invoke' below
             # REMEMBER THAT THIS CASE HAS ACTUALLY NO SEGMENTS TO BE PROCESSED, see
@@ -556,18 +560,6 @@ def main(""")
                  r'4 of 4 segment\(s\) skipped with error message reported in the log file')
             assert re.search(str2check, stdout)
 
-            # logfile has also the messages of what was wrong. Note that
-            # py2 prints:
-            # "invalid literal for long() with base 10: '4d'"
-            # and PY3 prints:
-            # ""invalid literal for int() with base 10: '4d'"
-            # instead of writing:
-            # if PY2:
-            #     assert "invalid literal for long() with base 10: '4d'" in logfilecontent
-            # else:
-            #     assert "invalid literal for int() with base 10: '4d'" in logfilecontent
-            # let's be more relaxed (use .*). Also, use a regexp for cross-versions
-            # compatibility about newlines (see comments above)
             str2check = \
                 (r"4 segment\(s\) found to process\n"
                  r"\n+"
@@ -578,4 +570,7 @@ def main(""")
                  r"\n+"
                  r"0 of 4 segment\(s\) successfully processed\n"
                  r"4 of 4 segment\(s\) skipped with error message reported in the log file")
-            assert re.search(str2check, logfilecontent)
+            try:
+                assert re.search(str2check, logfilecontent)
+            except AssertionError:
+                asd =9
