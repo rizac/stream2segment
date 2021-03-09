@@ -18,13 +18,14 @@ from future.utils import integer_types
 
 from stream2segment.cli import cli
 from stream2segment.process.main import run as process_main_run, \
-    get_advanced_settings as o_get_advanced_settings, process_segments as o_process_segments,\
+    get_default_chunksize as o_get_default_chunksize, process_segments as o_process_segments,\
     process_segments_mp as o_process_segments_mp, \
     _get_chunksize_defaults as _o_get_chunksize_defaults, query4process
 from stream2segment.utils.log import configlog4processing as o_configlog4processing
-from stream2segment.utils.resources import get_templates_fpath
+from stream2segment.utils.resources import get_templates_fpath, yaml_load
 from stream2segment.process.writers import BaseWriter
 
+SEG_SEL_STRING = 'segments_selection'
 
 @pytest.fixture
 def yamlfile(pytestdir):
@@ -53,7 +54,7 @@ class Test(object):
         session = db4process.session
         # sets up the mocked functions: db session handling (using the already created session)
         # and log file handling:
-        with patch('stream2segment.utils.inputargs.get_session', return_value=session):
+        with patch('stream2segment.utils.inputvalidation.valid_session', return_value=session):
             with patch('stream2segment.main.closesession',
                        side_effect=lambda *a, **v: None):
                 with patch('stream2segment.main.configlog4processing') as mock2:
@@ -88,17 +89,17 @@ class Test(object):
                               ({'segments_chunksize': 1}, ['--multi-process', '--num-processes', '1']),
                               ({}, ['--multi-process', '--num-processes', '1'])])
     @mock.patch('stream2segment.main.run_process', side_effect=process_main_run)
-    def test_simple_run_no_outfile_provided(self, mock_run, advanced_settings,
-                                            cmdline_opts,
-                                            # fixtures:
-                                            pytestdir, db4process, clirunner, yamlfile):
-        '''test a case where save inventory is True, and that we saved inventories
-        db is a fixture implemented in conftest.py and setup here in self.transact fixture
+    def test_save2file(self, mock_run, advanced_settings,
+                       cmdline_opts,
+                       # fixtures:
+                       pytestdir, db4process, clirunner, yamlfile):
+        '''test the save2file python module, and also test a case when
+        no output file is provided
         '''
         # set values which will override the yaml config in templates folder:
         dir_ = pytestdir.makedir()
         config_overrides = {'snr_threshold': 0,
-                            'segment_select': {'has_data': 'true'},
+                            SEG_SEL_STRING: {'has_data': 'true'},
                             'root_dir': os.path.abspath(dir_)}
         if advanced_settings:
             config_overrides['advanced_settings'] = advanced_settings
@@ -151,32 +152,35 @@ class Test(object):
                              [None, 2])
     @pytest.mark.parametrize("advanced_settings, cmdline_opts",
                              [({}, []),
-                              ({'segments_chunksizesize': 1}, []),
+                              ({'segments_chunksize': 1}, []),
                               ({'segments_chunksize': 1}, ['--multi-process']),
                               ({}, ['--multi-process']),
                               ({'segments_chunksize': 1}, ['--multi-process', '--num-processes', '1']),
                               ({}, ['--multi-process', '--num-processes', '1'])])
     @mock.patch('stream2segment.process.main.Pool')
-    @mock.patch('stream2segment.process.main.get_advanced_settings',
-                side_effect=o_get_advanced_settings)
+    @mock.patch('stream2segment.process.main.get_default_chunksize',
+                side_effect=o_get_default_chunksize)
     @mock.patch('stream2segment.process.main.process_segments', side_effect=o_process_segments)
     @mock.patch('stream2segment.process.main.process_segments_mp',
                 side_effect=o_process_segments_mp)
     @mock.patch('stream2segment.process.main._get_chunksize_defaults')
-    def test_simple_run_no_outfile_provided_good_argslists(self, mock_get_chunksize_defaults,
-                                                           mock_process_segments_mp,
-                                                           mock_process_segments,
-                                                           mock_get_advanced_settings,
-                                                           mock_mp_Pool,
-                                                           advanced_settings,
-                                                           cmdline_opts, def_chunksize,
-                                                           # fixtures:
-                                                           pytestdir, db4process, clirunner,
-                                                           yamlfile):
-        '''test arguments and calls are ok. Mock Pool imap_unordered as we do not
-        want to confuse pytest in case
+    @mock.patch('stream2segment.main.run_process', side_effect=process_main_run)
+    def test_multiprocess_chunksize_combinations(self,
+                                                 mock_run_func,
+                                                 mock_get_chunksize_defaults,
+                                                 mock_process_segments_mp,
+                                                 mock_process_segments,
+                                                 mock_get_default_chunksize,
+                                                 mock_mp_Pool,
+                                                 advanced_settings,
+                                                 cmdline_opts, def_chunksize,
+                                                 # fixtures:
+                                                 pytestdir, db4process, clirunner,
+                                                 data,
+                                                 yamlfile):
+        '''test processing arguments and calls are ok.
+        Mock Pool imap_unordered as we do not want to confuse pytest in case
         '''
-
         if def_chunksize is None:
             mock_get_chunksize_defaults.side_effect = _o_get_chunksize_defaults
         else:
@@ -199,35 +203,36 @@ class Test(object):
         mock_mp_Pool.return_value = MockPool()
 
         # set values which will override the yaml config in templates folder:
-        dir_ = pytestdir.makedir()
         config_overrides = {'snr_threshold': 0,
-                            'segment_select': {},  # take everything
-                            'root_dir': os.path.abspath(dir_)}
+                            SEG_SEL_STRING: {}}
         if advanced_settings:
             config_overrides['advanced_settings'] = advanced_settings
 
         yaml_file = yamlfile(**config_overrides)
 
-        # need to reset this global variable: FIXME: better handling?
-        # process.main._inventories = {}
-
-        pyfile = get_templates_fpath("save2fs.py")
+        # create a dummy python file for speed purposes (no-op)
+        pyfile = data.path('processingmodule.noop.py')
 
         result = clirunner.invoke(cli, ['process', '--dburl', db4process.dburl,
                                         '-p', pyfile, '-c', yaml_file] + cmdline_opts)
         assert clirunner.ok(result)
 
-        # test some stuff and get configarg, the the REAL config passed in the processing
+        # test some stuff and get configarg, the REAL config passed in the processing
         # subroutines:
-        assert mock_get_advanced_settings.called
+
+        assert 'segments_chunksize' in advanced_settings or\
+               mock_get_default_chunksize.called
+
         # assert there is no "skipped without messages" message, as it should be the case
         # when there is no function processing the output:
         assert "skipped without messages" not in result.output.lower()
-        assert len(mock_get_advanced_settings.call_args_list) == 1
-        configarg = mock_get_advanced_settings.call_args_list[0][0][0]  # positional argument
+        # assert len(mock_get_default_chunksize.call_args_list) == 1
+
+
+        configarg = yaml_load(yaml_file)
 
         seg_processed_count = query4process(db4process.session,
-                                            configarg.get('segment_select', {})).count()
+                                            configarg[SEG_SEL_STRING]).count()
         # seg_process_count is 6. 'segments_chunksize' in advanced_settings is not given or 1.
         # def_chunksize can be None (i,e., 1200) or given (2)
         # See stream2segment.process.core._get_chunksize_defaults to see how we calculated
@@ -255,33 +260,67 @@ class Test(object):
             assert mock_process_segments_mp.called == ('--multi-process' in cmdline_opts)
             assert mock_process_segments.called
             assert mock_process_segments.call_count == expected_callcount
+
         # test that advanced settings where correctly written:
-        real_advanced_settings = configarg.get('advanced_settings', {})
-        assert ('segments_chunksize' in real_advanced_settings) == \
-            ('segments_chunksize' in advanced_settings)
+        real_advanced_settings = dict(mock_run_func.call_args[0][3].get('advanced_settings', {}))
+        multi_process = mock_run_func.call_args[0][6]
+        segments_chunksize = mock_run_func.call_args[0][7]
+        real_advanced_settings.pop('num_processes', None)  # for safety (old versions had this param)
+        real_advanced_settings['multi_process'] = multi_process
+        real_advanced_settings['segments_chunksize'] = segments_chunksize
+        # just a check:
+        assert mock_run_func.call_count == 1
+
+        if 'segments_chunksize' not in advanced_settings:
+            assert real_advanced_settings['segments_chunksize'] is None
+        else:
+            assert ('segments_chunksize' in real_advanced_settings) == \
+                ('segments_chunksize' in advanced_settings)
 
         # 'advanced_settings', if present HERE, will REPLACE 'advanced_settings' in config. Thus:
         if advanced_settings and '--multi-process' not in cmdline_opts:
-            assert sorted(real_advanced_settings.keys()) == sorted(advanced_settings.keys())
+            assert not real_advanced_settings.pop('multi_process')
             for k in advanced_settings.keys():
                 assert advanced_settings[k] == real_advanced_settings[k]
         else:
             if 'segments_chunksize' in advanced_settings:
                 assert real_advanced_settings['segments_chunksize'] == \
                     advanced_settings['segments_chunksize']
-            assert ('multi_process' in real_advanced_settings) == \
-                ('--multi-process' in cmdline_opts)
-            if '--multi-process' in cmdline_opts:
-                assert real_advanced_settings['multi_process'] is True
-            assert ('num_processes' in real_advanced_settings) == \
-                ('--num-processes' in cmdline_opts)
+            assert real_advanced_settings['multi_process'] == \
+                   ('--multi-process' in cmdline_opts)
+
+            assert isinstance(real_advanced_settings['multi_process'], bool) == \
+                   ('--num-processes' not in cmdline_opts)
+
             if '--num-processes' in cmdline_opts:
                 val = cmdline_opts[cmdline_opts.index('--num-processes')+1]
-                assert str(real_advanced_settings['num_processes']) == val
-                # assert real_advanced_settings['num_processes'] is an int.
+                assert str(real_advanced_settings['multi_process']) == val
+                # assert real_advanced_settings['multi_process'] is an int.
                 # As we import int from futures in templates, we might end-up having
                 # futures.newint. The type check is made by checking we have an integer
                 # type as the native type. For info see:
                 # http://python-future.org/what_else.html#passing-data-to-from-python-2-libraries
                 # assert type(native(real_advanced_settings['num_processes'])) in integer_types
-                assert isinstance(real_advanced_settings['num_processes'], integer_types)
+                assert isinstance(real_advanced_settings['multi_process'], integer_types)
+
+
+def test_old_new_version_skipsegment(# fixtures:
+                                     data, clirunner):
+    '''test old and new python module (SkipSegment vs ValueError)'''
+
+    # create a dummy python file for speed purposes (no-op)
+    pyfile = data.path("processingmodule.noop.oldversion.py")
+    dburl = "sqlite:///" + data.path("jupyter.example.sqlite")
+    yaml_file = data.path("jupyter.example.process.yaml")
+    result = clirunner.invoke(cli, ['process', '--dburl', dburl,
+                                    '-p', pyfile, '-c', yaml_file])
+    assert not clirunner.ok(result)
+
+    assert """Invalid value for "pyfile": the provided Python module looks outdated.
+You first need to import SkipSegment ("from stream2segment.process import SkipSegment") to suppress this warning, and
+check your code: to skip a segment, please type "raise SkipSegment(.." instead of "raise ValueError(..."
+""".strip() in result.output
+    pyfile = data.path("processingmodule.noop.py")
+    result = clirunner.invoke(cli, ['process', '--dburl', dburl,
+                                    '-p', pyfile, '-c', yaml_file])
+    assert clirunner.ok(result)

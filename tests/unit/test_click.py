@@ -40,7 +40,7 @@ def download_setup(pytestdir):
 
 @patch("stream2segment.main.configlog4download")
 @patch("stream2segment.main.new_db_download")
-@patch("stream2segment.utils.inputargs.get_session")
+@patch("stream2segment.utils.inputvalidation.valid_session")
 @patch("stream2segment.main.run_download", return_value=0)
 def test_click_download(mock_download, mock_create_sess, mock_new_db_download,
                         mock_configlog4download, download_setup):
@@ -215,16 +215,17 @@ def test_click_show(mock_create_s2s_show_app, mock_open_in_browser, mock_show):
     assert result.exc_info
     assert not mock_open_in_browser.called
 
-    # test dburl supplied
+    # test dburl supplied (wrong dburl)
     mock_show.reset_mock()
     mock_open_in_browser.reset_mock()
     result = runner.invoke(cli, ['show', '-d', 'd', '-c', conffile, '-p', pyfile])
     lst = list(mock_show.call_args_list[0][0])
     assert lst == ['d', pyfile, conffile]
-    assert result.exit_code == 0
-    assert_opened_in_browser('d')
+    assert result.exit_code != 0
+    assert 'Invalid value for "dburl"' in result.output
+    # assert_opened_in_browser('d')
 
-    # test dburl supplied via config
+    # test dburl supplied via config (dburl ok)
     mock_show.reset_mock()
     mock_open_in_browser.reset_mock()
     result = runner.invoke(cli, ['show', '-d', d_conffile , '-c', conffile, '-p', pyfile])

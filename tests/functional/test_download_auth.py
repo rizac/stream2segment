@@ -152,7 +152,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # class-level patchers:
         with patch('stream2segment.utils.url.urlopen') as mock_urlopen:
             self.mock_urlopen = mock_urlopen
-            with patch('stream2segment.utils.inputargs.get_session', return_value=db.session):
+            with patch('stream2segment.utils.inputvalidation.valid_session', return_value=db.session):
                 # this mocks yaml_load and sets inventory to False, as tests rely on that
                 with patch('stream2segment.main.closesession'):  # no-op (do not close session)
 

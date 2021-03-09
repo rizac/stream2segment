@@ -25,8 +25,8 @@ from stream2segment.cli import cli
 from stream2segment.main import configlog4download as o_configlog4download,\
     new_db_download as o_new_db_download, configlog4processing as o_configlog4processing, \
     process as o_process, download as o_download
-from stream2segment.utils.inputargs import valid_session as o_get_session, \
-    valid_nslc as nslc_param_value_aslist, load_config_for_process
+from stream2segment.utils.inputvalidation import valid_session as o_get_session, \
+    valid_nslc as nslc_param_value_aslist, load_config_for_process, BadParam
 from stream2segment.io.db.models import Download
 from stream2segment.utils import secure_dburl
 from stream2segment.utils.resources import get_templates_fpath, yaml_load, get_templates_fpaths
@@ -102,7 +102,7 @@ class Test(object):
                        side_effect=o_new_db_download) as _:
                 self.mock_new_db_download = _
 
-                with patch('stream2segment.utils.inputargs.valid_session') as _:
+                with patch('stream2segment.utils.inputvalidation.valid_session') as _:
                     def csess(dbpath, *a, **v):
                         if dbpath == db.dburl:
                             return db.session
@@ -487,7 +487,7 @@ class Test(object):
 
 
 @patch('stream2segment.main.run_download', side_effect=lambda *a, **v: None)
-@patch('stream2segment.utils.inputargs.os.path.isfile', side_effect=isfile)
+@patch('stream2segment.utils.inputvalidation.os.path.isfile', side_effect=isfile)
 def test_download_eventws_query_args(mock_isfile, mock_run_download,
                                      # fixtures:
                                      run_cli_download):  # pylint: disable=redefined-outer-name
@@ -615,7 +615,7 @@ def test_process_bad_types(pytestdir):
     p_yaml_file, p_py_file = \
         get_templates_fpaths("paramtable.yaml", "paramtable.py")
 
-    # Note that our functions in inputargs module return SIMILART messages as click
+    # Note that our functions in inputvalidation module return SIMILART messages as click
     # not exactly the same one
 
     result = CliRunner().invoke(cli, ['process', '--pyfile', 'nrvnkenrgdvf'])
@@ -688,7 +688,8 @@ def test_process_bad_types(pytestdir):
                  result.output)
 
 
-@patch('stream2segment.utils.inputargs.valid_session')
+
+@patch('stream2segment.utils.inputvalidation.valid_session')
 @patch('stream2segment.main.closesession')
 @patch('stream2segment.main.configlog4processing')
 @patch('stream2segment.main.run_process')
@@ -784,7 +785,7 @@ def test_process_verbosity(mock_run_process, mock_configlog, mock_closesess, moc
     assert vars['numloggers'] == 0
 
 
-@patch('stream2segment.utils.inputargs.valid_session')
+@patch('stream2segment.utils.inputvalidation.valid_session')
 @patch('stream2segment.main.closesession')
 @patch('stream2segment.main.configlog4download')
 @patch('stream2segment.main.run_download')
@@ -964,3 +965,36 @@ def test_processing_advanced_settings_num_processes(adv_set,
                                 outfile=None,
                                 advanced_settings=adv_set)
     assert exp_multiprocess_value == multi_process
+
+
+def test_processing_advanced_settings_bad_params():
+    p_yaml_file, p_py_file = \
+        get_templates_fpaths("paramtable.yaml", "paramtable.py")
+    adv_set = {'multi_process': 'a'}
+    # (pytest.raises problems with PyCharm, simply try .. catch the old way):
+    try:
+        _ = load_config_for_process("sqlite:///",
+                                    p_py_file, None,
+                                    config=p_yaml_file,
+                                    outfile=None,
+                                    advanced_settings=adv_set)
+        assert False, "should raise"
+    except BadParam as bp:
+        assert 'Invalid type for "advanced_settings.multi_process"' in str(bp)
+
+    adv_set = {'multi_process': True, "segments_chunksize": 'a'}
+    # (pytest.raises problems with PyCharm, simply try .. catch the old way):
+    try:
+        _ = load_config_for_process("sqlite:///",
+                                    p_py_file, None,
+                                    config=p_yaml_file,
+                                    outfile=None,
+                                    advanced_settings=adv_set)
+        assert False, "should raise"
+    except BadParam as bp:
+        assert 'Invalid type for "advanced_settings.segments_chunksize"' in str(bp)
+
+    # with pytest.raises(BadParam) as bp:
+    #
+    #     assert str(bp)
+    #     asd = 9

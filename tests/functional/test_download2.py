@@ -200,7 +200,7 @@ BS|VETAM||HNZ|43.0805|25.6367|224.0|0.0|0.0|-90.0|200|427475.0|0.02|M/S**2|100.0
                 # class-level patchers:
         with patch('stream2segment.utils.url.urlopen') as mock_urlopen:
             self.mock_urlopen = mock_urlopen
-            with patch('stream2segment.utils.inputargs.get_session', return_value=db.session):
+            with patch('stream2segment.utils.inputvalidation.valid_session', return_value=db.session):
                 # this mocks yaml_load and sets inventory to False, as tests rely on that
                 with patch('stream2segment.main.closesession'):  # no-op (do not close session)
 
@@ -211,7 +211,7 @@ BS|VETAM||HNZ|43.0805|25.6367|224.0|0.0|0.0|-90.0|200|427475.0|0.02|M/S**2|100.0
                         else:
                             sdf = 0
                         return dic
-                    with patch('stream2segment.utils.inputargs.yaml_load',
+                    with patch('stream2segment.utils.inputvalidation.yaml_load',
                                side_effect=yload) as mock_yaml_load:
                         self.mock_yaml_load = mock_yaml_load
 

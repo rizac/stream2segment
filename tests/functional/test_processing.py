@@ -25,6 +25,8 @@ from stream2segment.process.main import run as process_main_run
 from stream2segment.process.writers import BaseWriter, SEGMENT_ID_COLNAME
 
 
+SEG_SEL_STR = 'segments_selection'
+
 @pytest.fixture
 def yamlfile(pytestdir):
     '''global fixture wrapping pytestdir.yamlfile'''
@@ -58,7 +60,7 @@ class Test(object):
         session = db4process.session
         # sets up the mocked functions: db session handling (using the already created session)
         # and log file handling:
-        with patch('stream2segment.utils.inputargs.get_session', return_value=session):
+        with patch('stream2segment.utils.inputvalidation.valid_session', return_value=session):
             with patch('stream2segment.main.closesession',
                        side_effect=lambda *a, **v: None):
                 with patch('stream2segment.main.configlog4processing') as mock2:
@@ -106,7 +108,7 @@ class Test(object):
         '''test a case where save inventory is True, and that we saved inventories'''
         # set values which will override the yaml config in templates folder:
         config_overrides = {'snr_threshold': 0,
-                            'segment_select': {'has_data': 'true'}}
+                            SEG_SEL_STR: {'has_data': 'true'}}
         yaml_file = yamlfile(**config_overrides)
 
         runner = CliRunner()
@@ -155,13 +157,13 @@ class Test(object):
                         join(Segment.event).filter(Segment.has_data))
 
         config_overrides = {'snr_threshold': 0,
-                            'segment_select': {'has_data': 'true',
-                                               'event.time': '<=%s' % (max(etimes).isoformat())}}
+                            SEG_SEL_STR: {'has_data': 'true',
+                                          'event.time': '<=%s' % (max(etimes).isoformat())}}
         if advanced_settings:
             config_overrides['advanced_settings'] = advanced_settings
         # the selection above should be the same as the previous test:
         # test_simple_run_retDict_saveinv,
-        # as segment_select[event.time] includes all segments in segment_select['has_data'],
+        # as event.time includes all segments in 'has_data',
         # thus the code is left as it was in the method above
         yaml_file = yamlfile(**config_overrides)
 
@@ -210,7 +212,7 @@ segment (id=2): Station inventory (xml) error: no data
         config_overrides = {  # snr_threshold 3 is high enough to discard the only segment
                               # we would process otherwise:
                             'snr_threshold': 3,
-                            'segment_select': {'has_data': 'true'}}
+                            SEG_SEL_STR: {'has_data': 'true'}}
         yaml_file = yamlfile(**config_overrides)
 
         runner = CliRunner()
@@ -255,10 +257,10 @@ segment (id=5): 4 traces (probably gaps/overlaps)
                             # There are three segments associated with it:
                             # one with data and no gaps, one with data and gaps,
                             # the third with no data
-                            'segment_select': {'station.latitude': '<10',
+                            SEG_SEL_STR: {'station.latitude': '<10',
                                                'station.longitude': '<10'}}
         if select_with_data:
-            config_overrides['segment_select']['has_data'] = 'true'
+            config_overrides[SEG_SEL_STR]['has_data'] = 'true'
         if seg_chunk is not None:
             config_overrides['advanced_settings'] = {'segments_chunksize': seg_chunk}
 
@@ -315,7 +317,7 @@ segment (id=6): MiniSeed error: no data
 
         # set values which will override the yaml config in templates folder:
         config_overrides = {'snr_threshold': 0,  # take all segments
-                            'segment_select': {'has_data': 'true'}}
+                            SEG_SEL_STR: {'has_data': 'true'}}
         if advanced_settings:
             config_overrides['advanced_settings'] = advanced_settings
 
@@ -394,10 +396,10 @@ segment (id=5): 4 traces (probably gaps/overlaps)
           None means simply a bad argument (funcname missing)'''
         pyfile = self.pyfile
 
-        # REMEMBER THAT BY DEFAULT LEAVING THE segment_select IMPLEMENTED in conffile
+        # REMEMBER THAT BY DEFAULT LEAVING THE SEG_SEL_STR IMPLEMENTED in conffile
         # WE WOULD HAVE NO SEGMENTS, as maxgap_numsamples is None for all segments of this test
         # Thus provide config overrides:
-        yaml_file = yamlfile(segment_select={'has_data': 'true'})
+        yaml_file = yamlfile(**{SEG_SEL_STR: {'has_data': 'true'}})
 
         runner = CliRunner()
         # Now wrtite pyfile into a named temp file, BUT DO NOT SUPPLY EXTENSION
@@ -477,15 +479,15 @@ def main(""")
                                       # fixtures:
                                       pytestdir, db4process, yamlfile):
         '''test processing in case of non 'critical' errors i.e., which do not prevent the process
-          to be completed. None means we do not override segment_select which, with the current
+          to be completed. None means we do not override SEG_SEL_STR which, with the current
           templates, causes no segment to be selected'''
         pyfile = self.pyfile
 
-        # REMEMBER THAT BY DEFAULT LEAVING THE segment_select IMPLEMENTED in conffile
+        # REMEMBER THAT BY DEFAULT LEAVING THE SEG_SEL_STR IMPLEMENTED in conffile
         # WE WOULD HAVE NO SEGMENTS, as maxgap_numsamples is None for all segments of this test
         # Thus provide config overrides:
         if err_type is not None:
-            yaml_file = yamlfile(segment_select={'has_data': 'true'})
+            yaml_file = yamlfile(**{SEG_SEL_STR: {'has_data': 'true'}})
         else:
             yaml_file = yamlfile()
 

@@ -35,7 +35,7 @@ from click import wrap_text
 
 from stream2segment.utils.resources import get_templates_fpath, yaml_load_doc
 # from stream2segment.traveltimes import ttcreator
-from stream2segment.utils import inputargs
+from stream2segment.utils import inputvalidation
 
 
 class clickutils(object):  # noqa
@@ -44,7 +44,7 @@ class clickutils(object):  # noqa
     """
     DEFAULTDOC = yaml_load_doc(get_templates_fpath("download.yaml"))
     EQA = "(event search parameter)"
-    DBURL_OR_YAML_ATTRS = dict(type=inputargs.valid_dburl_or_download_yamlpath,
+    DBURL_OR_YAML_ATTRS = dict(type=inputvalidation.valid_dburl_or_download_yamlpath,
                                metavar='TEXT or PATH',
                                help=("Database URL where data has been saved. "
                                      "It can also be the path of a YAML file "
@@ -275,9 +275,9 @@ def init(outdir):
 @click.option('-d', '--dburl', is_eager=True)
 @click.option('-es', '--eventws')
 @click.option('-s', '--start', '--starttime', "starttime",
-              type=inputargs.valid_date, metavar='DATE or DATETIME')
+              type=inputvalidation.valid_date, metavar='DATE or DATETIME')
 @click.option('-e', '--end', '--endtime', 'endtime',
-              type=inputargs.valid_date, metavar='DATE or DATETIME',)
+              type=inputvalidation.valid_date, metavar='DATE or DATETIME', )
 @click.option('-n', '--network', '--networks', '--net', 'network')
 @click.option('-z', '--station', '--stations', '--sta', 'station')
 @click.option('-l', '--location', '--locations', '--loc', 'location')
@@ -348,7 +348,7 @@ def download(config, dburl, eventws, starttime, endtime, network,  # noqa
             warnings.simplefilter("ignore")
             ret = main.download(config, log2file=True, verbose=True,
                                 **overrides)
-    except inputargs.BadParam as err:
+    except inputvalidation.BadParam as err:
         print(err)
         ret = 2
     except:  # @IgnorePep8 pylint: disable=bare-except
@@ -376,7 +376,7 @@ def download(config, dburl, eventws, starttime, endtime, network,  # noqa
 @click.option("-f", "--funcname",
               help="The name of the user-defined processing function in the "
                    "given python file. Defaults to '%s' when "
-                   "missing" % inputargs.valid_default_processing_funcname())
+                   "missing" % inputvalidation.valid_default_processing_funcname())
 @click.option("-a", "--append", is_flag=True, default=False,
               help="Append results to the output file (this flag is ignored if "
                    "no output file is provided. The output file will be "
@@ -445,7 +445,7 @@ def process(dburl, config, pyfile, funcname, append, no_prompt,
                 ret = main.process(dburl, pyfile, funcname, config, outfile,
                                    log2file=True, verbose=True, append=append,
                                    **overrides)
-    except inputargs.BadParam as err:
+    except inputvalidation.BadParam as err:
         print(err)
         ret = 2  # exit with 1 as normal python exceptions
     except:  # @IgnorePep8 pylint: disable=bare-except
@@ -471,9 +471,17 @@ def show(dburl, configfile, pyfile):
     # https://www.tomrochette.com/problems/2020/03/07
     from stream2segment import main
 
-    with warnings.catch_warnings():  # capture (ignore) warnings
-        warnings.simplefilter("ignore")
-        main.show(dburl, pyfile, configfile)
+    try:
+        ret = 0
+        with warnings.catch_warnings():  # capture (ignore) warnings
+            warnings.simplefilter("ignore")
+            main.show(dburl, pyfile, configfile)
+    except inputvalidation.BadParam as err:
+        print(err)
+        ret = 2  # exit with 1 as normal python exceptions
+    except:
+        ret = 3
+    sys.exit(ret)
 
 
 @cli.group(short_help="Downloaded data analysis and inspection")
@@ -526,7 +534,7 @@ def stats(dburl, download_id, maxgap_threshold, html, outfile):
         if outfile is not None:
             print("download statistics written to '%s'" % outfile)
         sys.exit(0)
-    except inputargs.BadParam as err:
+    except inputvalidation.BadParam as err:
         print(err)
         sys.exit(1)  # exit with 1 as normal python exceptions
 
@@ -571,7 +579,7 @@ def report(dburl, download_id, config, log, outfile):
         if outfile is not None:
             print("download report written to '%s'" % outfile)
         sys.exit(0)
-    except inputargs.BadParam as err:
+    except inputvalidation.BadParam as err:
         print(err)
         sys.exit(1)  # exit with 1 as normal python exceptions
 
@@ -615,7 +623,7 @@ def drop(dburl, download_id):
                 msg += "DELETED (%d associated segments deleted)" % val
             print(msg)
         sys.exit(0)
-    except inputargs.BadParam as err:
+    except inputvalidation.BadParam as err:
         print(err)
         sys.exit(1)  # exit with 1 as normal python exceptions
 
@@ -677,8 +685,9 @@ def classlabel(dburl, add, rename, delete, no_prompt):
             if input(msg) != 'y':
                 sys.exit(1)
 
-        session = inputargs.validate_param("dburl", dburl, inputargs.get_session,
-                                           for_process=False, scoped=False)
+        session = inputvalidation.validate_param("dburl", dburl,
+                                                 inputvalidation.valid_session,
+                                                 for_process=False, scoped=False)
         configure_classlabels(session, add=add_arg, rename=rename_arg,
                               delete=delete_arg)
         print('Done. Current class labels on the database:')
@@ -689,7 +698,7 @@ def classlabel(dburl, add, rename, delete, no_prompt):
             for clbl in clabels:
                 print("%s (%s)" % (clbl['label'], clbl['description']))
         sys.exit(0)
-    except inputargs.BadParam as err:
+    except inputvalidation.BadParam as err:
         print(err)
         sys.exit(1)  # exit with 1 as normal python exceptions
 

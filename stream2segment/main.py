@@ -32,7 +32,7 @@ import jinja2
 
 from sqlalchemy.sql.expression import func
 
-from stream2segment.utils.inputargs import load_config_for_process, pop_param,\
+from stream2segment.utils.inputvalidation import load_config_for_process, pop_param,\
     load_config_for_download, valid_session, load_config_for_visualization, \
     validate_param
 from stream2segment.utils.log import configlog4download, configlog4processing,\
@@ -315,10 +315,9 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None,
         stime = time.time()
         writer_options = config_dict.get('advanced_settings', {}).\
             get('writer_options', {})
-        run_process(session, pyfunc, get_writer(outfile, append,
-                                                writer_options),
-                    config_dict, segments_selection, None, False,
-                    verbose, multi_process, chunksize)
+        run_process(session, pyfunc, get_writer(outfile, append, writer_options),
+                    config_dict, segments_selection, verbose, multi_process,
+                    chunksize, None)
         logger.info("Completed in %s", str(elapsedtime(stime)))
         return 0  # contrarily to download, an exception should always raise
         # and log as error with the stack trace
@@ -335,8 +334,8 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None,
 
 
 def s2smap(pyfunc, dburl, segments_selection=None, config=None, *,
-           skip_exceptions=None, logfile='', show_progress=False,
-           multi_process=False, chunksize=None):
+           logfile='', show_progress=False, multi_process=False, chunksize=None,
+           skip_exceptions=None):
     """Return an iterator that applies the function `pyfunc` to every segment
     found on the database at the URL `dburl`, processing only segments matching
     the given selection (`segments_selection`), yielding the results in the form
@@ -388,8 +387,8 @@ def s2smap(pyfunc, dburl, segments_selection=None, config=None, *,
         stime = time.time()
         yield from run_and_yield(session,
                                  fetch_segments_ids(session, segments_selection),
-                                 pyfunc, config, skip_exceptions,
-                                 show_progress, multi_process, chunksize)
+                                 pyfunc, config, show_progress, multi_process,
+                                 chunksize, skip_exceptions)
         logger.info("Completed in %s", str(elapsedtime(stime)))
     except KeyboardInterrupt:
         logger.critical("Aborted by user")  # see comment above

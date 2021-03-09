@@ -39,7 +39,7 @@ from stream2segment.process import SkipSegment
 from stream2segment.utils import get_progressbar
 from stream2segment.process.db import get_session
 from stream2segment.io.db.models import Segment, Station
-from stream2segment.utils.inputargs import valid_pyfunc
+from stream2segment.utils.inputvalidation import valid_pyfunc
 
 
 logger = logging.getLogger(__name__)
@@ -54,8 +54,8 @@ logger = logging.getLogger(__name__)
 
 
 def run(session, pyfunc, writer, config=None, segments_selection=None,
-        skip_exceptions=None, show_progress=False,
-        multi_process=False, chunksize=None):
+        show_progress=False, multi_process=False, chunksize=None,
+        skip_exceptions=None):
     """Run `pyfunc` according to the given `config`, outputting result to `writer`
 
     :param session: the SQLAlchemy database session
@@ -84,9 +84,8 @@ def run(session, pyfunc, writer, config=None, segments_selection=None,
 
     with writer:
         for output, segment_id in \
-                run_and_yield(session, seg_ids, pyfunc, config, skip_exceptions,
-                              show_progress, multi_process,
-                              chunksize):
+                run_and_yield(session, seg_ids, pyfunc, config, show_progress,
+                              multi_process, chunksize, skip_exceptions):
             if not writer.isbasewriter and output is not None:
                 writer.write(segment_id, output)
                 written += 1
@@ -95,9 +94,8 @@ def run(session, pyfunc, writer, config=None, segments_selection=None,
                 written, len(seg_ids))
 
 
-def run_and_yield(session, seg_ids, pyfunc, config, skip_excetpions=None,
-                  show_progress=False, multi_process=False,
-                  chunksize=None):
+def run_and_yield(session, seg_ids, pyfunc, config, show_progress=False,
+                  multi_process=False, chunksize=None, skip_excetpions=None):
     """Run `pyfunc(segment, config)` on each given segment and yields its output
     as the tuple
     ```(output, segment_id)```

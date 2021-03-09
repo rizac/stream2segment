@@ -647,7 +647,7 @@ def load_config_for_process(dburl, pyfile, funcname=None, config=None,
         # (ignore return value of filewritable: it's outfile, we already have it)
     seg_sel = _extract_segments_selection(config)
 
-    multi_process, chunksize = _pop_process_advanced_settings(config,
+    multi_process, chunksize = _get_process_advanced_settings(config,
                                                               'advanced_settings')
 
     # pop and validate advanced settings:
@@ -683,7 +683,7 @@ def load_config_for_process(dburl, pyfile, funcname=None, config=None,
     return session, pyfunc, funcname, config, seg_sel, multi_process, chunksize
 
 
-def _pop_process_advanced_settings(config, adv_settings_key):
+def _get_process_advanced_settings(config, adv_settings_key):
     prefix = adv_settings_key + '.'  # 'advanced_settings.'
 
     pname, multi_process = get_param(config, prefix + 'multi_process', default=False)
@@ -696,12 +696,12 @@ def _pop_process_advanced_settings(config, adv_settings_key):
         # the line below is no-op if num_process was not found (new config):
         multi_process = num_processes
     if multi_process not in (True, False):
-        multi_process = validate_param(prefix + pname, multi_process,
+        multi_process = validate_param(pname, multi_process,
                                        valid_between, 1, None)
 
     pname, chunksize = get_param(config, prefix + 'segments_chunksize', None)
     if chunksize is not None:
-        chunksize = validate_param(prefix + pname, valid_between, 1, None)
+        chunksize = validate_param(pname, chunksize, valid_between, 1, None)
 
     return multi_process, chunksize
 
@@ -1103,11 +1103,11 @@ def valid_pyfunc(pyfile, funcname):
 
     # check for new style module: SkipSegment instead of ValueError
     if 'SkipSegment' not in pymoduledict:
-        raise ValueError('The module seems to be outdated. You need to import '
-                         'SkipSegment\n("from stream2segment.process import '
-                         'SkipSegment") and check your code:\nevery time you '
-                         'write "raise ValueError(..." to skip a segment, replace'
-                         'it with "raise SkipSegment(..."')
+        raise ValueError('The provided Python module looks outdated.\nYou first need to '
+                         'import SkipSegment ("from stream2segment.process import '
+                         'SkipSegment") to suppress this warning, and\n'
+                         'check your code: to skip a segment, please type '
+                         '"raise SkipSegment(.." instead of "raise ValueError(..."')
 
     if funcname not in pymoduledict:
         raise Exception('function "%s" not found in %s' %

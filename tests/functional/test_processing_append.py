@@ -27,6 +27,9 @@ from stream2segment.utils.log import configlog4processing as o_configlog4process
 from stream2segment.process.writers import BaseWriter, _SEGMENT_ID_COLNAMES
 
 
+SEG_SEL_STR = 'segments_selection'
+
+
 @pytest.fixture
 def yamlfile(pytestdir):
     '''global fixture wrapping pytestdir.yamlfile'''
@@ -88,7 +91,7 @@ def main2(segment, config):""")
         session = db4process.session
         # sets up the mocked functions: db session handling (using the already created session)
         # and log file handling:
-        with patch('stream2segment.utils.inputargs.get_session', return_value=session):
+        with patch('stream2segment.utils.inputvalidation.valid_session', return_value=session):
             with patch('stream2segment.main.closesession',
                        side_effect=lambda *a, **v: None):
                 with patch('stream2segment.main.configlog4processing') as mock2:
@@ -122,7 +125,7 @@ def main2(segment, config):""")
         '''test a case where save inventory is True, and that we saved inventories'''
         # set values which will override the yaml config in templates folder:
         config_overrides = {'snr_threshold': 0,
-                            'segment_select': {'has_data': 'true'}}
+                            SEG_SEL_STR: {'has_data': 'true'}}
         result = clirunner.invoke(cli, ['process', '--dburl', db4process.dburl,
                                         '-p', self.pyfile, '-c', yamlfile(**config_overrides),
                                         '-a'])
@@ -165,7 +168,7 @@ def main2(segment, config):""")
             return
         # set values which will override the yaml config in templates folder:
         config_overrides = {'snr_threshold': 0,
-                            'segment_select': {'has_data': 'true'}}
+                            SEG_SEL_STR: {'has_data': 'true'}}
         if advanced_settings:
             config_overrides['advanced_settings'] = advanced_settings
 
@@ -265,7 +268,7 @@ def main2(segment, config):""")
 
             # set values which will override the yaml config in templates folder:
             config_overrides = {'snr_threshold': 0,
-                                'segment_select': {'has_data': 'true'}}
+                                SEG_SEL_STR: {'has_data': 'true'}}
             if advanced_settings:
                 config_overrides['advanced_settings'] = advanced_settings
             yaml_file = yamlfile(**config_overrides)
