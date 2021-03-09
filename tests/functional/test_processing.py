@@ -146,7 +146,11 @@ class Test(object):
                                                        ({'segments_chunksize': 1}, ['--multi-process']),
                                                        ({}, ['--multi-process']),
                                                        ({'segments_chunksize': 1}, ['--multi-process', '--num-processes', '1']),
-                                                       ({}, ['--multi-process', '--num-processes', '1'])]))
+                                                       # As this test takes time, we comment out
+                                                       # the following option (basically already
+                                                       # covered above):
+                                                       # ({}, ['--multi-process', '--num-processes', '1'])
+                                                       ]))
     def test_simple_run_retDict_complex_select(self, file_extension, options,
                                                # fixtures:
                                                pytestdir, db4process, yamlfile):
