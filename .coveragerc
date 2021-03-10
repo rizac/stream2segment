@@ -23,3 +23,6 @@ exclude_lines =
 
     # Don't complain if non-runnable code isn't run:
     if __name__ == .__main__.:
+
+    # skip missing imports usually for Py2 compatibility
+    except ImportError
