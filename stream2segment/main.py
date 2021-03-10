@@ -459,64 +459,6 @@ def init(outpath, prompt=True, *filenames):
     return copied_files
 
 
-def helpmathiter(type, filter):  # noqa
-    """Iterator yielding the doc-string of
-    :module:`stream2segment.process.lib.ndarrays` or
-    :module:`stream2segment.process.lib.traces`
-
-    :param type: select the module: 'numpy' for doc of
-        :module:`stream2segment.process.lib.ndarrays`, 'obspy' for the doc of
-        :module:`stream2segment.process.lib.traces`, 'all' for both
-    :param filter: a filter (with wildcard expressions allowed) to filter by
-        function name
-
-    :return: doc-string for all matching functions and classes
-    """
-    if type == 'numpy':
-        itr = [s2s_math.ndarrays]
-    elif type == 'obspy':
-        itr = [s2s_math.traces]
-    else:
-        itr = [s2s_math.ndarrays, s2s_math.traces]
-
-    reg = re.compile(strconvert.wild2re(filter))
-    _indent = "   "
-
-    def render(string, indent_num=0):
-        """Render a string stripping newlines at beginning and end and with the
-        intended indent number"""
-        if not indent_num:
-            return string
-        indent = _indent.join('' for _ in range(indent_num+1))
-        return '\n'.join("%s%s" % (indent, s) for s in
-                         string.replace('\r\n', '\n').split('\n'))
-
-    for pymodule in itr:
-        module_doc_printed = False
-        for func in iterfuncs(pymodule, False):
-            if func.__name__[0] != '_' and reg.search(func.__name__):
-                if not module_doc_printed:
-                    modname = pymodule.__name__
-                    yield "=" * len(modname)
-                    yield modname
-                    yield "=" * len(modname)
-                    yield pymodule.__doc__
-                    module_doc_printed = True
-                    yield "-" * len(modname) + "\n"
-                yield "%s%s:" % (func.__name__, SIGNATURE(func))
-                yield render(func.__doc__ or '(No documentation found)', indent_num=1)
-                if inspect.isclass(func):
-                    for funcname, func_ in inspect.getmembers(func):
-                        if funcname != "__class__" and not funcname.startswith("_"):
-                            # Consider anything that starts with _ private
-                            # and don't document it
-                            yield "\n"
-                            yield "%s%s%s:" % (_indent, funcname, SIGNATURE(func_))
-                            yield render(func_.__doc__, indent_num=2)
-
-                yield "\n"
-
-
 def dreport(dburl, download_ids=None, config=True, log=True, html=False,
             outfile=None):
     """Create a diagnostic html page (or text string) showing the status of the
