@@ -1,12 +1,9 @@
-'''
-This editable template shows how to save raw and pre-processed segments from the database
-on the file system. Files will be saved as miniSEED in a seiscomp3-compatible directory structure
-under a user-defined root directory (defined in the associated configuration file).
-When used for visualization, this template implements a pre-processing function that
-can be toggled with a checkbox from within the GUI, and no additional custom plot
+"""
+Stream2segment processing+visualization module saving raw and pre-processed segments
+from the database on the file system.
 
 {{ PROCESS_PY_MAIN }}
-'''
+"""
 
 from __future__ import division
 
@@ -30,7 +27,7 @@ import numpy as np
 from obspy import Trace, Stream, UTCDateTime
 from obspy.geodetics import degrees2kilometers as d2km
 # decorators needed to setup this module @gui.sideplot, @gui.preprocess @gui.customplot:
-from stream2segment.process import gui
+from stream2segment.process import gui, SkipSegment
 # strem2segment functions for processing obspy Traces. This is just a list of possible functions
 # to show how to import them:
 from stream2segment.process.math.traces import ampratio, bandpass, cumsumsq,\
@@ -46,7 +43,7 @@ def assert1trace(stream):
     most likely due to gaps / overlaps'''
     # stream.get_gaps() is slower as it does more than checking the stream length
     if len(stream) != 1:
-        raise ValueError("%d traces (probably gaps/overlaps)" % len(stream))
+        raise SkipSegment("%d traces (probably gaps/overlaps)" % len(stream))
 
 
 def main(segment, config):
@@ -59,7 +56,7 @@ def main(segment, config):
     # discard saturated signals (according to the threshold set in the config file):
     amp_ratio = ampratio(trace)
     if amp_ratio >= config['amp_ratio_threshold']:
-        raise ValueError('possibly saturated (amp. ratio exceeds)')
+        raise SkipSegment('possibly saturated (amp. ratio exceeds)')
 
     original_trace = trace.copy()  # keep a track of the original mseed
 
@@ -68,12 +65,12 @@ def main(segment, config):
     # If you want to preserve the original stream, store trace.copy() beforehand.
     # Also, use a 'try catch': sometimes Inventories are corrupted and obspy raises
     # a TypeError, which would break the WHOLE processing execution.
-    # Raising a ValueError will stop the execution of the currently processed
+    # Raising a SkipSegment will stop the execution of the currently processed
     # segment only (logging the error message):
     try:
         processed_trace = bandpass_remresp(segment, config)
     except TypeError as type_error:
-        raise ValueError("Error in 'bandpass_remresp': %s" % str(type_error))
+        raise SkipSegment("Error in 'bandpass_remresp': %s" % str(type_error))
 
     stream_path = segment.sds_path(config['root_dir'])
     basedir = os.path.dirname(stream_path)

@@ -32,12 +32,14 @@ import jinja2
 
 from sqlalchemy.sql.expression import func
 
-from stream2segment.utils.inputargs import load_config_for_process, \
-    load_config_for_download, get_session
+from stream2segment.utils.inputvalidation import load_config_for_process, pop_param,\
+    load_config_for_download, valid_session, load_config_for_visualization, \
+    validate_param
 from stream2segment.utils.log import configlog4download, configlog4processing,\
     closelogger, logfilepath
 from stream2segment.io.db.models import Download, Segment
-from stream2segment.process.main import run as run_process
+from stream2segment.process.main import run as run_process, run_and_yield, \
+    fetch_segments_ids
 from stream2segment.download.main import run as run_download, new_db_download
 from stream2segment.utils import secure_dburl, strconvert, iterfuncs, \
     open2writetext, ascii_decorate, yaml_safe_dump
@@ -102,31 +104,44 @@ def download(config, log2file=True, verbose=False, **param_overrides):
     # - return 0 otherwise (meaning: success). This includes the case where,
     #   acording to our config, there are not segments to download
 
+    # short check (this should just raise, so execute this before configuring loggers):
+    isfile = isinstance(config, string_types) and os.path.isfile(config)
+    if not isfile and log2file is True:
+        raise ValueError('`log2file` can be True only if `config` is a '
+                         'string denoting an existing file')
+
+    # Validate params converting them in dict of args for the download function. Also in
+    # this case do it before configuring loggers, we simply need to raise `BadParam`s in
+    # case of problems:
+    d_kwargs, session, authorizer, tt_table = \
+        load_config_for_download(config, True, **param_overrides)
+
     ret = 0
     noexc_occurred = True
     loghandlers = None
-    session = None
     download_id = None
     try:
-        # short check:
-        isfile = isinstance(config, string_types) and os.path.isfile(config)
-        if not isfile and log2file is True:
-            raise ValueError('`log2file` can be True only if `config` is a '
-                             'string denoting an existing file')
-
-        # check and parse config values (modify in place):
-        yaml_dict = load_config_for_download(config, True, **param_overrides)
-        # get the session object (needed separately, see below):
-        session = yaml_dict['session']
-        # print yaml_dict to terminal if needed. Do not use input_yaml_dict as
-        # params needs to be shown as expanded/converted so the user can check
-        # their correctness. Do no use loggers yet:
+        real_yaml_dict = load_config_for_download(config, False, **param_overrides)
         if verbose:
-            print(_to_pretty_str(yaml_dict,
-                                 load_config_for_download(config, False,
-                                                          **param_overrides)))
+            # print yaml_dict to terminal if needed. Unfortunately we need a bit of
+            # workaround just to print relevant params first (YAML sorts by key)
+            tmp_cfg = dict(real_yaml_dict)
+            # provide sorting in the printed yaml by splitting into subdicts:
+            tmp_cfg_pre = [list(pop_param(tmp_cfg, 'dburl')),  # needs to be mutable
+                           pop_param(tmp_cfg, ('starttime', 'start')),
+                           pop_param(tmp_cfg, ('endtime', 'end'))]
+            tmp_cfg_pre[0][1] = secure_dburl(tmp_cfg_pre[0][1])
+            tmp_cfg_post = [pop_param(tmp_cfg, 'advanced_settings', {})]
+            _pretty_printed_yaml = "\n".join(_.strip() for _ in [
+                "Input parameters",
+                "----------------",
+                yaml_safe_dump(dict(tmp_cfg_pre)),
+                yaml_safe_dump(tmp_cfg),
+                yaml_safe_dump(dict(tmp_cfg_post)),
+            ])
+            print("%s\n" % _pretty_printed_yaml.strip())
 
-        # configure logger and habdlers:
+        # configure logger and handlers:
         if log2file is True:
             log2file = logfilepath(config)  # auto create log file
         else:
@@ -135,9 +150,7 @@ def download(config, log2file=True, verbose=False, **param_overrides):
 
         # create download row with unprocessed config (yaml_load function)
         # Note that we call again load_config with parseargs=False:
-        download_id = new_db_download(session,
-                                      load_config_for_download(config, False,
-                                                               **param_overrides))
+        download_id = new_db_download(session, real_yaml_dict)
         if log2file and verbose:  # (=> loghandlers not empty)
             print("Log file: '%s'"
                   "\n(if the download ends with no errors, the file will be "
@@ -147,8 +160,10 @@ def download(config, log2file=True, verbose=False, **param_overrides):
                                                        Download.log.key))
 
         stime = time.time()
-        run_download(download_id=download_id, isterminal=verbose, **yaml_dict)
-        logger.info("Completed in %s", str(totimedelta(stime)))
+        run_download(download_id=download_id, isterminal=verbose,
+                     authorizer=authorizer, session=session, tt_table=tt_table,
+                     **d_kwargs)
+        logger.info("Completed in %s", str(elapsedtime(stime)))
         if log2file:
             errs, warns = loghandlers[0].errors, loghandlers[0].warnings
             logger.info("%d error%s, %d warning%s", errs,
@@ -185,44 +200,44 @@ def download(config, log2file=True, verbose=False, **param_overrides):
     return ret
 
 
-def _to_pretty_str(yaml_dict, unparsed_yaml_dict):
-    """Return a pretty printed string from yaml_dict
-
-    :param yaml_dict: the PARSED yaml as dict. It might contain variables, such as
-        `session`, not in the original yaml file (these variables are not returned
-        in this function)
-    :param unparsed_yaml_dict: the UNPARSED yaml dict.
-    """
-
-    # the idea is: get the param value from yaml_dict, if not present get it from
-    # unparsed_yaml_dict. Use this list of params so we can control order
-    # (this works only in PyYaml>=5.1 and Python 3.6+, otherwise yaml_dict
-    # keys order can not be known):
-    params = ['dburl', 'starttime', 'endtime', 'eventws',
-              # These variables are merged into eventws_params in yaml_dict,
-              # so do not show them:
-              # 'minlatitude', 'maxlatitude', 'minlongitude', 'maxlongitude',
-              # 'mindepth', 'maxdepth', 'minmagnitude', 'maxmagnitude',
-              'eventws_params', 'channel', 'network', 'station', 'location',
-              'min_sample_rate', 'update_metadata', 'inventory',
-              'search_radius', 'dataws', 'traveltimes_model', 'timespan',
-              'restricted_data', 'retry_seg_not_found', 'retry_url_err',
-              'retry_mseed_err', 'retry_client_err', 'retry_server_err',
-              'retry_timespan_err', 'advanced_settings']
-
-    newdic = {}
-    for k in params:  # add yaml_dic[k] or unparsed_yaml_dict[k]:
-        if k in yaml_dict:
-            newdic[k] = yaml_dict[k]
-        elif k in unparsed_yaml_dict:
-            newdic[k] = unparsed_yaml_dict[k]
-    newdic['dburl'] = secure_dburl(newdic['dburl'])  # don't show passowrd, if present
-    ret = [
-        "Parsed input parameters",
-        "-----------------------",
-        yaml_safe_dump(newdic)
-    ]
-    return "%s\n" % ('\n'.join(ret)).strip()
+# def _to_pretty_str(yaml_dict, unparsed_yaml_dict):
+#     """Return a pretty printed string from yaml_dict
+#
+#     :param yaml_dict: the PARSED yaml as dict. It might contain variables, such as
+#         `session`, not in the original yaml file (these variables are not returned
+#         in this function)
+#     :param unparsed_yaml_dict: the UNPARSED yaml dict.
+#     """
+#
+#     # the idea is: get the param value from yaml_dict, if not present get it from
+#     # unparsed_yaml_dict. Use this list of params so we can control order
+#     # (this works only in PyYaml>=5.1 and Python 3.6+, otherwise yaml_dict
+#     # keys order can not be known):
+#     params = ['dburl', 'starttime', 'endtime', 'eventws',
+#               # These variables are merged into eventws_params in yaml_dict,
+#               # so do not show them:
+#               # 'minlatitude', 'maxlatitude', 'minlongitude', 'maxlongitude',
+#               # 'mindepth', 'maxdepth', 'minmagnitude', 'maxmagnitude',
+#               'eventws_params', 'channel', 'network', 'station', 'location',
+#               'min_sample_rate', 'update_metadata', 'inventory',
+#               'search_radius', 'dataws', 'traveltimes_model', 'timespan',
+#               'restricted_data', 'retry_seg_not_found', 'retry_url_err',
+#               'retry_mseed_err', 'retry_client_err', 'retry_server_err',
+#               'retry_timespan_err', 'advanced_settings']
+#
+#     newdic = {}
+#     for k in params:  # add yaml_dic[k] or unparsed_yaml_dict[k]:
+#         if k in yaml_dict:
+#             newdic[k] = yaml_dict[k]
+#         elif k in unparsed_yaml_dict:
+#             newdic[k] = unparsed_yaml_dict[k]
+#     newdic['dburl'] = secure_dburl(newdic['dburl'])  # don't show passowrd, if present
+#     ret = [
+#         "Parsed input parameters",
+#         "-----------------------",
+#         yaml_safe_dump(newdic)
+#     ]
+#     return "%s\n" % ('\n'.join(ret)).strip()
 
 
 def process(dburl, pyfile, funcname=None, config=None, outfile=None,
@@ -275,16 +290,18 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None,
     # process to finish
 
     # checks dic values (modify in place) and returns dic value(s) needed here:
-    session, pyfunc, funcname, config_dict = \
-        load_config_for_process(dburl, pyfile, funcname, config, outfile,
-                                **param_overrides)
+    session, pyfunc, funcname, config_dict, segments_selection, multi_process, \
+        chunksize = load_config_for_process(dburl, pyfile, funcname,
+                                                             config, outfile,
+                                                             **param_overrides)
 
     if log2file is True:
         log2file = logfilepath(outfile or pyfile)  # auto create log file
     else:
         log2file = log2file or ''  # assure we have a string
-    loghandlers = configlog4processing(logger, log2file, verbose)
+
     try:
+        loghandlers = configlog4processing(logger, log2file, verbose)
         abp = os.path.abspath
         info = [
             "Input database:      %s" % secure_dburl(dburl),
@@ -298,10 +315,10 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None,
         stime = time.time()
         writer_options = config_dict.get('advanced_settings', {}).\
             get('writer_options', {})
-        run_process(session, pyfunc, get_writer(outfile, append,
-                                                writer_options),
-                    config_dict, verbose)
-        logger.info("Completed in %s", str(totimedelta(stime)))
+        run_process(session, pyfunc, get_writer(outfile, append, writer_options),
+                    config_dict, segments_selection, verbose, multi_process,
+                    chunksize, None)
+        logger.info("Completed in %s", str(elapsedtime(stime)))
         return 0  # contrarily to download, an exception should always raise
         # and log as error with the stack trace
         # (this includes pymodule exceptions e.g. TypeError)
@@ -316,7 +333,75 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None,
         closelogger(logger)
 
 
-def totimedelta(t0_sec, t1_sec=None):
+def s2smap(pyfunc, dburl, segments_selection=None, config=None, *,
+           logfile='', show_progress=False, multi_process=False, chunksize=None,
+           skip_exceptions=None):
+    """Return an iterator that applies the function `pyfunc` to every segment
+    found on the database at the URL `dburl`, processing only segments matching
+    the given selection (`segments_selection`), yielding the results in the form
+    of the tuple:
+    ```
+        (output:Any, segment_id:int)
+    ```
+    (where output is the return value of `pyfunc`)
+
+    :param pyfunc: a Python function with signature (= accepting arguments):
+        `(segment:Segment, config:dict)`. The first argument is the segment
+        object which will be automatically passed from this function
+    :param dburl: the database URL. Supported formats are Sqlite and Postgres
+        (See https://docs.sqlalchemy.org/en/14/core/engines.html#database-urls).
+    :param segments_selection: a dict[str, str] of Segments attributes mapped to
+        a given selection expression, e.g.:
+        ```
+        {
+            'event.magnitude': '<=6',
+            'channel.channel': 'HHZ',
+            'maxgap_numsamples': '(-0.5, 0.5)',
+            'has_data': 'true'
+        }
+        ```
+        (the last two keys assure segments with no gaps, and with data.
+        'has_data': 'true' is basically a default to be provided in most cases)
+    :param config: dict of additional needed arguments to be passed to `pyfunc`,
+        usually defining configuration parameters
+    :param safe_exceptions: tuple of Python exceptions that will not interrupt the whole
+        execution. Instead, they will be logged to file, with the relative segment id.
+        If `logfile` (see below) is empty, then safe exceptions will be yielded. In this
+        case, the `output` variable can be either the returned value of `pyfunc`, or any
+        given safe exception, and the user is responsible to check that
+    :param logfile: string. When not empty, it denotes the path of the log file
+        where exceptions will be logged, with the relative segment id
+    :param show_progress: print progress bar to standard output (usually, the terminal
+        window) and estimated remaining time
+    :param multi_process: enable multi process (parallel sub-processes) to speed up
+        execution. When not boolean, this parameter can be an integer denoting the
+        exact number of subprocesses to be allocated (only for advanced users. True is
+        fine in most cases)
+    :param chunksize: the size, in number of segments, of each chunk of data that will
+        be loaded from the database. Increasing this number speeds up the load but also
+        increases memory consumption. None (the default) means: set size automatically
+    """
+    session = validate_param('dburl', dburl, valid_session, for_process=True)
+    try:
+        loghandlers = configlog4processing(logger, logfile, show_progress)
+        stime = time.time()
+        yield from run_and_yield(session,
+                                 fetch_segments_ids(session, segments_selection),
+                                 pyfunc, config, show_progress, multi_process,
+                                 chunksize, skip_exceptions)
+        logger.info("Completed in %s", str(elapsedtime(stime)))
+    except KeyboardInterrupt:
+        logger.critical("Aborted by user")  # see comment above
+        raise
+    except:  # @IgnorePep8 pylint: disable=broad-except
+        logger.critical("Process aborted", exc_info=True)  # see comment above
+        raise
+    finally:
+        closesession(session)
+        closelogger(logger)
+
+
+def elapsedtime(t0_sec, t1_sec=None):
     """Time elapsed from `t0_sec` until `t1_sec`, as `timedelta` object rounded
     to seconds. If `t1_sec` is None, it will default to `time.time()` (the
     current time since the epoch, in seconds)
@@ -345,11 +430,10 @@ def closesession(session):
 
 def show(dburl, pyfile, configfile):
     """Show downloaded data plots in a system browser dynamic web page"""
-    # Session is created inside the function below. In case you want to
-    # do it here (catching dburl messages and raising BadArgument errors):
-    # session = get_session(dburl, for_process=True, scoped=True,
-    #                       raise_bad_argument=True)
-    run_in_browser(create_s2s_show_app(dburl, pyfile, configfile))
+    session, pymodule, config_dict, segments_selection = \
+        load_config_for_visualization(dburl, pyfile, configfile)
+    run_in_browser(create_s2s_show_app(session, pymodule, config_dict,
+                                       segments_selection))
     return 0
 
 
@@ -488,7 +572,7 @@ def dstats(dburl, download_ids=None, maxgap_threshold=0.5, html=False,
 def _get_download_info(info_generator, dburl, download_ids=None, html=False,
                        outfile=None):
     """Process dinfo or dstats"""
-    session = get_session(dburl, raise_bad_argument=True)
+    session = validate_param('dburl', dburl, valid_session)
     if html:
         openbrowser = False
         if not outfile:
@@ -525,7 +609,7 @@ def ddrop(dburl, download_ids, prompt=True):
         - an exception (if the download id could not be deleted)
     """
     ret = {}
-    session = get_session(dburl, raise_bad_argument=True)
+    session = validate_param('dburl', dburl, valid_session)
     try:
         ids = [_[0] for _ in
                session.query(Download.id).filter(Download.id.in_(download_ids))]

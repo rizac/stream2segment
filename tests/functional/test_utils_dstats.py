@@ -119,7 +119,7 @@ class Test(object):
                 db.session.add(seg)
                 db.session.commit()
 
-        with patch('stream2segment.main.get_session',
+        with patch('stream2segment.main.valid_session',
                    return_value=db.session) as mock_session:
             yield
 

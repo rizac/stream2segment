@@ -17,12 +17,6 @@ Created on 26 Mar 2019
 @author: riccardo
 """
 
-# IMPORTANT DEVELOPER NOTES:
-# For any of those custom methods (e.g., see the classmeth_* functions)
-# remember, when raising, that from the stream2segment processing routine,
-# ValueError will block only the currently processed segment,
-# all other exceptions will terminate the whole routine
-
 from io import BytesIO
 
 # from sqlalchemy import event
@@ -38,6 +32,11 @@ from stream2segment.io.db.models import (Segment, Station, Base,
                                          Event, Channel, DataCenter,
                                          WebService, object_session)
 from stream2segment.io.db.sqlevalexpr import exprquery
+from stream2segment.process import SkipSegment
+
+
+# Developer notes: raise SkipSegment from any module method that should not interrupt
+# the whole processing (e.g., malformed waveform, inventory and so on). see code examples
 
 
 def get_session(dburl, scoped=False, **engine_args):
@@ -212,18 +211,18 @@ def classmeth_inventory(self, reload=False):
             inventory = self._inventory = get_inventory(self)
         except Exception as exc:   # pylint: disable=broad-except
             inventory = self._inventory = \
-                ValueError("Station inventory (xml) error: %s" %
-                           (str(exc) or str(exc.__class__.__name__)))
+                SkipSegment("Station inventory (xml) error: %s" %
+                            (str(exc) or str(exc.__class__.__name__)))
     return inventory
 
 
 def get_inventory(station):
     """Return the inventory object for the given station.
-    Raises ValueError if inventory data is empty
+    Raises :class:`SkipSegment` if inventory data is empty
     """
     data = station.inventory_xml
     if not data:
-        raise ValueError('no data')
+        raise SkipSegment('no data')
     return loads_inv(data)
 
 
@@ -242,7 +241,7 @@ def classmeth_stream(self, reload=False):
             stream = self._stream = get_stream(self)
         except Exception as exc:  # pylint: disable=broad-except
             stream = self._stream = \
-                ValueError("MiniSeed error: %s" %
+                SkipSegment("MiniSeed error: %s" %
                            (str(exc) or str(exc.__class__.__name__)))
 
     return stream
@@ -268,7 +267,7 @@ def get_stream(segment, format="MSEED", headonly=False, **kwargs):  # noqa
     """
     data = segment.data
     if not data:
-        raise ValueError('no data')
+        raise SkipSegment('no data')
     # Do not call `obspy.core.stream.read` because, when passed a BytesIO, if
     # it fails reading it stores the bytes data to a temporary file and
     # re-tries by reading the file. This is a useless and time-consuming
@@ -281,10 +280,7 @@ def get_stream(segment, format="MSEED", headonly=False, **kwargs):  # noqa
     try:
         return _read(BytesIO(data), format, headonly, **kwargs)
     except Exception as terr:
-        # As some exceptions break the processing of all remaining segments,
-        # wrap here errors and raise a ValueError which breaks only current
-        # segment in case
-        raise ValueError(str(terr))
+        raise SkipSegment(str(terr))
 
 
 def classmeth_siblings(self, parent=None, conditions=None, colname=None):

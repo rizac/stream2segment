@@ -16,6 +16,7 @@ import yaml
 import pytest
 import pandas as pd
 from sqlalchemy.engine import create_engine
+from sqlalchemy.orm import close_all_sessions
 from sqlalchemy.orm.session import sessionmaker
 from obspy.core.stream import read as read_stream
 from obspy.core.inventory.inventory import read_inventory
@@ -348,6 +349,7 @@ def db(request, tmpdir_factory):  # pylint: disable=invalid-name
             self._base = Base
             self._session = None
             self.engine = None
+            self.session_maker = None
 
         def create(self, to_file=False, process=False, base=None):
             '''creates the database, deleting it if already existing (i.e., if this method
@@ -380,7 +382,7 @@ def db(request, tmpdir_factory):  # pylint: disable=invalid-name
             if self.engine is None:
                 raise TypeError('Database not created. Call `create` first')
             if self._session is None:
-                session_maker = sessionmaker(bind=self.engine)
+                session_maker = self.session_maker = sessionmaker(bind=self.engine)
                 # create a Session
                 self._session = session_maker()
             return self._session
@@ -404,6 +406,11 @@ def db(request, tmpdir_factory):  # pylint: disable=invalid-name
                 except:  # @IgnorePep8 pylint: disable=bare-except
                     pass
                 self._session = None
+
+            # 'drop_all' below hangs sometimes. The fix is to type beforehand a
+            # `self.session_maker.close_all()` (https://stackoverflow.com/a/44437760)
+            # which is now deprecated in favour of:
+            close_all_sessions()  # https://stackoverflow.com/a/62884420
 
             if self.engine:
                 try:

@@ -14,7 +14,6 @@ from sqlalchemy import func
 # from flask import g
 from stream2segment.process.db import (Segment, Class, ClassLabelling,
                                        Station, Download,
-                                       get_session as _getsess,
                                        get_classlabels as _get_classes)
 from stream2segment.io.db.sqlevalexpr import exprquery, Inspector
 from stream2segment.utils import secure_dburl
@@ -23,16 +22,18 @@ from stream2segment.utils import secure_dburl
 _session = None  # pylint: disable=invalid-name
 
 
-def init(app, dbpath):
+def init(app, session):
     """Initialize the database. this method must be called after the Flask
-    app has been created nd before using it
+    app has been created nd before using it.
+
+    :param session: a SQLAlchemy SCOPED session
     """
     # https://nestedsoftware.com/2018/06/11/flask-and-sqlalchemy-without-the-flask-sqlalchemy-extension-3cf8.34704.html
     # and
     # https://flask.palletsprojects.com/en/1.1.x/appcontext/#storing-data
 
     global _session  # noqa
-    _session = _getsess(dbpath, scoped=True)
+    _session = session
 
     # we add a listener that whn a request is ended, the session should be
     # removed (see get_session below)
@@ -45,7 +46,7 @@ def init(app, dbpath):
 
 
 def get_session():
-    """Return a sqlalchemy scoped session for interacting with the database"""
+    """Return a SQLAlchemy scoped session for interacting with the database"""
     # (see init above)
     return _session
 
@@ -61,7 +62,7 @@ def get_segments_count(conditions):
     _segments_count
 
     :param conditions: dict of selection expressions usually resulting from the
-        'segment_select' parameter in the YAML config)
+        'segments_selection' parameter in the YAML config)
     """
     session = get_session()
     return _query4gui(session.query(func.count(Segment.id)),

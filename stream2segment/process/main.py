@@ -35,135 +35,174 @@ import numpy as np
 # from sqlalchemy.orm import load_only
 
 from stream2segment.io.db.sqlevalexpr import exprquery
-from stream2segment.utils import get_progressbar  #, StringIO
+from stream2segment.process import SkipSegment
+from stream2segment.utils import get_progressbar
 from stream2segment.process.db import get_session
-from stream2segment.io.db.models import Segment, Station, Channel # Event, DataCenter
-from stream2segment.utils.inputargs import load_pyfunc
+from stream2segment.io.db.models import Segment, Station
+from stream2segment.utils.inputvalidation import valid_pyfunc
 
 
 logger = logging.getLogger(__name__)
 
 
-def run(session, pyfunc, writer, config=None, show_progress=False):
-    """Run the processing routine
+# Disclaimer: this module is over-documented to keep track of all implementation
+# details addressing the following issues when handling big data and a RDBMS:
+# 1. Memory leaks (too many objects in the RDBMS session)
+# 2. Slowdowns (long RDBMS queries)
+# 3. Undesired printouts (external ObsPy C libraries that have to be caught)
+# 4. Python multiprocessing with RDBMS queries
 
-    :param session: the sql-alchemy db session
-    :pram pyfunc: a python function to be executed on all selected segments
+
+def run(session, pyfunc, writer, config=None, segments_selection=None,
+        show_progress=False, multi_process=False, chunksize=None,
+        skip_exceptions=None):
+    """Run `pyfunc` according to the given `config`, outputting result to `writer`
+
+    :param session: the SQLAlchemy database session
+    :param pyfunc: a Python function accepting as arguments a given segment object and
+        a `dict` of optional user-defined parameters. The function will be called with
+        any given segment and the provided `config` argument
     :param writer: a Writer handling the processed output to filesystem.
-        use :class:`writers.BaseWriter` for a no-op class. The writer handles the append
-        feature for existing output files and is a callable with signature:
-        ```
-        def __call__(segment_id, result):  # result is surely not None
-        ```
-    where result is an iterable of values/objects, and segment_id is ... the segment id.
-    :param config: dict of configuration parameters, ususally the result of an associated
-        YAML configuration file
-    :param skip_ids: an iterable of integers denoting segments to be skipped among the
-        selected ones. None (the default) is equivalent to pass the empty list []
-    :param show_progress: (boolean) whether or not to show progress status and remaining
-        time on the terminal
+        use :class:`writers.BaseWriter` for a no-op class.
+        See :module:`stream2segment.process.writers`
+    :param config: dict of configuration parameters, usually the result of an associated
+        YAML configuration file, to be passed as second argument of `pyfunc`
+    :param segments_selection: dict denoting the segments to be selected in form of
+        segment attribute mapped to a selection expression in string format
+         (if not given, all segments will be processed)
+    :param show_progress: (boolean, default False) whether or not to show progress bar
+        and other info (e.g. remaining time, successfully processed segments) on the
+        standard output (usually, the terminal window)
     """
     if config is None:
         config = {}
-    done_skipped_errors = [0, 0, 0]
+    if segments_selection is None:
+        segments_selection = {}
 
-    seg_ids = fetch_segments_ids(session, config, writer)
+    seg_ids = fetch_segments_ids(session, segments_selection, writer)
+    written = 0
+
+    with writer:
+        for output, segment_id in \
+                run_and_yield(session, seg_ids, pyfunc, config, show_progress,
+                              multi_process, chunksize, skip_exceptions):
+            if not writer.isbasewriter and output is not None:
+                writer.write(segment_id, output)
+                written += 1
+
+    logger.info("%d of %d segment(s) successfully written to the provided output",
+                written, len(seg_ids))
+
+
+def run_and_yield(session, seg_ids, pyfunc, config, show_progress=False,
+                  multi_process=False, chunksize=None, skip_excetpions=None):
+    """Run `pyfunc(segment, config)` on each given segment and yields its output
+    as the tuple
+    ```(output, segment_id)```
+
+    :param session: the SQLAlchemy database session
+    :param pyfunc: a Python function accepting as arguments a given segment object and
+        a `dict` of optional user-defined parameters. The function will be called with
+        any given segment and the provided `config` argument
+    :param yield_exceptions: boolean (default False). If True, output can be also
+        an Exception, and will denote unsuccessfully processed segments. If False, output
+        is yielded only upon successful execution of `pyfunc`
+    :param config: dict of configuration parameters, usually the result of an associated
+        YAML configuration file, to be passed as second argument of `pyfunc`
+    :param show_progress: (boolean, default False) whether or not to show progress bar
+        and other info (e.g. remaining time, successfully processed segments) on the
+        standard output (usually, the terminal window)
+    :param multi_process: (bool, or numeric) Use multiprocessing.Pool. A numeric value
+        will be equal to true, using a Pool with the specified number of processes (only
+        for advanced users: true is fine and sufficient in most cases)
+    """
+    done, errors = 0, 0
     seg_len = len(seg_ids)
-    # get total segment length (in numpy it is equivalent to len(seg_sta_ids)):
-    chunksize, multi_process, num_processes = \
-        get_advanced_settings(config, seg_len, show_progress)
-    # Note on chunksize above:
-    # When loading segments, we have two strategies:
-    # A) load only a Segment with its id (and defer loading of other
-    # attributes upon access) or B) load a Segment with all attributes
-    # (columns). From experiments on a 16 GB memory Mac:
-    # Querying A) and then accessing (=loading) later two likely used attributes
-    # (data and arrival_time) we take:
-    # ~= 0.043 secs/segment, Peak memory (Kb): 111792 (0.650716 %)
-    # Querying B) and then accessing the already loaded data and arrival_time attributes,
-    # we get:
-    # 0.024 secs/segment, Peak memory (Kb): 409194 (2.381825 %).
-    # With millions of segments, the latter
-    # approach can save up to 9 hours with almost no memory perf issue (2.4% vs 0.7%).
-    # So we define a chunk size whereby we load all segments:
+
+    if multi_process is True:
+        num_processes = cpu_count()  # or None (let's set it directly here though)
+    elif multi_process not in (0, False):
+        num_processes = int(multi_process)
+    else:
+        multi_process = False
+
+    if chunksize is None:
+        chunksize = get_default_chunksize(seg_len, show_progress)
+
+    if skip_excetpions is None:
+        skip_excetpions = [SkipSegment]
+    safe_excetpions = tuple(skip_excetpions)  # for safety, in case list
 
     session.close()  # expunge all, clear all states
 
-    with writer:
-        # redirection of stderr prevents Python BUT ALSO external libraries to print
-        # unwanted stuff on screen which might mess up the progressbar. Note that this
-        # should capture also warnings because they are normally directed to stderr. This
-        # is why warnings_filter is None, (also, this method is usually called inside a
-        # with statements ignoring warnings). Sub-processes will call (see below)
-        # create_processing_env with redirect_stderr=False (we do not want to mess up too
-        # much with leaking file descriptors, a complex topic) and
-        # warnings_filter='ignore', because we would have too many redundant messages
-        with create_processing_env(seg_len if show_progress else 0,
-                                   redirect_stderr=True,
-                                   warnings_filter=None) as pbar:
-            if show_progress and seg_len:
-                # if we are here we want to show the progressbar. Problem is, we can not
-                # know in how much time the progress bar will be rendered on the terminal
-                # (for heavy user-defined processing routines, this might happen in
-                # several minutes). Showing the progress bar immediately is therefore of
-                # help for the user (even if the bar has obviously no progress done yet).
-                # Is there a 'flush' method? Looking at click, it's 'render_progress()'.
-                # But the latter does not work if called within 'pbar.short_limit'
-                # seconds after the progressbar has been created. Therefore, let's force
-                # a progressabr flush. First wait:
-                time.sleep(pbar.short_limit)
-                # now render_progress will render:
-                pbar.render_progress()
+    # `create_processing_env` redirects Python BUT ALSO external libraries errors which
+    # might mess up the terminal printout (e.g. progressbar). Python warnings should be
+    # redirected as well because normally printed to `stderr`, so avoid capturing them
+    # (`warnings_filter=None`). `create_processing_env` is also called in Python
+    # subprocesses, if present. For info see :func:`process_segments_mp`
+    with create_processing_env(seg_len if show_progress else 0,
+                               redirect_stderr=True,
+                               warnings_filter=None) as pbar:
+        if show_progress and seg_len:
+            # Show the progressbar now, because the 1st chunk might be ready in minutes,
+            # and an empty screen might give the impression of a program hang:
+            time.sleep(pbar.short_limit)
+            pbar.render_progress()
 
-            if multi_process:
-                process_mp(session, pyfunc, config, get_slices(seg_ids, chunksize),
-                           writer, done_skipped_errors, pbar, num_processes)
+        if multi_process:
+            itr = process_mp(session, pyfunc, config, get_slices(seg_ids, chunksize),
+                             pbar, num_processes, safe_excetpions)
+        else:
+            itr = process_simple(session, pyfunc, config, get_slices(seg_ids, chunksize),
+                                 pbar, safe_excetpions)
+
+        for output, is_ok, segment_id in itr:
+            if is_ok:
+                done += 1
             else:
-                process_simple(session, pyfunc, config, get_slices(seg_ids, chunksize),
-                               writer, done_skipped_errors, pbar)
+                logger.warning("segment (id=%d): %s", segment_id, str(output))
+                errors += 1
+            if is_ok:
+                yield output, segment_id
 
     logger.info('')
-    done, skipped, errors = done_skipped_errors
-
     logger.info("%d of %d segment(s) successfully processed", done, seg_len)
-    if skipped:  # this is the case when ondone is provided AND pyfunc returned None
-        logger.info("%d of %d segment(s) skipped without messages", skipped, seg_len)
     logger.info("%d of %d segment(s) skipped with error message "
                 "reported in the log file", errors, seg_len)
-    logger.info('')
 
 
-def fetch_segments_ids(session, config, writer):
+def fetch_segments_ids(session, segments_selection, writer=None):
     """Return the numpy array of segments ids to process
 
+    :param segments_selection: dict[str, str] denoting a segment selection
+    :param writer: A Writer or None. See :module:`stream2segment.process.writers`.
+        If not None, the writer is used to fetch the already processed segments
+        and return only segments to process
     :return: the numpy array of integers denoting the ids of the segments to process
         according to `config` and `writer` settings
     """
-
-    # (Over commenting this module to keep track of all choices done)
-
-    # the query is always loaded in memory, see:
-    # https://stackoverflow.com/a/11769768
-    # thus we load it as np.array to save memory.
-    # We might want to avoid this by querying chunks of segments using limit and order
-    # keywords or query yielding:
-    # http://docs.sqlalchemy.org/en/latest/orm/query.html#sqlalchemy.orm.query.Query.yield_per
-    # but that makes code too complex
-    # Thus, load first the id attributes of each segment and station, sorted by station.
-    # Note that querying attributes instead of instances does not cache the results
-    # (i.e., after the line below we do not need to issue session.expunge_all()
-    qry = query4process(session, config.get('segment_select', {}))
+    # The query is always loaded in memory (https://stackoverflow.com/a/11769768), thus
+    # we load ids only into a numpy array for efficiency. Querying with offset
+    # and limit is not necessarily faster (if offset is close to "the end", the db might
+    # build anyway the full list of segments, we experienced it in the GUI), other
+    # solutions as query and yielding make the code too complex
+    # (http://docs.sqlalchemy.org/en/latest/orm/query.html#sqlalchemy.orm.query.Query.yield_per).
+    # `query4process` below is thus called with "ids_only" (see doc for details).
+    # Note that querying attributes instead of the full instances does not cache the
+    # results. I.e., after the line below we do not need to issue `session.expunge_all()`
+    qry = query4process(session, segments_selection, ids_only=True)
 
     skip_already_processed = False
-    if writer.append:
-        if not writer.outputfileexists:
-            logger.info('Ignoring `append` functionality: output file does not exist '
-                        'or not provided')
-        else:
-            logger.info('Appending results to existing file')
-            skip_already_processed = True
-    elif writer.outputfileexists:
-        logger.info('Overwriting existing output file')
+    if writer is not None:
+        if writer.append:
+            if not writer.outputfileexists:
+                logger.info('Ignoring `append` functionality: output file does not '
+                            'exist or not provided')
+            else:
+                logger.info('Appending results to existing file')
+                skip_already_processed = True
+        elif writer.outputfileexists:
+            logger.info('Overwriting existing output file')
 
     logger.info("Fetching segments to process (please wait)")
     seg_ids = np.array(qry.all(), dtype=int).flatten()
@@ -178,7 +217,7 @@ def fetch_segments_ids(session, config, writer):
         # string, and raise Exceptions.
         # It is therefore way more efficient to do it in numpy. The drawback is that we
         # will query more segments than needed and we might waste time in the query above
-        # but this is outweighted by the efficiency here
+        # but this is outweighed by the efficiency here
         logger.info("Fetching already processed segment(s) (please wait)")
         skip_ids = writer.already_processed_segments()
         logger.info("Skipping %d already processed segment(s)", len(skip_ids))
@@ -190,53 +229,41 @@ def fetch_segments_ids(session, config, writer):
     return seg_ids
 
 
-def get_advanced_settings(config, segments_count, show_progress):
-    """Extract the advanced settings from the given config, returning their defaults
-    if not given.
+def get_default_chunksize(segments_count, show_progress):
+    """Get the segments chunksize according to the segments to
+    process (`segments_count`) and whether the progress bar is being shown
 
-    :return: the tuple:
-        ```
-        (chunksize:int, multi_process:bool = False, num_processes:int = cpu_count)
-        ```
+    :return: the tuple: `multi_process, num_processes, chunksize`
+        (int, bool, int)
     """
-    adv_settings = config.get('advanced_settings', {})  # dict
-    multi_process = adv_settings.get('multi_process', False)
-    num_processes = adv_settings.get('num_processes', None)
-    if num_processes is None:
-        num_processes = cpu_count()
-    chunksize = adv_settings.get('segments_chunksize', None)
-    if chunksize is None:
-        default_chuknksize, min_pbar_iterations = _get_chunksize_defaults()
-        if not show_progress or segments_count >= 2 * default_chuknksize:
-            chunksize = default_chuknksize
-        else:
-            # determine the chunksize in order to have `min_pbar_iterations` iterations
-            # use np.true_divide so that py2/3 division is not a problem:
-            chunksize = max(1, int(np.true_divide(segments_count,
-                                                  min_pbar_iterations).item()))
-    return chunksize, multi_process, num_processes
+    default_chuknksize, min_pbar_iterations = _get_chunksize_defaults()
+    if not show_progress or segments_count >= 2 * default_chuknksize:
+        chunksize = default_chuknksize
+    else:
+        # determine the chunksize in order to have `min_pbar_iterations` iterations
+        # use np.true_divide so that py2/3 division is not a problem:
+        chunksize = max(1, int(np.true_divide(segments_count,
+                                              min_pbar_iterations).item()))
+    return chunksize
 
 
 def _get_chunksize_defaults():
-    """Return a 2 element tuple with
-    the default segment chunksize (600) and the minimum progressbar iterations (10)
-    This function is implemented mainly for mocking in tests
+    """Return a 2 element tuple with the default segment chunksize (600) and the minimum
+    progressbar iterations (10). This function is implemented mainly for mocking in tests
     """
     return 600, 10
 
 
-def process_mp(session, pyfunc, config, seg_ids_chunks, writer, done_skipped_errors,
-               pbar, num_processes):
+def process_mp(session, pyfunc, config, seg_ids_chunks, pbar, num_processes,
+               safe_exceptions_tuple):
     """Execute `pyfunc` using the multiprocessing Python module
 
     :param seg_ids_chunks: iterable yielding numpy arrays of segment ids
-    :param done_skipped_errors: list of three int elements denoting segments done,
-        skipped, and discarded (due to errors), respectively
     """
     # The two actions here below are a little hacky in that we might simply pass
     # strings to this functions (dburl and python module path), but this would require
     # checking for well formed dburl and paths here, which is what we do BEFORE, and
-    # also, the non pythin-multiprocessing case benefits of having already db session
+    # also, the non Python multiprocessing case benefits of having already db session
     # object and python function loaded.
 
     # 1. The db engine has to be disposed now if we want to use multi-processing:
@@ -252,10 +279,10 @@ def process_mp(session, pyfunc, config, seg_ids_chunks, writer, done_skipped_err
         for results in \
                 pool.imap_unordered(process_segments_mp,
                                     ((seg_ids_chunk, dburl, config, pyfile,
-                                      pyfunc.__name__)
+                                      pyfunc.__name__, safe_exceptions_tuple)
                                      for seg_ids_chunk in seg_ids_chunks)):
             for output, is_ok, segment_id in results:
-                process_output(output, is_ok, segment_id, writer, done_skipped_errors)
+                yield output, is_ok, segment_id
             pbar.update(len(results))
     except:  # @IgnorePep8 pylint: disable=bare-except
         pool.terminate()
@@ -276,29 +303,19 @@ def _mp_initializer():
     signal.signal(signal.SIGINT, signal.SIG_IGN)
 
 
-def process_simple(session, pyfunc, config, seg_ids_chunks, writer, done_skipped_errors,
-                   pbar):
+def process_simple(session, pyfunc, config, seg_ids_chunks, pbar, safe_exceptions_tuple):
     """Execute `pyfunc` in a single system process
 
     :param seg_ids_chunks: iterable yielding numpy arrays of segment ids
-    :param done_skipped_errors: list of three int elements denoting segments done,
-        skipped, anddiscarded (due to errors), respectively
     """
     segment = None  # currently processed segment id (will be used later)
     _clear_session(session)
 
     for seg_ids_chunk in seg_ids_chunks:
         for output, is_ok, segment in \
-                process_segments(session, seg_ids_chunk, config, pyfunc):
-            # `process_segment` uses internally an inventory cache mechanism, i.e.
-            # it avoids loading an inventory again, if we have it already calculated.
-            # (this is why, to make the mechanism easier, we query to the db segments
-            # in a particular order according to their station id first, see
-            # :func:`joinandorder`).
-            # `process_segment` yields also station_id and inventory with the only
-            # purpose to perform the same inventory cache mechanism also on the first
-            # segment of the next `seg_sta_chunk` loop (see above)
-            process_output(output, is_ok, segment.id, writer, done_skipped_errors)
+                process_segments(session, seg_ids_chunk, config, pyfunc,
+                                 safe_exceptions_tuple):
+            yield output, is_ok, segment.id
 
         _clear_session(session, segment)
         pbar.update(len(seg_ids_chunk))
@@ -315,17 +332,12 @@ def _clear_session(session, segment=None):
     if segment is None:
         return
 
-    # re-assign the segment. This will add also to session.identity_map
-    # all the segment's already loaded related objects (e.g., Station, with
-    # relative inventory). This will not garbage collect these objects (keeping
-    # them in memory) but if in the next loop we work
-    # with segments sharing the related objects (which might happen because
-    # segments are sorted by station id and event id, see `query4process'), accessing
-    # those objects (e.g. Segment.inventory()) is faster because no database query
-    # is issued. For info see:
+    # re-assign the segment to the session. This will add also to all the segment's
+    # already loaded related objects (e.g., Station, with relative inventory) which will
+    # thus not be garbage collected (i.e., they will be kept in memory). The advantage is
+    # to (potentially) avoid database queries in the next loop by reusing already loaded
+    # data (see also the query order given in `query4process'). For info see:
     # https://docs.sqlalchemy.org/en/13/orm/query.html#sqlalchemy.orm.query.Query.get
-    # Note: session.merge it's useless as we don't have other instances in the identity
-    # map:
     # http://docs.sqlalchemy.org/en/latest/orm/session_state_management.html#merging
     session.add(segment)
 
@@ -340,27 +352,23 @@ def process_segments_mp(args):
         module (string) and funcname is the processing function name to be called
 
     :return: a list of (output, is_ok, segment_id) tuples, where output is the
-        output of the processing funcion name (either iterable or Exception), is_ok
+        output of the processing function name (either iterable or Exception), is_ok
         (boolean) tells if `output` is NOT an Exception, and segment_id is the id of the
         segment processed
     """
-    seg_ids_chunk, dburl, config, pyfile, funcname = args
-    pyfunc = load_pyfunc(pyfile, funcname)
+    seg_ids_chunk, dburl, config, pyfile, funcname, safe_exceptions_tuple = args
+    pyfunc = valid_pyfunc(pyfile, funcname)
     session = get_session(dburl)
     ret = []
 
+    # Do not capture external C libraries errors (we do it already in the parent process,
+    # and we do not want to mess up too much with leaking file descriptors, a complex
+    # topic) but use warnings_filter='ignore', to avoid redundant messages
     with create_processing_env(0, redirect_stderr=False, warnings_filter='ignore'):
         try:
             for output, is_ok, segment in \
-                        process_segments(session, seg_ids_chunk, config, pyfunc):
-                # `process_segment` uses internally an inventory cache mechanism, i.e.
-                # it avoids loading an inventory again, if we have it already calculated.
-                # (this is why, to make the mechanism easier, we query to the db segments
-                # in a particular order according to their station id first, see
-                # :func:`joinandorder`). `process_segment` yields also station_id and
-                # inventory, but they are useless here: they are used only when
-                # `process_segments` is called inside an outer loop, to perform the same
-                # inventory cache mechanism also on the first segment of the next loop
+                        process_segments(session, seg_ids_chunk, config, pyfunc,
+                                         safe_exceptions_tuple):
                 ret.append((output, is_ok, segment.id))
             return ret
         finally:
@@ -368,33 +376,42 @@ def process_segments_mp(args):
             session.bind.engine.dispose()
 
 
-def process_segments(session, seg_ids_chunk, config, pyfunc):
-    """Function that proceses a chunk of segments and yield the resulted output. Yields
-    a list of (output, is_ok, segment_id, station_id, inventory) tuples, where output is
-    the output of the processing funcion name (either iterable or Exception), is_ok
-    (boolean) tells if `output` is NOT an Exception, segment_id is the id of the segment
-    processed, station_id the segment station id, inventory is the station inventory,
-    which might be None if an inventory was not requested in `pyfunc` implementation, or
-    an Exception if the operation of reading the inventory raised.
+def process_segments(session, seg_ids_chunk, config, pyfunc, safe_exceptions_tuple):
+    """Process a chunk of segments and yield the resulted output. Yields
+    tuples of the form `(output, is_ok, segment_id)`, where output is the output of the
+    `pyfunc`, is_ok (boolean) tells if `pyfunc` run successfully, segment_id is the id
+    of the segment processed.
 
-    :param session: the db session (sql-alcheemy session)
+    Note: `is_ok` indicates if `pyfunc` run successfully, and it is a shorthand for:
+    `is_ok == not isinstance(output, ValueError)`
+    By conventions only `ValueError`s are caught and passed as output, any other
+    exception raised by `pyfunc` will raise and thus interrupt the whole program
+
+    :param session: the db session (SQLAlchemy session)
     :param seg_ids_chunk: a numpy array of segment ids
     :param config: the config dict
-    :param pyfunc: a python function to be invoked on each segment
-
-    if this function is called in a loop on the same python process. Otherwise ignore
-    (pass None)
+    :param pyfunc: a Python function to be invoked on each segment
+    :param safe_exceptions_tuple: a tuple of Exceptions to be caught and returned
+        instead of raising
     """
-    # To make the query with "in" operator return segments in the same order
-    # (station id, then event id etceters) use joinandorder:
-    segments = joinandorder(session.query(Segment)).\
+    # We reuse `query4process` for simplicity. The query will sort segments returning
+    # them in the same order as the given indices (this is not a strict requirement but
+    # removing the sort does not improves significantly performances)
+    segments = query4process(session, conditions=None, ids_only=False).\
         filter(Segment.id.in_(seg_ids_chunk.tolist()))
+
+    # Note that we could have loaded only the segment ids, deferring the load of all
+    # other Segment attribute upon access (see SQLAlchemy `load_only`). Performance tests
+    # accessing attributes on several segments reported:
+    # defer load: 0.043 secs/segment, Peak memory (Kb): 111792 (0.650716 %)
+    # full load:  0.024 secs/segment, Peak memory (Kb): 409194 (2.381825 %).
+    # So we go for the full load
     for segment in segments:
-        output, is_ok = process_segment(segment, config, pyfunc)
+        output, is_ok = process_segment(segment, config, pyfunc, safe_exceptions_tuple)
         yield output, is_ok, segment
 
 
-def process_segment(segment, config, pyfunc):
+def process_segment(segment, config, pyfunc, safe_exceptions_tuple):
     """Process a single segment and return the output of `pyfunc(segment, config)`
 
     :return: the tuple (output, is_ok), where output is either an iterable or a
@@ -406,63 +423,45 @@ def process_segment(segment, config, pyfunc):
     """
     try:
         return pyfunc(segment, config), True
-    except ValueError as valueerr:
-        return valueerr, False
+    except safe_exceptions_tuple as exc:
+        return exc, False
     except Exception:
         raise
 
 
-def process_output(output, is_ok, segment_id, writer, done_skipped_errors):
-    """Function processing the output of `:func:process_segment`
-    This function MUST be executed in the main python-process, and not from within
-    sub-processes"""
-    if is_ok:
-        if writer.isbasewriter:
-            done_skipped_errors[0] += 1
-        else:
-            if output is not None:
-                writer.write(segment_id, output)
-                done_skipped_errors[0] += 1
-            else:
-                done_skipped_errors[1] += 1
-    else:
-        logger.warning("segment (id=%d): %s", segment_id, str(output))
-        done_skipped_errors[2] += 1
-
-
-def query4process(session, conditions=None):
+def query4process(session, conditions=None, ids_only=True):
     """Return a query yielding the the segments ids (and their stations ids) for the
     processing. The returned tuples are sorted by station id, event id, channel location
     and channel's channel
 
     :param session: the sql-alchemy session
     :param conditions: a dict of segment attribute names mapped to a select expression,
-        each identifying a filter (sql WHERE clause). See `:ref:sqlevalexpr.py`. Can be
-        empty (no filter)
+        each identifying a filter (sql WHERE clause). See :module:`sqlevalexpr.py`. It
+        can be empty (no filter)
 
     :return: a query yielding the tuples: ```(Segment.id, Segment.station.id)```
     """
-    # Note: without the join below, rows would be duplicated
-    qry = joinandorder(session.query(Segment.id))
-    # Now parse selection:
+
+    if ids_only:
+        query = session.query(Segment.id)
+    else:
+        query = session.query(Segment)
+
+    # Querying segments for processing should be sorted by station id first (so that a
+    # segment station inventory is likely cached from a previously processed segment)
+    # and segment id then (to return consistent ordering across queries):
+    query = query.join(Segment.station).order_by(Station.id, Segment.id)
+
+    # Performance hints based on remote Postgres tests: the number of joined tables and
+    # number of arguments to `order_by` might affect performances, but the latter depends
+    # heavily on what is being queried, and its size. So, jsust as a rule of thumb, few
+    # arguments, and preferably primary keys (or any indexed column, I suspect) might be
+    # better
+
     if conditions:
-        # parse user defined conditions (as dict of key:value <=> "column": "expr")
-        qry = exprquery(qry, conditions=conditions, orderby=None)
-    return qry
+        query = exprquery(query, conditions=conditions, orderby=None)
 
-
-def joinandorder(query):
-    """Given an already built query for processing, add joins and order_by to the
-    query in order to return segments ordered by station id, then event, and then
-    channel's location and channel's channel.
-
-    :param query: an sql-alchemy query object
-    :return: a new query identical to the passed `query` argument with joined table and
-        order_by applied
-    """
-
-    return query.join(Segment.station, Segment.channel).\
-        order_by(Station.id, Segment.event_id, Channel.location, Channel.channel)
+    return query
 
 
 @contextmanager
@@ -537,7 +536,7 @@ def redirect(src=None, dst=os.devnull):
     # Moreover, passing None as first argument means no redirection
     try:
         file_desc = src.fileno()
-    except (AttributeError, OSError) as _:
+    except (AttributeError, OSError, ValueError) as _:
         yield
         return
 

@@ -16,6 +16,7 @@ import pytest
 import numpy as np
 from obspy.core.stream import read
 
+from stream2segment.process import SkipSegment
 from stream2segment.process.db import get_stream
 from stream2segment.process.main import get_slices
 from stream2segment.process.writers import CsvWriter, HDFWriter
@@ -68,7 +69,7 @@ def test_get_stream(data):  # <- data is a pytest fixture
 
         mock_ntf.reset_mock()
         segment = MockSegment(mseeddata[:5])
-        with pytest.raises(ValueError):
+        with pytest.raises(SkipSegment):
             stream_me = get_stream(segment)
         assert not mock_ntf.called
 

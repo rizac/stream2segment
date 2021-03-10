@@ -57,7 +57,7 @@ class Test(object):
         session = db4process.session
         # sets up the mocked functions: db session handling (using the already created session)
         # and log file handling:
-        with patch('stream2segment.utils.inputargs.get_session', return_value=session):
+        with patch('stream2segment.utils.inputvalidation.valid_session', return_value=session):
             with patch('stream2segment.main.closesession',
                        side_effect=lambda *a, **v: None):
                 with patch('stream2segment.main.configlog4processing') as mock2:

@@ -3,7 +3,7 @@
 # {{ YAML_WARN }}
 
 # {{ PROCESS_YAML_SEGMENTSELECT }}
-segment_select:
+segments_selection:
   has_data: 'true'
   maxgap_numsamples: '[-0.5, 0.5]'
   # missing_data_sec: '<120'

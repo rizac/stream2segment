@@ -16,7 +16,7 @@ import threading
 from flask import Flask
 
 
-def create_s2s_show_app(dbpath, pyfile=None, configfile=None):
+def create_s2s_show_app(session, pymodule=None, config=None, segments_selection=None):
     """Create a new app for processing. Note that config_py_file is the
     stream2segment GUI config, not the config passed to Flask
     `app.config.from_pyfile`.
@@ -26,7 +26,7 @@ def create_s2s_show_app(dbpath, pyfile=None, configfile=None):
     app = Flask(webapp.__name__)
 
     from stream2segment.gui.webapp.mainapp import core
-    core.init(app, dbpath, pyfile, configfile)
+    core.init(app, session, pymodule, config, segments_selection)
 
     # Note that the templae_folder of the Blueprint and the static paths in
     # the HTML are relative to the path of THIS MODULE, so execute the lines
