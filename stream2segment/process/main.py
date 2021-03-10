@@ -536,7 +536,7 @@ def redirect(src=None, dst=os.devnull):
     # Moreover, passing None as first argument means no redirection
     try:
         file_desc = src.fileno()
-    except (AttributeError, OSError) as _:
+    except (AttributeError, OSError, ValueError) as _:
         yield
         return
 
