@@ -29,6 +29,7 @@ from tempfile import gettempdir
 from future.utils import PY2, string_types
 
 import jinja2
+# from sqlalchemy.orm import close_all_sessions
 
 from sqlalchemy.sql.expression import func
 
@@ -123,23 +124,7 @@ def download(config, log2file=True, verbose=False, **param_overrides):
     try:
         real_yaml_dict = load_config_for_download(config, False, **param_overrides)
         if verbose:
-            # print yaml_dict to terminal if needed. Unfortunately we need a bit of
-            # workaround just to print relevant params first (YAML sorts by key)
-            tmp_cfg = dict(real_yaml_dict)
-            # provide sorting in the printed yaml by splitting into subdicts:
-            tmp_cfg_pre = [list(pop_param(tmp_cfg, 'dburl')),  # needs to be mutable
-                           pop_param(tmp_cfg, ('starttime', 'start')),
-                           pop_param(tmp_cfg, ('endtime', 'end'))]
-            tmp_cfg_pre[0][1] = secure_dburl(tmp_cfg_pre[0][1])
-            tmp_cfg_post = [pop_param(tmp_cfg, 'advanced_settings', {})]
-            _pretty_printed_yaml = "\n".join(_.strip() for _ in [
-                "Input parameters",
-                "----------------",
-                yaml_safe_dump(dict(tmp_cfg_pre)),
-                yaml_safe_dump(tmp_cfg),
-                yaml_safe_dump(dict(tmp_cfg_post)),
-            ])
-            print("%s\n" % _pretty_printed_yaml.strip())
+            print("%s\n" % _pretty_printed_str(real_yaml_dict))
 
         # configure logger and handlers:
         if log2file is True:
@@ -200,44 +185,25 @@ def download(config, log2file=True, verbose=False, **param_overrides):
     return ret
 
 
-# def _to_pretty_str(yaml_dict, unparsed_yaml_dict):
-#     """Return a pretty printed string from yaml_dict
-#
-#     :param yaml_dict: the PARSED yaml as dict. It might contain variables, such as
-#         `session`, not in the original yaml file (these variables are not returned
-#         in this function)
-#     :param unparsed_yaml_dict: the UNPARSED yaml dict.
-#     """
-#
-#     # the idea is: get the param value from yaml_dict, if not present get it from
-#     # unparsed_yaml_dict. Use this list of params so we can control order
-#     # (this works only in PyYaml>=5.1 and Python 3.6+, otherwise yaml_dict
-#     # keys order can not be known):
-#     params = ['dburl', 'starttime', 'endtime', 'eventws',
-#               # These variables are merged into eventws_params in yaml_dict,
-#               # so do not show them:
-#               # 'minlatitude', 'maxlatitude', 'minlongitude', 'maxlongitude',
-#               # 'mindepth', 'maxdepth', 'minmagnitude', 'maxmagnitude',
-#               'eventws_params', 'channel', 'network', 'station', 'location',
-#               'min_sample_rate', 'update_metadata', 'inventory',
-#               'search_radius', 'dataws', 'traveltimes_model', 'timespan',
-#               'restricted_data', 'retry_seg_not_found', 'retry_url_err',
-#               'retry_mseed_err', 'retry_client_err', 'retry_server_err',
-#               'retry_timespan_err', 'advanced_settings']
-#
-#     newdic = {}
-#     for k in params:  # add yaml_dic[k] or unparsed_yaml_dict[k]:
-#         if k in yaml_dict:
-#             newdic[k] = yaml_dict[k]
-#         elif k in unparsed_yaml_dict:
-#             newdic[k] = unparsed_yaml_dict[k]
-#     newdic['dburl'] = secure_dburl(newdic['dburl'])  # don't show passowrd, if present
-#     ret = [
-#         "Parsed input parameters",
-#         "-----------------------",
-#         yaml_safe_dump(newdic)
-#     ]
-#     return "%s\n" % ('\n'.join(ret)).strip()
+def _pretty_printed_str(yaml_dict):
+    """Return a pretty printed string from yaml_dict"""
+    # print yaml_dict to terminal if needed. Unfortunately we need a bit of
+    # workaround just to print relevant params first (YAML sorts by key)
+    tmp_cfg = dict(yaml_dict)
+    # provide sorting in the printed yaml by splitting into subdicts:
+    dburl_name, dburl_val = pop_param(tmp_cfg, 'dburl')
+    dburl_val = secure_dburl(dburl_val)  # hide passwords
+    tmp_cfg_pre = [(dburl_name, dburl_val),
+                   pop_param(tmp_cfg, ('starttime', 'start')),
+                   pop_param(tmp_cfg, ('endtime', 'end'))]
+    tmp_cfg_post = [pop_param(tmp_cfg, 'advanced_settings', {})]
+    return "\n".join(_.strip() for _ in [
+        "Input parameters",
+        "----------------",
+        yaml_safe_dump(dict(tmp_cfg_pre)),
+        yaml_safe_dump(tmp_cfg),
+        yaml_safe_dump(dict(tmp_cfg_post)),
+    ]).strip()
 
 
 def process(dburl, pyfile, funcname=None, config=None, outfile=None,
@@ -417,15 +383,21 @@ def elapsedtime(t0_sec, t1_sec=None):
     return timedelta(seconds=round((time.time() if t1_sec is None else t1_sec) - t0_sec))
 
 
-def closesession(session):
+def closesession(session, dispose_engine=True):
     """Close the SQL-Alchemy session. This method simply calls
     `session.close()`, passing all exceptions, if any. Useful for unit testing
     and mock
     """
     try:
         session.close()
-    except:
+        # close_all_sessions()
+    except Exception:
         pass
+    if dispose_engine:
+        try:
+            session.get_bind().dispose()
+        except Exception:
+            pass
 
 
 def show(dburl, pyfile, configfile):
