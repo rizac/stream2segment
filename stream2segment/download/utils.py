@@ -898,13 +898,6 @@ class Authorizer(object):
         return False
 
     @property
-    def isnoop(self):
-        """Return if this authorizer does actually nothing
-        (download open data only)
-        """
-        return (self._uname, self._pswd, self._token) == (None, None, None)
-
-    @property
     def token(self):
         """Return the token (as bytes), or None. You can safely use this method
         also in an if statement: `if auth.token`, as the token can not be empty

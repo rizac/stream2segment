@@ -283,7 +283,7 @@ def init(outdir):
 @click.option('-l', '--location', '--locations', '--loc', 'location')
 @click.option('-k', '--channel', '--channels', '--cha', 'channel')
 @click.option('-msr', '--min-sample-rate', type=float)
-@click.option('-ds', '--dataws')
+@click.option('-ds', '--dataws', multiple=True)
 @click.option('-t', '--traveltimes-model')
 @click.option('-w', '--timespan', nargs=2, type=float)
 @click.option('-u', '--update-metadata',
