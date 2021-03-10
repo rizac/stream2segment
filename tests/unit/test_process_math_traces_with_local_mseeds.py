@@ -12,8 +12,8 @@ import mock
 from obspy.core import Trace
 from obspy.core.utcdatetime import UTCDateTime
 
-from stream2segment.process.math.ndarrays import fft as orig_fft
-from stream2segment.process.math.traces import fft, bandpass, dfreq, maxabs, timeof
+from stream2segment.process.lib.ndarrays import fft as orig_fft
+from stream2segment.process.lib.traces import fft, bandpass, dfreq, maxabs, timeof
 
 
 @pytest.mark.parametrize('arr, arr_len_after_trim, fft_npts',
@@ -22,7 +22,7 @@ from stream2segment.process.math.traces import fft, bandpass, dfreq, maxabs, tim
                          ([1, 2, 3, 4], 4, 3),
                          ([1, 2, 3], 3, 2),
                          ])
-@mock.patch('stream2segment.process.math.traces._fft',
+@mock.patch('stream2segment.process.lib.traces._fft',
             side_effect=lambda *a, **k: orig_fft(*a, **k))
 def test_fft(mock_mseed_fft, arr, arr_len_after_trim, fft_npts):
     t = Trace(np.array(arr))

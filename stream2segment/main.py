@@ -46,7 +46,7 @@ from stream2segment.utils import secure_dburl, strconvert, iterfuncs, \
     open2writetext, ascii_decorate, yaml_safe_dump
 from stream2segment.utils.resources import get_templates_dirpath
 from stream2segment.gui.main import create_s2s_show_app, run_in_browser
-from stream2segment.process import math as s2s_math
+from stream2segment.process import lib as s2s_math
 from stream2segment.download.utils import FailedDownload
 from stream2segment.gui.dinfo import DReport, DStats
 from stream2segment.resources.templates import DOCVARS
@@ -461,12 +461,12 @@ def init(outpath, prompt=True, *filenames):
 
 def helpmathiter(type, filter):  # noqa
     """Iterator yielding the doc-string of
-    :module:`stream2segment.process.math.ndarrays` or
-    :module:`stream2segment.process.math.traces`
+    :module:`stream2segment.process.lib.ndarrays` or
+    :module:`stream2segment.process.lib.traces`
 
     :param type: select the module: 'numpy' for doc of
-        :module:`stream2segment.process.math.ndarrays`, 'obspy' for the doc of
-        :module:`stream2segment.process.math.traces`, 'all' for both
+        :module:`stream2segment.process.lib.ndarrays`, 'obspy' for the doc of
+        :module:`stream2segment.process.lib.traces`, 'all' for both
     :param filter: a filter (with wildcard expressions allowed) to filter by
         function name
 

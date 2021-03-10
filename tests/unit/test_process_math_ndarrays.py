@@ -17,7 +17,7 @@ import numpy as np
 from numpy import true_divide as np_true_divide
 
 
-from stream2segment.process.math.ndarrays import cumsumsq, argtrim, snr, dfreq, freqs, powspec, \
+from stream2segment.process.lib.ndarrays import cumsumsq, argtrim, snr, dfreq, freqs, powspec, \
     triangsmooth
 
 
@@ -88,7 +88,7 @@ def test_argtrim(y):
                            ([], False, []),
                            ([], True, []),
                            ])
-@mock.patch('stream2segment.process.math.ndarrays.np')
+@mock.patch('stream2segment.process.lib.ndarrays.np')
 def test_cumsum(mock_np, arr, normalize, expected_result):
     mock_np.cumsum = mock.Mock(side_effect = lambda *a, **k: np.cumsum(*a, **k))
     mock_np.square =  mock.Mock(side_effect = lambda *a, **k: np.square(*a, **k))
@@ -117,7 +117,7 @@ def test_cumsum(mock_np, arr, normalize, expected_result):
 #         assert not mock_np.true_divide.called
 
 
-@mock.patch('stream2segment.process.math.ndarrays.np')
+@mock.patch('stream2segment.process.lib.ndarrays.np')
 def test_cumsum_errs(mock_np):
     mock_np.cumsum = mock.Mock(side_effect = lambda *a, **k: np.cumsum(*a, **k))
     mock_np.square =  mock.Mock(side_effect = lambda *a, **k: np.square(*a, **k))
@@ -184,7 +184,7 @@ def test_cumsum_errs(mock_np):
 # we mock np.true_divide ASSUMING IT's ONY CALLED WITHIN snr!!
 # IF we change in the future (we shouldn't), then be aware that the call check might differ!
 # impoortant: we must import np.true_divide at module level to avoid recursion problems:
-@patch("stream2segment.process.math.ndarrays.np.true_divide",
+@patch("stream2segment.process.lib.ndarrays.np.true_divide",
        side_effect=np_true_divide)  # lambda *a, **v: np_true_divide(*a, **v))
 def test_snr(mock_np_true_divide):
 

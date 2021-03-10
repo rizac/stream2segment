@@ -24,7 +24,7 @@ from stream2segment.process import gui
 from stream2segment.utils import load_source, iterfuncs, yaml_safe_dump
 from stream2segment.gui.webapp.mainapp.jsplot import Plot, isoformat
 from stream2segment.gui.webapp.mainapp import db
-from stream2segment.process.math.traces import sn_split
+from stream2segment.process.lib.traces import sn_split
 
 # number of points per plot. Used to resample points:
 NPTS_WIDE = 900  # FIXME: automatic retrieve from the GUI?

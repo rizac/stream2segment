@@ -709,13 +709,13 @@ def utils():  # noqa
 
 
 @utils.command(short_help='Print on screen quick help on stream2segment '
-                          'built-in math functions')
+                          'built-in lib functions')
 @click.option("-t", "--type", type=click.Choice(['numpy', 'obspy', 'all']),
               default='all', show_default=True,
               help="Show help only for the function matching the given type. "
                    "Numpy indicates functions operating on numpy arrays "
-                   "(module `stream2segment.process.math.ndarrays`). "
-                   "ObsPy (module `stream2segment.process.math.traces`) the "
+                   "(module `stream2segment.process.lib.ndarrays`). "
+                   "ObsPy (module `stream2segment.process.lib.traces`) the "
                    "functions operating on ObsPy Traces, most of which are "
                    "simply the numpy counterparts defined "
                    "for Trace objects")
@@ -723,7 +723,7 @@ def utils():  # noqa
               help="Show doc only for the function whose name matches the "
                    "given filter. Wildcards (* and ?) are allowed")
 def mathinfo(type, filter):  # noqa
-    """Print on screen the doc-strings of the math functions implemented in
+    """Print on screen the doc-strings of the lib functions implemented in
     this package, according to the given type and filter
     """
     # import here to improve slow click cli (at least when --help is invoked)

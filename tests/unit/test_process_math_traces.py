@@ -11,7 +11,7 @@ import os
 import pytest
 import numpy as np
 
-from stream2segment.process.math.traces import cumsumsq, timeswhere
+from stream2segment.process.lib.traces import cumsumsq, timeswhere
 
 
 class Test(object):

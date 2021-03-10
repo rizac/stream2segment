@@ -62,7 +62,7 @@ def run(session, download_id, eventws, starttime, endtime, dataws,
         update_metadata = True
 
     process = psutil.Process(os.getpid()) if isterminal else None
-    # calculate steps (note that bool math works, e.g: 8 - True == 7):
+    # calculate steps (note that booleans work, e.g: 8 - True == 7):
     __steps = 3 if update_md_only else \
         (6 + inventory + (True if authorizer.token else False))
     stepiter = iter(range(1, __steps+1))
