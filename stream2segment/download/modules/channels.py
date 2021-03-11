@@ -480,30 +480,28 @@ def drop_duplicates(session, channels_df, eidavalidator):
             # below:
             real_dc_ids = set()
             # group stations by tuples (net, sta, stime, etime), because etime
-            # is needed by the eidavalidator.get_dc_id
-            for etime in pd.unique(df_[ST.ETIME]):
+            # is needed by the eidavalidator.get_dc_id. (pd.to_datetime fixes
+            # https://github.com/pandas-dev/pandas/issues/35449)
+            for etime in pd.to_datetime(pd.unique(df_[ST.ETIME])):
+                # eidavalidator and session.query below expect Nones, not pd.NaT:
+                stime = None if pd.isnull(stime) else stime  # should never be the case
+                etime = None if pd.isnull(etime) else etime
+
                 dcids = []
                 if eidavalidator is not None:
                     # get the datacenter id(s) at a station level
                     # (loc, cha = None):
-                    dcids = eidavalidator.\
-                        get_dc_ids(net, sta, loc=None, cha=None,
-                                   stime=None if pd.isnull(stime) else stime,
-                                   etime=None if pd.isnull(etime) else etime)
+                    dcids = eidavalidator.get_dc_ids(net, sta, loc=None, cha=None,
+                                                     stime=stime, etime=etime)
 
                 if not dcids:
-                    # eidavalidator null, or did not find any dc id. Hence,
-                    # get the datacenter id(s) at a station level
-                    # from the database ((loc, cha) ignored). Remember that
-                    # `session.query` below returns dc ids in the form
-                    # ([id1], [id2], ...), not (id1, id2, ...)
+                    # eidavalidator null, or no dc_id found: query dc_id(s) from db:
                     dcids = [_[0] for _ in
                              session.query(Station.datacenter_id).filter(
                                  (Station.network == net) &
                                  (Station.station == sta) &
                                  (Station.start_time == stime) &
-                                 (Station.end_time == None  # noqa
-                                 if pd.isnull(etime) else etime)).all()
+                                 (Station.end_time == etime)).all()
                              ]
 
                 real_dc_ids.update(dcids)

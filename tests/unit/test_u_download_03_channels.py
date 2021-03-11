@@ -577,7 +577,7 @@ IV|BOTM||HNZ|45.5416|10.3213|157|0|0|-90|KINEMETRICS EPISENSOR-FBA-ES-T-CL-2G-FS
 A1|aa||DEL|3|4|6|0|0|0|OK:                                                |8|0.1|M/S|50.0|2008-02-12T00:00:00|
 A2|ww||NNL|3|4|6|0|0|0|OK:                                                |8|0.1|M/S|50.0|2008-02-12T00:00:00|
 A2|xx||DNL|3|4|6|0|0|0|NO: station also in other dc, eida_rs says not found      |8|0.1|M/S|50.0|2008-02-12T00:00:00|
-XX|xx||DEL|3|4|6|0|0|0|NO: station also in other dc, eida_rs says should be in both (conflict)        |8|0.1|M/S|50.0|2008-02-12T00:00:00|
+XX|xx||DEL|3|4|6|0|0|0|NO: station also in other dc, eida_rs says should be in both (conflict)        |8|0.1|M/S|50.0|2008-02-12T00:00:00|2020-02-12
 YY|yy||DEL|3|4|6|0|0|0|NO: station also in other dc, eida_rs says this dc is wrong  |8|0.1|M/S|50.0|2008-02-12T00:00:00|
 """,
 """#Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|Azimuth|Dip|SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|StartTime|EndTime
@@ -586,7 +586,7 @@ A1|aa||NNZ|3|4|6|0|0|0|OK: station also in other dc, but starttime changed -> ne
 B1|bb||NEZ|3|4|6|0|0|0|OK:                                                                 |8|0.1|M/S|50.0|2008-02-12T00:00:00|
 A2|xx||DNL|3|4|6|0|0|0|NO: station also in other dc, eida_rs says not found       |8|0.1|M/S|50.0|2008-02-12T00:00:00|
 A2|a2||NNL|3|4|6|0|0|0|OK: note that eida_rs says this dc is wrong but we ignore eida rs because we dont have conflicts                                               |8|0.1|M/S|50.0|2008-02-12T00:00:00|
-XX|xx||DEL|3|4|6|0|0|0|NO: station also in other dc, eida_rs says should be in both (conflict)       |8|0.1|M/S|50.0|2008-02-12T00:00:00|
+XX|xx||DEL|3|4|6|0|0|0|NO: station also in other dc, eida_rs says should be in both (conflict)       |8|0.1|M/S|50.0|2008-02-12T00:00:00|2020-02-12
 YY|yy||DEL|3|4|6|0|0|0|NO: station also in other dc, eida_rs says this dc is ok but station cannot be saved (some channels in one dc, some not) |8|0.1|M/S|50.0|2008-02-12T00:00:00|
 B1|bb||NEZ|3|4|6|0|0|0|OK:                                                                 |8|0.1|M/S|50.0|2008-02-12T00:00:00|
 """]  # NOTE: the last line (B1|bb...) is ON PURPOSE THE SAME AS THE THIRD, IT SHOULD BE IGNORED
