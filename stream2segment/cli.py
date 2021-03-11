@@ -97,8 +97,29 @@ class clickutils(object):  # noqa
             opts = []
             for param in self.get_params(ctx):
                 rv = param.get_help_record(ctx)
-                if rv is not None:
-                    opts.append(rv)
+                if rv is None:
+                    continue
+                p_names, p_help = rv
+
+                # is param multiple? then add the info to the p_help, wrapped in square
+                # brackets at the end, as click does with all other extra info
+                if getattr(param, 'multiple', False):
+                    # check for extra info, i.e. a last chunk of the form " [...]"
+                    idx = p_help.rstrip().rfind(' ')
+                    if idx > -1:
+                        extra_info_chunk = p_help[idx:].strip()
+                        # is the last chunk a collection of extra information, whihc
+                        # `click` wraps in square brackets)?
+                        if extra_info_chunk[0] == '[' and extra_info_chunk[-1] == ']':
+                            extra_info_chunk = extra_info_chunk[:-1] + "; "
+                        else:
+                            extra_info_chunk = ' ['  # create a "fake" last chunk
+                            idx = None  # make first chunk the whole opt_help str
+
+                        extra_info_chunk += 'multi-param: can be provided several times]'
+                        p_help = p_help[idx:] + extra_info_chunk
+
+                opts.append((p_names, p_help))
 
             # same as superclass, with slight modifications:
             if not opts:
