@@ -54,7 +54,7 @@ def run(session, download_id, eventws, starttime, endtime, dataws,
     #    exception
 
     dbbufsize = advanced_settings['db_buf_size']
-    max_thread_workers = advanced_settings['max_concurrent_downloads'],
+    max_thread_workers = advanced_settings['max_concurrent_downloads']
     download_blocksize = advanced_settings['download_blocksize']
 
     update_md_only = update_metadata == 'only'
