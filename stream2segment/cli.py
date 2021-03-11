@@ -224,12 +224,12 @@ def init(outdir):
         ("paramtable.yaml",
          "Processing configuration used in the associated Python file. "
          "Option -c of 's2s process' and 's2s show'"),
-        ("save2fs.py",
-         "Processing python file for saving waveform to filesystem. "
-         "Option -p of 's2s process' and 's2s show'"),
-        ("save2fs.yaml",
-         "Processing configuration used in the associated Python file. "
-         "Option -c of 's2s process' and 's2s show'"),
+        # ("save2fs.py",
+        #  "Processing python file for saving waveform to filesystem. "
+        #  "Option -p of 's2s process' and 's2s show'"),
+        # ("save2fs.yaml",
+        #  "Processing configuration used in the associated Python file. "
+        #  "Option -c of 's2s process' and 's2s show'"),
         ("jupyter.example.ipynb",
          "Jupyter notebook illustrating how to "
          "access downloaded data and run custom code. "
