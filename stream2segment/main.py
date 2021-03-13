@@ -169,7 +169,7 @@ def download(config, log2file=True, verbose=False, **param_overrides):
         raise
     finally:
         if session is not None:
-            closesession(session)
+            closesession(session)  # help gc?
             # write log to db if default handlers are provided:
             if log2file and loghandlers is not None and download_id is not None:
                 # remove file if no exceptions occurred:
@@ -179,7 +179,7 @@ def download(config, log2file=True, verbose=False, **param_overrides):
                 # before calling closelogger below to avoid closing
                 # loghandlers[0] twice:
                 logger.removeHandler(loghandlers[0])
-
+            closesession(session, True)  # engine disposal
         closelogger(logger)
 
     return ret
@@ -295,7 +295,7 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None,
         logger.critical("Process aborted", exc_info=True)  # see comment above
         raise
     finally:
-        closesession(session)
+        closesession(session, True)
         closelogger(logger)
 
 
@@ -363,7 +363,7 @@ def s2smap(pyfunc, dburl, segments_selection=None, config=None, *,
         logger.critical("Process aborted", exc_info=True)  # see comment above
         raise
     finally:
-        closesession(session)
+        closesession(session, True)
         closelogger(logger)
 
 
@@ -383,21 +383,29 @@ def elapsedtime(t0_sec, t1_sec=None):
     return timedelta(seconds=round((time.time() if t1_sec is None else t1_sec) - t0_sec))
 
 
-def closesession(session, dispose_engine=True):
-    """Close the SQL-Alchemy session. This method simply calls
-    `session.close()`, passing all exceptions, if any. Useful for unit testing
-    and mock
+def closesession(session, dispose_engine=False):
+    """Close the SQL-Alchemy session
+    https://docs.sqlalchemy.org/en/13/orm/session_basics.html#closing
+    and optionally disposes the underline engine
+    https://docs.sqlalchemy.org/en/14/core/connections.html?highlight=dispose#engine-disposal
+    This method wraps any exception and passes them, if any, returning False.
+    Useful for unit testing and mock
+
+    :return: True if all required operation(s) where performed with no exceptions,
+        False otherwise
     """
+    ret = True
     try:
         session.close()
         # close_all_sessions()
     except Exception:
-        pass
+        ret = False
     if dispose_engine:
         try:
             session.get_bind().dispose()
         except Exception:
-            pass
+            ret = False
+    return ret
 
 
 def show(dburl, pyfile, configfile):
@@ -552,4 +560,4 @@ def ddrop(dburl, download_ids, prompt=True):
                 ret[did] = exc
         return ret
     finally:
-        closesession(session)
+        closesession(session, True)

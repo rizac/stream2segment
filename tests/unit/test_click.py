@@ -261,7 +261,8 @@ def test_click_template(mock_main_init, mock_input, pytestdir):
     assert result.exit_code == 0
 
     expected_files = ['download.yaml', 'paramtable.py', 'paramtable.yaml',
-                      'save2fs.py', 'save2fs.yaml', 'jupyter.example.ipynb',
+                      # 'save2fs.py', 'save2fs.yaml',  # <- NOT ANYMORE
+                      'jupyter.example.ipynb',
                       'jupyter.example.db']
     non_python_files = [_ for _ in expected_files if os.path.splitext(_)[1]
                         not in ('.py', '.yaml')]
