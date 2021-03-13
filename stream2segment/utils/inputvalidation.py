@@ -907,7 +907,7 @@ def valid_authorizer(restricted_data, dataws, configfile=None):
         restricted_data = normalizedpath(restricted_data, os.path.dirname(configfile))
     ret = Authorizer(restricted_data)
     # check dataws is single element list:
-    if len(dataws) != 1:
+    if (ret.token or ret.userpass) and len(dataws) != 1:
         raise ValueError('downloading restricted data requires '
                          'a single URL in `dataws`')
     dataws = dataws[0]

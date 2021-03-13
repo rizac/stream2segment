@@ -15,8 +15,7 @@ from click.testing import CliRunner
 from stream2segment.cli import cli
 from stream2segment.utils.resources import get_templates_fpath, yaml_load, \
     get_templates_dirpath, get_templates_fpaths
-from stream2segment.main import init as orig_init, helpmathiter as main_helpmathiter, \
-    show as orig_show
+from stream2segment.main import init as orig_init, show as orig_show
 from stream2segment.utils import load_source
 
 
@@ -262,7 +261,8 @@ def test_click_template(mock_main_init, mock_input, pytestdir):
     assert result.exit_code == 0
 
     expected_files = ['download.yaml', 'paramtable.py', 'paramtable.yaml',
-                      'save2fs.py', 'save2fs.yaml', 'jupyter.example.ipynb',
+                      # 'save2fs.py', 'save2fs.yaml',  # <- NOT ANYMORE
+                      'jupyter.example.ipynb',
                       'jupyter.example.db']
     non_python_files = [_ for _ in expected_files if os.path.splitext(_)[1]
                         not in ('.py', '.yaml')]
@@ -367,32 +367,6 @@ def test_click_template_realcopy(pytestdir):
 
     # assert help works:
     assert result.exit_code == 0
-
-
-# THIS HAS TO BE IMPLEMENTED (if we set the datareport html in place)
-@patch("stream2segment.main.helpmathiter", side_effect=main_helpmathiter)
-def test_click_funchelp(mock_helpmathiter):
-    runner = CliRunner()
-    command = 'mathinfo'
-    # simply assert it does not raise
-    result = runner.invoke(cli, ['utils', command, '-t', 'all', '-f', 'cumsum'])
-    assert result.exit_code == 0
-
-    result2 = runner.invoke(cli, ['utils', command, '-t', 'obspy'])
-    assert result2.exit_code == 0
-    assert len(result2.output) > len(result.output)
-
-    result3 = runner.invoke(cli, ['utils', command, '-t', 'numpy'])
-    assert result3.exit_code == 0
-
-    result4 = runner.invoke(cli, ['utils', command, '-t', 'all'])
-    assert result4.exit_code == 0
-    assert len(result4.output) > len(result3.output)
-    assert len(result4.output) > len(result2.output)
-
-    result4 = runner.invoke(cli, ['utils', command, '-t', 'all', '-f', 'nfiwruhfnhgvcfwa___qrfwv'])
-    assert result4.exit_code == 0
-    assert len(result4.output) == 0
 
 
 @patch("stream2segment.main.dstats", return_value=0)

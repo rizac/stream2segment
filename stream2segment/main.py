@@ -29,6 +29,7 @@ from tempfile import gettempdir
 from future.utils import PY2, string_types
 
 import jinja2
+# from sqlalchemy.orm import close_all_sessions
 
 from sqlalchemy.sql.expression import func
 
@@ -45,7 +46,7 @@ from stream2segment.utils import secure_dburl, strconvert, iterfuncs, \
     open2writetext, ascii_decorate, yaml_safe_dump
 from stream2segment.utils.resources import get_templates_dirpath
 from stream2segment.gui.main import create_s2s_show_app, run_in_browser
-from stream2segment.process import math as s2s_math
+from stream2segment.process import lib as s2s_math
 from stream2segment.download.utils import FailedDownload
 from stream2segment.gui.dinfo import DReport, DStats
 from stream2segment.resources.templates import DOCVARS
@@ -123,23 +124,7 @@ def download(config, log2file=True, verbose=False, **param_overrides):
     try:
         real_yaml_dict = load_config_for_download(config, False, **param_overrides)
         if verbose:
-            # print yaml_dict to terminal if needed. Unfortunately we need a bit of
-            # workaround just to print relevant params first (YAML sorts by key)
-            tmp_cfg = dict(real_yaml_dict)
-            # provide sorting in the printed yaml by splitting into subdicts:
-            tmp_cfg_pre = [list(pop_param(tmp_cfg, 'dburl')),  # needs to be mutable
-                           pop_param(tmp_cfg, ('starttime', 'start')),
-                           pop_param(tmp_cfg, ('endtime', 'end'))]
-            tmp_cfg_pre[0][1] = secure_dburl(tmp_cfg_pre[0][1])
-            tmp_cfg_post = [pop_param(tmp_cfg, 'advanced_settings', {})]
-            _pretty_printed_yaml = "\n".join(_.strip() for _ in [
-                "Input parameters",
-                "----------------",
-                yaml_safe_dump(dict(tmp_cfg_pre)),
-                yaml_safe_dump(tmp_cfg),
-                yaml_safe_dump(dict(tmp_cfg_post)),
-            ])
-            print("%s\n" % _pretty_printed_yaml.strip())
+            print("%s\n" % _pretty_printed_str(real_yaml_dict))
 
         # configure logger and handlers:
         if log2file is True:
@@ -184,7 +169,7 @@ def download(config, log2file=True, verbose=False, **param_overrides):
         raise
     finally:
         if session is not None:
-            closesession(session)
+            closesession(session)  # help gc?
             # write log to db if default handlers are provided:
             if log2file and loghandlers is not None and download_id is not None:
                 # remove file if no exceptions occurred:
@@ -194,50 +179,31 @@ def download(config, log2file=True, verbose=False, **param_overrides):
                 # before calling closelogger below to avoid closing
                 # loghandlers[0] twice:
                 logger.removeHandler(loghandlers[0])
-
+            closesession(session, True)  # engine disposal
         closelogger(logger)
 
     return ret
 
 
-# def _to_pretty_str(yaml_dict, unparsed_yaml_dict):
-#     """Return a pretty printed string from yaml_dict
-#
-#     :param yaml_dict: the PARSED yaml as dict. It might contain variables, such as
-#         `session`, not in the original yaml file (these variables are not returned
-#         in this function)
-#     :param unparsed_yaml_dict: the UNPARSED yaml dict.
-#     """
-#
-#     # the idea is: get the param value from yaml_dict, if not present get it from
-#     # unparsed_yaml_dict. Use this list of params so we can control order
-#     # (this works only in PyYaml>=5.1 and Python 3.6+, otherwise yaml_dict
-#     # keys order can not be known):
-#     params = ['dburl', 'starttime', 'endtime', 'eventws',
-#               # These variables are merged into eventws_params in yaml_dict,
-#               # so do not show them:
-#               # 'minlatitude', 'maxlatitude', 'minlongitude', 'maxlongitude',
-#               # 'mindepth', 'maxdepth', 'minmagnitude', 'maxmagnitude',
-#               'eventws_params', 'channel', 'network', 'station', 'location',
-#               'min_sample_rate', 'update_metadata', 'inventory',
-#               'search_radius', 'dataws', 'traveltimes_model', 'timespan',
-#               'restricted_data', 'retry_seg_not_found', 'retry_url_err',
-#               'retry_mseed_err', 'retry_client_err', 'retry_server_err',
-#               'retry_timespan_err', 'advanced_settings']
-#
-#     newdic = {}
-#     for k in params:  # add yaml_dic[k] or unparsed_yaml_dict[k]:
-#         if k in yaml_dict:
-#             newdic[k] = yaml_dict[k]
-#         elif k in unparsed_yaml_dict:
-#             newdic[k] = unparsed_yaml_dict[k]
-#     newdic['dburl'] = secure_dburl(newdic['dburl'])  # don't show passowrd, if present
-#     ret = [
-#         "Parsed input parameters",
-#         "-----------------------",
-#         yaml_safe_dump(newdic)
-#     ]
-#     return "%s\n" % ('\n'.join(ret)).strip()
+def _pretty_printed_str(yaml_dict):
+    """Return a pretty printed string from yaml_dict"""
+    # print yaml_dict to terminal if needed. Unfortunately we need a bit of
+    # workaround just to print relevant params first (YAML sorts by key)
+    tmp_cfg = dict(yaml_dict)
+    # provide sorting in the printed yaml by splitting into subdicts:
+    dburl_name, dburl_val = pop_param(tmp_cfg, 'dburl')
+    dburl_val = secure_dburl(dburl_val)  # hide passwords
+    tmp_cfg_pre = [(dburl_name, dburl_val),
+                   pop_param(tmp_cfg, ('starttime', 'start')),
+                   pop_param(tmp_cfg, ('endtime', 'end'))]
+    tmp_cfg_post = [pop_param(tmp_cfg, 'advanced_settings', {})]
+    return "\n".join(_.strip() for _ in [
+        "Input parameters",
+        "----------------",
+        yaml_safe_dump(dict(tmp_cfg_pre)),
+        yaml_safe_dump(tmp_cfg),
+        yaml_safe_dump(dict(tmp_cfg_post)),
+    ]).strip()
 
 
 def process(dburl, pyfile, funcname=None, config=None, outfile=None,
@@ -329,7 +295,7 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None,
         logger.critical("Process aborted", exc_info=True)  # see comment above
         raise
     finally:
-        closesession(session)
+        closesession(session, True)
         closelogger(logger)
 
 
@@ -397,7 +363,7 @@ def s2smap(pyfunc, dburl, segments_selection=None, config=None, *,
         logger.critical("Process aborted", exc_info=True)  # see comment above
         raise
     finally:
-        closesession(session)
+        closesession(session, True)
         closelogger(logger)
 
 
@@ -417,15 +383,29 @@ def elapsedtime(t0_sec, t1_sec=None):
     return timedelta(seconds=round((time.time() if t1_sec is None else t1_sec) - t0_sec))
 
 
-def closesession(session):
-    """Close the SQL-Alchemy session. This method simply calls
-    `session.close()`, passing all exceptions, if any. Useful for unit testing
-    and mock
+def closesession(session, dispose_engine=False):
+    """Close the SQL-Alchemy session
+    https://docs.sqlalchemy.org/en/13/orm/session_basics.html#closing
+    and optionally disposes the underline engine
+    https://docs.sqlalchemy.org/en/14/core/connections.html?highlight=dispose#engine-disposal
+    This method wraps any exception and passes them, if any, returning False.
+    Useful for unit testing and mock
+
+    :return: True if all required operation(s) where performed with no exceptions,
+        False otherwise
     """
+    ret = True
     try:
         session.close()
-    except:
-        pass
+        # close_all_sessions()
+    except Exception:
+        ret = False
+    if dispose_engine:
+        try:
+            session.get_bind().dispose()
+        except Exception:
+            ret = False
+    return ret
 
 
 def show(dburl, pyfile, configfile):
@@ -485,64 +465,6 @@ def init(outpath, prompt=True, *filenames):
             shutil.copyfile(os.path.join(templates_dir, filename), outfilepath)
         copied_files.append(outfilepath)
     return copied_files
-
-
-def helpmathiter(type, filter):  # noqa
-    """Iterator yielding the doc-string of
-    :module:`stream2segment.process.math.ndarrays` or
-    :module:`stream2segment.process.math.traces`
-
-    :param type: select the module: 'numpy' for doc of
-        :module:`stream2segment.process.math.ndarrays`, 'obspy' for the doc of
-        :module:`stream2segment.process.math.traces`, 'all' for both
-    :param filter: a filter (with wildcard expressions allowed) to filter by
-        function name
-
-    :return: doc-string for all matching functions and classes
-    """
-    if type == 'numpy':
-        itr = [s2s_math.ndarrays]
-    elif type == 'obspy':
-        itr = [s2s_math.traces]
-    else:
-        itr = [s2s_math.ndarrays, s2s_math.traces]
-
-    reg = re.compile(strconvert.wild2re(filter))
-    _indent = "   "
-
-    def render(string, indent_num=0):
-        """Render a string stripping newlines at beginning and end and with the
-        intended indent number"""
-        if not indent_num:
-            return string
-        indent = _indent.join('' for _ in range(indent_num+1))
-        return '\n'.join("%s%s" % (indent, s) for s in
-                         string.replace('\r\n', '\n').split('\n'))
-
-    for pymodule in itr:
-        module_doc_printed = False
-        for func in iterfuncs(pymodule, False):
-            if func.__name__[0] != '_' and reg.search(func.__name__):
-                if not module_doc_printed:
-                    modname = pymodule.__name__
-                    yield "=" * len(modname)
-                    yield modname
-                    yield "=" * len(modname)
-                    yield pymodule.__doc__
-                    module_doc_printed = True
-                    yield "-" * len(modname) + "\n"
-                yield "%s%s:" % (func.__name__, SIGNATURE(func))
-                yield render(func.__doc__ or '(No documentation found)', indent_num=1)
-                if inspect.isclass(func):
-                    for funcname, func_ in inspect.getmembers(func):
-                        if funcname != "__class__" and not funcname.startswith("_"):
-                            # Consider anything that starts with _ private
-                            # and don't document it
-                            yield "\n"
-                            yield "%s%s%s:" % (_indent, funcname, SIGNATURE(func_))
-                            yield render(func_.__doc__, indent_num=2)
-
-                yield "\n"
 
 
 def dreport(dburl, download_ids=None, config=True, log=True, html=False,
@@ -638,4 +560,4 @@ def ddrop(dburl, download_ids, prompt=True):
                 ret[did] = exc
         return ret
     finally:
-        closesession(session)
+        closesession(session, True)

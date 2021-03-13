@@ -144,6 +144,16 @@ class Test(object):
         # INCREMENT THIS VARIABLE EVERY TIME YOU RUN A SUCCESSFUL DOWNLOAD
         dcount = 0
 
+        # test dataws provided multiple times in the cli:
+        result = run_cli_download('-ds', 'http://a/fdsnws/dataselect/1/query',
+                                  '--dataws', 'http://b/fdsnws/dataselect/1/query')
+        dataws = self.mock_run_download.call_args_list[-1][1]['dataws']
+        assert sorted(dataws) == ['http://a/fdsnws/dataselect/1/query',
+                                  'http://b/fdsnws/dataselect/1/query']
+        assert result.exit_code == 0
+        dcount += 1
+
+
         # test that eventws_params is optional if not provided
         result = run_cli_download(removals=['eventws_params'])
         assert result.exit_code == 0

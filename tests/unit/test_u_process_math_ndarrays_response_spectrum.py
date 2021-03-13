@@ -7,10 +7,10 @@ import numpy as np
 import pytest
 from obspy.core.trace import Trace
 
-from stream2segment.process.math.ndarrays import ResponseSpectrum as a_ResponseSpectrum
-from stream2segment.process.math.traces import ResponseSpectrum as t_ResponseSpectrum
-from stream2segment.process.math.ndarrays import respspec as a_rs
-from stream2segment.process.math.traces import respspec as t_rs
+from stream2segment.process.lib.ndarrays import ResponseSpectrum as a_ResponseSpectrum
+from stream2segment.process.lib.traces import ResponseSpectrum as t_ResponseSpectrum
+from stream2segment.process.lib.ndarrays import respspec as a_rs
+from stream2segment.process.lib.traces import respspec as t_rs
 
 
 @pytest.fixture(scope='module')

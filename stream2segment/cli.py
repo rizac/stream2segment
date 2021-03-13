@@ -31,10 +31,8 @@ from collections import OrderedDict
 import click
 
 # from stream2segment import main
-from click import wrap_text
 
 from stream2segment.utils.resources import get_templates_fpath, yaml_load_doc
-# from stream2segment.traveltimes import ttcreator
 from stream2segment.utils import inputvalidation
 
 
@@ -99,8 +97,29 @@ class clickutils(object):  # noqa
             opts = []
             for param in self.get_params(ctx):
                 rv = param.get_help_record(ctx)
-                if rv is not None:
-                    opts.append(rv)
+                if rv is None:
+                    continue
+                p_names, p_help = rv
+
+                # is param multiple? then add the info to the p_help, wrapped in square
+                # brackets at the end, as click does with all other extra info
+                if getattr(param, 'multiple', False):
+                    # check for extra info, i.e. a last chunk of the form " [...]"
+                    idx = p_help.rstrip().rfind(' ')
+                    if idx > -1:
+                        extra_info_chunk = p_help[idx:].strip()
+                        # is the last chunk a collection of extra information, whihc
+                        # `click` wraps in square brackets)?
+                        if extra_info_chunk[0] == '[' and extra_info_chunk[-1] == ']':
+                            extra_info_chunk = extra_info_chunk[:-1] + "; "
+                        else:
+                            extra_info_chunk = ' ['  # create a "fake" last chunk
+                            idx = None  # make first chunk the whole opt_help str
+
+                        extra_info_chunk += 'multi-param: can be provided several times]'
+                        p_help = p_help[idx:] + extra_info_chunk
+
+                opts.append((p_names, p_help))
 
             # same as superclass, with slight modifications:
             if not opts:
@@ -205,12 +224,12 @@ def init(outdir):
         ("paramtable.yaml",
          "Processing configuration used in the associated Python file. "
          "Option -c of 's2s process' and 's2s show'"),
-        ("save2fs.py",
-         "Processing python file for saving waveform to filesystem. "
-         "Option -p of 's2s process' and 's2s show'"),
-        ("save2fs.yaml",
-         "Processing configuration used in the associated Python file. "
-         "Option -c of 's2s process' and 's2s show'"),
+        # ("save2fs.py",
+        #  "Processing python file for saving waveform to filesystem. "
+        #  "Option -p of 's2s process' and 's2s show'"),
+        # ("save2fs.yaml",
+        #  "Processing configuration used in the associated Python file. "
+        #  "Option -c of 's2s process' and 's2s show'"),
         ("jupyter.example.ipynb",
          "Jupyter notebook illustrating how to "
          "access downloaded data and run custom code. "
@@ -283,7 +302,7 @@ def init(outdir):
 @click.option('-l', '--location', '--locations', '--loc', 'location')
 @click.option('-k', '--channel', '--channels', '--cha', 'channel')
 @click.option('-msr', '--min-sample-rate', type=float)
-@click.option('-ds', '--dataws')
+@click.option('-ds', '--dataws', multiple=True)
 @click.option('-t', '--traveltimes-model')
 @click.option('-w', '--timespan', nargs=2, type=float)
 @click.option('-u', '--update-metadata',
@@ -703,35 +722,11 @@ def classlabel(dburl, add, rename, delete, no_prompt):
         sys.exit(1)  # exit with 1 as normal python exceptions
 
 
-@cli.group(short_help="Program utilities")
-def utils():  # noqa
-    pass
+# Old click Group (not used anymore):
 
-
-@utils.command(short_help='Print on screen quick help on stream2segment '
-                          'built-in math functions')
-@click.option("-t", "--type", type=click.Choice(['numpy', 'obspy', 'all']),
-              default='all', show_default=True,
-              help="Show help only for the function matching the given type. "
-                   "Numpy indicates functions operating on numpy arrays "
-                   "(module `stream2segment.process.math.ndarrays`). "
-                   "ObsPy (module `stream2segment.process.math.traces`) the "
-                   "functions operating on ObsPy Traces, most of which are "
-                   "simply the numpy counterparts defined "
-                   "for Trace objects")
-@click.option("-f", "--filter", default='*', show_default=True,
-              help="Show doc only for the function whose name matches the "
-                   "given filter. Wildcards (* and ?) are allowed")
-def mathinfo(type, filter):  # noqa
-    """Print on screen the doc-strings of the math functions implemented in
-    this package, according to the given type and filter
-    """
-    # import here to improve slow click cli (at least when --help is invoked)
-    # https://www.tomrochette.com/problems/2020/03/07
-    from stream2segment import main
-
-    for line in main.helpmathiter(type, filter):
-        print(line)
+# @cli.group(short_help="Program utilities")
+# def utils():  # noqa
+#     pass
 
 
 if __name__ == '__main__':
