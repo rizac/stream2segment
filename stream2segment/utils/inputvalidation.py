@@ -1,6 +1,5 @@
 """
-Module with utilities for checking / parsing / setting input arguments from
-the command line interface (cli), e.g. download and process.
+Input validation module
 
 :date: Feb 27, 2018
 
