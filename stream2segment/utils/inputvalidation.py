@@ -27,10 +27,10 @@ from stream2segment.download.utils import Authorizer, EVENTWS_MAPPING,\
 
 
 class BadParam(Exception):
-    """Exception describing a bad configuration parameter. The purpose of this class
-    is twofold: provide clearer exception messagesto the user when a input parameter is
-    wrong, and format exceptions output as :class:`click.exceptions.BadParameter` to
-    better print error messages in the terminal, when functions are invoked from the cli
+    """Exception describing a bad input parameter. The purpose of this class is twofold:
+    provide clear exception messages to the user focused on the input parameter to fix,
+    and provide a formatting style similar to :class:`click.exceptions.BadParameter`, to
+    harmonize output when invoking commands from the terminal
     """
 
     P_CONFLICT = "Conflicting names"
