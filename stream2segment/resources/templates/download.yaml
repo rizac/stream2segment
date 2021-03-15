@@ -289,10 +289,9 @@ retry_timespan_err: true
 advanced_settings:
  # Routing service used to fetch the EIDA nodes and relative network/stations
  routing_service_url: "http://www.orfeus-eu.org/eidaws/routing/1/query"
- # Maximum number of concurrent (roughly speaking: simultaneous) downloads allowed. The
- # default (null) means 'set it automatically', usually between 4 and 8, depending on the
- # number of CPUs in the system, whereas 1 disables concurrency and downloads all data
- # in series, i.e., sequentially.
+ # Maximum number of concurrent / simultaneous downloads allowed. The default (null)
+ # means 'set it automatically', usually between 4 and 8, depending on the number of CPUs,
+ # whereas 1 disables concurrency and downloads all data in series, i.e., sequentially.
  # We recommend to leave this parameter to null because it improves significantly the
  # execution speed. However, because datacenters (see `dataws` parameter) usually set a
  # limit on the number of concurrent requests, you might need to set this parameter to 1,
