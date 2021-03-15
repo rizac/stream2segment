@@ -15,12 +15,12 @@ from builtins import range, round, open, input  # pylint: disable=redefined-buil
 
 import time
 import logging
-import re
+# import re
+# from collections import OrderedDict
 import sys
 import os
 import inspect
 import shutil
-from collections import OrderedDict
 from datetime import timedelta
 from webbrowser import open as open_in_browser
 import threading
@@ -46,7 +46,7 @@ from stream2segment.utils import secure_dburl, strconvert, iterfuncs, \
     open2writetext, ascii_decorate, yaml_safe_dump
 from stream2segment.utils.resources import get_templates_dirpath
 from stream2segment.gui.main import create_s2s_show_app, run_in_browser
-from stream2segment.process import lib as s2s_math
+# from stream2segment.process import lib as s2s_math
 from stream2segment.download.utils import FailedDownload
 from stream2segment.gui.dinfo import DReport, DStats
 from stream2segment.resources.templates import DOCVARS
@@ -245,17 +245,9 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None,
         `param_overrides` is `a={'c': 2, 'd': 2}`, the result is
         {'a': {'b': 1, 'c': 2, 'd': 2}}
     """
-    # implementation details: this function returns 0 on success and raises
-    # otherwise.
-    # First, it can raise Exceptions for a bad parameter (checked before
-    # starting db session and logger),
-    # Then, during processing, each segment ValueError is logged as warning
-    # and the program continues. Other exceptions are raised, caught here and
-    # logged with level CRITICAL, with the stack trace: this allows to help
-    # users to discovers possible bugs in pyfile, without waiting for the whole
-    # process to finish
-
     # checks dic values (modify in place) and returns dic value(s) needed here:
+    # Outside the try catch below as BadParam might be raised and need to
+    # be caught by the caller (see `cli.py`)
     session, pyfunc, funcname, config_dict, segments_selection, multi_process, \
         chunksize = load_config_for_process(dburl, pyfile, funcname,
                                                              config, outfile,

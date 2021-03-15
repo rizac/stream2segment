@@ -37,11 +37,12 @@ from stream2segment.utils import inputvalidation
 
 
 class clickutils(object):  # noqa
-    """Container for Options validations, default settings so as not to
-    pollute the click decorators
-    """
-    DEFAULTDOC = yaml_load_doc(get_templates_fpath("download.yaml"))
+    """Container for all `click` related stuff to be used here"""
+
+    # shorthand string for event-related download params:
     EQA = "(event search parameter)"
+    # Keyword attributes fot Options that accept a db URL also in form of the
+    # file path to a download config (with the db url in it):
     DBURL_OR_YAML_ATTRS = dict(type=inputvalidation.valid_dburl_or_download_yamlpath,
                                metavar='TEXT or PATH',
                                help=("Database URL where data has been saved. "
@@ -52,16 +53,17 @@ class clickutils(object):  # noqa
                                      "we STRONGLY suggest to use a file instead "
                                      "of typing the URL on the terminal"),
                                required=True)
+    # custom type for Options accepting an existing File:
     ExistingPath = click.Path(exists=True, file_okay=True, dir_okay=False,
                               writable=False, readable=True)
 
     @classmethod
-    def options_missing_help_from_yaml(cls, command, *args, **kwargs):
+    def fill_missing_help_from_yaml_download_file(cls, command, *args, **kwargs):
         """Decorator to the `download`command to set missing options help
         from the relative YAML parameter, if found in the YAML file
         "download.yaml"
         """
-        cfg_doc = cls.DEFAULTDOC
+        cfg_doc = yaml_load_doc(get_templates_fpath("download.yaml"))
         for option in (opt for opt in command.params if
                        opt.param_type_name == 'option'):
             if option.help is None:
@@ -76,7 +78,9 @@ class clickutils(object):  # noqa
 
     @staticmethod
     def _config_cmd_kwargs(**kwargs):
-        """Configures a new Command (or Group) with default arguments"""
+        """Configures a new Command (or Group) with default arguments, used by the
+        two custom Command and Group classes below
+        """
         # increase width of help on terminal (default ~= 80):
         context_settings = dict(max_content_width=85)
         kwargs.setdefault('context_settings', context_settings)
@@ -86,12 +90,17 @@ class clickutils(object):  # noqa
     class MyCommand(click.Command):
         """Class used for any click Command in this module"""
         def __init__(self, *arg, **kwargs):
+            """Just (re)configure some default `kwargs`"""
             # configure default arguments:
             super().__init__(*arg, **clickutils._config_cmd_kwargs(**kwargs))
 
         def format_options(self, ctx, formatter):
-            """Write all the options into the formatter if they exist.
-            Overwrite super implementation to provide custom formatting
+            """Invoked by :meth:`self.format_help`, reformat how options are printed for
+            a :class:`click.Command`: avoid the two columns layout, just prijnt command
+            name(s) and then their help, and add information about "multiple" options
+            (which can be input several times) in the dedicated last chunk of help within
+            square brackets (added by click for extra information such as "[required]"),
+            or creating such a chunk.
             """
             # same as superclass:
             opts = []
@@ -108,7 +117,7 @@ class clickutils(object):  # noqa
                     idx = p_help.rstrip().rfind(' ')
                     if idx > -1:
                         extra_info_chunk = p_help[idx:].strip()
-                        # is the last chunk a collection of extra information, whihc
+                        # is the last chunk a collection of extra information, which
                         # `click` wraps in square brackets)?
                         if extra_info_chunk[0] == '[' and extra_info_chunk[-1] == ']':
                             extra_info_chunk = extra_info_chunk[:-1] + "; "
@@ -137,19 +146,30 @@ class clickutils(object):  # noqa
         """Class used for any click Group of this module"""
 
         def __init__(self, *arg, **kwargs):
+            """Just (re)configure some default `kwargs`"""
             # configure default arguments:
             kwargs.setdefault('options_metavar', '')
             kwargs.setdefault('subcommand_metavar', "[command] [args]...")
             super().__init__(*arg, **clickutils._config_cmd_kwargs(**kwargs))
 
         def format_options(self, ctx, formatter):
-            """Customize help formatting (print no options, only commands)"""
+            """Invoked by :meth:`self.format_help`, reformat how options and commands
+            are printed for a :class:`click.Group`: First, avoid options: there is no
+            need to mention the only option '--help', which, if we are here, we probably
+            just invoked. Then, call :meth:`self.format_commands` to provide customized
+            commands help (see method for details)
+            """
             # superclass (click.MultiCommand) code:
             # Command.format_options(self, ctx, formatter)  # <- ignore opt
             self.format_commands(ctx, formatter)
 
         def format_commands(self, ctx, formatter, parent_cmd_name=""):
-            """Customize commands help formatting"""
+            """Invoked by :meth:`self.format_help`, reformat how commands are printed
+            by listing all commands recursively (not only direct children), describing
+            clearly when a sub-command is a Group, and providing for each subcommand
+            a 'Usage' string which would otherwise be available only by typing the
+            subcommand '--help'
+            """
             commands = []
             for cmd_name in list(self.commands):
                 cmd = self.get_command(ctx, cmd_name)
@@ -263,7 +283,7 @@ def init(outdir):
     sys.exit(1)
 
 
-# Short recap here (READ BEFORE EDITING OPTIONS BELOW):
+# Short recap here (READ BEFORE EDITING OPTIONS BELOW, SKIP OTHERWISE):
 # * option short name: any click option name starting with "-"
 # * option long name: any click option name starting with "--"
 #   IMPORTANT: Some YAML params accept different names (e.g., 'net', 'network'
@@ -284,7 +304,7 @@ def init(outdir):
 #   is missing and use the corresponding yaml param values
 # * Don't set required = True with eager=True in a click option, as it forces
 #   that option to be always present, and thus raises if only --help is given
-@clickutils.options_missing_help_from_yaml  # autofill options help. See function above
+@clickutils.fill_missing_help_from_yaml_download_file  # autofill options help. See above
 @cli.command(short_help='Download waveform data segments saving data into an '
                         'SQL database')
 @click.option("-c", "--config",

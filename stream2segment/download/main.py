@@ -144,7 +144,7 @@ def run(session, download_id, eventws, starttime, endtime, dataws,
             # data, so if we are here segments_df is not empty
             stepinfo("Downloading %d segments %sand saving to db", len(segments_df),
                      '(open data only) ' if dc_dataselect_manager.opendataonly else '')
-            # frees memory. Although maybe unecessary, let's do our best to
+            # frees memory. Although maybe unnecessary, let's do our best to
             # free stuff cause the next one is memory consuming:
             # https://stackoverflow.com/a/30022294/3526777
             session.expunge_all()
