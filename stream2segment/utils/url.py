@@ -75,13 +75,12 @@ def urlread(url, blocksize=-1, decode=None, wrap_exceptions=True,
     :param url: (string or `Request` object) a valid url or an `urllib2.Request` object
     :param blocksize: int, default: -1. The block size while reading, -1 means:
         read entire content at once
-    :param: decode: string or None, default: None. The string used for decoding to string
-        (e.g., 'utf8'). If None, the result is returned as it is (`bytes`) instead of
-        `str`
+    :param: decode: string or None, default: None. The string used for decoding (e.g.,
+        'utf8'). If None, the result is a `bytes` object, otherwise `str`
     :param wrap_exceptions: if True (the default), all url-related exceptions:
         `urllib.error.HTTPError`, `urllib.error.URLError`, `http.client.HTTPException`,
-        `socket.error` will be caught and wrapped into a :class:`url.URLException` object
-        E that will be raised (the original exception can always be retrieved via `E.exc`)
+        `socket.error` will be caught and wrapped into a :class:`url.URLException` that
+        will be raised (the original exception is available via the `.exc` attribute)
     :param raise_http_err: If True (the default) `HTTPError`s will be raised normally as
         exceptions. Otherwise, they will be treated as response object and the tuple
         `(None, status, message)` will be returned, where `status` (int) is the HTTP
@@ -120,8 +119,8 @@ def urlread(url, blocksize=-1, decode=None, wrap_exceptions=True,
 
         # urlib2 does not support with statement in py2, so use `closing`. See:
         # https://stackoverflow.com/a/14849166
-        with closing(urlopen(url, **kwargs) if opener is None else opener.open(url, **kwargs)) \
-                as conn:
+        with closing(urlopen(url, **kwargs) if opener is None else
+                     opener.open(url, **kwargs)) as conn:
             if blocksize < 0:  # https://docs.python.org/2.4/lib/bltin-file-objects.html
                 ret = conn.read()  # pylint: disable=no-member
             else:
@@ -141,8 +140,8 @@ def urlread(url, blocksize=-1, decode=None, wrap_exceptions=True,
                 raise URLException(exc)
             else:
                 raise exc
-    except (HTTPException,  # @UndefinedVariable
-            URLError, socket.error) as exc:  # socket.error is the superclass of all socket exc.
+    except (HTTPException, URLError, socket.error) as exc:
+        # (socket.error is the superclass of all socket exc)
         if wrap_exceptions:
             raise URLException(exc)
         else:
@@ -202,7 +201,8 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024, dec
 
     :param iterable: an iterable of objects representing the urls addresses to be read:
         if its elements are neither strings nor `Request` objects, the `urlkey` argument
-        (see below) must be specified to map each element to a valid url string or Request
+        (see below) must be specified to map each element to a valid url string or
+        Request
     :param urlkey: function or None. When None (the default), all elements of `iterable`
         must be url strings or Request objects. When function, it will be called with
         each element of `iterable` as argument, and must return the mapped url address or
@@ -287,7 +287,7 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024, dec
 
 
 def _ismainthread():
-    """utility function for testing, returns True if we are currently executing in the
+    """Mainly uised for testing, returns True if we are currently executing in the
     mainv thread
     """
     # https://stackoverflow.com/q/23206787
