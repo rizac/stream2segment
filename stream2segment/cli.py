@@ -662,17 +662,16 @@ def drop(dburl, download_id):
 @db.command(short_help="Add/rename/delete class labels from the database")
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option('--add', multiple=True, nargs=2, type=str, required=False,
-              help="Add a new class label: --add label description")
+              help="Add a new class label (example: --add label description)")
 @click.option('--rename', multiple=True, nargs=3, type=str, required=False,
               help="Rename a class label: "
-                   "`--rename old_label new_label new_description`. Set "
+                   "(example: --rename old_label new_label new_description). Set "
                    "new_description to \"\" or '' to rename the label only and "
                    "keep the old description")
 @click.option('--delete', multiple=True, type=str, required=False,
-              help="Delete a new class label. Provide a single value (label to"
-                   "be removed). Note: this will also remove all "
-                   "mappings (class labellings) between segments and their "
-                   "associated label, if present")
+              help="Delete a new class label (example: --delete label). Note: "
+                   "this will also remove all existing mappings (class labellings) "
+                   "between segments and their associated label")
 @click.option("--no-prompt", is_flag=True, default=False,
               help="Do not prompt the user when attempting to "
                    "perform an operation")
