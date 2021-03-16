@@ -78,9 +78,7 @@ class clickutils(object):  # noqa
 
     @staticmethod
     def _config_cmd_kwargs(**kwargs):
-        """Configures a new Command (or Group) with default arguments, used by the
-        two custom Command and Group classes below
-        """
+        """Shared default configurations settings for new Commands and Groups below"""
         # increase width of help on terminal (default ~= 80):
         context_settings = dict(max_content_width=85)
         kwargs.setdefault('context_settings', context_settings)
@@ -95,12 +93,11 @@ class clickutils(object):  # noqa
             super().__init__(*arg, **clickutils._config_cmd_kwargs(**kwargs))
 
         def format_options(self, ctx, formatter):
-            """Invoked by :meth:`self.format_help`, reformat how options are printed for
-            a :class:`click.Command`: avoid the two columns layout, just prijnt command
-            name(s) and then their help, and add information about "multiple" options
-            (which can be input several times) in the dedicated last chunk of help within
-            square brackets (added by click for extra information such as "[required]"),
-            or creating such a chunk.
+            """Invoked by :meth:`self.format_help`, reformat here how options are printed
+            for a :class:`click.Command`: 1. avoid the two columns layout, just print
+            command name(s) and then help, and 2. mention when an Option is "multiple"
+            (accepted several times) in the dedicated "extra information" chunk (within
+            square brackets, e.g. "[required]", at the end of the help
             """
             # same as superclass:
             opts = []
@@ -153,22 +150,21 @@ class clickutils(object):  # noqa
             super().__init__(*arg, **clickutils._config_cmd_kwargs(**kwargs))
 
         def format_options(self, ctx, formatter):
-            """Invoked by :meth:`self.format_help`, reformat how options and commands
-            are printed for a :class:`click.Group`: First, avoid options: there is no
-            need to mention the only option '--help', which, if we are here, we probably
-            just invoked. Then, call :meth:`self.format_commands` to provide customized
-            commands help (see method for details)
+            """Invoked by :meth:`self.format_help`, reformat here how Options or Commands
+            are printed for a :class:`click.Group`: 1. Skip printing the (only) Option
+            "--help": it's too prominent related to its low usefulness, and 2: customize
+            Commands help calling :meth:`self.format_commands` (see method for details)
             """
             # superclass (click.MultiCommand) code:
             # Command.format_options(self, ctx, formatter)  # <- ignore opt
             self.format_commands(ctx, formatter)
 
         def format_commands(self, ctx, formatter, parent_cmd_name=""):
-            """Invoked by :meth:`self.format_help`, reformat how commands are printed
-            by listing all commands recursively (not only direct children), describing
-            clearly when a sub-command is a Group, and providing for each subcommand
-            a 'Usage' string which would otherwise be available only by typing the
-            subcommand '--help'
+            """Invoked by :meth:`self.format_help`, reformat here how Commands are
+            printed by 1: listing all commands recursively (not only direct children),
+            2: using different layouts and descriptions for Commands vs. Groups, and 3:
+            providing for each subcommand a short 'Usage' string, as the first line that
+            would appear by navigating into the subcommand and typing "--help"
             """
             commands = []
             for cmd_name in list(self.commands):
@@ -283,7 +279,7 @@ def init(outdir):
     sys.exit(1)
 
 
-# Short recap here (READ BEFORE EDITING OPTIONS BELOW, SKIP OTHERWISE):
+# Short recap here (READ IF YOU PLAN TO EDIT OPTIONS BELOW, SKIP OTHERWISE):
 # * option short name: any click option name starting with "-"
 # * option long name: any click option name starting with "--"
 #   IMPORTANT: Some YAML params accept different names (e.g., 'net', 'network'
@@ -636,7 +632,7 @@ def db():  # pylint: disable=missing-docstring
                    "This option can be given multiple "
                    "times: ... -did 1 --download_id 2 ...")
 def drop(dburl, download_id):
-    """Drop (deletes) download executions. WARNING: this command deletes also
+    """Drop (delete) download executions. WARNING: this command deletes also
     all segments, stations and channels downloaded with the given download
     execution
     """
@@ -691,7 +687,7 @@ def drop(dburl, download_id):
 def classlabel(dburl, add, rename, delete, no_prompt):
     """Add/Rename/delete class labels from the database. A class label is
     composed of a label name (e.g., LowS2N) and a short description (e.g.,
-    "Segment has a low signal-to-noise ratio") and denote any user-defined
+    "Segment has a low signal-to-noise ratio") and denotes any user-defined
     characteristic that you want to assign to certain segments either manually
     in the GUI, or programmatically in the processing module or your code.
     Class labels can then be used for e.g., supervised classification problems,

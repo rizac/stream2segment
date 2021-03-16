@@ -290,12 +290,13 @@ advanced_settings:
  # Routing service used to fetch the EIDA nodes and relative network/stations
  routing_service_url: "http://www.orfeus-eu.org/eidaws/routing/1/query"
  # Maximum number of concurrent / simultaneous downloads allowed. The default (null) sets
- # it automatically, usually between 4 and 8, depending on the number of CPUs, whereas
- # 1 disables concurrency and downloads all data in series, i.e., sequentially.
- # We recommend to leave this parameter to null because it improves significantly the
- # execution speed. However, because datacenters (see `dataws` parameter) usually set a
- # limit on the number of concurrent requests, you might need to set this parameter to 1,
- # 2 (or any small number of your choice) in more targeted, less "massive" downloads, e.g.:
+ # it automatically depending on the number of CPUs (usually >= 4), whereas 1 disables
+ # concurrency and downloads all data in series, i.e., sequentially. We recommend to
+ # leave this parameter to null because it improves significantly the execution speed.
+ # The drawback is that some waveform data might not be downloaded because servers
+ # usually limit the number of concurrent requests allowed from the same source. This
+ # might be a problem in more in targeted, less "massive" downloads, where you might need
+ # to lower this parameter (e.g., 1, 2) to increase "download safety", e.g.:
  # a) when fetching restricted data (see `restricted_data` parameter)
  # b) when retrying to fetch data from a specific datacenter which reported many download
  #    errors suggesting to "slow down", e.g. "Service Unavailable" (code 503) or

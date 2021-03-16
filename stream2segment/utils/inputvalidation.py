@@ -122,7 +122,7 @@ _VALUE_NOT_FOUND_ = object()
 
 def pop_param(dic, name_or_names, default=_VALUE_NOT_FOUND_):
     """Pop a parameter value from `dic`, supporting multiple optional parameter names.
-    Return the tuple `(name, value)`. Raises :class:`BadParam` if either 1. no name is
+    Return the tuple `(name, value)`. Raise :class:`BadParam` if either 1. no name is
     found and no default is provided, or 2: multiple names are found
 
     :param dic: the dict of parameter names and values
@@ -139,7 +139,7 @@ def pop_param(dic, name_or_names, default=_VALUE_NOT_FOUND_):
 
 def get_param(dic, name_or_names, default=_VALUE_NOT_FOUND_):
     """Get a parameter value from `dic`, supporting multiple optional parameter names.
-    Return the tuple `(name, value)`. Raises :class:`BadParam` if either 1. no name is
+    Return the tuple `(name, value)`. Raise :class:`BadParam` if either 1. no name is
     found and no default is provided, or 2: multiple names are found
 
     :param dic: the dict of parameter names and values
@@ -200,7 +200,7 @@ def load_config_for_download(config, validate, **param_overrides):
     :return: a dict loaded from the given `config` and with parsed arguments
         (dict keys)
 
-    Raises `BadParam` in case of parsing errors, missing arguments,
+    Raise `BadParam` in case of parsing errors, missing arguments,
     conflicts and so on
     """
     config_dict = validate_param("config", config, yaml_load, **param_overrides)
@@ -361,7 +361,7 @@ def load_config_for_download(config, validate, **param_overrides):
 
 def _pop_event_params(config, prefix=None):
     """pop / move event params from the given config (`dict`) into a new dict and return
-    the new dict. Raises :class:`BadParam` if any event parameter is invalid
+    the new dict. Raise :class:`BadParam` if any event parameter is invalid
     """
     # define first default event params in order to avoid typos
     def_evt_params = EVENTWS_SAFE_PARAMS
@@ -428,8 +428,8 @@ def _pop_event_params(config, prefix=None):
 
 
 def _validate_download_advanced_settings(config, adv_settings_key):
-    """Validates the advanced settings of the given download config. Modifies
-     config.advanced_settings` keys inplace (does not return the validated `dict`)
+    """Validate the advanced settings of the given download config. Modifies
+     config.advanced_settings` keys inplace (do not return the validated `dict`)
      """
     adv_settings_dict = config[adv_settings_key]
     prefix = adv_settings_key + '.'  # 'advanced_settings'
@@ -519,7 +519,7 @@ def load_config_for_visualization(dburl, pyfile=None, config=None):
 
 
 def _extract_segments_selection(config):
-    """Returns the dict in `config` denoting the selection of segment. Validators
+    """Return the dict in `config` denoting the selection of segment. Validators
     should all call this method so that the valid parameter names are implemented in
     one place and can be easily modified.
 
@@ -537,7 +537,7 @@ def _extract_segments_selection(config):
 
 
 def valid_type(value, *other_values_or_types):
-    """Returns value if it is of the same type (same class, or subclass) of *any*
+    """Return value if it is of the same type (same class, or subclass) of *any*
     other value type (at least one). Raises TypeError otherwise.
 
     :param value: a python object
@@ -735,7 +735,7 @@ def valid_updatemetadata_param(value):
 def valid_tt_table(file_or_name):
     """Load the given TTTable object from the given file path or name. If name
     (string) it must match any of the builtin TTTable .npz files defined in
-    this package. Raises TypeError or any Exception that TTTable might raise
+    this package. Raise TypeError or any Exception that TTTable might raise
     (including when the file is not found)
     """
     if not isinstance(file_or_name, string_types):
@@ -769,7 +769,7 @@ def valid_date(obj):
 
 def valid_fdsn(url, is_eventws, configfile=None):
     """Return url if it matches a FDSN service (valid strings are 'eida' and
-    'iris'), raises ValueError or TypeError otherwise
+    'iris'), raise ValueError or TypeError otherwise
     """
     if not isinstance(url, string_types):
         raise TypeError('string required')
