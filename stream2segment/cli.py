@@ -530,8 +530,7 @@ def dl():  # pylint: disable=missing-docstring
 @click.option('-did', '--download-id', multiple=True, type=int,
               help="Limit the download statistics to a specified set of "
                    "download ids (integers). when missing, all downloads are "
-                   "shown. this option can be given multiple times: "
-                   "... -did 1 --download_id 2 ...")
+                   "shown")
 @click.option('-g', '--maxgap-threshold', type=float, default=0.5,
               help="Optional: set the threshold (in number of samples) "
                    "to identify segments with gaps/overlaps. Defaults to 0.5, "
@@ -579,8 +578,7 @@ def stats(dburl, download_id, maxgap_threshold, html, outfile):
 @click.option('-did', '--download-id', multiple=True, type=int,
               help="Limit the download statistics to a specified set of "
                    "download ids (integers) when missing, all downloads are "
-                   "shown. This option can be given multiple times: "
-                   "... -did 1 --download_id 2 ...")
+                   "shown")
 @click.option('-c', '--config', is_flag=True, default=None,
               help="Returns only the config used (in YAML syntax) of the "
                    "chosen download(s)")
@@ -628,9 +626,7 @@ def db():  # pylint: disable=missing-docstring
                        "segments")
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option('-did', '--download-id', multiple=True, type=int, required=True,
-              help="The id(s) of the download execution(s) to be deleted. "
-                   "This option can be given multiple "
-                   "times: ... -did 1 --download_id 2 ...")
+              help="The id(s) of the download execution(s) to be deleted")
 def drop(dburl, download_id):
     """Drop (delete) download executions. WARNING: this command deletes also
     all segments, stations and channels downloaded with the given download
@@ -666,19 +662,15 @@ def drop(dburl, download_id):
 @db.command(short_help="Add/rename/delete class labels from the database")
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option('--add', multiple=True, nargs=2, type=str, required=False,
-              help="Add a new class label: `--add label description`. You can "
-                   "provide this arguments multiple times to add several "
-                   "labels")
+              help="Add a new class label: --add label description")
 @click.option('--rename', multiple=True, nargs=3, type=str, required=False,
               help="Rename a class label: "
                    "`--rename old_label new_label new_description`. Set "
                    "new_description to \"\" or '' to rename the label only and "
-                   "keep the old description. You can provide this argument "
-                   "multiple times to rename several labels")
+                   "keep the old description")
 @click.option('--delete', multiple=True, type=str, required=False,
               help="Delete a new class label. Provide a single value (label to"
-                   "be removed). You can provide this argument multiple times "
-                   "to delete several labels. Note: this will also remove all "
+                   "be removed). Note: this will also remove all "
                    "mappings (class labellings) between segments and their "
                    "associated label, if present")
 @click.option("--no-prompt", is_flag=True, default=False,
