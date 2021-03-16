@@ -97,7 +97,7 @@ class clickutils(object):  # noqa
             for a :class:`click.Command`: 1. avoid the two columns layout, just print
             command name(s) and then help, and 2. mention when an Option is "multiple"
             (accepted several times) in the dedicated "extra information" chunk (within
-            square brackets, e.g. "[required]", at the end of the help
+            square brackets, e.g. "[required]") at the end of the help
             """
             # same as superclass:
             opts = []
@@ -152,7 +152,7 @@ class clickutils(object):  # noqa
         def format_options(self, ctx, formatter):
             """Invoked by :meth:`self.format_help`, reformat here how Options or Commands
             are printed for a :class:`click.Group`: 1. Skip printing the (only) Option
-            "--help": it's too prominent related to its low usefulness, and 2: customize
+            "--help": it's too prominent and not really useful, and 2: customize
             Commands help calling :meth:`self.format_commands` (see method for details)
             """
             # superclass (click.MultiCommand) code:
