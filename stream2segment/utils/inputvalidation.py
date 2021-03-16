@@ -1,6 +1,5 @@
 """
-Module with utilities for checking / parsing / setting input arguments from
-the command line interface (cli), e.g. download and process.
+Input validation module
 
 :date: Feb 27, 2018
 
@@ -28,10 +27,10 @@ from stream2segment.download.utils import Authorizer, EVENTWS_MAPPING,\
 
 
 class BadParam(Exception):
-    """Exception describing a bad configuration parameter, as
-    :class:`click.exceptions.BadParameter`, provides similar messages when
-    output in the terminal but it can be used outside a command line interface
-    environment
+    """Exception describing a bad input parameter. The purpose of this class is twofold:
+    provide clear exception messages to the user focused on the input parameter to fix,
+    and provide a formatting style similar to :class:`click.exceptions.BadParameter`, to
+    harmonize output when invoking commands from the terminal
     """
 
     P_CONFLICT = "Conflicting names"
@@ -41,35 +40,23 @@ class BadParam(Exception):
 
     def __init__(self, preamble, param_name_or_names,
                  message='', param_sep=' / ', param_quote='"'):
-        """Initialize a BadParam object. Formats the message according to
-        the given parameters. The formatted output string, depending on the
-        value of the arguments will be:
+        """Initialize a BadParam object. The formatted output string `str(self)` will be:
 
-        'Error: %(msg_preamble) "%(param_name_or_names)": %(error)'
+        'Error: %(preamble) "%(param_name_or_names)": %(message)'
         'Error: "%(param_name_or_names)": %(error)"'
         'Error: "%(param_name_or_names)"'
 
-        :param preamble: the optional message preamble, as string. If not
-            provided (empty string by default), it will default to a string
-            according to `error` type, e.g. KeyError => 'Missing value for'
+        :param preamble: the optional message preamble, as string. For a predefined set
+            of preambles, see this class global variables `P_*`, e.g.
+            `BadParam.P_INVALID`, `BadParam.P_CONFLICT`
         :param param_name_or_names: the parameter name (string), or a list of
             parameter names (if the parameter supports several optional names)
         :param message: the original exception, or a string message.
-
+        :param param_sep: the separator used for printing the parameter name(s).
+            Default: " / "
+        :param param_quote: the quote character used when printing the parameter name(s).
+            Default : '"'
         """
-        # if not preamble:
-        #     preamble = "Invalid value for"
-        #     if isinstance(error, KeyError):
-        #         preamble = "Missing value for"
-        #         error = ''
-        #     elif isinstance(error, TypeError):
-        #         preamble = "Invalid type for"
-        #
-        # if isinstance(error, BadParam):
-        #     err_msg = error.message
-        # else:
-        #     err_msg = str(error)
-
         super(BadParam, self).__init__(message)
         self.preamble = preamble
         self.params = tuple(self._vectorize(param_name_or_names))
@@ -94,34 +81,6 @@ class BadParam(Exception):
         args[0] = message
         self.args = tuple(args)
 
-    # @property
-    # def _params2str(self):
-    #     if isinstance(self.param_name, (list, tuple)):
-    #         p_name = " / ".join('"%s"' % p for p in self.param_name)
-    #     else:
-    #         p_name = '"' + str(self.param_name) + '"'
-    #     return p_name
-
-    # @property
-    # def message(self):
-    #     # msg = '%s' if not self.msg_preamble else \
-    #     #     self.msg_preamble.strip() + " %s"
-    #     # Access the parent message (works in py2 and 3):
-    #     if isinstance(self.param_name, (list, tuple)):
-    #         p_name = " / ".join('"%s"' % p for p in self.param_name)[1:-1]
-    #     else:
-    #         p_name = str(self.param_name)
-    #     p_name = '"' + p_name + '"'
-    #     msg_preamble = self.msg_preamble
-    #     if msg_preamble:
-    #         msg_preamble += ' '
-    #     err_msg = str(self.args[0] or '')  # noqa
-    #     if err_msg:
-    #         # lower case first letter as err_msg will follow a ":"
-    #         err_msg = ": " + err_msg[0].lower() + err_msg[1:]
-    #     ret = msg_preamble + p_name + err_msg
-    #     return ret[0:1].upper() + ret[1:]
-
     def __str__(self):
         """String representation of this object"""
         msg_preamble = self.preamble
@@ -140,34 +99,6 @@ class BadParam(Exception):
         return "Error: %s" % full_msg.strip()
 
 
-# class ConflictingNames(BadParam):
-#
-#     def __init__(self, param_name_or_names):
-#         """param_names are synonyms: NO"""
-#         super().__init__("Conflicting names", param_name_or_names, param_sep=" and ")
-#
-#
-# class MissingValue(BadParam):
-#
-#     def __init__(self, param_name_or_names):
-#         """param_names are synonyms: NO"""
-#         super().__init__("Missing value(s) for", param_name_or_names, param_sep=" and ")
-#
-#
-# class UnknownName(BadParam):
-#
-#     def __init__(self, param_name_or_names):
-#         """param_names are synonyms: NO"""
-#         super().__init__("No such option(s):", param_name_or_names, param_sep=" and ")
-#
-#
-# class InvalidValue(BadParam):
-#
-#     def __init__(self, param_name, error):
-#         """param_names are synonyms: YES"""
-#         super().__init__("Invalid value for", param_name, message=error)
-
-
 # THIS FUNCTION SHOULD BE CALLED FROM ALL LOW LEVEL FUNCTIONS BELOW
 def validate_param(param_name_or_names, value, validation_func, *v_args, **v_kwargs):
     """Validate a parameter calling and returning the value of
@@ -179,7 +110,7 @@ def validate_param(param_name_or_names, value, validation_func, *v_args, **v_kwa
         return validation_func(value, *v_args, **v_kwargs)
     except Exception as exc:
         preamble = BadParam.P_INVALID
-        if isinstance(exc, TypeError):
+        if isinstance(exc, TypeError):  # change type. FIXME: replace?
             preamble = preamble.replace('Invalid value', 'Invalid type')
         raise BadParam(preamble, param_name_or_names, message=exc, param_sep=" / ")
 
@@ -190,46 +121,56 @@ _VALUE_NOT_FOUND_ = object()
 
 
 def pop_param(dic, name_or_names, default=_VALUE_NOT_FOUND_):
+    """Pop a parameter value from `dic`, supporting multiple optional parameter names.
+    Return the tuple `(name, value)`. Raise :class:`BadParam` if either 1. no name is
+    found and no default is provided, or 2: multiple names are found
+
+    :param dic: the dict of parameter names and values
+    :param name_or_names: str or list/tuple of strings (multiple names). Names
+        with a dot will perform recursive search within sub-dicts, e.g.
+        'advanced_settings.param' will first get the sub-dict  'advanced_settings'
+        (setting it to `{}` if not found), and then the value of the key 'param' from
+        the sub-dict. If multiple names are found, class:`BadParam` is raised.
+    :param default: if provided, this is the value returned if no name is found.
+        If not provided, and no name is found in `dic`, :class:`BadParam` is raised
+    """
     return _param_tuple(dic, name_or_names, default, pop=True)
 
 
 def get_param(dic, name_or_names, default=_VALUE_NOT_FOUND_):
+    """Get a parameter value from `dic`, supporting multiple optional parameter names.
+    Return the tuple `(name, value)`. Raise :class:`BadParam` if either 1. no name is
+    found and no default is provided, or 2: multiple names are found
+
+    :param dic: the dict of parameter names and values
+    :param name_or_names: str or list/tuple of strings (multiple names). Names
+        with a dot will perform recursive search within sub-dicts, e.g.
+        'advanced_settings.param' will first get the sub-dict  'advanced_settings'
+        (setting it to `{}` if not found), and then the value of the key 'param' from
+        the sub-dict. If multiple names are found, class:`BadParam` is raised.
+    :param default: if provided, this is the value returned if no name is found.
+        If not provided, and no name is found in `dic`, :class:`BadParam` is raised
+    """
     return _param_tuple(dic, name_or_names, default, pop=False)
 
 
 def _param_tuple(dic, name_or_names, default=_VALUE_NOT_FOUND_, pop=False):
-    """Similar to `dic.pop` with optional (multi) keys. Raises
-    :class:`BadParam` in case no default is provided and no key is found,
-    or multiple keys are found
-
-    :param dic: the source dict
-    :param name_or_names: str or list/tuple of strings (multiple names). Names
-        with a dot will perform recursive search within sub-dicts, e.g.
-        'advanced_settings.param' will first get the sub-dict  'advanced_settings'
-        (defaulting to `{}` if not found), and then the value of the key 'param' from
-        the sub-dict.
-    :param default: if provided and not None (the default), then
-        this is the value returned if no name is found. If not provided, and no
-        name is found in `dic`, :class:`BadParam` is raised
-    """
+    """private base function used by the public `get` and `pop`"""
     names = BadParam._vectorize(name_or_names)
-    keyval = {}
+    keyval = {}  # copy all param -> value mapping here
 
-    for name in names:  # recursive search
+    for name in names:
         _dic = dic
         _names = name.split('.')
-        try:
-            for _name in _names[:-1]:
+
+        i = 0
+        while isinstance(_dic, dict) and _names[i] in _dic:
+            _name, i = _names[i], i + 1  # set _name and increment i
+            if i == len(_names):  # last item
+                keyval[name] = _dic.pop(_name) if pop else _dic[_name]
+                break
+            else:
                 _dic = _dic[_name]
-        except (AttributeError, TypeError, KeyError):
-            _dic = {}
-        # for _name in _names[:-1]:
-        #     if not isinstance(_dic, dict):
-        #         _dic = {}
-        #         break
-        #     _dic = _dic.get(_name, {})
-        if _names[-1] in _dic:
-            keyval[name] = _dic.pop(_names[-1]) if pop else _dic[_names[-1]]
 
     if not keyval:
         if default is not _VALUE_NOT_FOUND_:
@@ -259,7 +200,7 @@ def load_config_for_download(config, validate, **param_overrides):
     :return: a dict loaded from the given `config` and with parsed arguments
         (dict keys)
 
-    Raises `BadParam` in case of parsing errors, missing arguments,
+    Raise `BadParam` in case of parsing errors, missing arguments,
     conflicts and so on
     """
     config_dict = validate_param("config", config, yaml_load, **param_overrides)
@@ -391,28 +332,6 @@ def load_config_for_download(config, validate, **param_overrides):
     # now put evt_params into new_config:
     new_config[pnames[0]] = evt_params
 
-    # evt_params = {}
-    # pnames = ('eventws_params', 'eventws_query_args')
-    # validated_params.update(pnames)
-    # pname, pval = get_param(old_config, pnames, default=None)
-    # if pval:
-    #     validate_param(pname, pval, valid_type, {})
-    #     evt_params = _pop_event_params(old_config, pname)
-    # else:
-    #     # remove param from old config:
-    #     pop_param(old_config, pname, None)
-    # # now pop all event params from the "outer" config_dict:
-    # evt_params2 = _pop_event_params(old_config)
-    # # and merge (but check conflicts beforehand):
-    # _conflicts = set(evt_params) & set(evt_params2)
-    # if _conflicts:
-    #     # raise just the first conflict:
-    #     raise BadParam(BadParam.P_CONFLICT, _conflicts,
-    #                    message="check %s" % pname)
-    # evt_params.update(evt_params2)  # merge
-    # # now put evt_params into new_config:
-    # new_config[pnames[0]] = evt_params
-
     # =========================================================
     # Done with parameter validation. Just perform final checks
     # =========================================================
@@ -440,8 +359,10 @@ def load_config_for_download(config, validate, **param_overrides):
     return new_config, session, authorizer, tt_table
 
 
-def _pop_event_params(evt_params_dict, prefix=None):
-    """pops event params and returns a new dict FIXME: doc"""
+def _pop_event_params(config, prefix=None):
+    """pop / move event params from the given config (`dict`) into a new dict and return
+    the new dict. Raise :class:`BadParam` if any event parameter is invalid
+    """
     # define first default event params in order to avoid typos
     def_evt_params = EVENTWS_SAFE_PARAMS
 
@@ -449,65 +370,67 @@ def _pop_event_params(evt_params_dict, prefix=None):
         def_evt_params = [prefix + '.' + _ for _ in def_evt_params]
 
     # returned dict:
-    evt_params2 = {}
+    evt_params = {}
 
     pnames = def_evt_params[:2]  # ['minlatitude', 'minlat']
-    pname, pval = pop_param(evt_params_dict, pnames, None)
+    pname, pval = pop_param(config, pnames, None)
     if pval is not None:
         new_pname = pnames[0].split('.')[-1]  # remove prefix, if any
-        evt_params2[new_pname] = validate_param(pname, pval,
-                                                valid_between, -90.0, 90.0)
+        evt_params[new_pname] = validate_param(pname, pval,
+                                               valid_between, -90.0, 90.0)
 
     pnames = def_evt_params[2:4]  # ['maxlatitude', 'maxlat'],
-    pname, pval = pop_param(evt_params_dict, pnames, None)
+    pname, pval = pop_param(config, pnames, None)
     if pval is not None:
         new_pname = pnames[0].split('.')[-1]  # remove prefix, if any
-        evt_params2[new_pname] = validate_param(pname, pval,
-                                                valid_between, -90.0, 90.0)
+        evt_params[new_pname] = validate_param(pname, pval,
+                                               valid_between, -90.0, 90.0)
 
     pnames = def_evt_params[4:6]  # ['minlongitude', 'minlon'],
-    pname, pval = pop_param(evt_params_dict, pnames, None)
+    pname, pval = pop_param(config, pnames, None)
     if pval is not None:
         new_pname = pnames[0].split('.')[-1]  # remove prefix, if any
-        evt_params2[new_pname] = validate_param(pname, pval,
-                                                valid_between, -180.0, 180.0)
+        evt_params[new_pname] = validate_param(pname, pval,
+                                               valid_between, -180.0, 180.0)
 
     pnames = def_evt_params[6:8]  # ['maxlongitude', 'maxlon'],
-    pname, pval = pop_param(evt_params_dict, pnames, None)
+    pname, pval = pop_param(config, pnames, None)
     if pval is not None:
         new_pname = pnames[0].split('.')[-1]  # remove prefix, if any
-        evt_params2[new_pname] = validate_param(pname, pval,
-                                                valid_between, -180.0, 180.0)
+        evt_params[new_pname] = validate_param(pname, pval,
+                                               valid_between, -180.0, 180.0)
 
     pnames = def_evt_params[8:10]  # ['minmagnitude', 'minmag'],
-    pname, pval = pop_param(evt_params_dict, pnames, None)
+    pname, pval = pop_param(config, pnames, None)
     if pval is not None:
         newp_name = pnames[0].split('.')[-1]  # remove prefix, if any
-        evt_params2[newp_name] = validate_param(pname, pval, float)
+        evt_params[newp_name] = validate_param(pname, pval, float)
 
     pnames = def_evt_params[10:12]  # ['maxmagnitude', 'maxmag'],
-    pname, pval = pop_param(evt_params_dict, pnames, None)
+    pname, pval = pop_param(config, pnames, None)
     if pval is not None:
         newp_name = pnames[0].split('.')[-1]  # remove prefix, if any
-        evt_params2[newp_name] = validate_param(pname, pval, float)
+        evt_params[newp_name] = validate_param(pname, pval, float)
 
     pnames = def_evt_params[12:13]  # ['mindepth'],
-    pname, pval = pop_param(evt_params_dict, pnames, None)
+    pname, pval = pop_param(config, pnames, None)
     if pval is not None:
         newp_name = pnames[0].split('.')[-1]  # remove prefix, if any
-        evt_params2[newp_name] = validate_param(pname, pval, float)
+        evt_params[newp_name] = validate_param(pname, pval, float)
 
     pnames = def_evt_params[13:14]  # ['maxdepth'],
-    pname, pval = pop_param(evt_params_dict, pnames, None)
+    pname, pval = pop_param(config, pnames, None)
     if pval is not None:
         newp_name = pnames[0].split('.')[-1]  # remove prefix, if any
-        evt_params2[newp_name] = validate_param(pname, pval, float)
+        evt_params[newp_name] = validate_param(pname, pval, float)
 
-    return evt_params2
+    return evt_params
 
 
 def _validate_download_advanced_settings(config, adv_settings_key):
-    """FIXME: write doc, validates keys in place"""
+    """Validate the advanced settings of the given download config. Modifies
+     config.advanced_settings` keys inplace (do not return the validated `dict`)
+     """
     adv_settings_dict = config[adv_settings_key]
     prefix = adv_settings_key + '.'  # 'advanced_settings'
 
@@ -533,102 +456,6 @@ def _validate_download_advanced_settings(config, adv_settings_key):
         pval = validate_param(pname, pval, valid_between, 1, None, pass_if_none=True)
     adv_settings_dict[pnames[0].split('.')[-1]] = pval
 
-    return adv_settings_dict
-    # get the whole advanced_settings dict, and update with the validated params:
-    # adv_settings = pop_param(config, prefix[:-1])[1]
-    # adv_settings.update(validated_params)
-    # return adv_settings
-
-
-# def _pop_download_advanced_settings(config, adv_settings_key):
-#     validated_params = {}
-#     prefix = adv_settings_key + '.'  # 'advanced_settings'
-#
-#     # Call get_param with no default just for raising if param is missing:
-#     get_param(config, adv_settings_key)
-#
-#     pname = 'download_blocksize'
-#     pval = validate_param(prefix + pname, pop_param(config, prefix + pname)[1],
-#                           valid_type, int)
-#     validated_params[pname] = pval if pval > 0 else -1
-#
-#     pname = 'db_buf_size'
-#     validated_params[pname] = validate_param(prefix + pname,
-#                                              pop_param(config, prefix + pname)[1],
-#                                              valid_between, 1, None,
-#                                              pass_if_none=False)
-#
-#     pnames = [prefix + _ for _ in ('max_concurrent_downloads', 'max_thread_workers')]
-#     pname, pval = get_param(config, pnames)
-#     if pname == pnames[1]:
-#         # When max_thread_workers<0, it defaulted to None:
-#         pval = validate_param(pname, pval, valid_type, int, None)
-#         if pval <= 0:
-#             pval = None
-#     else:
-#         pval = validate_param(pname, pval, valid_between, 1, None, pass_if_none=True)
-#     validated_params[pnames[0].split('.')[-1]] = pval
-#
-#     # get the whole advanced_settings dict, and update with the validated params:
-#     adv_settings = pop_param(config, prefix[:-1])[1]
-#     adv_settings.update(validated_params)
-#     return adv_settings
-
-    # pname = 'max_concurrent_downloads'
-    # try:
-    #     pval = pop_param(config, prefix + pname)
-    # except MissingValue as mval:
-    #     try:
-    #         pval = pop_param(config, prefix + 'max_thread_workers')  # try old name
-    #         # When max_thread_workers<=0, it defaulted to None:
-    #         if pval <= 0:
-    #             pval = None
-    #     except MissingValue:
-    #         raise mval
-    # # Check that pval is either none or int >=1:
-    # ret[pname] = validate_param(prefix + pname, pval,
-    #                             valid_between, 1, None, pass_if_none=True)
-    #
-    # pname = 'db_buf_size'
-    # ret[pname] = validate_param(prefix + pname, pop_param(config, prefix + pname),
-    #                             valid_between, 1, None, pass_if_none=False)
-    #
-    # # get the whole advanced_settings dict, and update with the validated params:
-    # adv_settings = pop_param(config, prefix[:-1], {})
-    # adv_settings.update(ret)
-    # return adv_settings
-
-    #
-    # advanced_settings[pname] = validate_param(pval)
-    #
-    #
-    # paramname = 'download_blocksize'
-    # try:
-    #     if advanced_settings[paramname] <= 0:
-    #         advanced_settings[paramname] = -1
-    #
-    #     paramname = 'max_concurrent_downloads'
-    #     if paramname not in advanced_settings:
-    #         # try to search old parameter "max_thread_workers"
-    #         # (maybe an old download config)
-    #         old_paramname = 'max_thread_workers'
-    #         if old_paramname not in advanced_settings:
-    #             raise KeyError()  # (will raise paramname error)
-    #         # When old_paramname<=0, it defaulted to None (= max thread workers
-    #         # automatically set by threadPool):
-    #         if advanced_settings[old_paramname] <= 0:
-    #             advanced_settings[old_paramname] = None
-    #         advanced_settings[paramname] = advanced_settings.pop(old_paramname)
-    #
-    #     if advanced_settings[paramname] is not None:
-    #         advanced_settings[paramname] = int(advanced_settings[paramname])
-    #
-    #     paramname = 'db_buf_size'
-    #     advanced_settings[paramname] = max(advanced_settings[paramname], 1)
-    # except Exception as exc:
-    #     raise InvalidValue(exc, paramname)
-    # return advanced_settings
-
 
 def load_config_for_process(dburl, pyfile, funcname=None, config=None,
                             outfile=None, **param_overrides):
@@ -650,40 +477,13 @@ def load_config_for_process(dburl, pyfile, funcname=None, config=None,
     multi_process, chunksize = _get_process_advanced_settings(config,
                                                               'advanced_settings')
 
-    # pop and validate advanced settings:
-    # try:
-    #     adv_settings = config.get('advanced_settings', {})  # dict
-    #     multi_process = adv_settings.get('multi_process', False)
-    #     # the number of Pool processes can now be set directly to multi_process (which
-    #     # accepts bool or int). Previously, there was a separate parameter for that,
-    #     # num_processes. Let' implement backward compatibility here:
-    #     if multi_process is True and 'num_processes' in adv_settings:
-    #         multi_process = adv_settings['num_processes']
-    #
-    #     # check parameters:
-    #     if multi_process not in (True, False):
-    #         try:
-    #             int(multi_process)
-    #             assert multi_process >= 0
-    #         except:
-    #             raise ValueError('advanced_settings.multi_process must be '
-    #                              'boolean or non negative int')
-    #     chunksize = adv_settings.get('segments_chunksize', None)
-    #     if chunksize is not None:
-    #         try:
-    #             int(chunksize)
-    #             assert chunksize > 0
-    #         except:
-    #             raise ValueError('advanced_settings.chunksize must be '
-    #                              'null or positive int')
-    #
-    # except Exception as exc:
-    #     raise InvalidValue(exc, 'config.advanced_settings')
-
     return session, pyfunc, funcname, config, seg_sel, multi_process, chunksize
 
 
 def _get_process_advanced_settings(config, adv_settings_key):
+    """Return the tuple `(multi_process, chunksize)` validated from
+    `config[advanced)_settings_key]`. Raise :class:`BadParam` if any param is invalid
+    """
     prefix = adv_settings_key + '.'  # 'advanced_settings.'
 
     pname, multi_process = get_param(config, prefix + 'multi_process', default=False)
@@ -708,7 +508,7 @@ def _get_process_advanced_settings(config, adv_settings_key):
 
 def load_config_for_visualization(dburl, pyfile=None, config=None):
     """Check visualization arguments and return a tuple of well formed args.
-    Raise BadParam
+    Raise :class:`BadParam` if any param is invalid
     """
     session = validate_param('dburl', dburl, valid_session, for_process=True, scoped=True)
     pymodule = None if not pyfile else validate_param('pyfile', pyfile, load_source)
@@ -719,7 +519,13 @@ def load_config_for_visualization(dburl, pyfile=None, config=None):
 
 
 def _extract_segments_selection(config):
-    # FIXME write doc: here we implement in ONE place the segment selection keys
+    """Return the dict in `config` denoting the selection of segment. Validators
+    should all call this method so that the valid parameter names are implemented in
+    one place and can be easily modified.
+
+    :param config: the config `dict` (e.g. resulting from a YAML config file used for
+        processing, or visualization)
+    """
     return pop_param(config, ['segments_selection', 'segment_select'], {})[1]
 
 
@@ -731,7 +537,7 @@ def _extract_segments_selection(config):
 
 
 def valid_type(value, *other_values_or_types):
-    """Returns value if it is of the same type (same class, or subclass) of *any*
+    """Return value if it is of the same type (same class, or subclass) of *any*
     other value type (at least one). Raises TypeError otherwise.
 
     :param value: a python object
@@ -834,15 +640,6 @@ def valid_dburl_or_download_yamlpath(value, param_name='dburl'):
     return yaml_load(value)[param_name] if (os.path.isfile(value)) else value
 
 
-# def keyval_list_to_dict(value):
-#     """Parse optional event query args (when the 'd' command is issued) into
-#     a dict"""
-#     # use iter to make a dict from a list whose even indices = keys, odd
-#     # ones = values (https://stackoverflow.com/a/4576128)
-#     itr = iter(value)
-#     return dict(zip(itr, itr))
-
-
 def valid_session(dburl, for_process=False, scoped=False, **engine_kwargs):
     """Create an SQL-Alchemy session from dburl. Raises if `dburl` is
     not a string, or any SqlAlchemy exception if the session could not be
@@ -938,7 +735,7 @@ def valid_updatemetadata_param(value):
 def valid_tt_table(file_or_name):
     """Load the given TTTable object from the given file path or name. If name
     (string) it must match any of the builtin TTTable .npz files defined in
-    this package. Raises TypeError or any Exception that TTTable might raise
+    this package. Raise TypeError or any Exception that TTTable might raise
     (including when the file is not found)
     """
     if not isinstance(file_or_name, string_types):
@@ -972,7 +769,7 @@ def valid_date(obj):
 
 def valid_fdsn(url, is_eventws, configfile=None):
     """Return url if it matches a FDSN service (valid strings are 'eida' and
-    'iris'), raises ValueError or TypeError otherwise
+    'iris'), raise ValueError or TypeError otherwise
     """
     if not isinstance(url, string_types):
         raise TypeError('string required')
@@ -994,42 +791,11 @@ def valid_fdsn(url, is_eventws, configfile=None):
     return Fdsnws(url).url()
 
 
-# def valid_dict_or_none(value):
-#     """Check that value is a dict and returns `value`.
-#     Returns {} if the value is None. In any other cases, raise ValueError
-#     """
-#     if value is None:
-#         value = {}
-#     if isinstance(value, dict):
-#         return value
-#     raise ValueError('dict/None required, found: %s' % str(type(value)))
-
-
 def valid_between(val, min, max, include_min=True, include_max=True, pass_if_none=True):
     if val is None:
         if pass_if_none:
             return val
         raise ValueError('value is None/null')
-
-    # if min is not None:
-    #     try:
-    #         valid_type(val, min)
-    #     except Exception:
-    #         raise ValueError('Types mismatch, cannot compare %s and %s' %
-    #                          (str(val), str(min)))
-    #     if not (val > min or (include_min and val >= min)):
-    #         raise ValueError('%s must be %s %s' %
-    #                          (str(val), '>=' if include_min else '>', str(min)))
-    #
-    # if max is not None:
-    #     try:
-    #         valid_type(val, max)
-    #     except Exception:
-    #         raise ValueError('Types mismatch, cannot compare %s and %s' %
-    #                          (str(val), str(max)))
-    #     if not (val < max or (include_max and val <= max)):
-    #         raise ValueError('%s must be %s %s' %
-    #                          (str(val), '<=' if include_max else '<', str(max)))
 
     is_ok = min is None or val > min or (include_min and val >= min)
     if not is_ok:
@@ -1142,5 +908,3 @@ def valid_filewritable(filepath):
         raise ValueError('cannot write file: parent directory does not exist')
 
     return filepath
-
-

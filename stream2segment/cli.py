@@ -37,11 +37,12 @@ from stream2segment.utils import inputvalidation
 
 
 class clickutils(object):  # noqa
-    """Container for Options validations, default settings so as not to
-    pollute the click decorators
-    """
-    DEFAULTDOC = yaml_load_doc(get_templates_fpath("download.yaml"))
+    """Container for all `click` related stuff to be used here"""
+
+    # shorthand string for event-related download params:
     EQA = "(event search parameter)"
+    # Keyword attributes fot Options that accept a db URL also in form of the
+    # file path to a download config (with the db url in it):
     DBURL_OR_YAML_ATTRS = dict(type=inputvalidation.valid_dburl_or_download_yamlpath,
                                metavar='TEXT or PATH',
                                help=("Database URL where data has been saved. "
@@ -52,16 +53,17 @@ class clickutils(object):  # noqa
                                      "we STRONGLY suggest to use a file instead "
                                      "of typing the URL on the terminal"),
                                required=True)
+    # custom type for Options accepting an existing File:
     ExistingPath = click.Path(exists=True, file_okay=True, dir_okay=False,
                               writable=False, readable=True)
 
     @classmethod
-    def options_missing_help_from_yaml(cls, command, *args, **kwargs):
+    def fill_missing_help_from_yaml_download_file(cls, command, *args, **kwargs):
         """Decorator to the `download`command to set missing options help
         from the relative YAML parameter, if found in the YAML file
         "download.yaml"
         """
-        cfg_doc = cls.DEFAULTDOC
+        cfg_doc = yaml_load_doc(get_templates_fpath("download.yaml"))
         for option in (opt for opt in command.params if
                        opt.param_type_name == 'option'):
             if option.help is None:
@@ -76,7 +78,7 @@ class clickutils(object):  # noqa
 
     @staticmethod
     def _config_cmd_kwargs(**kwargs):
-        """Configures a new Command (or Group) with default arguments"""
+        """Shared default configurations settings for new Commands and Groups below"""
         # increase width of help on terminal (default ~= 80):
         context_settings = dict(max_content_width=85)
         kwargs.setdefault('context_settings', context_settings)
@@ -86,12 +88,16 @@ class clickutils(object):  # noqa
     class MyCommand(click.Command):
         """Class used for any click Command in this module"""
         def __init__(self, *arg, **kwargs):
+            """Just (re)configure some default `kwargs`"""
             # configure default arguments:
             super().__init__(*arg, **clickutils._config_cmd_kwargs(**kwargs))
 
         def format_options(self, ctx, formatter):
-            """Write all the options into the formatter if they exist.
-            Overwrite super implementation to provide custom formatting
+            """Invoked by :meth:`self.format_help`, reformat here how options are printed
+            for a :class:`click.Command`: 1. avoid the two columns layout, just print
+            command name(s) and then help, and 2. mention when an Option is "multiple"
+            (accepted several times) in the dedicated "extra information" chunk (within
+            square brackets, e.g. "[required]") at the end of the help
             """
             # same as superclass:
             opts = []
@@ -108,7 +114,7 @@ class clickutils(object):  # noqa
                     idx = p_help.rstrip().rfind(' ')
                     if idx > -1:
                         extra_info_chunk = p_help[idx:].strip()
-                        # is the last chunk a collection of extra information, whihc
+                        # is the last chunk a collection of extra information, which
                         # `click` wraps in square brackets)?
                         if extra_info_chunk[0] == '[' and extra_info_chunk[-1] == ']':
                             extra_info_chunk = extra_info_chunk[:-1] + "; "
@@ -137,19 +143,29 @@ class clickutils(object):  # noqa
         """Class used for any click Group of this module"""
 
         def __init__(self, *arg, **kwargs):
+            """Just (re)configure some default `kwargs`"""
             # configure default arguments:
             kwargs.setdefault('options_metavar', '')
             kwargs.setdefault('subcommand_metavar', "[command] [args]...")
             super().__init__(*arg, **clickutils._config_cmd_kwargs(**kwargs))
 
         def format_options(self, ctx, formatter):
-            """Customize help formatting (print no options, only commands)"""
+            """Invoked by :meth:`self.format_help`, reformat here how Options or Commands
+            are printed for a :class:`click.Group`: 1. Skip printing the (only) Option
+            "--help": it's too prominent and not really useful, and 2: customize
+            Commands help calling :meth:`self.format_commands` (see method for details)
+            """
             # superclass (click.MultiCommand) code:
             # Command.format_options(self, ctx, formatter)  # <- ignore opt
             self.format_commands(ctx, formatter)
 
         def format_commands(self, ctx, formatter, parent_cmd_name=""):
-            """Customize commands help formatting"""
+            """Invoked by :meth:`self.format_help`, reformat here how Commands are
+            printed by 1: listing all commands recursively (not only direct children),
+            2: using different layouts and descriptions for Commands vs. Groups, and 3:
+            providing for each subcommand a short 'Usage' string, as the first line that
+            would appear by navigating into the subcommand and typing "--help"
+            """
             commands = []
             for cmd_name in list(self.commands):
                 cmd = self.get_command(ctx, cmd_name)
@@ -263,7 +279,7 @@ def init(outdir):
     sys.exit(1)
 
 
-# Short recap here (READ BEFORE EDITING OPTIONS BELOW):
+# Short recap here (READ IF YOU PLAN TO EDIT OPTIONS BELOW, SKIP OTHERWISE):
 # * option short name: any click option name starting with "-"
 # * option long name: any click option name starting with "--"
 #   IMPORTANT: Some YAML params accept different names (e.g., 'net', 'network'
@@ -284,7 +300,7 @@ def init(outdir):
 #   is missing and use the corresponding yaml param values
 # * Don't set required = True with eager=True in a click option, as it forces
 #   that option to be always present, and thus raises if only --help is given
-@clickutils.options_missing_help_from_yaml  # autofill options help. See function above
+@clickutils.fill_missing_help_from_yaml_download_file  # autofill options help. See above
 @cli.command(short_help='Download waveform data segments saving data into an '
                         'SQL database')
 @click.option("-c", "--config",
@@ -616,7 +632,7 @@ def db():  # pylint: disable=missing-docstring
                    "This option can be given multiple "
                    "times: ... -did 1 --download_id 2 ...")
 def drop(dburl, download_id):
-    """Drop (deletes) download executions. WARNING: this command deletes also
+    """Drop (delete) download executions. WARNING: this command deletes also
     all segments, stations and channels downloaded with the given download
     execution
     """
@@ -671,7 +687,7 @@ def drop(dburl, download_id):
 def classlabel(dburl, add, rename, delete, no_prompt):
     """Add/Rename/delete class labels from the database. A class label is
     composed of a label name (e.g., LowS2N) and a short description (e.g.,
-    "Segment has a low signal-to-noise ratio") and denote any user-defined
+    "Segment has a low signal-to-noise ratio") and denotes any user-defined
     characteristic that you want to assign to certain segments either manually
     in the GUI, or programmatically in the processing module or your code.
     Class labels can then be used for e.g., supervised classification problems,

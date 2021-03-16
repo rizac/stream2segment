@@ -747,11 +747,7 @@ class DownloadStats(OrderedDict):
 
     def __str__(self):
         """Print a nicely formatted table with the statistics of the download.
-        Return the empty string if this object is empty. Consider calling
-        `self.normalizecodes() if the codes whereby we populated this object
-        came from the unsfae sources (e.g., some web services might have
-        returned strings instead of integers, and without `normalizecodes`
-        they would be displayed in two different columns
+        Return the empty string if this object is empty
         """
         # create a set of unique codes:
         sorted_codes = self.sortcodes(set((k for dic in self.values()
