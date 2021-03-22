@@ -10,6 +10,8 @@ from builtins import zip
 from datetime import datetime
 from itertools import count
 import time
+from lib2to3.pygram import python_grammar_no_print_and_exec_statement
+from unittest.mock import patch
 
 import pytest
 import numpy as np
@@ -20,8 +22,8 @@ from stream2segment.io.db.models import DataCenter
 from stream2segment.download.modules.stationsearch import locations2degrees as s2sloc2deg,\
     get_magdep_search_radius
 from stream2segment.download.modules.datacenters import EidaValidator
-from stream2segment.download.utils import s2scodes, DownloadStats, to_fdsn_arg,\
-    HTTPCodesCounter
+from stream2segment.download.utils import s2scodes, DownloadStats, to_fdsn_arg, \
+    HTTPCodesCounter, logwarn_dataframe
 
 
 @pytest.mark.parametrize('lat1, lon1, lat2, lon2',
@@ -582,3 +584,16 @@ def test_to_fdsn_arg():
 
     val = ['!A', 'B  ']
     assert to_fdsn_arg(val) == 'B  '
+
+
+
+def test_logwarn_dataframe_columns_none():
+    """Simple test asserting there are no exceptions. FIXES problems
+    with duplicated routing services where we pass None as columns"""
+    dfr = pd.DataFrame({'c1': ['a', 'b'], 'c2': [1, np.nan]})
+    logwarn_dataframe(dfr, 'a message', columns=['c2'])
+    logwarn_dataframe(dfr, 'a message', columns=['c1', 'c2'])
+    logwarn_dataframe(dfr, 'a message')
+    logwarn_dataframe(dfr, 'a message', max_row_count=45)
+    logwarn_dataframe(dfr, 'a message', max_row_count=1)
+

@@ -517,3 +517,45 @@ UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
             2 + EXPECTED_EIDA_DCS_FROMFILE
 
 
+    @patch('stream2segment.download.modules.datacenters.urljoin',
+           side_effect = lambda *a, **v: original_urljoin(*a, **v))
+    def test_recif_bug(self, mock_urljoin, db):  # , mock_urljoin):
+        '''test fetching datacenters eida, iris, custom url and test that postdata is what we
+        expected (which is eida/iris/whatever independent)'''
+        # this is the output when using eida as service:
+        urlread_sideeffect = ["""http://ws.resif.fr/fdsnws/dataselect/1/query
+ZV * * * 2018-01-01T00:00:00 2019-12-31T23:59:59
+ZU * * * 2015-01-01T00:00:00 2017-12-31T23:59:59
+
+http://ws.resif.fr/ph5/fdsnws/dataselect/1/query
+ZO * * * 2018-01-01T00:00:00 2018-12-31T23:59:59
+ZO * * * 2014-01-01T00:00:00 2016-12-31T23:59:59
+ZO * * * 2008-01-01T00:00:00 2009-12-31T23:59:59
+Z7 * * * 2018-01-01T00:00:00 2018-12-31T23:59:59
+6J * * * 2018-01-01T00:00:00 2018-12-31T23:59:59
+3C * * * 2019-01-01T00:00:00 2021-12-31T23:59:59
+1F * * * 2018-01-01T00:00:00 2018-12-31T23:59:59
+1D * * * 2019-01-01T00:00:00 2020-12-31T23:59:59
+
+http://webservices.ingv.it/fdsnws/dataselect/1/query
+ZM * * * 2017-08-26T00:00:00 2020-10-20T00:00:00
+Z3 A319A * * 2015-12-11T12:06:34 2019-04-10T23:59:00
+Z3 A318A * * 2015-11-17T10:32:52 2019-02-02T23:59:00"""]
+
+        d0 = datetime.utcnow()
+        d1 = d0 + timedelta(minutes=1.1)
+
+        nsl = [['ABC'], []]
+        chans = [['HH?'], ['HH?', 'BH?'], []]
+
+        for net, sta, loc, cha, starttime, endtime in product(nsl, nsl, nsl, chans,
+                                                              [None, d0], [None, d1]):
+            mock_urljoin.reset_mock()
+            # normal fdsn service ("https://mocked_domain/fdsnws/station/1/query")
+            data, eida_validator = self.get_datacenters_df(urlread_sideeffect, db.session,
+                                                           "eida",
+                                                           self.routing_service,
+                                                           net, sta, loc, cha, starttime, endtime,
+                                                           db_bufsize=self.db_buf_size)
+            assert eida_validator is not None
+            assert mock_urljoin.called
