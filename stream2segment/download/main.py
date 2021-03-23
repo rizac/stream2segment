@@ -24,9 +24,10 @@ from stream2segment.download.modules.channels import get_channels_df, chaid2msee
 from stream2segment.download.modules.stationsearch import merge_events_stations
 from stream2segment.download.modules.segments import prepare_for_download,\
     download_save_segments, DcDataselectManager
-from stream2segment.download.modules.stations import save_inventories, query4inventorydownload
+from stream2segment.download.modules.stations import (save_inventories,
+                                                      query4inventorydownload)
 from stream2segment.utils import tounicode, yaml_safe_dump
-from stream2segment.io.db.models import Download
+from stream2segment.download.db import Download
 
 
 logger = logging.getLogger(__name__)

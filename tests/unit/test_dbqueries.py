@@ -10,8 +10,8 @@ from datetime import datetime
 
 import pytest
 
-from stream2segment.io.db.models import Event, WebService, Channel, Station, \
-    DataCenter, Segment, Download
+from stream2segment.process.db import (Event, WebService, Channel, Station, \
+                                       DataCenter, Segment, Download)
 
 class Test(object):
 

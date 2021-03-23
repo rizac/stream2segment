@@ -17,7 +17,8 @@ from collections import defaultdict
 import pandas as pd
 from future.utils import string_types
 
-from stream2segment.io.db.models import DataCenter, Fdsnws
+from stream2segment.io.utils import Fdsnws
+from stream2segment.download.db import DataCenter
 from stream2segment.download.utils import FailedDownload, dbsyncdf, formatmsg
 from stream2segment.utils import strconvert, urljoin, strptime
 from stream2segment.utils.url import URLException, urlread

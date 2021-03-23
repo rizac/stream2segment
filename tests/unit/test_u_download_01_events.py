@@ -25,7 +25,7 @@ except ImportError:
 import pandas as pd
 import pytest
 
-from stream2segment.io.db.models import Event, Download, WebService
+from stream2segment.download.db import Event, Download, WebService
 from stream2segment.download.modules.events import get_events_df, isf2text_iter,\
     _get_freq_mag_distrib, islocalfile as o_islocalfile
 from stream2segment.download.utils import FailedDownload, response2normalizeddf

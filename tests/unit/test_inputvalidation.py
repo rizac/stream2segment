@@ -27,7 +27,7 @@ from stream2segment.main import configlog4download as o_configlog4download,\
     process as o_process, download as o_download
 from stream2segment.utils.inputvalidation import valid_session as o_get_session, \
     valid_nslc as nslc_param_value_aslist, load_config_for_process, BadParam
-from stream2segment.io.db.models import Download
+from stream2segment.download.db import Download
 from stream2segment.utils import secure_dburl
 from stream2segment.utils.resources import get_templates_fpath, yaml_load, get_templates_fpaths
 

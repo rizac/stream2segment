@@ -16,12 +16,12 @@ from datetime import datetime, timedelta
 
 from future.utils import string_types
 # from stream2segment.process import SkipSegment
-
+from stream2segment.io.db import database_exists
 from stream2segment.utils.resources import yaml_load, get_ttable_fpath, \
     get_templates_fpath, normalizedpath
 from stream2segment.utils import strptime, load_source
 from stream2segment.traveltimes.ttloader import TTTable
-from stream2segment.io.db.models import Fdsnws
+from stream2segment.io.utils import Fdsnws
 from stream2segment.download.utils import Authorizer, EVENTWS_MAPPING,\
     EVENTWS_SAFE_PARAMS
 
@@ -673,21 +673,43 @@ def valid_session(dburl, for_process=False, scoped=False, **engine_kwargs):
     if not isinstance(dburl, string_types):
         raise TypeError('string required, %s found' % str(type(dburl)))
     # import in function to speed up module imports from cli:
-    if for_process:
-        # important, rename otherwise conflicts with this function name:
-        from stream2segment.process.db import get_session as sess_func
-    else:
-        # important, rename otherwise conflicts with this function name:
-        from stream2segment.io.db import get_session as sess_func
+    # FIXME: single func!
+    # if for_process:
+    #     # important, rename otherwise conflicts with this function name:
+    #     from stream2segment.process.db import get_session as sess_func
+    # else:
+    #    # important, rename otherwise conflicts with this function name:
+    #    from stream2segment.io.db import get_session as sess_func
+
+    exists = database_exists(dburl)
+    # the only case when we don't care if the database exists is when
+    # we have sqlite and we are downloading. Thus
+    if not dburl.startswith('sqlite') or for_process:
+        if not exists:
+            dbname = dburl[dburl.rfind('/')+1:]
+            if for_process:
+                raise ValueError('Database "%s" does not exist. Provide an existing '
+                                 'database or check potential typos' % dbname)
+            else:
+                raise ValueError('Database "%s" needs to be created first' % dbname)
+
+    from stream2segment.io.db import get_session as sess_func
 
     sess = sess_func(dburl, scoped=scoped, **engine_kwargs)
+
+    if not for_process:
+        # Note: this creates the SCHEMA, not the database
+        from stream2segment.download.db import Base
+        Base.metadata.create_all(sess.get_bind())
+
+    # assert that the database exist. The only exception is when we
 
     # Check if database exist, which should not always be done (e.g.
     # for_processing=True). Among other methods
     # (https://stackoverflow.com/a/3670000
     # https://stackoverflow.com/a/59736414) this seems to do what we need
     # (we might also not check if the tables length > 0 sometime):
-    sess.bind.engine.table_names()
+    # sess.bind.engine.table_names()
     return sess
 
 

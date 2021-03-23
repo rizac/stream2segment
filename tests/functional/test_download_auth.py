@@ -44,8 +44,8 @@ from stream2segment.download.modules.segments import DcDataselectManager
 from stream2segment.cli import cli
 from stream2segment.download.main import get_events_df, get_datacenters_df, get_channels_df, \
     download_save_segments, save_inventories
-from stream2segment.io.db.models import Fdsnws,\
-    DataCenter, Segment, Download, Station, WebService
+from stream2segment.io.utils import Fdsnws
+from stream2segment.download.db import DataCenter, Segment, Download, Station, WebService
 from stream2segment.io.db.pdsql import dbquery2df, insertdf, updatedf
 from stream2segment.download.utils import s2scodes
 from stream2segment.download.modules.mseedlite import unpack

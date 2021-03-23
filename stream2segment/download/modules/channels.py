@@ -16,9 +16,10 @@ import numpy as np
 import pandas as pd
 from sqlalchemy import or_, and_
 
-from stream2segment.io.db.models import DataCenter, Station, Channel
-from stream2segment.download.utils import read_async, response2normalizeddf, FailedDownload,\
-    DbExcLogger, dbsyncdf, to_fdsn_arg, formatmsg, logwarn_dataframe
+from stream2segment.download.db import DataCenter, Station, Channel
+from stream2segment.download.utils import (read_async, response2normalizeddf,
+                                           FailedDownload, dbsyncdf, to_fdsn_arg,
+                                           formatmsg, logwarn_dataframe)
 from stream2segment.utils import get_progressbar, strconvert
 from stream2segment.io.db.pdsql import dbquery2df, shared_colnames, mergeupdate
 

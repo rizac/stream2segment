@@ -28,7 +28,7 @@ import pandas as pd
 from stream2segment.cli import cli
 from stream2segment.download.main import get_events_df, get_datacenters_df, \
     save_inventories, get_channels_df, download_save_segments
-from stream2segment.io.db.models import Segment, Download, Station, Channel
+from stream2segment.download.db import Segment, Download, Station, Channel
 from stream2segment.io.db.pdsql import insertdf, updatedf
 from stream2segment.download.utils import s2scodes
 from stream2segment.download.modules.mseedlite import unpack
@@ -409,7 +409,7 @@ BS|VETAM||HNZ|43.0805|25.6367|224.0|0.0|0.0|-90.0|200|427475.0|0.02|M/S**2|100.0
 
         for downloadcode, mseedids in data.items():
             for mseedid in mseedids:
-                seg = db.session.query(Segment).filter(Segment.seed_id == mseedid).first()
+                seg = db.session.query(Segment).filter(Segment.data_seed_id == mseedid).first()
                 assert seg.download_code == downloadcode
                 if (downloadcode == timespan_err):
                     assert not seg.has_data

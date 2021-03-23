@@ -38,7 +38,8 @@ from stream2segment.utils.inputvalidation import load_config_for_process, pop_pa
     validate_param
 from stream2segment.utils.log import configlog4download, configlog4processing,\
     closelogger, logfilepath
-from stream2segment.io.db.models import Download, Segment
+import stream2segment.download.db as dbd
+import stream2segment.process.db as dbp
 from stream2segment.process.main import run as run_process, run_and_yield, \
     fetch_segments_ids
 from stream2segment.download.main import run as run_download, new_db_download
@@ -141,8 +142,8 @@ def download(config, log2file=True, verbose=False, **param_overrides):
                   "\n(if the download ends with no errors, the file will be "
                   "deleted\nand its content written "
                   "to the table '%s', column '%s')" % (log2file,
-                                                       Download.__tablename__,
-                                                       Download.log.key))
+                                                       dbd.Download.__tablename__,
+                                                       dbd.Download.log.key))
 
         stime = time.time()
         run_download(download_id=download_id, isterminal=verbose,
@@ -522,6 +523,7 @@ def ddrop(dburl, download_ids, prompt=True):
         - an int (the number of segments deleted)
         - an exception (if the download id could not be deleted)
     """
+    Download, Segment = dbd.Download, dbd.Segment
     ret = {}
     session = validate_param('dburl', dburl, valid_session)
     try:

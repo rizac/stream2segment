@@ -14,7 +14,7 @@ from datetime import datetime
 
 import pandas as pd
 
-from stream2segment.io.db.models import DataCenter, Station, Segment
+from stream2segment.download.db import DataCenter, Station, Segment
 from stream2segment.download.utils import read_async, DbExcLogger, formatmsg, url2str,\
     err2str
 from stream2segment.utils import get_progressbar

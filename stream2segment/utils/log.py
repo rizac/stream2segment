@@ -14,7 +14,7 @@ import logging
 from datetime import timedelta, datetime
 import sys
 
-from stream2segment.io.db.models import Download
+import stream2segment.download.db as ddb
 
 # CRITICAL    50
 # ERROR    40
@@ -84,6 +84,7 @@ class DbStreamHandler(logging.FileHandler):
                 os.remove(self.baseFilename)
             except:
                 pass
+        Download = ddb.Download
         session.query(Download).filter(Download.id == download_id).\
             update({Download.log.key: logcontent,
                     Download.errors.key: self.errors,

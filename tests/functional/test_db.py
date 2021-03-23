@@ -19,8 +19,9 @@ from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm.session import object_session
 
-from stream2segment.io.db.models import Event, WebService, Channel, Station, \
-    DataCenter, Segment, Class, Download, ClassLabelling, withdata
+from stream2segment.process.db import Event, WebService, Channel, Station, \
+    DataCenter, Segment, Class, Download, ClassLabelling
+from stream2segment.io.db.models import withdata
 from stream2segment.io.db.pdsql import harmonize_rows, colnames, _harmonize_columns,\
     harmonize_columns
 from stream2segment.io.utils import dumps_inv, loads_inv

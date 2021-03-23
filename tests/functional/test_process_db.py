@@ -15,11 +15,11 @@ import pandas as pd
 import pytest
 
 from stream2segment.cli import cli
-from stream2segment.io.db.models import Event, Station, Segment, \
-    Channel, Download, DataCenter, Class, ClassLabelling
 from stream2segment.utils.resources import get_templates_fpath
 from stream2segment.process.db import (get_inventory, get_stream,
-                                       get_classlabels)
+                                       get_classlabels, Event, Station, Segment,
+                                       Channel, Download, DataCenter, Class,
+                                       ClassLabelling)
 from stream2segment.utils.log import configlog4processing as o_configlog4processing
 from stream2segment.process.main import query4process
 

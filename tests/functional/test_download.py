@@ -32,8 +32,9 @@ from sqlalchemy.sql.expression import func
 from stream2segment.cli import cli
 from stream2segment.download.main import get_events_df, get_datacenters_df, \
     get_channels_df, download_save_segments, save_inventories
-from stream2segment.io.db.models import Segment, Download, Station, Channel, \
-    withdata, Event, DataCenter
+from stream2segment.download.db import Segment, Download, Station, Channel, \
+    Event, DataCenter
+from stream2segment.io.db.models import withdata
 from stream2segment.io.db.pdsql import dbquery2df, insertdf, updatedf,\
     _get_max as _get_db_autoinc_col_max
 from stream2segment.download.utils import s2scodes
@@ -871,7 +872,8 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         # calculate the expected stations:
         expected_invs_to_download_ids = \
             [x[0] for x in db.session.query(Station.id).filter((~Station.has_inventory) &
-             (Station.segments.any(Segment.has_data))).all()]   # @UndefinedVariable
+             (Station.segments.any(Segment.has_data))).all()]   # noqa
+
         # test that we have data, but also errors
         num_expected_inventories_to_download = len(expected_invs_to_download_ids)
         assert num_expected_inventories_to_download == 2  # just in order to set the value below

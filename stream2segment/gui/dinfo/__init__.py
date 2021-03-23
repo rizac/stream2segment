@@ -12,17 +12,17 @@ import os
 import re
 import json
 from collections import defaultdict
-from future.utils import viewitems, itervalues, viewvalues, viewkeys
+from future.utils import viewitems
 
 from jinja2 import Environment, FileSystemLoader
 from sqlalchemy.sql.expression import func, or_
-from sqlalchemy.orm import configure_mappers
+
 
 from stream2segment.utils.resources import yaml_load
-from stream2segment.utils.url import urlparse
-from stream2segment.utils import get_progressbar, StringIO, ascii_decorate
-from stream2segment.io.db.models import Segment, concat, Station, DataCenter, Download, substr, \
-    Fdsnws
+from stream2segment.utils import StringIO, ascii_decorate
+from stream2segment.download.db import Segment, Station, DataCenter, Download
+from stream2segment.io.utils import Fdsnws
+from stream2segment.io.db.sqlconstructs import concat
 from stream2segment.download.utils import DownloadStats, EVENTWS_SAFE_PARAMS
 
 

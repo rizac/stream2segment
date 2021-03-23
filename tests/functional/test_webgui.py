@@ -19,8 +19,9 @@ import pytest
 import numpy as np
 from obspy.core.stream import read
 
-from stream2segment.io.db.models import Event, WebService, Channel, Station, \
-    DataCenter, Segment, Class, Download, ClassLabelling
+from stream2segment.process.db import (Event, WebService, Channel, Station,
+                                       DataCenter, Segment, Class, Download,
+                                       ClassLabelling)
 from stream2segment.utils import load_source
 from stream2segment.utils.inputvalidation import valid_session
 from stream2segment.utils.resources import get_templates_fpaths, yaml_load

@@ -45,7 +45,7 @@ class Test(object):
     @pytest.fixture(autouse=True)
     def init(self, request, db, data):
         # re-init a sqlite database (no-op if the db is not sqlite):
-        db.create(to_file=False, base=Base)
+        db.create(to_file=False, custom_base=Base)
 
     def init_db(self, session, list_of_dicts):
         # use insertdf which takes care of type casting:

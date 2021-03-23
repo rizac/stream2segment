@@ -24,7 +24,7 @@ from future.utils import viewitems
 import pandas as pd
 import psutil
 
-from stream2segment.io.db.models import Event, Station, Channel
+from stream2segment.download.db import Event, Station, Channel
 from stream2segment.io.db.pdsql import harmonize_columns, \
     harmonize_rows, colnames, syncdf
 from stream2segment.utils.url import (read_async as original_read_async,

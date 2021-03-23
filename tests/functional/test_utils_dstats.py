@@ -20,8 +20,8 @@ from click.testing import CliRunner
 from future.utils import PY2
 
 from stream2segment.cli import cli
-from stream2segment.io.db.models import Event, Station, WebService, Segment,\
-    Channel, Download, DataCenter
+from stream2segment.download.db import (Event, Station, WebService, Segment,
+                                        Channel, Download, DataCenter)
 from stream2segment.utils import ascii_decorate
 from stream2segment.download.utils import s2scodes
 

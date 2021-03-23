@@ -20,7 +20,7 @@ import pandas as pd
 from pandas.testing import assert_frame_equal
 
 from stream2segment.cli import cli
-from stream2segment.io.db.models import Segment
+from stream2segment.process.db import Segment
 from stream2segment.utils.resources import get_templates_fpath
 from stream2segment.process.main import run as process_main_run
 from stream2segment.utils.log import configlog4processing as o_configlog4processing

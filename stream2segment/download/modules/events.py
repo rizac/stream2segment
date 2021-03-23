@@ -22,7 +22,7 @@ from stream2segment.utils import StringIO
 from stream2segment.download.utils import (dbsyncdf, FailedDownload,
                                            response2normalizeddf, formatmsg,
                                            EVENTWS_MAPPING)
-from stream2segment.io.db.models import WebService, Event
+from stream2segment.download.db import WebService, Event
 from stream2segment.utils.url import urlread, socket, HTTPError
 from stream2segment.utils import urljoin, strptime, get_progressbar
 
