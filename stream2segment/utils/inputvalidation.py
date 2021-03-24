@@ -21,7 +21,7 @@ from stream2segment.utils.resources import yaml_load, get_ttable_fpath, \
     get_templates_fpath, normalizedpath
 from stream2segment.utils import strptime, load_source
 from stream2segment.traveltimes.ttloader import TTTable
-from stream2segment.io.utils import Fdsnws
+from stream2segment.io import Fdsnws
 from stream2segment.download.utils import Authorizer, EVENTWS_MAPPING,\
     EVENTWS_SAFE_PARAMS
 

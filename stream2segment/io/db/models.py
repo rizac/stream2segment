@@ -27,7 +27,7 @@ from sqlalchemy.orm import relationship, backref, deferred  # , load_only
 
 from sqlalchemy.sql.expression import (func, text)
 
-from stream2segment.io.utils import Fdsnws
+from stream2segment.io import Fdsnws
 
 
 class Base(object):

@@ -19,10 +19,9 @@ try:
 except ImportError:
     from io import StringIO
 
-import pandas as pd
 import pytest
 
-from stream2segment.io.utils import Fdsnws
+from stream2segment.io import Fdsnws
 from stream2segment.download.db import Download, Station
 from stream2segment.utils.url import URLError, HTTPError, responses
 from stream2segment.utils.resources import get_templates_fpath, yaml_load
