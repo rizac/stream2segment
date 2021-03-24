@@ -28,7 +28,7 @@ import stream2segment.process.db as dbp
 # from stream2segment.io.db.models import Base, Event, DataCenter, WebService, Download,\
 #     Station, Channel, Segment
 from stream2segment.traveltimes.ttloader import TTTable
-from stream2segment.utils.resources import yaml_load
+from stream2segment.io import yaml_load
 from stream2segment.download.modules.stations import compress
 
 

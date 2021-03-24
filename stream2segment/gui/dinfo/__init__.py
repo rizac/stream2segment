@@ -17,8 +17,7 @@ from future.utils import viewitems
 from jinja2 import Environment, FileSystemLoader
 from sqlalchemy.sql.expression import func, or_
 
-from stream2segment.io import StringIO  # <- io.StringIO py2 compatible
-from stream2segment.utils.resources import yaml_load
+from stream2segment.io import StringIO, yaml_load  # <- io.StringIO py2 compatible
 from stream2segment.io.cli import ascii_decorate
 from stream2segment.download.db import Segment, Station, DataCenter, Download
 from stream2segment.io import Fdsnws

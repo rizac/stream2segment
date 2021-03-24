@@ -35,8 +35,8 @@ from stream2segment.download.modules.segments import prepare_for_download, \
 from stream2segment.download.utils import NothingToDownload, Authorizer
 from stream2segment.download.utils import s2scodes
 from stream2segment.download.url import URLError, HTTPError, responses
-from stream2segment.utils.resources import get_templates_fpath, yaml_load
-
+from stream2segment.utils.resources import get_templates_fpath
+from stream2segment.io import yaml_load
 
 query_logger = logger = logging.getLogger("stream2segment")
 

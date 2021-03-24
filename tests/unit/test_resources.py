@@ -5,8 +5,9 @@ Created on 14 Mar 2018
 '''
 import os
 
-from stream2segment.utils.resources import yaml_load, get_templates_fpaths,\
+from stream2segment.utils.resources import get_templates_fpaths,\
     get_templates_dirpath
+from stream2segment.io import yaml_load
 
 
 def test_yaml_load():

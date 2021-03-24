@@ -33,7 +33,8 @@ from stream2segment.download.modules.datacenters import get_datacenters_df,\
     _get_local_routing_service
 from stream2segment.download.utils import FailedDownload, urljoin as original_urljoin
 from stream2segment.download.url import URLError, HTTPError, responses
-from stream2segment.utils.resources import get_templates_fpath, yaml_load
+from stream2segment.utils.resources import get_templates_fpath
+from stream2segment.io import yaml_load
 
 query_logger = logger = logging.getLogger("stream2segment")
 

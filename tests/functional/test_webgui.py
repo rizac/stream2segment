@@ -24,7 +24,8 @@ from stream2segment.process.db import (Event, WebService, Channel, Station,
                                        ClassLabelling)
 from stream2segment.process.inspectimport import load_source
 from stream2segment.utils.inputvalidation import valid_session
-from stream2segment.utils.resources import get_templates_fpaths, yaml_load
+from stream2segment.utils.resources import get_templates_fpaths
+from stream2segment.io import yaml_load
 from stream2segment.process.db import get_stream as original_get_stream
 
 # from stream2segment.gui.webapp import get_session

@@ -9,6 +9,7 @@ Event-based station search functions
 # (http://python-future.org/imports.html#explicit-imports):
 from builtins import map, next, zip, range, object
 
+from itertools import cycle
 from datetime import timedelta
 
 import numpy as np
@@ -26,7 +27,6 @@ from stream2segment.io.db.pdsql import mergeupdate, dfrowiter
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial) when
 # calling logging functions of stream2segment.download.utils:
 from stream2segment.download import logger  # @IgnorePep8
-from itertools import cycle
 
 
 def merge_events_stations(events_df, channels_df, search_radius,

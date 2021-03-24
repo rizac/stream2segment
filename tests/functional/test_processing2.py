@@ -22,7 +22,8 @@ from stream2segment.process.main import run as process_main_run, \
     process_segments_mp as o_process_segments_mp, \
     _get_chunksize_defaults as _o_get_chunksize_defaults, query4process
 from stream2segment.utils.log import configlog4processing as o_configlog4processing
-from stream2segment.utils.resources import get_templates_fpath, yaml_load
+from stream2segment.utils.resources import get_templates_fpath
+from stream2segment.io import yaml_load
 from stream2segment.process.writers import BaseWriter
 
 SEG_SEL_STRING = 'segments_selection'

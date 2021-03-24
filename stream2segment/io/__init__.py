@@ -1,7 +1,10 @@
 import re
+from os.path import abspath, dirname
 
 import yaml
-from future.utils import PY2
+from future.utils import PY2, string_types, viewkeys, viewitems
+
+from stream2segment.utils.resources import normalizedpath
 
 try:  # py3:
     from urllib.parse import urlparse
@@ -196,3 +199,74 @@ def open2writetext(file, **kw):
     if append:
         kw['mode'] = kw['mode'].replace('w', 'a')
     return compatible_open(file, **kw)
+
+
+def yaml_load(filepath, **updates):
+    """Load a yaml file into a dict (if `filepath` is a `dict`, skips loading).
+    Then:
+    1. If `filepath` denotes a file path (and not a dict),
+       normalizes non-absolute sqlite path values relative to `filepath`, if any
+    2. updates the dict values with `updates` and returns the yaml dict. The
+       update is recursive, meaning that nested dict values will be updated
+       recursively and not completely overwritten. Example:
+       param. a = {'b': 1, 'c' :2}, updates a = {'b': 2, 'd' :3} =>
+       result = {'b': 2, 'c': 2, 'd': 3}
+
+    :param filepath: str, dict or file-like object. If str, it must denote a
+        path to an existing .yaml file
+    :param updates: arguments which will updates the yaml dict before it is
+        returned
+    """
+    if isinstance(filepath, string_types):
+        with open(filepath, 'r') as stream:
+            ret = yaml.safe_load(stream)
+    elif isinstance(filepath, dict):
+        ret = filepath
+    elif hasattr(filepath, 'read'):
+        ret = yaml.safe_load(filepath)
+    else:
+        raise TypeError('required file path (string), file object or dict, '
+                        '%s found' % str(type(filepath)))
+
+    # update recursively (which means sub-dicts are updated as well and not
+    # overwritten):
+    def update(dic1, dic2):
+        """update dic1 with dic2 recursively"""
+        # Terminology: If the same key exists in both dicts and is mapped to
+        # two dictionaries (not necessarily equal), the latter are called
+        # "shared dicts"
+
+        # 1. Move shared dicts from `dic2` in a temporary dictionary 'dickeys':
+        dickeys = {k: dic2.pop(k) for k in viewkeys(dic1)
+                   if isinstance(dic1[k], dict) and
+                   isinstance(dic2.get(k, None), dict)}
+        # 2. `dic1` and `dic2` have no shared dicts, update dicts "normally":
+        dic1.update(dic2)
+        # 3. Update shared dicts recursively:
+        for k in dickeys:
+            update(dic1[k], dickeys[k])
+
+    update(ret, updates)
+
+    if isinstance(filepath, string_types):
+        # convert sqlite into absolute paths, if any. This does not convert
+        # nested sub-dict strings
+        configfilepath = abspath(dirname(filepath))
+        # convert relative sqlite path to absolute, assuming they are relative
+        # to the config:
+        sqlite_prefix = 'sqlite:///'
+        # we cannot modify a dict while in iteration, thus create a new dict of
+        # possibly modified sqlite paths and use later dict.update
+        newdict = {}
+        for key, val in viewitems(ret):
+            try:
+                if val.startswith(sqlite_prefix) and ":memory:" not in val:
+                    dbpath = val[len(sqlite_prefix):]
+                    npath = normalizedpath(dbpath, configfilepath)
+                    if npath != dbpath:
+                        newdict[key] = sqlite_prefix + npath
+            except AttributeError:
+                pass
+
+        ret.update(newdict)
+    return ret
