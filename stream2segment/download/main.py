@@ -26,7 +26,7 @@ from stream2segment.download.modules.segments import prepare_for_download,\
     download_save_segments, DcDataselectManager
 from stream2segment.download.modules.stations import (save_inventories,
                                                       query4inventorydownload)
-from stream2segment.utils import yaml_safe_dump
+from stream2segment.io import yaml_safe_dump
 from stream2segment.download.db import Download
 
 
