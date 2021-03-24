@@ -29,7 +29,7 @@ import stream2segment.process.db as dbp
 #     Station, Channel, Segment
 from stream2segment.traveltimes.ttloader import TTTable
 from stream2segment.utils.resources import yaml_load
-from stream2segment.io.utils import dumps_inv
+from stream2segment.download.modules.stations import compress
 
 
 # https://docs.pytest.org/en/3.0.0/parametrize.html#basic-pytest-generate-tests-example
@@ -495,7 +495,7 @@ def db4process(db, data):
             inv_xml = data.read("inventory_GE.APE.xml")
             s_ok = dbp.Station(datacenter_id=dtc.id, latitude=11, longitude=12, network='ok',
                            station='ok', start_time=datetime.utcnow(),
-                           inventory_xml=dumps_inv(inv_xml))
+                           inventory_xml=compress(inv_xml))
             session.add(s_ok)
             session.commit()
 

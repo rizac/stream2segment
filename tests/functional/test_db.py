@@ -19,12 +19,13 @@ from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm.session import object_session
 
+from stream2segment.download.modules.stations import compress
 from stream2segment.process.db import Event, WebService, Channel, Station, \
     DataCenter, Segment, Class, Download, ClassLabelling
 from stream2segment.io.db.models import withdata
 from stream2segment.io.db.pdsql import harmonize_rows, colnames, _harmonize_columns,\
     harmonize_columns
-from stream2segment.io.utils import dumps_inv, loads_inv
+from stream2segment.process.db import get_inventory_from_bytes
 from stream2segment.io.db.sqlevalexpr import exprquery
 
 
@@ -58,14 +59,14 @@ class Test(object):
 
         invdata = data.read("inventory_GE.APE.xml")
 
-        dumped_inv = dumps_inv(invdata,  compression='gzip', compresslevel=9)
+        dumped_inv = compress(invdata,  compression='gzip', compresslevel=9)
 
         assert len(dumped_inv) < len(invdata)
         e.inventory_xml = dumped_inv
 
         db.session.add(e)
         db.session.commit()
-        inv_xml = loads_inv(e.inventory_xml)
+        inv_xml = get_inventory_from_bytes(e.inventory_xml)
 
         assert isinstance(inv_xml, Inventory)
 

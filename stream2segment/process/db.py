@@ -10,28 +10,27 @@ import os
 from datetime import datetime
 from math import pi
 from io import BytesIO
+import gzip
+import zipfile
+import zlib
+import bz2
 
-from sqlalchemy import (Integer, String, Float, event)
+from sqlalchemy import event
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.ext.hybrid import hybrid_property  # , hybrid_method
-from sqlalchemy.orm import relationship, backref, deferred  # , load_only
+from sqlalchemy.ext.hybrid import hybrid_property
+from sqlalchemy.orm import relationship, backref
 from sqlalchemy.orm.session import object_session
-from sqlalchemy.sql.expression import (func, text, case, select,
-                                       FunctionElement,
-                                       # null, join, alias, exists, and_
-                                       )
+from sqlalchemy.sql.expression import func, text, case, select
 from obspy.core.stream import _read  # noqa
+from obspy.core.inventory.inventory import read_inventory
 
 from stream2segment.io.db.sqlconstructs import missing_data_ratio, missing_data_sec, \
     duration_sec, deg2km, concat, substr
 from stream2segment.io.db.sqlevalexpr import exprquery
-from stream2segment.io.utils import loads_inv
 from stream2segment.process import SkipSegment
-from stream2segment.io.db import models
-
-from stream2segment.io.db import get_session  # noqa  (Make it publicly avail. from here)
+from stream2segment.io.db import models, get_session  # noqa
+# (get_session should be imported from here in user code)
 
 
 Base = declarative_base(cls=models.Base)
@@ -175,7 +174,59 @@ def get_inventory(station):
     data = station.inventory_xml
     if not data:
         raise SkipSegment('no data')
-    return loads_inv(data)
+    return get_inventory_from_bytes(data)
+
+
+def get_inventory_from_bytes(bytestr):
+    """Return the inventory object given an input bytes sequence representing an
+    inventory (xml) from, e.g., downloaded data
+    :param bytestr: the sequence of bytes. It can be compressed with any of the function
+    defined when saving the byte string (gzip, bz and so on). The method will first try
+    to de-compress data. Then, the de-compressed data (if de-compression does not fail)
+    or the data passed as argument will be passed to ObsPy `read_inventory`
+
+    :return: an `class: obspy.core.inventory.inventory.Inventory` object
+    """
+    try:
+        bytestr = decompress(bytestr)
+    except(IOError, zipfile.BadZipfile, zlib.error) as _:
+        pass  # try anyway to open the file (who knows)
+    return read_inventory(BytesIO(bytestr), format="STATIONXML")
+
+
+def decompress(bytestr):
+    """Decompress `bytestr` (a sequence of bytes) trying to guess the compression
+    format. If no guess can be made, returns bytestr. Otherwise, returns the
+    de-compressed sequence of bytes. Raises IOError, zipfile.BadZipfile, zlib.error if
+    compression is detected but did not work. Note that this might happen if
+    (accidentally) the sequence of bytes is not compressed but starts with bytes
+    denoting a compression type. Thus function caller should not necessarily raise
+    exceptions if this function does, but try to read `bytestr` as if it was not
+    compressed
+    """
+    # check if the data is compressed (https://stackoverflow.com/a/19127748):
+    if bytestr.startswith(b"\x1f\x8b\x08"):  # gzip
+        # raises IOError in case
+        with gzip.GzipFile(mode='rb', fileobj=BytesIO(bytestr)) as gzip_obj:
+            bytestr = gzip_obj.read()
+    elif bytestr.startswith(b"\x42\x5a\x68"):  # bz2
+        bytestr = bz2.decompress(bytestr)  # raises IOError in case
+    elif bytestr.startswith(b"\x50\x4b\x03\x04"):  # zip
+        # raises zipfile.BadZipfile in case
+        with zipfile.ZipFile(BytesIO(bytestr), 'r') as zip_obj:
+            namelist = zip_obj.namelist()
+            if len(namelist) != 1:
+                raise ValueError("Found zipped content with %d archives, "
+                                 "can only uncompress single archive "
+                                 "content" % len(namelist))
+            bytestr = zip_obj.read(namelist[0])
+    else:
+        barray = bytearray(bytestr[:2])  # py 2+3 https://stackoverflow.com/a/41843740
+        byte1 = barray[0]
+        byte2 = barray[1]
+        if (byte1 * 256 + byte2) % 31 == 0 and (byte1 & 143) == 8:  # zlib. 143=int('10001111', 2)
+            bytestr = zlib.decompress(bytestr)  # raises zlib.error in case
+    return bytestr
 
 
 class Segment(Base, models.Segment):
