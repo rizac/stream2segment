@@ -16,7 +16,7 @@ import pandas as pd
 
 from stream2segment.download.db import Station, Channel, Event, Segment
 from stream2segment.download.utils import FailedDownload, formatmsg
-from stream2segment.utils import get_progressbar
+from stream2segment.io.cli import get_progressbar
 from stream2segment.io.db.pdsql import mergeupdate, dfrowiter
 
 

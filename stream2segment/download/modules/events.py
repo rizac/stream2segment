@@ -23,7 +23,7 @@ from stream2segment.download.utils import (dbsyncdf, FailedDownload,
                                            EVENTWS_MAPPING, strptime, urljoin)
 from stream2segment.download.db import WebService, Event
 from stream2segment.download.url import urlread, socket, HTTPError
-from stream2segment.utils import get_progressbar
+from stream2segment.io.cli import get_progressbar
 
 # logger: do not use logging.getLogger(__name__) but point to
 # stream2segment.download.logger: this way we preserve the logging namespace

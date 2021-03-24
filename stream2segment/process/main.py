@@ -36,7 +36,7 @@ import numpy as np
 
 from stream2segment.io.db.sqlevalexpr import exprquery
 from stream2segment.process import SkipSegment
-from stream2segment.utils import get_progressbar
+from stream2segment.io.cli import get_progressbar
 from stream2segment.process.db import get_session, Segment, Station
 from stream2segment.utils.inputvalidation import valid_pyfunc
 

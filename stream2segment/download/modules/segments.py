@@ -23,7 +23,7 @@ from stream2segment.io import Fdsnws
 from stream2segment.download.utils import read_async, NothingToDownload,\
     DbExcLogger, logwarn_dataframe, DownloadStats, formatmsg, s2scodes, url2str
 from stream2segment.download.modules.mseedlite import MSeedError, unpack as mseedunpack
-from stream2segment.utils import get_progressbar
+from stream2segment.io.cli import get_progressbar
 from stream2segment.io.db.pdsql import dbquery2df, mergeupdate, DbManager
 
 from stream2segment.download.url import Request, get_host  # handle py2+3 compatibility

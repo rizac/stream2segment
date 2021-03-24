@@ -42,7 +42,7 @@ import stream2segment.download.db as dbd
 from stream2segment.process.main import run as run_process, run_and_yield, \
     fetch_segments_ids
 from stream2segment.download.main import run as run_download, new_db_download
-from stream2segment.utils import (ascii_decorate)
+from stream2segment.io.cli import ascii_decorate
 from stream2segment.io.db import secure_dburl
 from stream2segment.io import yaml_safe_dump, open2writetext
 from stream2segment.utils.resources import get_templates_dirpath
