@@ -20,7 +20,7 @@ from obspy import Stream, Trace
 from obspy.core.utcdatetime import UTCDateTime
 
 from stream2segment.process import gui
-from stream2segment.utils import load_source, iterfuncs
+from stream2segment.process.inspectimport import iterfuncs
 from stream2segment.io import yaml_safe_dump, StringIO  # <- io.StringIO py2 compatible
 from stream2segment.gui.webapp.mainapp.jsplot import Plot, isoformat
 from stream2segment.gui.webapp.mainapp import db

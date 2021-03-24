@@ -16,7 +16,7 @@ from stream2segment.cli import cli
 from stream2segment.utils.resources import get_templates_fpath, yaml_load, \
     get_templates_dirpath, get_templates_fpaths
 from stream2segment.main import init as orig_init, show as orig_show
-from stream2segment.utils import load_source
+from stream2segment.process.inspectimport import load_source
 
 
 @pytest.fixture
