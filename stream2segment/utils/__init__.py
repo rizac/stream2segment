@@ -8,7 +8,7 @@ Common utilities for the whole program
 # (http://python-future.org/imports.html#explicit-imports):
 from builtins import open as compatible_open
 
-from future.utils import string_types, itervalues, PY2
+from future.utils import itervalues, PY2
 
 # this can not apparently be fixed with the future package:
 # The problem is io.StringIO accepts unicode in python2 and strings in Py3:
@@ -22,12 +22,9 @@ import sys
 import re
 # import time
 from itertools import chain
-from datetime import datetime
 # from collections import defaultdict
 import inspect
 from contextlib import contextmanager
-from dateutil import parser as dateparser
-from dateutil.tz import tzutc
 
 import yaml
 from click import progressbar as click_progressbar
@@ -101,91 +98,6 @@ def iterfuncs(pymodule, include_classes=False):
     for func in itervalues(pymodule.__dict__):
         if is_mod_function(pymodule, func, include_classes):
             yield func
-
-
-def tounicode(string, decoding='utf-8'):
-    """Convert string to 'text' (unicode in python2, str in Python3). Function
-    Python 2-3 compatible. If string is already a 'text' type, returns it
-
-    :param string: a `str`, 'bytes' or (in py2) 'unicode' object.
-    :param decoding: the decoding used if `string` has to be converted to text.
-        Defaults to 'utf-8' when missing
-    :return: the text (`str` in python3, `unicode` string in Python2)
-        representing `string`
-    """
-    # Curiously, future.utils has no such a simple method. So instead of
-    # checking when string is text, let's check when it is NOT, i.e. when it's
-    # instance of bytes (str in py2 is instanceof bytes):
-    return string.decode(decoding) if isinstance(string, bytes) else string
-
-
-def strptime(obj):
-    """Convert `obj` to a `datetime` object **in UTC without tzinfo**. This
-    function should be used within this program as the opposite of
-    `datetime.isoformat()` for parsing date times from, e.g. web service
-    queries or command line inputs, under the assumption that no time zone
-    means UTC.
-
-    If `obj` is string, creates a `datetime` object by parsing it. If `obj`
-    is not a date-time object, raises TypeError. Otherwise, uses `obj` as
-    `datetime` object. Then, if the datetime object has a tzinfo supplied,
-    converts it to UTC and removes the tzinfo attribute. Finally, returns the
-    datetime object
-
-    Implementation details: `datetime.strptime`does not keep time zone
-    information in the parsed date-time, nor it recognizes 'Z' as 'UTC' (raises
-    instead). The library `dateutil`, on the other hand, is too permissive and
-    has too many false "positives" (e.g. integers or strings such as  '5-7' are
-    successfully parsed into date-time). We choose `dateutil` as the code is
-    shorter, cleaner, and a single hack is needed: we simply check, after a
-    string `obj` is succesfully parsed into `dtime`, that `obj` contains at
-    least the string `dtime.strftime(format='%Y-%m-%d')` (such as e,g,
-    '2006-01-31')
-
-    :param obj: `datetime` object or string in ISO format (see examples below)
-
-    :return: a datetime object in UTC, with the tzinfo removed
-    :raise: TypeError or ValueError
-    :Example. These are all equivalent:
-    ```
-    strptime("2016-06-01T00:00:00.000000Z")
-    strptime("2016-06-01T00.01.00CET")
-    strptime("2016-06-01 00:00:00.000000Z")
-    strptime("2016-06-01 00:00:00.000000")
-    strptime("2016-06-01 00:00:00")
-    strptime("2016-06-01 00:00:00Z")
-    strptime("2016-06-01")
-
-    This raises ValueError:
-    strptime("2016-06-01Z")
-
-    This raises TypeError:
-    strptime(45.5)
-    ```
-    """
-    dtime = obj
-    if isinstance(obj, string_types):
-        try:
-            dtime = dateparser.parse(obj, fuzzy=False, fuzzy_with_tokens=False)
-            # now, dateperser is quite hacky on purpose, guessing too much.
-            # datetime.strptime, on the other hand, does not parse Z as UTC
-            # (raises in case) and does not include the timezone in the parsed
-            # date. The best (hacky) solution is to assert the bare minimum:
-            # that %Y-%m-%d is in dtime:
-            assert dtime.strftime('%Y-%m-%d') in obj
-        except Exception as exc:
-            raise ValueError(str(exc))
-
-    if not isinstance(dtime, datetime):
-        raise TypeError('string or datetime required, found %s' %
-                        str(type(obj)))
-
-    if dtime.tzinfo is not None:
-        # if a time zone is specified, convert to utc and remove the timezone
-        dtime = dtime.astimezone(tzutc()).replace(tzinfo=None)
-
-    # the datetime has no timezone provided AND is in UTC:
-    return dtime
 
 
 def secure_dburl(dburl):

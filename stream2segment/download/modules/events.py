@@ -21,10 +21,10 @@ import pandas as pd
 from stream2segment.utils import StringIO
 from stream2segment.download.utils import (dbsyncdf, FailedDownload,
                                            response2normalizeddf, formatmsg,
-                                           EVENTWS_MAPPING)
+                                           EVENTWS_MAPPING, strptime)
 from stream2segment.download.db import WebService, Event
 from stream2segment.utils.url import urlread, socket, HTTPError
-from stream2segment.utils import urljoin, strptime, get_progressbar
+from stream2segment.utils import urljoin, get_progressbar
 
 # logger: do not use logging.getLogger(__name__) but point to
 # stream2segment.download.logger: this way we preserve the logging namespace

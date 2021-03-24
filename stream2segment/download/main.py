@@ -26,7 +26,7 @@ from stream2segment.download.modules.segments import prepare_for_download,\
     download_save_segments, DcDataselectManager
 from stream2segment.download.modules.stations import (save_inventories,
                                                       query4inventorydownload)
-from stream2segment.utils import tounicode, yaml_safe_dump
+from stream2segment.utils import yaml_safe_dump
 from stream2segment.download.db import Download
 
 
@@ -234,3 +234,19 @@ def new_db_download(session, params=None):
     download_id = download_inst.id
     session.close()  # frees memory?
     return download_id
+
+
+def tounicode(string, decoding='utf-8'):
+    """Convert string to 'text' (unicode in python2, str in Python3). Function
+    Python 2-3 compatible. If string is already a 'text' type, returns it
+
+    :param string: a `str`, 'bytes' or (in py2) 'unicode' object.
+    :param decoding: the decoding used if `string` has to be converted to text.
+        Defaults to 'utf-8' when missing
+    :return: the text (`str` in python3, `unicode` string in Python2)
+        representing `string`
+    """
+    # Curiously, future.utils has no such a simple method. So instead of
+    # checking when string is text, let's check when it is NOT, i.e. when it's
+    # instance of bytes (str in py2 is instanceof bytes):
+    return string.decode(decoding) if isinstance(string, bytes) else string
