@@ -6,11 +6,8 @@ Common utilities for the whole program
 """
 # make open py2-3 compatible. Call 'from stream2segment.utils import open'
 # (http://python-future.org/imports.html#explicit-imports):
-from builtins import open as compatible_open
 
-from future.utils import itervalues, PY2
-
-
+from future.utils import itervalues
 
 import os
 import sys
@@ -176,40 +173,3 @@ def get_progressbar(show, **kw):
             yield pbar
 
 
-def open2writetext(file, **kw):
-    """Python 2+3 compatible function for writing **text** files with `str`
-    types to file (i.e., object of `<type str>` in *both* python2 and 3).
-    This function should be used with the csv writer or when we provide an
-    input string which is `str` type in both python2 and 3 (e.g., by writing
-    a = 'abc'). This function basically returns the python3 `open` function
-    where the 'mode' argument is 'wb' in Python2 and 'w' in Python3. In the
-    latter case, 'errors' and 'encoding' will be removed from `kw`, if any,
-    because not compatible with 'wb' mode.
-    Using `io.open(mode='w',..)` in py2 and `open(mode='w', ...)` in py3
-    provides compatibility across function **signatures**, but the user must
-    provide `unicodes` in python2 and `str` in py3. If this is not the case
-    (e.g., we created a string such as a="abc" and we write it to a file, or we
-    use the csv module) this function takes care of using the correct 'mode' in
-    `open`
-
-    :param file: the file. It is the first argument of the builtin `open`
-        function
-    :param kw: keyword arguments as for the python3 open function. 'mode' will
-        be replaced if present ('wb' for Python2, 'w' for Python 3). An
-        optional 'append' argument (True or False) will ad 'a' to the 'mode'
-        (i.e., 'wba' for Python2, 'wa' for Python 3). If python2, 'encoding',
-        'newline' and 'errors' will be removed as not compatible with the 'wb'
-        mode (they raise if present)
-    :return: the python3 open function for writing `str` types into text file
-    """
-    append = kw.pop('append', False)
-    if PY2:
-        kw.pop('encoding', None)
-        kw.pop('errors', None)
-        kw.pop('newline', None)
-        kw['mode'] = 'wb'
-    else:
-        kw['mode'] = 'w'
-    if append:
-        kw['mode'] = kw['mode'].replace('w', 'a')
-    return compatible_open(file, **kw)

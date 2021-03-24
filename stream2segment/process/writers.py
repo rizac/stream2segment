@@ -11,7 +11,7 @@ import csv
 from future.utils import viewkeys
 import pandas as pd
 
-from stream2segment.utils import open2writetext
+from stream2segment.io import open2writetext
 
 HDF_FILE_EXTENSIONS = ['.hdf', '.h5', '.hdf5']
 SEGMENT_ID_COLNAME = 'segment_db_id'
