@@ -16,7 +16,8 @@ from stream2segment.process.db import (Segment, Class, ClassLabelling,
                                        Station, Download,
                                        get_classlabels as _get_classes)
 from stream2segment.io.db.sqlevalexpr import exprquery, Inspector
-from stream2segment.utils import secure_dburl
+from stream2segment.io.db import secure_dburl
+
 # import atexit
 
 _session = None  # pylint: disable=invalid-name

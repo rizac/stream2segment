@@ -17,7 +17,8 @@ import pytest
 from click.termui import progressbar
 
 from stream2segment.utils.url import urlread, URLException, URLError, HTTPError, Request
-from stream2segment.utils import secure_dburl, get_progressbar, Nop
+from stream2segment.utils import get_progressbar, Nop
+from stream2segment.io.db import secure_dburl
 from stream2segment.download.utils import formatmsg, strptime
 
 DEFAULT_TIMEOUT = socket._GLOBAL_DEFAULT_TIMEOUT

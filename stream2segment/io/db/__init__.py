@@ -1,3 +1,4 @@
+import re
 from contextlib import contextmanager
 
 from sqlalchemy.exc import ProgrammingError, OperationalError
@@ -155,3 +156,12 @@ def _engine(url_or_engine):
 #     return scoped_session(session_factory)
 
 
+def secure_dburl(dburl):
+    """Return a printable database name by removing passwords, if any
+
+    :param dburl: database path as string in the format:
+        dialect+driver://username:password@host:port/database
+        For info see:
+        http://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls
+    """
+    return re.sub(r"://(.*?):(.*)@", r"://\1:***@", dburl)

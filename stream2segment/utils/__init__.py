@@ -11,10 +11,7 @@ from future.utils import itervalues
 
 import os
 import sys
-import re
-# import time
 from itertools import chain
-# from collections import defaultdict
 import inspect
 from contextlib import contextmanager
 
@@ -89,17 +86,6 @@ def iterfuncs(pymodule, include_classes=False):
     for func in itervalues(pymodule.__dict__):
         if is_mod_function(pymodule, func, include_classes):
             yield func
-
-
-def secure_dburl(dburl):
-    """Return a printable database name by removing passwords, if any
-
-    :param dburl: database path as string in the format:
-        dialect+driver://username:password@host:port/database
-        For info see:
-        http://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls
-    """
-    return re.sub(r"://(.*?):(.*)@", r"://\1:***@", dburl)
 
 
 def ascii_decorate(string):
