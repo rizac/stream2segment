@@ -19,11 +19,51 @@ import pandas as pd
 from obspy.geodetics.base import locations2degrees as obspyloc2deg
 
 from stream2segment.download.db import DataCenter
-from stream2segment.download.modules.stationsearch import locations2degrees as s2sloc2deg,\
-    get_magdep_search_radius
+from stream2segment.download.modules.stationsearch import \
+    locations2degrees as s2sloc2deg, get_magdep_search_radius
 from stream2segment.download.modules.datacenters import EidaValidator
-from stream2segment.download.utils import s2scodes, DownloadStats, to_fdsn_arg, \
-    HTTPCodesCounter, logwarn_dataframe
+from stream2segment.download.utils import (s2scodes, DownloadStats, to_fdsn_arg,
+                                           HTTPCodesCounter, logwarn_dataframe,
+                                           strconvert)
+
+
+def test_strconvert():
+    strings = ["%", "_", "*", "?", ".*", "."]
+
+    # sql 2 wildcard
+    expected = ["*", "?", "*", "?", ".*", "."]
+    for a, exp in zip(strings, expected):
+        assert strconvert.sql2wild(a) == exp
+        assert strconvert.sql2wild(a+a) == exp+exp
+        assert strconvert.sql2wild("a"+a) == "a"+exp
+        assert strconvert.sql2wild(a+"a") == exp+"a"
+
+    # wildcard 2 sql
+    expected = ["%", "_", "%", "_", ".%", "."]
+    for a, exp in zip(strings, expected):
+        assert strconvert.wild2sql(a) == exp
+        assert strconvert.wild2sql(a+a) == exp+exp
+        assert strconvert.wild2sql("a"+a) == "a"+exp
+        assert strconvert.wild2sql(a+"a") == exp+"a"
+
+    # sql 2 regex
+    expected = [".*", ".", "\\*", "\\?", "\\.\\*", "\\."]
+    for a, exp in zip(strings, expected):
+        assert strconvert.sql2re(a) == exp
+        assert strconvert.sql2re(a+a) == exp+exp
+        assert strconvert.sql2re("a"+a) == "a"+exp
+        assert strconvert.sql2re(a+"a") == exp+"a"
+
+    # wild 2 regex
+    # Note that we escape '%' and '_' becasue different versions
+    # of python escape them (=> insert a backslash before) differently
+    # See https://docs.python.org/3/library/re.html#re.escape
+    expected = [re.escape("%"), re.escape("_"), ".*", ".", "\\..*", "\\."]
+    for a, exp in zip(strings, expected):
+        assert strconvert.wild2re(a) == exp
+        assert strconvert.wild2re(a+a) == exp+exp
+        assert strconvert.wild2re("a"+a) == "a"+exp
+        assert strconvert.wild2re(a+"a") == exp+"a"
 
 
 @pytest.mark.parametrize('lat1, lon1, lat2, lon2',

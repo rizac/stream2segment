@@ -17,50 +17,10 @@ import pytest
 from click.termui import progressbar
 
 from stream2segment.utils.url import urlread, URLException, URLError, HTTPError, Request
-from stream2segment.utils import secure_dburl, get_progressbar, Nop, strconvert, strptime
+from stream2segment.utils import secure_dburl, get_progressbar, Nop, strptime
 from stream2segment.download.utils import formatmsg
 
-
 DEFAULT_TIMEOUT = socket._GLOBAL_DEFAULT_TIMEOUT
-
-
-def test_strconvert():
-    strings = ["%", "_", "*", "?", ".*", "."]
-
-    # sql 2 wildcard
-    expected = ["*", "?", "*", "?", ".*", "."]
-    for a, exp in zip(strings, expected):
-        assert strconvert.sql2wild(a) == exp
-        assert strconvert.sql2wild(a+a) == exp+exp
-        assert strconvert.sql2wild("a"+a) == "a"+exp
-        assert strconvert.sql2wild(a+"a") == exp+"a"
-
-    # wildcard 2 sql
-    expected = ["%", "_", "%", "_", ".%", "."]
-    for a, exp in zip(strings, expected):
-        assert strconvert.wild2sql(a) == exp
-        assert strconvert.wild2sql(a+a) == exp+exp
-        assert strconvert.wild2sql("a"+a) == "a"+exp
-        assert strconvert.wild2sql(a+"a") == exp+"a"
-
-    # sql 2 regex
-    expected = [".*", ".", "\\*", "\\?", "\\.\\*", "\\."]
-    for a, exp in zip(strings, expected):
-        assert strconvert.sql2re(a) == exp
-        assert strconvert.sql2re(a+a) == exp+exp
-        assert strconvert.sql2re("a"+a) == "a"+exp
-        assert strconvert.sql2re(a+"a") == exp+"a"
-
-    # wild 2 regex
-    # Note that we escape '%' and '_' becasue different versions
-    # of python escape them (=> insert a backslash before) differently
-    # See https://docs.python.org/3/library/re.html#re.escape
-    expected = [re.escape("%"), re.escape("_"), ".*", ".", "\\..*", "\\."]
-    for a, exp in zip(strings, expected):
-        assert strconvert.wild2re(a) == exp
-        assert strconvert.wild2re(a+a) == exp+exp
-        assert strconvert.wild2re("a"+a) == "a"+exp
-        assert strconvert.wild2re(a+"a") == exp+"a"
 
 
 @patch('stream2segment.utils.url.urlopen')

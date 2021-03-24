@@ -22,7 +22,7 @@ import sys
 import re
 # import time
 from itertools import chain
-from datetime import datetime, timedelta
+from datetime import datetime
 # from collections import defaultdict
 import inspect
 from contextlib import contextmanager
@@ -101,95 +101,6 @@ def iterfuncs(pymodule, include_classes=False):
     for func in itervalues(pymodule.__dict__):
         if is_mod_function(pymodule, func, include_classes):
             yield func
-
-
-class strconvert(object):
-    """String conversion utilities from sql-LIKE operator's wildcards,
-    Filesystem's wildcards, and regular expressions
-    """
-    @staticmethod
-    def sql2wild(text):
-        """Return a new string from `text` by replacing all sql-LIKE-operator's
-        wildcard characters ('sql') with their filesystem's counterparts
-        ('wild'):
-
-        === ==== === ===============================
-        sql wild re  meaning
-        === ==== === ===============================
-        %   *    .*  matches zero or more characters
-        _   ?    .   matches exactly one character
-        === ==== === ===============================
-
-        :return: string. Note that this function performs a simple
-            replacement: wildcard characters in the input string will result in
-            a string that is not the perfect translation of the input
-        """
-        return text.replace("%", "*").replace("_", "?")
-
-    @staticmethod
-    def wild2sql(text):
-        """Return a new string from `text` by replacing all filesystem's wildcard
-        characters ('wild') with their sql-LIKE-operator's counterparts ('sql'):
-
-        === ==== === ===============================
-        sql wild re  meaning
-        === ==== === ===============================
-        %   *    .*  matches zero or more characters
-        _   ?    .   matches exactly one character
-        === ==== === ===============================
-
-        :return: string. Note that this function performs a simple replacement:
-            sql special characters in the input string will result in a string
-            that is not the perfect translation of the input
-        """
-        return text.replace("*", "%").replace("?", "_")
-
-    @staticmethod
-    def wild2re(text):
-        """Return a new string from `text` by replacing all filesystem's wildcard
-        characters ('wild') with their regular expression's counterparts ('re'):
-
-        === ==== === ===============================
-        sql wild re  meaning
-        === ==== === ===============================
-        %   *    .*  matches zero or more characters
-        _   ?    .   matches exactly one character
-        === ==== === ===============================
-
-        :return: string. Note that this function performs a simple replacement:
-            regexp special characters in the input string will result in a
-            string that is not the perfect translation of the input
-        """
-        return re.escape(text).replace(r"\*", ".*").replace(r"\?", ".")
-
-    @staticmethod
-    def sql2re(text):
-        """Return a new string from `text` by replacing all sql-LIKE-operator's
-        wildcard characters ('sql') with their regular expression's
-        counterparts ('re'):
-
-        === ==== === ===============================
-        sql wild re  meaning
-        === ==== === ===============================
-        %   *    .*  matches zero or more characters
-        _   ?    .   matches exactly one character
-        === ==== === ===============================
-
-        :return: string. Note that this function performs a simple replacement:
-            regexp special characters in the input string will result in a
-            string that is not the perfect translation of the input
-        """
-        if PY2 or sys.version_info[1] < 3:
-            # py2 and py3.3- escape "_" (insert '\' before) AND '%':
-            percent, underscore = r"\%", r"\_"
-        elif sys.version_info[1] < 7:
-            # versions up to 3.7 do not escape anymore "_":
-            percent, underscore = r"\%", "_"
-        else:
-            # from version 3.7, only special characters are escaped,
-            # thus neither "%" nor "_" are escaped:
-            percent, underscore = "%", "_"
-        return re.escape(text).replace(percent, ".*").replace(underscore, ".")
 
 
 def tounicode(string, decoding='utf-8'):
@@ -318,7 +229,7 @@ def ascii_decorate(string):
 
 
 class Nop(object):
-    """Dummy class (no-op), used to yeild a contextmanager where each method
+    """Dummy class (no-op), used to yield a contextmanager where each method
     is no-op. Used in `get_progressbar`
     """
     # https://stackoverflow.com/a/24946360

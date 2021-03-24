@@ -39,15 +39,13 @@ from stream2segment.utils.inputvalidation import load_config_for_process, pop_pa
 from stream2segment.utils.log import configlog4download, configlog4processing,\
     closelogger, logfilepath
 import stream2segment.download.db as dbd
-import stream2segment.process.db as dbp
 from stream2segment.process.main import run as run_process, run_and_yield, \
     fetch_segments_ids
 from stream2segment.download.main import run as run_download, new_db_download
-from stream2segment.utils import secure_dburl, strconvert, iterfuncs, \
-    open2writetext, ascii_decorate, yaml_safe_dump
+from stream2segment.utils import (secure_dburl, open2writetext, ascii_decorate,
+                                  yaml_safe_dump)
 from stream2segment.utils.resources import get_templates_dirpath
 from stream2segment.gui.main import create_s2s_show_app, run_in_browser
-# from stream2segment.process import lib as s2s_math
 from stream2segment.download.utils import FailedDownload
 from stream2segment.gui.dinfo import DReport, DStats
 from stream2segment.resources.templates import DOCVARS

@@ -11,6 +11,7 @@ Module implementing all functions not involving IO operations
 from __future__ import division
 # make the following(s) behave like python3 counterparts if running from python2.7.x
 # (http://python-future.org/imports.html#explicit-imports):
+import sys
 from builtins import zip, range
 
 import os
@@ -19,7 +20,7 @@ from itertools import chain
 from collections import OrderedDict
 from functools import cmp_to_key
 
-from future.utils import viewitems
+from future.utils import viewitems, PY2
 
 import pandas as pd
 import psutil
@@ -909,3 +910,92 @@ class Authorizer(object):
         if (self._uname, self._pswd) == (None, None):
             return None
         return self._uname, self._pswd
+
+
+class strconvert(object):
+    """String conversion utilities from sql-LIKE operator's wildcards,
+    Filesystem's wildcards, and regular expressions
+    """
+    @staticmethod
+    def sql2wild(text):
+        """Return a new string from `text` by replacing all sql-LIKE-operator's
+        wildcard characters ('sql') with their filesystem's counterparts
+        ('wild'):
+
+        === ==== === ===============================
+        sql wild re  meaning
+        === ==== === ===============================
+        %   *    .*  matches zero or more characters
+        _   ?    .   matches exactly one character
+        === ==== === ===============================
+
+        :return: string. Note that this function performs a simple
+            replacement: wildcard characters in the input string will result in
+            a string that is not the perfect translation of the input
+        """
+        return text.replace("%", "*").replace("_", "?")
+
+    @staticmethod
+    def wild2sql(text):
+        """Return a new string from `text` by replacing all filesystem's wildcard
+        characters ('wild') with their sql-LIKE-operator's counterparts ('sql'):
+
+        === ==== === ===============================
+        sql wild re  meaning
+        === ==== === ===============================
+        %   *    .*  matches zero or more characters
+        _   ?    .   matches exactly one character
+        === ==== === ===============================
+
+        :return: string. Note that this function performs a simple replacement:
+            sql special characters in the input string will result in a string
+            that is not the perfect translation of the input
+        """
+        return text.replace("*", "%").replace("?", "_")
+
+    @staticmethod
+    def wild2re(text):
+        """Return a new string from `text` by replacing all filesystem's wildcard
+        characters ('wild') with their regular expression's counterparts ('re'):
+
+        === ==== === ===============================
+        sql wild re  meaning
+        === ==== === ===============================
+        %   *    .*  matches zero or more characters
+        _   ?    .   matches exactly one character
+        === ==== === ===============================
+
+        :return: string. Note that this function performs a simple replacement:
+            regexp special characters in the input string will result in a
+            string that is not the perfect translation of the input
+        """
+        return re.escape(text).replace(r"\*", ".*").replace(r"\?", ".")
+
+    @staticmethod
+    def sql2re(text):
+        """Return a new string from `text` by replacing all sql-LIKE-operator's
+        wildcard characters ('sql') with their regular expression's
+        counterparts ('re'):
+
+        === ==== === ===============================
+        sql wild re  meaning
+        === ==== === ===============================
+        %   *    .*  matches zero or more characters
+        _   ?    .   matches exactly one character
+        === ==== === ===============================
+
+        :return: string. Note that this function performs a simple replacement:
+            regexp special characters in the input string will result in a
+            string that is not the perfect translation of the input
+        """
+        if PY2 or sys.version_info[1] < 3:
+            # py2 and py3.3- escape "_" (insert '\' before) AND '%':
+            percent, underscore = r"\%", r"\_"
+        elif sys.version_info[1] < 7:
+            # versions up to 3.7 do not escape anymore "_":
+            percent, underscore = r"\%", "_"
+        else:
+            # from version 3.7, only special characters are escaped,
+            # thus neither "%" nor "_" are escaped:
+            percent, underscore = "%", "_"
+        return re.escape(text).replace(percent, ".*").replace(underscore, ".")
