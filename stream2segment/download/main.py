@@ -16,7 +16,6 @@ import logging
 import psutil
 
 from stream2segment.io.db.pdsql import dbquery2df
-from stream2segment.utils.resources import version
 from stream2segment.download.utils import NothingToDownload, FailedDownload
 from stream2segment.download.modules.events import get_events_df
 from stream2segment.download.modules.datacenters import get_datacenters_df
@@ -250,3 +249,16 @@ def tounicode(string, decoding='utf-8'):
     # checking when string is text, let's check when it is NOT, i.e. when it's
     # instance of bytes (str in py2 is instanceof bytes):
     return string.decode(decoding) if isinstance(string, bytes) else string
+
+
+def version():
+    dir_ = os.path.abspath(os.path.dirname(__file__))
+    while True:
+        filez = set(os.listdir(dir_))
+        if 'setup.py' in filez and 'version' in filez:
+            with open(os.path.join(dir_, "version")) as _:
+                return _.read().strip()
+        _  = os.path.dirname(dir_)
+        if _ == dir_:  # root
+            raise ValueError('No version file found')
+        dir_ = _

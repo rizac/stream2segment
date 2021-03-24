@@ -114,12 +114,20 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         self.configfile = get_templates_fpath("download.yaml")
         # self._logout_cache = ""
 
+        class patches(object):
+            urlopen = 'stream2segment.download.url.urlopen'
+            valid_session = 'stream2segment.utils.inputvalidation.valid_session'
+            close_session = 'stream2segment.main.closesession'
+            yaml_load = 'stream2segment.utils.inputvalidation.yaml_load'
+            ThreadPool = 'stream2segment.download.url.ThreadPool'
+            config4download = 'stream2segment.main.configlog4download'
+
         # class-level patchers:
-        with patch('stream2segment.utils.url.urlopen') as mock_urlopen:
+        with patch(patches.urlopen) as mock_urlopen:
             self.mock_urlopen = mock_urlopen
-            with patch('stream2segment.utils.inputvalidation.valid_session', return_value=db.session):
+            with patch(patches.valid_session, return_value=db.session):
                 # this mocks yaml_load and sets inventory to False, as tests rely on that
-                with patch('stream2segment.main.closesession'):  # no-op (do not close session)
+                with patch(patches.close_session):  # no-op (do not close session)
 
                     def yload(*a, **v):
                         dic = yaml_load(*a, **v)
@@ -128,8 +136,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                         else:
                             sdf = 0
                         return dic
-                    with patch('stream2segment.utils.inputvalidation.yaml_load',
-                               side_effect=yload) as mock_yaml_load:
+                    with patch(patches.yaml_load, side_effect=yload) as mock_yaml_load:
                         self.mock_yaml_load = mock_yaml_load
 
                         # mock ThreadPool (tp) to run one instance at a time, so we
@@ -153,7 +160,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                             def close(self, *a, **kw):
                                 pass
                         # assign patches and mocks:
-                        with patch('stream2segment.utils.url.ThreadPool',
+                        with patch(patches.ThreadPool,
                                    side_effect=MockThreadPool) as mock_thread_pool:
 
                             def c4d(logger, logfilebasepath, verbose):
@@ -166,7 +173,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                 ret = configlog4download(logger, logfilebasepath, verbose)
                                 logger.addHandler(self.handler)
                                 return ret
-                            with patch('stream2segment.main.configlog4download',
+                            with patch(patches.config4download,
                                        side_effect=c4d) as mock_config4download:
                                 self.mock_config4download = mock_config4download
 

@@ -88,21 +88,6 @@ def get_templates_fpath(filename):
     return get_templates_fpaths(filename)[0]
 
 
-def version(onerr=""):
-    """Return the program version saved in the main root dir 'version' file.
-
-    :param onerr: (str, default ""): what to return in case of IOError.
-        If 'raise', then the exception is raised
-    """
-    try:
-        with open(join(_get_main_path(), "version")) as _:
-            return _.read().strip()
-    except IOError as exc:
-        if onerr == 'raise':
-            raise exc
-        return onerr
-
-
 def get_ws_fpath():
     """Return the web-service config file (yaml)"""
     return get_resources_fpath(filename='ws.yaml')
