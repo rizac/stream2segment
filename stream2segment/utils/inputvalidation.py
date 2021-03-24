@@ -17,8 +17,7 @@ from datetime import datetime, timedelta
 from future.utils import string_types
 # from stream2segment.process import SkipSegment
 from stream2segment.io.db import database_exists
-from stream2segment.utils.resources import get_ttable_fpath, \
-    get_templates_fpath
+from stream2segment.resources import get_ttable_fpath, get_templates_fpath
 from stream2segment.process.inspectimport import load_source
 from stream2segment.traveltimes.ttloader import TTTable
 from stream2segment.io import Fdsnws, yaml_load, absrelpath

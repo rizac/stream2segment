@@ -32,7 +32,7 @@ import click
 
 # from stream2segment import main
 
-from stream2segment.utils.resources import get_templates_fpath
+from stream2segment.resources import get_templates_fpath
 from stream2segment.utils import inputvalidation
 
 

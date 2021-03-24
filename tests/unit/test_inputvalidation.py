@@ -29,7 +29,7 @@ from stream2segment.utils.inputvalidation import valid_session as o_get_session,
     valid_nslc as nslc_param_value_aslist, load_config_for_process, BadParam
 from stream2segment.download.db import Download
 from stream2segment.io.db import secure_dburl
-from stream2segment.utils.resources import get_templates_fpath, get_templates_fpaths
+from stream2segment.resources import get_templates_fpaths, get_templates_fpath
 from stream2segment.io import yaml_load
 
 

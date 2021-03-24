@@ -30,7 +30,7 @@ from stream2segment.download.url import URLException, urlread
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial)
 # when calling logging functions of stream2segment.download.utils:
 from stream2segment.download import logger  # @IgnorePep8
-from stream2segment.utils.resources import get_resources_fpath
+from stream2segment.resources import get_resource_abspath
 
 
 def get_datacenters_df(session, service, routing_service_url,
@@ -140,7 +140,7 @@ def _get_local_routing_service():
         expected from a successful server response, and last_modified is the
         local file last modification time
     """
-    fpath = get_resources_fpath('eidars.txt')
+    fpath = get_resource_abspath('eidars.txt')
     lastmod_dtime = datetime(1970, 1, 1) + timedelta(seconds=os.path.getmtime(fpath))
     # read from file
     with open(fpath, 'r') as opn_:

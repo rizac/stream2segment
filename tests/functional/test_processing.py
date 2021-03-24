@@ -20,7 +20,7 @@ from stream2segment.cli import cli
 from stream2segment.process.db import Event, Station, Segment,\
     Channel, Download, DataCenter
 from stream2segment.process import SkipSegment
-from stream2segment.utils.resources import get_templates_fpath
+from stream2segment.resources import get_templates_fpath
 from stream2segment.utils.log import configlog4processing as o_configlog4processing
 from stream2segment.process.main import run as process_main_run
 from stream2segment.process.writers import BaseWriter, SEGMENT_ID_COLNAME

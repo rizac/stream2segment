@@ -15,7 +15,7 @@ import pandas as pd
 import pytest
 
 from stream2segment.cli import cli
-from stream2segment.utils.resources import get_templates_fpath
+from stream2segment.resources import get_templates_fpath
 from stream2segment.process.db import (get_inventory, get_stream,
                                        get_classlabels, Event, Station, Segment,
                                        Channel, Download, DataCenter, Class,

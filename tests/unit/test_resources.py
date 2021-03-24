@@ -5,8 +5,8 @@ Created on 14 Mar 2018
 '''
 import os
 
-from stream2segment.utils.resources import get_templates_fpaths,\
-    get_templates_dirpath
+from stream2segment.resources import (get_resource_abspath, get_templates_fpaths,
+                                      get_templates_fpath)
 from stream2segment.io import yaml_load
 
 
@@ -48,14 +48,17 @@ def test_yaml_load():
 #     assert keys1 - keys2 == set()
 #     assert keys2 - keys1 == set(['wawa'])
 
+from os.path import abspath
 
 def test_templates_fpath():
-    basedir = get_templates_dirpath()
+    basedir = get_resource_abspath("templates")
+
+    assert abspath(basedir) == abspath(get_templates_fpaths('')[0]) == abspath(get_templates_fpath(''))
 
     res = get_templates_fpaths()
     assert sorted(res) == sorted(os.path.join(basedir, n) for n in os.listdir(basedir))
 
     filenames = ['a', 'b']
     res = get_templates_fpaths(*filenames)
-    assert sorted(res) == sorted(os.path.join(get_templates_dirpath(), n) for n in filenames)
+    assert sorted(res) == sorted(os.path.join(basedir, n) for n in filenames)
 

@@ -30,7 +30,7 @@ from stream2segment.download.modules.channels import get_channels_df
 from stream2segment.download.utils import FailedDownload
 from stream2segment.io.db.pdsql import dbquery2df
 from stream2segment.download.url import URLError, HTTPError, responses
-from stream2segment.utils.resources import get_templates_fpath
+from stream2segment.resources import get_templates_fpath
 from stream2segment.io import yaml_load
 
 query_logger = logger = logging.getLogger("stream2segment")

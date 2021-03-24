@@ -45,7 +45,7 @@ from stream2segment.download.main import run as run_download, new_db_download
 from stream2segment.io.cli import ascii_decorate
 from stream2segment.io.db import secure_dburl
 from stream2segment.io import yaml_safe_dump, open2writetext
-from stream2segment.utils.resources import get_templates_dirpath
+from stream2segment.resources import get_templates_fpaths
 from stream2segment.gui.main import create_s2s_show_app, run_in_browser
 from stream2segment.download.utils import FailedDownload
 from stream2segment.gui.dinfo import DReport, DStats
@@ -422,7 +422,7 @@ def init(outpath, prompt=True, *filenames):
         os.makedirs(outpath)
         if not os.path.isdir(outpath):
             raise Exception("Unable to create '%s'" % outpath)
-    templates_dir = get_templates_dirpath()
+
     if prompt:
         existing_files = [f for f in filenames
                           if os.path.isfile(os.path.join(outpath, f))]
@@ -446,16 +446,20 @@ def init(outpath, prompt=True, *filenames):
             except ValueError:
                 return []
 
-    env = jinja2.Environment(loader=jinja2.FileSystemLoader(templates_dir),
-                             keep_trailing_newline=True)
-    copied_files = []
-    for filename in filenames:
-        outfilepath = os.path.join(outpath, filename)
-        if os.path.splitext(filename)[1].lower() in ('.yaml', '.py'):
-            env.get_template(filename).stream(DOCVARS).dump(outfilepath)
-        else:
-            shutil.copyfile(os.path.join(templates_dir, filename), outfilepath)
-        copied_files.append(outfilepath)
+    srcfilepaths = get_templates_fpaths(*filenames)
+    if srcfilepaths:
+        basedir = os.path.dirname(srcfilepaths[0])
+        env = jinja2.Environment(loader=jinja2.FileSystemLoader(basedir),
+                                 keep_trailing_newline=True)
+        copied_files = []
+        for srcfilepath in srcfilepaths:
+            filename = os.path.basename(srcfilepath)
+            outfilepath = os.path.join(outpath, filename)
+            if os.path.splitext(filename)[1].lower() in ('.yaml', '.py'):
+                env.get_template(filename).stream(DOCVARS).dump(outfilepath)
+            else:
+                shutil.copyfile(srcfilepath, outfilepath)
+            copied_files.append(outfilepath)
     return copied_files
 
 
