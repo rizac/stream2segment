@@ -18,7 +18,7 @@ from datetime import timedelta
 import numpy as np
 import pandas as pd
 
-from stream2segment.utils import StringIO
+from stream2segment.io import StringIO  # <- io.StringIO py2 compatible
 from stream2segment.download.utils import (dbsyncdf, FailedDownload,
                                            response2normalizeddf, formatmsg,
                                            EVENTWS_MAPPING, strptime, urljoin)

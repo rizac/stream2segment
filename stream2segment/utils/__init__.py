@@ -10,12 +10,7 @@ from builtins import open as compatible_open
 
 from future.utils import itervalues, PY2
 
-# this can not apparently be fixed with the future package:
-# The problem is io.StringIO accepts unicode in python2 and strings in Py3:
-if PY2:
-    from cStringIO import StringIO  # noqa
-else:
-    from io import StringIO  # noqa
+
 
 import os
 import sys

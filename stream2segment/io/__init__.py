@@ -7,6 +7,15 @@ try:  # py3:
 except ImportError:  # py2
     from urlparse import urlparse  # noqa
 
+# this can not apparently be fixed with the future package:
+# The problem is io.StringIO accepts unicode in python2 and strings in Py3:
+import sys
+PY2 = sys.version_info[0] == 2
+if PY2:
+    from cStringIO import StringIO  # noqa
+else:
+    from io import StringIO  # noqa
+
 
 class Fdsnws(object):
     """Fdsn w(eb) s(ervice) URL normalizer. Gets any URL, checks its
