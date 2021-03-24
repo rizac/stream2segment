@@ -92,14 +92,3 @@ def get_ws_fpath():
     """Return the web-service config file (yaml)"""
     return get_resources_fpath(filename='ws.yaml')
 
-
-def normalizedpath(path, basedir):
-    """Normalize `path` if it's not absolute, making it relative to `basedir`.
-    If path is already absolute, returns it as it is
-
-    :param path: the path
-    :param basedir: the base directory path
-    """
-    if isabs(path):
-        return path
-    return abspath(normpath(join(basedir, path)))

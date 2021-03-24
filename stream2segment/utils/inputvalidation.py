@@ -18,10 +18,10 @@ from future.utils import string_types
 # from stream2segment.process import SkipSegment
 from stream2segment.io.db import database_exists
 from stream2segment.utils.resources import get_ttable_fpath, \
-    get_templates_fpath, normalizedpath
+    get_templates_fpath
 from stream2segment.process.inspectimport import load_source
 from stream2segment.traveltimes.ttloader import TTTable
-from stream2segment.io import Fdsnws, yaml_load
+from stream2segment.io import Fdsnws, yaml_load, absrelpath
 from stream2segment.download.utils import Authorizer, EVENTWS_MAPPING, \
     EVENTWS_SAFE_PARAMS, strptime
 
@@ -723,7 +723,7 @@ def valid_authorizer(restricted_data, dataws, configfile=None):
     if restricted_data in ('', None, b''):
         restricted_data = None
     elif isinstance(restricted_data, string_types) and configfile is not None:
-        restricted_data = normalizedpath(restricted_data, os.path.dirname(configfile))
+        restricted_data = absrelpath(restricted_data, configfile)
     ret = Authorizer(restricted_data)
     # check dataws is single element list:
     if (ret.token or ret.userpass) and len(dataws) != 1:
@@ -801,8 +801,7 @@ def valid_fdsn(url, is_eventws, configfile=None):
         return url.lower()
 
     if is_eventws:
-        fpath = url if configfile is None else \
-            normalizedpath(url, os.path.dirname(configfile))
+        fpath = url if configfile is None else absrelpath(url, configfile)
         if os.path.isfile(fpath):
             return fpath
         try:

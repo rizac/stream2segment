@@ -1,10 +1,8 @@
 import re
-from os.path import abspath, dirname
+from os.path import join, normpath, isabs, isdir, abspath, dirname
 
 import yaml
 from future.utils import PY2, string_types, viewkeys, viewitems
-
-from stream2segment.utils.resources import normalizedpath
 
 try:  # py3:
     from urllib.parse import urlparse
@@ -249,9 +247,6 @@ def yaml_load(filepath, **updates):
     update(ret, updates)
 
     if isinstance(filepath, string_types):
-        # convert sqlite into absolute paths, if any. This does not convert
-        # nested sub-dict strings
-        configfilepath = abspath(dirname(filepath))
         # convert relative sqlite path to absolute, assuming they are relative
         # to the config:
         sqlite_prefix = 'sqlite:///'
@@ -262,7 +257,7 @@ def yaml_load(filepath, **updates):
             try:
                 if val.startswith(sqlite_prefix) and ":memory:" not in val:
                     dbpath = val[len(sqlite_prefix):]
-                    npath = normalizedpath(dbpath, configfilepath)
+                    npath = absrelpath(dbpath, filepath)
                     if npath != dbpath:
                         newdict[key] = sqlite_prefix + npath
             except AttributeError:
@@ -270,3 +265,18 @@ def yaml_load(filepath, **updates):
 
         ret.update(newdict)
     return ret
+
+
+def absrelpath(path, base):
+    """Normalize `path` with respect to `base`, returning the absolute path
+    by joining `base` and `path`. If `path` is already absolute, returns it as it is
+
+    :param path: the path
+    :param base: the base directory path. If file, `dirname(file)` will be
+        used
+    """
+    if isabs(path):
+        return path
+    if not isdir(base):
+        base = dirname(base)
+    return abspath(normpath(join(base, path)))
