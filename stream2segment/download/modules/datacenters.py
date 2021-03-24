@@ -20,8 +20,7 @@ from future.utils import string_types
 from stream2segment.io import Fdsnws
 from stream2segment.download.db import DataCenter
 from stream2segment.download.utils import FailedDownload, dbsyncdf, formatmsg, \
-    strconvert, strptime
-from stream2segment.utils import urljoin
+    strconvert, strptime, urljoin
 from stream2segment.utils.url import URLException, urlread
 
 

@@ -1072,3 +1072,59 @@ def strptime(obj):
 
     # the datetime has no timezone provided AND is in UTC:
     return dtime
+
+
+def urljoin(*urlpath, **query_args):
+    """Join urls and appends to it the query string obtained by kwargs
+    Note that this function is intended to be simple and fast: No check is made
+    about white-spaces in strings, no encoding is done, and if some value of
+    `query_args` needs special formatting (e.g., "%1.1f"), that needs to be
+    done before calling this function
+
+    :param urlpath: portion of urls which will build the query url Q. For more
+        complex url functions see `urlparse` library: this function builds the
+        url path via a simple join stripping slashes:
+        ```
+        '/'.join(url.strip('/') for url in urlpath)
+        ```
+        So to preserve slashes (e.g., at the beginning) pass "/" or "" as
+        arguments (e.g. as first argument to preserve relative paths).
+    :query_args: keyword arguments which will build the query string
+
+    :return: a query url built from arguments (string)
+
+    Examples:
+    ```
+    >>> urljoin("https://abc", start='2015-01-01T00:05:00', mag=5.1, arg=True)
+    'https://abc?start=2015-01-01T00:05:00&mag=5.1&arg=True'
+
+    >>> urljoin("http://abc", "data", start='2015-01-01', mag=5.459, arg=True)
+    'http://abc/data?start=2015-01-01&mag=5.459&arg=True'
+
+    Note how slashes are handled in urlpath. These two examples give the
+    same url path:
+
+    >>> urljoin("http://www.domain", "data")
+    'http://www.domain/data?'
+
+    >>> urljoin("http://www.domain/", "/data")
+    'http://www.domain/data?'
+
+    # leading and trailing slashes on each element of urlpath are removed:
+
+    >>> urljoin("/www.domain/", "/data")
+    'www.domain/data?'
+
+    # so if you want to preserve them, provide an empty argument or a slash:
+
+    >>> urljoin("", "/www.domain/", "/data")
+    '/www.domain/data?'
+
+    >>> urljoin("/", "/www.domain/", "/data")
+    '/www.domain/data?'
+    ```
+    """
+    # For a discussion, see https://stackoverflow.com/q/1793261
+    return "{}?{}".format('/'.join(url.strip('/') for url in urlpath),
+                          "&".join("{}={}".format(k, v)
+                                   for k, v in query_args.items()))
