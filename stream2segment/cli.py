@@ -26,13 +26,13 @@ from builtins import (ascii, bytes, chr, dict, filter, hex, input,
 import sys
 import os
 import warnings
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 
 import click
 
 # from stream2segment import main
 
-from stream2segment.utils.resources import get_templates_fpath, yaml_load_doc
+from stream2segment.utils.resources import get_templates_fpath
 from stream2segment.utils import inputvalidation
 
 
@@ -63,7 +63,7 @@ class clickutils(object):  # noqa
         from the relative YAML parameter, if found in the YAML file
         "download.yaml"
         """
-        cfg_doc = yaml_load_doc(get_templates_fpath("download.yaml"))
+        cfg_doc = cls.yaml_load_doc(get_templates_fpath("download.yaml"))
         for option in (opt for opt in command.params if
                        opt.param_type_name == 'option'):
             if option.help is None:
@@ -75,6 +75,73 @@ class clickutils(object):  # noqa
                     option.help = option.help[:idx]
 
         return command
+
+    @classmethod
+    def yaml_load_doc(cls, filepath, varname=None, preserve_newlines=False):
+        """Return the documentation from a YAML file. The returned object is
+        a the documentation (str) of the given variable name (if `varname` is set),
+        or a dict[str, str] (defaultdict("")) of all variables found, mapped to
+        their documentation (a variable documentation is made up of all
+        consecutive commented lines -  with *no* leading spaces - placed immediately
+        before the variable). Only top-level variables can be parsed, nested ones
+        are skipped.
+
+        :param filepath: The YAML file to read the doc from
+        :param varname: str or None (the default). Return the doc for this specific
+            YAML variable. if None, returns a `defaultdict` with all top-level
+            variables found.
+        :param preserve_newlines: boolean. Whether to preserve newlines in comment
+            or not. If False (the default), each variable comment is returned as a
+            single line, concatenating parsed lines with a space
+        """
+        comments = []
+        # reg_yaml_var = re.compile("^([^:]+):\\s.*")
+        # reg_comment = re.compile("^#+(.*)")
+        ret = defaultdict(str) if varname is None else ''
+        isbytes = None
+        with open(filepath, 'r') as stream:
+            while True:
+                line = stream.readline()
+                # from the docs (https://docs.python.org/3/tutorial/inputoutput.html): if
+                # f.readline() returns an empty string, the end of the file has been
+                # reached, while a blank line is represented by '\n'
+                if not line:
+                    break
+                if isbytes is None:
+                    isbytes = isinstance(line, bytes)
+                # is line a comment? do not use regexp, it's slower
+                # m = reg_comment.match(line)
+                if line.startswith('#'):
+                    # the line is a comment, add the comment text.
+                    # Note that the line does not include last newline, if present
+                    comments.append(line[1:].strip())
+                else:
+                    # the line is not a comment line. Do we have parsed comments?
+                    if comments:
+                        # use string search and not regexp because faster:
+                        idx = line.find(': ')
+                        if idx == -1:
+                            idx = line.find(':\n')
+                        var_name = None if idx < 1 else line[:idx]
+                        # We have parsed comments. Is the line a YAML parameter?
+                        # m = reg_yaml_var.match(line)
+                        # if m and m.groups():
+                        if var_name:
+                            # the line is a yaml variable, it's name is
+                            # m.groups()[0]. Map the variable to its comment
+                            # var_name = m.groups()[0]
+                            join_char = "\n" if preserve_newlines else " "
+                            comment = join_char.join(comments)
+                            docstring = comment
+                            if isbytes:
+                                docstring = comment.decode('utf8')
+                            if varname is None:
+                                ret[var_name] = docstring
+                            elif varname == var_name:
+                                return docstring
+                    # In any case, if not comment, reset comments:
+                    comments = []
+        return ret
 
     @staticmethod
     def _config_cmd_kwargs(**kwargs):
