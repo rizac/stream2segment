@@ -13,13 +13,6 @@ def get_resource_abspath(filename):
     return join(PATH, filename)
 
 
-# def get_templates_dirpath():
-#     """Return the templates directory path (located inside the package
-#     `resource` folder)
-#     """
-#     return get_resources_fpath("templates")
-
-
 def get_ttable_fpath(basename):
     """Return the file for the given travel times table
 
