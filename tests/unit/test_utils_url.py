@@ -12,8 +12,8 @@ import mock
 from mock import patch
 import pytest
 
-from stream2segment.utils.url import _ismainthread, read_async
-from stream2segment.utils.url import URLError
+from stream2segment.download.url import _ismainthread, read_async
+from stream2segment.download.url import URLError
 
 
 class Test(object):

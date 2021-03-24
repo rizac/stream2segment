@@ -12,7 +12,6 @@ from builtins import zip, object
 import re
 from itertools import cycle
 
-import numpy as np
 import pandas as pd
 from sqlalchemy import or_, and_
 
@@ -23,7 +22,7 @@ from stream2segment.download.utils import (read_async, response2normalizeddf,
 from stream2segment.utils import get_progressbar
 from stream2segment.io.db.pdsql import dbquery2df, shared_colnames, mergeupdate
 
-from stream2segment.utils.url import Request  # this handles py2and3 compatibility
+from stream2segment.download.url import Request  # this handles py2and3 compatibility
 
 
 # logger: do not use logging.getLogger(__name__) but point to stream2segment.download.logger:

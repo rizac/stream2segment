@@ -7,7 +7,7 @@ Stations (inventory) download functions
 """
 # make the following(s) behave like python3 counterparts if running from python2.7.x
 # (http://python-future.org/imports.html#explicit-imports):
-from builtins import map, next, zip, range, object
+from builtins import zip
 
 from datetime import datetime
 from io import BytesIO
@@ -23,7 +23,7 @@ from stream2segment.download.utils import read_async, DbExcLogger, formatmsg, ur
     err2str
 from stream2segment.utils import get_progressbar
 from stream2segment.io.db.pdsql import DbManager
-from stream2segment.utils.url import Request  # handles py2,3 compatibility
+from stream2segment.download.url import Request  # handles py2,3 compatibility
 
 # logger: do not use logging.getLogger(__name__) but point to
 # stream2segment.download.logger: this way we preserve the logging namespace
@@ -31,7 +31,7 @@ from stream2segment.utils.url import Request  # handles py2,3 compatibility
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial) when
 # calling logging functions of stream2segment.download.utils:
 from stream2segment.download import logger  # @IgnorePep8
-from stream2segment.utils.url import get_host
+from stream2segment.download.url import get_host
 
 
 def _get_sta_request(datacenter_url, network, station, start_time, end_time):

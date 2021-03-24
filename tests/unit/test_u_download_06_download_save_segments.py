@@ -36,7 +36,7 @@ from stream2segment.download.utils import Authorizer
 from stream2segment.io.db.pdsql import dbquery2df, insertdf, updatedf
 from stream2segment.download.utils import s2scodes
 from stream2segment.download.modules.mseedlite import unpack
-from stream2segment.utils.url import URLError, HTTPError, responses
+from stream2segment.download.url import URLError, HTTPError, responses
 from stream2segment.utils.resources import get_templates_fpath, yaml_load
 
 

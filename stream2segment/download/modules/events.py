@@ -7,7 +7,6 @@ Events download functions
 """
 # make the following(s) behave like python3 counterparts if running from python2.7.x
 # (http://python-future.org/imports.html#explicit-imports):
-from builtins import map, next, zip, range, object
 
 import os
 # import sys
@@ -23,7 +22,7 @@ from stream2segment.download.utils import (dbsyncdf, FailedDownload,
                                            response2normalizeddf, formatmsg,
                                            EVENTWS_MAPPING, strptime, urljoin)
 from stream2segment.download.db import WebService, Event
-from stream2segment.utils.url import urlread, socket, HTTPError
+from stream2segment.download.url import urlread, socket, HTTPError
 from stream2segment.utils import get_progressbar
 
 # logger: do not use logging.getLogger(__name__) but point to

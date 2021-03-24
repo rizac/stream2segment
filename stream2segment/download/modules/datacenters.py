@@ -7,7 +7,7 @@ Data center(s) download functions
 """
 # Make the following(s) behave like python3 counterparts if running from
 # Python 2.7.x (http://python-future.org/imports.html#explicit-imports):
-from builtins import map, next, zip, range, object
+from builtins import zip, object
 
 import os
 from datetime import datetime, timedelta
@@ -21,7 +21,7 @@ from stream2segment.io import Fdsnws
 from stream2segment.download.db import DataCenter
 from stream2segment.download.utils import FailedDownload, dbsyncdf, formatmsg, \
     strconvert, strptime, urljoin
-from stream2segment.utils.url import URLException, urlread
+from stream2segment.download.url import URLException, urlread
 
 
 # logger: do not use logging.getLogger(__name__) but point to
@@ -30,7 +30,7 @@ from stream2segment.utils.url import URLException, urlread
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial)
 # when calling logging functions of stream2segment.download.utils:
 from stream2segment.download import logger  # @IgnorePep8
-from stream2segment.utils.resources import get_templates_fpath, get_resources_fpath
+from stream2segment.utils.resources import get_resources_fpath
 
 
 def get_datacenters_df(session, service, routing_service_url,

@@ -6,8 +6,6 @@ Created on Feb 4, 2016
 from __future__ import print_function
 
 from builtins import str
-import os
-import sys
 from datetime import datetime
 # this can apparently not be avoided neither with the future package:
 # The problem is io.StringIO accepts unicodes in python2 and strings in python3:
@@ -23,16 +21,15 @@ from mock import patch
 from mock import Mock
 
 import pytest
-import pandas as pd
 
 from stream2segment.cli import cli
 from stream2segment.download.main import get_events_df, get_datacenters_df, \
     save_inventories, get_channels_df, download_save_segments
-from stream2segment.download.db import Segment, Download, Station, Channel
+from stream2segment.download.db import Segment, Download, Station
 from stream2segment.io.db.pdsql import insertdf, updatedf
 from stream2segment.download.utils import s2scodes
 from stream2segment.download.modules.mseedlite import unpack
-from stream2segment.utils.url import HTTPError, responses
+from stream2segment.download.url import HTTPError, responses
 from stream2segment.utils.resources import get_templates_fpath, yaml_load
 from stream2segment.utils.log import configlog4download
 

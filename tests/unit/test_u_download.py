@@ -23,7 +23,7 @@ import pytest
 
 from stream2segment.io import Fdsnws
 from stream2segment.download.db import Download, Station
-from stream2segment.utils.url import URLError, HTTPError, responses
+from stream2segment.download.url import URLError, HTTPError, responses
 from stream2segment.utils.resources import get_templates_fpath, yaml_load
 from stream2segment.download.utils import dblog
 

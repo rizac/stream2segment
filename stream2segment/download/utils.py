@@ -32,10 +32,10 @@ import psutil
 from stream2segment.download.db import Event, Station, Channel
 from stream2segment.io.db.pdsql import harmonize_columns, \
     harmonize_rows, colnames, syncdf
-from stream2segment.utils.url import (read_async as original_read_async,
-                                      responses
+from stream2segment.download.url import (read_async as original_read_async,
+                                         responses
                                       # urlread, urlparse, Request, get_opener
-                                      )
+                                         )
 
 # logger: do not use logging.getLogger(__name__) but point to
 # stream2segment.download.logger: this way we preserve the logging namespace

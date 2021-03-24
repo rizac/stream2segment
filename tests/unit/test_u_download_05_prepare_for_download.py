@@ -23,7 +23,6 @@ except ImportError:
 
 import pytest
 
-import pandas as pd
 from sqlalchemy.exc import SQLAlchemyError
 
 from stream2segment.download.db import Segment, Download, Station, Channel
@@ -35,7 +34,7 @@ from stream2segment.download.modules.segments import prepare_for_download, \
     DcDataselectManager
 from stream2segment.download.utils import NothingToDownload, Authorizer
 from stream2segment.download.utils import s2scodes
-from stream2segment.utils.url import URLError, HTTPError, responses
+from stream2segment.download.url import URLError, HTTPError, responses
 from stream2segment.utils.resources import get_templates_fpath, yaml_load
 
 

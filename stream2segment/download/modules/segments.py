@@ -26,14 +26,14 @@ from stream2segment.download.modules.mseedlite import MSeedError, unpack as msee
 from stream2segment.utils import get_progressbar
 from stream2segment.io.db.pdsql import dbquery2df, mergeupdate, DbManager
 
-from stream2segment.utils.url import Request, get_host  # handle py2+3 compatibility
+from stream2segment.download.url import Request, get_host  # handle py2+3 compatibility
 
 # logger: do not use logging.getLogger(__name__) but point to
 # stream2segment.download.logger: this way we preserve the logging namespace
 # hierarchy when calling logging functions of stream2segment.download.utils
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
 from stream2segment.download import logger  # @IgnorePep8
-from stream2segment.utils.url import get_opener
+from stream2segment.download.url import get_opener
 
 
 def prepare_for_download(session, segments_df, dc_dataselect_manager, timespan,

@@ -29,7 +29,7 @@ from stream2segment.download.db import Event, Download, WebService
 from stream2segment.download.modules.events import get_events_df, isf2text_iter,\
     _get_freq_mag_distrib, islocalfile as o_islocalfile
 from stream2segment.download.utils import FailedDownload, response2normalizeddf, urljoin
-from stream2segment.utils.url import URLError, HTTPError, responses
+from stream2segment.download.url import URLError, HTTPError, responses
 from stream2segment.utils.resources import get_templates_fpath, yaml_load
 
 query_logger = logger = logging.getLogger("stream2segment")

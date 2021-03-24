@@ -45,11 +45,11 @@ from stream2segment.cli import cli
 from stream2segment.download.main import get_events_df, get_datacenters_df, get_channels_df, \
     download_save_segments, save_inventories
 from stream2segment.io import Fdsnws
-from stream2segment.download.db import DataCenter, Segment, Download, Station, WebService
+from stream2segment.download.db import DataCenter, Segment, Download, Station
 from stream2segment.io.db.pdsql import dbquery2df, insertdf, updatedf
 from stream2segment.download.utils import s2scodes
 from stream2segment.download.modules.mseedlite import unpack
-from stream2segment.utils.url import URLError, HTTPError, responses
+from stream2segment.download.url import URLError, HTTPError, responses
 from stream2segment.utils.resources import get_templates_fpath
 from stream2segment.utils.log import configlog4download
 
