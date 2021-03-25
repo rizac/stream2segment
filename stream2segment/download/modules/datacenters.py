@@ -19,9 +19,11 @@ from future.utils import string_types
 
 from stream2segment.io import Fdsnws
 from stream2segment.download.db import DataCenter
-from stream2segment.download.utils import FailedDownload, dbsyncdf, formatmsg, \
+from stream2segment.download.modules.utils import dbsyncdf, formatmsg, \
     strconvert, strptime, urljoin
+from stream2segment.download.exc import FailedDownload
 from stream2segment.download.url import URLException, urlread
+from stream2segment.resources import get_resource_abspath
 
 
 # logger: do not use logging.getLogger(__name__) but point to
@@ -29,8 +31,10 @@ from stream2segment.download.url import URLException, urlread
 # hierarchy
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial)
 # when calling logging functions of stream2segment.download.utils:
-from stream2segment.download import logger  # @IgnorePep8
-from stream2segment.resources import get_resource_abspath
+# from stream2segment.download import logger  # @IgnorePep8
+
+import logging
+logger = logging.getLogger(__name__)
 
 
 def get_datacenters_df(session, service, routing_service_url,

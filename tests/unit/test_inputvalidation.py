@@ -24,7 +24,8 @@ import pytest
 from stream2segment.cli import cli
 from stream2segment.main import configlog4download as o_configlog4download,\
     new_db_download as o_new_db_download, configlog4processing as o_configlog4processing, \
-    process as o_process, download as o_download
+    process as o_process
+from stream2segment.download.main import download as o_download
 from stream2segment.io.inputvalidation import valid_session as o_get_session, \
     valid_nslc as nslc_param_value_aslist, load_config_for_process, BadParam
 from stream2segment.download.db import Download

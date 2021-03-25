@@ -6,10 +6,8 @@ Created on Feb 14, 2017
 '''
 from __future__ import print_function, division
 
-from builtins import str, object
+from builtins import object
 
-import os
-import sys
 from itertools import cycle, chain
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -21,7 +19,7 @@ from click.testing import CliRunner
 from stream2segment.cli import cli
 from stream2segment.download.db import (Event, Station, WebService, Segment,
                                         Channel, Download, DataCenter)
-from stream2segment.download.utils import s2scodes
+from stream2segment.download.modules.utils import s2scodes
 
 
 class Test(object):

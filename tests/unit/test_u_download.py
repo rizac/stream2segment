@@ -25,7 +25,7 @@ from stream2segment.io import Fdsnws, yaml_load
 from stream2segment.download.db import Download, Station
 from stream2segment.download.url import URLError, HTTPError, responses
 from stream2segment.resources import get_templates_fpath
-from stream2segment.download.utils import dblog
+from stream2segment.download.modules.utils import dblog
 
 
 query_logger = logger = logging.getLogger("stream2segment")

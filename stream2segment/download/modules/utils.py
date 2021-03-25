@@ -29,65 +29,22 @@ from future.utils import viewitems, PY2, string_types
 import pandas as pd
 import psutil
 
-from stream2segment.download.db import Event, Station, Channel
 from stream2segment.io.db.pdsql import harmonize_columns, \
     harmonize_rows, colnames, syncdf
+from stream2segment.download.db import Event, Station, Channel
+from stream2segment.download.exc import FailedDownload
 from stream2segment.download.url import (read_async as original_read_async,
-                                         responses
-                                      # urlread, urlparse, Request, get_opener
-                                         )
+                                         responses)
 
-# logger: do not use logging.getLogger(__name__) but point to
-# stream2segment.download.logger: this way we preserve the logging namespace
-# hierarchy when calling logging functions of stream2segment.download.utils
-# (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
-from stream2segment.download import logger  # @IgnorePep8
+# # logger: do not use logging.getLogger(__name__) but point to
+# # stream2segment.download.logger: this way we preserve the logging namespace
+# # hierarchy when calling logging functions of stream2segment.download.utils
+# # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
+# from stream2segment.download import logger  # @IgnorePep8
 
 
-class QuitDownload(Exception):
-    """This is an abstract-like class representing an Exception to be raised
-    as soon as something causes no segments to be downloaded.
-
-    This class should not be called directly. Rather, the user should re-raise
-    a :class:`NothingToDownload` or :class:`FailedDownload` (see their
-    documentation)
-    """
-
-    def __init__(self, exc_or_msg):
-        """Create a new QuitDownload instance
-
-        :param exc_or_msg: an Exception or a message string. If string, it is
-            usually passed via the :function:`formatmsg` function in order to
-            provide harmonized message formats
-        """
-        if isinstance(exc_or_msg, KeyError):  # just re-format key errors
-            exc_or_msg = 'KeyError: %s' % str(exc_or_msg)
-        super(QuitDownload, self).__init__(str(exc_or_msg))
-
-
-class NothingToDownload(QuitDownload):
-    """Exception that should be raised whenever the download process has no
-    segments to download according to the user's settings. Currently,
-    stream2segments catches these Exceptions logging their message as level
-    INFO and returning a 0 (=successful) status code
-
-    This class and :class:`FailedDownload` both inherit from
-    :class:`QuitDownload`.
-    """
-    pass
-
-
-class FailedDownload(QuitDownload):
-    """Exception that should be raised whenever the download process could not
-    proceed. E.g., a download error (e.g., no internet connection) prevents to
-    fetch any data. Currently, stream2segments catches these Exceptions logging
-    their message as level CRITICAL or ERROR and returning a nonzero
-    (=unsuccessful) status code
-
-    This class and :class:`NothingToDownload` both inherit from
-    :class:`QuitDownload`
-    """
-    pass
+import logging
+logger = logging.getLogger(__name__)
 
 
 def formatmsg(action=None, errmsg=None, url=None):

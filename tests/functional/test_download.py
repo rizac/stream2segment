@@ -34,7 +34,7 @@ from stream2segment.download.db import Segment, Download, Station, Channel, \
 from stream2segment.io.db.models import withdata
 from stream2segment.io.db.pdsql import dbquery2df, insertdf, updatedf,\
     _get_max as _get_db_autoinc_col_max
-from stream2segment.download.utils import s2scodes
+from stream2segment.download.modules.utils import s2scodes
 from stream2segment.download.modules.mseedlite import unpack
 from stream2segment.download.url import URLError, HTTPError, responses
 from stream2segment.resources import get_templates_fpath

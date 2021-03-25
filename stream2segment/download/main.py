@@ -8,15 +8,22 @@ Core functions and classes for the download routine
 # make the following(s) behave like python3 counterparts if running from
 # python2.7.x
 # (http://python-future.org/imports.html#explicit-imports):
+import time
 from builtins import map, next, zip, range, object
 
 import os
 import logging
 
 import psutil
+from future.utils import string_types
 
+
+from stream2segment.io import yaml_safe_dump
 from stream2segment.io.db.pdsql import dbquery2df
-from stream2segment.download.utils import NothingToDownload, FailedDownload
+from stream2segment.io.db import secure_dburl, close_session
+from stream2segment.io.inputvalidation import load_config_for_download, pop_param
+from stream2segment.download.db import Download
+from stream2segment.download.exc import NothingToDownload, FailedDownload
 from stream2segment.download.modules.events import get_events_df
 from stream2segment.download.modules.datacenters import get_datacenters_df
 from stream2segment.download.modules.channels import get_channels_df, chaid2mseedid_dict
@@ -25,11 +32,152 @@ from stream2segment.download.modules.segments import prepare_for_download,\
     download_save_segments, DcDataselectManager
 from stream2segment.download.modules.stations import (save_inventories,
                                                       query4inventorydownload)
-from stream2segment.io import yaml_safe_dump
-from stream2segment.download.db import Download
 
 
-logger = logging.getLogger(__name__)
+from stream2segment.main import logger, elapsedtime
+from stream2segment.utils.log import logfilepath, configlog4download, closelogger
+
+# make the logger refer to the root of this package ('stream2segment.download')
+# This is necessary to make all loggers oif this package refer to the one below:
+logger = logging.getLogger(__name__[:__name__.rfind('.')])
+
+
+def download(config, log2file=True, verbose=False, **param_overrides):
+    """Start an event-based download routine, fetching segment data and
+    metadata from FDSN web services and saving it in an SQL database
+
+    :param config: str or dict: If str, it is valid path to a configuration
+        file in YAML syntax that will be read as `dict` of config. parameters
+    :param log2file: bool or str (default: True). If string, it is the path to
+        the log file (whose parent directory must exist). If True, `config` can
+        not be a `dict` (raise `ValueError` otherwise) and the log file path
+        will be built as `config` + ".[now].log" (where [now] = current date
+        and time in ISO format). If False, logging is disabled.
+        When logging is enabled, the file will be used to catch all warnings,
+        errors and critical messages (=Python exceptions): if the download
+        routine exits with no exception, the file content is written to the
+        database (`Download` table) and the file deleted. Otherwise, the file
+        will be left on the system for inspection
+    :param verbose: if True (default: False) print some log information also on
+        the standard output (usually the screen), as well as progress bars
+        showing the estimated remaining time for each sub task. This option is
+        set to True when this function is invoked from the command line
+        interface (`cli.py`)
+    :param param_overrides: additional parameter(s) for the YAML `config`. The
+        value of existing config parameters will be overwritten, e.g. if
+        `config` is {'a': 1} and `param_overrides` is `a=2`, the result is
+        {'a': 2}. Note however that when both parameters are dictionaries, the
+        result will be merged. E.g. if `config` is {'a': {'b': 1, 'c': 1}} and
+        `param_overrides` is `a={'c': 2, 'd': 2}`, the result is
+        {'a': {'b': 1, 'c': 2, 'd': 2}}
+    """
+    # Implementation details: this function can:
+    # - raise, in case of an error usually a user/code error (e.g., bad input
+    #   param)
+    # - return 1 in case of FailedDownload, e.g. an error independent from the
+    #   user (no internet connection, bad data received)
+    # - return 0 otherwise (meaning: success). This includes the case where,
+    #   acording to our config, there are not segments to download
+
+    # short check (this should just raise, so execute this before configuring loggers):
+    isfile = isinstance(config, string_types) and os.path.isfile(config)
+    if not isfile and log2file is True:
+        raise ValueError('`log2file` can be True only if `config` is a '
+                         'string denoting an existing file')
+
+    # Validate params converting them in dict of args for the download function. Also in
+    # this case do it before configuring loggers, we simply need to raise `BadParam`s in
+    # case of problems:
+    d_kwargs, session, authorizer, tt_table = \
+        load_config_for_download(config, True, **param_overrides)
+
+    ret = 0
+    noexc_occurred = True
+    loghandlers = None
+    download_id = None
+    try:
+        real_yaml_dict = load_config_for_download(config, False, **param_overrides)
+        if verbose:
+            print("%s\n" % _pretty_printed_str(real_yaml_dict))
+
+        # configure logger and handlers:
+        if log2file is True:
+            log2file = logfilepath(config)  # auto create log file
+        else:
+            log2file = log2file or ''  # assure we have a string
+        loghandlers = configlog4download(logger, log2file, verbose)
+
+        # create download row with unprocessed config (yaml_load function)
+        # Note that we call again load_config with parseargs=False:
+        download_id = new_db_download(session, real_yaml_dict)
+        if log2file and verbose:  # (=> loghandlers not empty)
+            print("Log file: '%s'"
+                  "\n(if the download ends with no errors, the file will be "
+                  "deleted\nand its content written "
+                  "to the table '%s', column '%s')" % (log2file,
+                                                       Download.__tablename__,
+                                                       Download.log.key))
+
+        stime = time.time()
+        run(download_id=download_id, isterminal=verbose,
+            authorizer=authorizer, session=session, tt_table=tt_table,
+            **d_kwargs)
+        logger.info("Completed in %s", str(elapsedtime(stime)))
+        if log2file:
+            errs, warns = loghandlers[0].errors, loghandlers[0].warnings
+            logger.info("%d error%s, %d warning%s", errs,
+                        '' if errs == 1 else 's', warns,
+                        '' if warns == 1 else 's')
+    except FailedDownload as fdwnld:
+        # we logged the exception in `run_download`, just set ret=1:
+        ret = 1
+    except KeyboardInterrupt:
+        # https://stackoverflow.com/q/5191830
+        logger.critical("Aborted by user")
+        raise
+    except:  # @IgnorePep8 pylint: disable=broad-except
+        # log the (last) exception traceback and raise
+        noexc_occurred = False
+        # https://stackoverflow.com/q/5191830
+        logger.critical("Download aborted", exc_info=True)
+        raise
+    finally:
+        if session is not None:
+            close_session(session)  # help gc?
+            # write log to db if default handlers are provided:
+            if log2file and loghandlers is not None and download_id is not None:
+                # remove file if no exceptions occurred:
+                loghandlers[0].finalize(session, download_id,
+                                        removefile=noexc_occurred)
+                # the method above closes the logger, let's remove it manually
+                # before calling closelogger below to avoid closing
+                # loghandlers[0] twice:
+                logger.removeHandler(loghandlers[0])
+            close_session(session, True)  # engine disposal
+        closelogger(logger)
+
+    return ret
+
+
+def _pretty_printed_str(yaml_dict):
+    """Return a pretty printed string from yaml_dict"""
+    # print yaml_dict to terminal if needed. Unfortunately we need a bit of
+    # workaround just to print relevant params first (YAML sorts by key)
+    tmp_cfg = dict(yaml_dict)
+    # provide sorting in the printed yaml by splitting into subdicts:
+    dburl_name, dburl_val = pop_param(tmp_cfg, 'dburl')
+    dburl_val = secure_dburl(dburl_val)  # hide passwords
+    tmp_cfg_pre = [(dburl_name, dburl_val),
+                   pop_param(tmp_cfg, ('starttime', 'start')),
+                   pop_param(tmp_cfg, ('endtime', 'end'))]
+    tmp_cfg_post = [pop_param(tmp_cfg, 'advanced_settings', {})]
+    return "\n".join(_.strip() for _ in [
+        "Input parameters",
+        "----------------",
+        yaml_safe_dump(dict(tmp_cfg_pre)),
+        yaml_safe_dump(tmp_cfg),
+        yaml_safe_dump(dict(tmp_cfg_post)),
+    ]).strip()
 
 
 def run(session, download_id, eventws, starttime, endtime, dataws,

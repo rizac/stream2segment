@@ -10,8 +10,6 @@ from builtins import zip
 from datetime import datetime, timedelta
 from itertools import count
 import time
-from lib2to3.pygram import python_grammar_no_print_and_exec_statement
-from unittest.mock import patch
 
 import pytest
 import numpy as np
@@ -22,9 +20,9 @@ from stream2segment.download.db import DataCenter
 from stream2segment.download.modules.stationsearch import \
     locations2degrees as s2sloc2deg, get_magdep_search_radius
 from stream2segment.download.modules.datacenters import EidaValidator
-from stream2segment.download.utils import (s2scodes, DownloadStats, to_fdsn_arg,
-                                           HTTPCodesCounter, logwarn_dataframe,
-                                           strconvert, strptime)
+from stream2segment.download.modules.utils import (s2scodes, DownloadStats, to_fdsn_arg,
+                                                   HTTPCodesCounter, logwarn_dataframe,
+                                                   strconvert, strptime)
 
 
 @pytest.mark.parametrize('str_input, expected_diff, ',

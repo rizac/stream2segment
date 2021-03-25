@@ -27,7 +27,7 @@ from stream2segment.download.db import DataCenter, Download, Station, Channel
 from stream2segment.download.modules.events import get_events_df
 from stream2segment.download.modules.datacenters import get_datacenters_df
 from stream2segment.download.modules.channels import get_channels_df
-from stream2segment.download.utils import FailedDownload
+from stream2segment.download.exc import FailedDownload
 from stream2segment.io.db.pdsql import dbquery2df
 from stream2segment.download.url import URLError, HTTPError, responses
 from stream2segment.resources import get_templates_fpath

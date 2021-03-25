@@ -31,7 +31,8 @@ import pytest
 from stream2segment.download.db import DataCenter, Download
 from stream2segment.download.modules.datacenters import get_datacenters_df,\
     _get_local_routing_service
-from stream2segment.download.utils import FailedDownload, urljoin as original_urljoin
+from stream2segment.download.modules.utils import urljoin as original_urljoin
+from stream2segment.download.exc import FailedDownload
 from stream2segment.download.url import URLError, HTTPError, responses
 from stream2segment.resources import get_templates_fpath
 from stream2segment.io import yaml_load

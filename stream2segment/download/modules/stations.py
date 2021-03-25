@@ -18,20 +18,22 @@ import bz2
 
 import pandas as pd
 
-from stream2segment.download.db import DataCenter, Station, Segment
-from stream2segment.download.utils import read_async, DbExcLogger, formatmsg, url2str,\
-    err2str
 from stream2segment.io.cli import get_progressbar
 from stream2segment.io.db.pdsql import DbManager
-from stream2segment.download.url import Request  # handles py2,3 compatibility
+from stream2segment.download.db import DataCenter, Station, Segment
+from stream2segment.download.modules.utils import read_async, DbExcLogger, formatmsg, url2str,\
+    err2str
+from stream2segment.download.url import Request, get_host
 
 # logger: do not use logging.getLogger(__name__) but point to
 # stream2segment.download.logger: this way we preserve the logging namespace
 # hierarchy
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial) when
 # calling logging functions of stream2segment.download.utils:
-from stream2segment.download import logger  # @IgnorePep8
-from stream2segment.download.url import get_host
+# from stream2segment.download import logger  # @IgnorePep8
+
+import logging
+logger = logging.getLogger(__name__)
 
 
 def _get_sta_request(datacenter_url, network, station, start_time, end_time):

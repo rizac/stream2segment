@@ -9,7 +9,6 @@ Module implementing the download info (print statistics and generate html page)
 from __future__ import print_function
 
 import os
-import re
 import json
 from collections import defaultdict
 from future.utils import viewitems
@@ -22,7 +21,7 @@ from stream2segment.io.cli import ascii_decorate
 from stream2segment.download.db import Segment, Station, DataCenter, Download
 from stream2segment.io import Fdsnws
 from stream2segment.io.db.sqlconstructs import concat
-from stream2segment.download.utils import DownloadStats, EVENTWS_SAFE_PARAMS
+from stream2segment.download.modules.utils import DownloadStats, EVENTWS_SAFE_PARAMS
 
 
 class _InfoGenerator(object):

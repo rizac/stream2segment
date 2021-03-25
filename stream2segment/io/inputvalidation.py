@@ -5,7 +5,6 @@ Input validation module
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
-import inspect
 import os
 # import sys
 # import re
@@ -21,7 +20,7 @@ from stream2segment.resources import get_ttable_fpath, get_templates_fpath
 from stream2segment.process.inspectimport import load_source
 from stream2segment.traveltimes.ttloader import TTTable
 from stream2segment.io import Fdsnws, yaml_load, absrelpath
-from stream2segment.download.utils import Authorizer, EVENTWS_MAPPING, \
+from stream2segment.download.modules.utils import Authorizer, EVENTWS_MAPPING, \
     EVENTWS_SAFE_PARAMS, strptime
 
 

@@ -29,7 +29,7 @@ from collections import OrderedDict, defaultdict
 import click
 
 # from stream2segment import main
-
+import stream2segment.download.main
 from stream2segment.resources import get_templates_fpath
 from stream2segment.io import inputvalidation
 
@@ -446,8 +446,8 @@ def download(config, dburl, eventws, starttime, endtime, network,  # noqa
                      if v not in ((), {}, None) and k != 'config'}
         with warnings.catch_warnings():  # capture (ignore) warnings
             warnings.simplefilter("ignore")
-            ret = main.download(config, log2file=True, verbose=True,
-                                **overrides)
+            ret = stream2segment.download.main.download(config, log2file=True, verbose=True,
+                                                        **overrides)
     except inputvalidation.BadParam as err:
         print(err)
         ret = 2
