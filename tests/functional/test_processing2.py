@@ -17,7 +17,7 @@ from obspy.core.stream import read
 from future.utils import integer_types
 
 from stream2segment.cli import cli
-from stream2segment.process.main import run as process_main_run, \
+from stream2segment.process.main import _run as process_main_run, \
     get_default_chunksize as o_get_default_chunksize, \
     process_segments as o_process_segments, \
     process_segments_mp as o_process_segments_mp, \
@@ -54,12 +54,19 @@ class Test(object):
     def init(self, request, pytestdir, db4process):
         db4process.create(to_file=True)
         session = db4process.session
-        # sets up the mocked functions: db session handling (using the already created session)
-        # and log file handling:
-        with patch('stream2segment.utils.inputvalidation.valid_session', return_value=session):
-            with patch('stream2segment.main.closesession',
-                       side_effect=lambda *a, **v: None):
-                with patch('stream2segment.main.configlog4processing') as mock2:
+
+        class patches(object):
+            # paths container for class-level patchers used below. Hopefully
+            # will mek easier debug when refactoring/move functions
+            valid_session = 'stream2segment.process.main.valid_session'
+            close_session = 'stream2segment.process.main.close_session'
+            configlog4processing = 'stream2segment.process.main.configlog4processing'
+
+        # sets up the mocked functions: db session handling (using the already created
+        # session) and log file handling:
+        with patch(patches.valid_session, return_value=session):
+            with patch(patches.close_session, side_effect=lambda *a, **v: None):
+                with patch(patches.configlog4processing) as mock2:
 
                     def clogd(logger, logfilebasepath, verbose):
                         # config logger as usual, but redirects to a temp file
@@ -70,8 +77,7 @@ class Test(object):
                                                      if logfilebasepath else None,
                                                      verbose)
 
-                        self._logfilename = ret[0].baseFilename
-                        return ret
+                        self._logfilename = logger.handlers[0].baseFilename
 
                     mock2.side_effect = clogd
 
@@ -90,7 +96,7 @@ class Test(object):
                               ({}, ['--multi-process']),
                               ({'segments_chunksize': 1}, ['--multi-process', '--num-processes', '1']),
                               ({}, ['--multi-process', '--num-processes', '1'])])
-    @mock.patch('stream2segment.main.run_process', side_effect=process_main_run)
+    @mock.patch('stream2segment.process.main._run', side_effect=process_main_run)
     def test_save2file(self, mock_run, advanced_settings,
                        cmdline_opts,
                        # fixtures:

@@ -19,7 +19,7 @@ from stream2segment.cli import cli
 from stream2segment.process.db.models import Event, Segment
 from stream2segment.process import SkipSegment
 from stream2segment.resources import get_templates_fpath
-from stream2segment.process.main import run as process_main_run
+from stream2segment.process.main import _run as process_main_run
 from stream2segment.process.log import configlog4processing as o_configlog4processing
 from stream2segment.process.writers import BaseWriter, SEGMENT_ID_COLNAME
 
@@ -57,24 +57,31 @@ class Test(object):
     def init(self, request, pytestdir, db4process):
         db4process.create(to_file=True)
         session = db4process.session
-        # sets up the mocked functions: db session handling (using the already created session)
-        # and log file handling:
-        with patch('stream2segment.utils.inputvalidation.valid_session', return_value=session):
-            with patch('stream2segment.main.closesession',
+
+        class patches(object):
+            # paths container for class-level patchers used below. Hopefully
+            # will mek easier debug when refactoring/move functions
+            valid_session = 'stream2segment.process.main.valid_session'
+            close_session = 'stream2segment.process.main.close_session'
+            configlog4processing = 'stream2segment.process.main.configlog4processing'
+
+        # sets up the mocked functions: db session handling (using the already
+        # created session) and log file handling:
+        with patch(patches.valid_session, return_value=session):
+            with patch(patches.close_session,
                        side_effect=lambda *a, **v: None):
-                with patch('stream2segment.main.configlog4processing') as mock2:
+                with patch(patches.configlog4processing) as mock2:
 
                     def clogd(logger, logfilebasepath, verbose):
                         # config logger as usual, but redirects to a temp file
                         # that will be deleted by pytest, instead of polluting the program
                         # package:
-                        ret = o_configlog4processing(logger,
-                                                     pytestdir.newfile('.log') \
-                                                     if logfilebasepath else None,
-                                                     verbose)
+                        o_configlog4processing(logger,
+                                               pytestdir.newfile('.log') \
+                                               if logfilebasepath else None,
+                                               verbose)
 
-                        self._logfilename = ret[0].baseFilename
-                        return ret
+                        self._logfilename = logger.handlers[0].baseFilename
 
                     mock2.side_effect = clogd
 
@@ -100,7 +107,7 @@ class Test(object):
     # station_inventory in [true, false] and segment.data in [ok, with_gaps, empty]
     # use db4process(with_inventory, with_data, with_gap) to return sqlalchemy query for
     # those segments in case. For info see db4process in conftest.py
-    @mock.patch('stream2segment.main.run_process', side_effect=process_main_run)
+    @mock.patch('stream2segment.process.main._run', side_effect=process_main_run)
     def test_simple_run_no_outfile_provided(self, mock_run,
                                             # fixtures:
                                             db4process, yamlfile):
