@@ -17,13 +17,13 @@ import pytest
 import numpy as np
 from obspy.core.stream import read
 
-from stream2segment.process.db import (Event, WebService, Channel, Station,
-                                       DataCenter, Segment, Class, Download)
+from stream2segment.process.db.models import (Event, WebService, Channel, Station,
+                                              DataCenter, Segment, Class, Download)
 from stream2segment.process.inspectimport import load_source
 from stream2segment.io.inputvalidation import valid_session
 from stream2segment.resources import get_templates_fpaths
 from stream2segment.io import yaml_load
-from stream2segment.process.db import get_stream as original_get_stream
+from stream2segment.process.db.models import get_stream as original_get_stream
 
 # from stream2segment.gui.webapp import get_session
 from stream2segment.process.gui import create_s2s_show_app

@@ -14,8 +14,6 @@ Input validation module
 from future.utils import string_types
 # from stream2segment.process import SkipSegment
 from stream2segment.io.db import database_exists, get_session
-from stream2segment.process.inspectimport import load_source
-from stream2segment.io import yaml_load
 
 
 class BadParam(Exception):
@@ -260,7 +258,7 @@ def valid_session(dburl, for_process=False, scoped=False, **engine_kwargs):
 
     if not for_process:
         # Note: this creates the SCHEMA, not the database
-        from stream2segment.download.db import Base
+        from stream2segment.download.db.models import Base
         Base.metadata.create_all(sess.get_bind())
 
     # assert that the database exist. The only exception is when we

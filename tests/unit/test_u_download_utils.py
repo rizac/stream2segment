@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 from obspy.geodetics.base import locations2degrees as obspyloc2deg
 
-from stream2segment.download.db import DataCenter
+from stream2segment.download.db.models import DataCenter
 from stream2segment.download.modules.stationsearch import \
     locations2degrees as s2sloc2deg, get_magdep_search_radius
 from stream2segment.download.modules.datacenters import EidaValidator

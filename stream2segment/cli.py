@@ -31,14 +31,14 @@ import click
 # in case of delays showing cli --help, consider importing inside the functions
 # https://www.tomrochette.com/problems/2020/03/07
 # (but also consider that it might cause issues in refactoring / moving modules)
-import stream2segment.download.dbinspection.main
+import stream2segment.download.db.inspection.main
 import stream2segment.download.inputvalidation
 import stream2segment.download.main
-import stream2segment.download.dbmanagement
+import stream2segment.download.db.management
 import stream2segment.process.inputvalidation
 import stream2segment.process.main
 import stream2segment.process.gui.main
-from stream2segment.download.dbmanagement import classlabels
+from stream2segment.download.db.management import classlabels
 from stream2segment.resources import get_templates_fpath
 from stream2segment.io import inputvalidation
 
@@ -638,7 +638,7 @@ def show(dburl, configfile, pyfile):
     sys.exit(ret)
 
 
-@cli.group(short_help="Downloaded data analysis and dbinspection")
+@cli.group(short_help="Downloaded data analysis and inspection")
 def dl():  # pylint: disable=missing-docstring
     pass
 
@@ -681,8 +681,8 @@ def stats(dburl, download_id, maxgap_threshold, html, outfile):
     try:
         with warnings.catch_warnings():  # capture (ignore) warnings
             warnings.simplefilter("ignore")
-            stream2segment.download.dbinspection.main.dstats(dburl, download_id or None, maxgap_threshold,
-                                                             html, outfile)
+            stream2segment.download.db.inspection.main.dstats(dburl, download_id or None, maxgap_threshold,
+                                                              html, outfile)
         if outfile is not None:
             print("download statistics written to '%s'" % outfile)
         sys.exit(0)
@@ -691,7 +691,7 @@ def stats(dburl, download_id, maxgap_threshold, html, outfile):
         sys.exit(1)  # exit with 1 as normal python exceptions
 
 
-@dl.command(short_help="Return download information for dbinspection")
+@dl.command(short_help="Return download information for inspection")
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option('-did', '--download-id', multiple=True, type=int,
               help="Limit the download statistics to a specified set of "
@@ -724,8 +724,8 @@ def report(dburl, download_id, config, log, outfile):
         html = False
         with warnings.catch_warnings():  # capture (ignore) warnings
             warnings.simplefilter("ignore")
-            stream2segment.download.dbinspection.main.dreport(dburl, download_id or None,
-                                                              bool(config), bool(log), html, outfile)
+            stream2segment.download.db.inspection.main.dreport(dburl, download_id or None,
+                                                               bool(config), bool(log), html, outfile)
         if outfile is not None:
             print("download report written to '%s'" % outfile)
         sys.exit(0)
@@ -755,7 +755,7 @@ def drop(dburl, download_id):
     try:
         with warnings.catch_warnings():  # capture (ignore) warnings
             warnings.simplefilter("ignore")
-            ret = stream2segment.download.dbmanagement.drop(dburl, download_id, input)
+            ret = stream2segment.download.db.management.drop(dburl, download_id, input)
         if ret is None:
             sys.exit(1)
         elif not ret:

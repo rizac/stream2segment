@@ -8,7 +8,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from stream2segment.io import inputvalidation
 from stream2segment.io.db import close_session
 from stream2segment.io.db.models import get_classlabels
-from stream2segment.download.db import Class, Download, Segment
+from stream2segment.download.db.models import Class, Download, Segment
 from stream2segment.io.inputvalidation import validate_param, valid_session
 
 

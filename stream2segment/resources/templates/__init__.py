@@ -170,7 +170,7 @@ segment.station.inventory_xml         bytes. The station inventory (raw) data. Y
 segment.download.log                  str: The log text of the segment's download 
                                       execution. You don't generally need to access this
                                       attribute which is also time-consuming to fetch.
-                                      Useful for advanced debugging / dbinspection
+                                      Useful for advanced debugging / inspection
 segment.download.warnings             int
 segment.download.errors               int
 segment.download.config               str
@@ -577,7 +577,7 @@ The parameter 'segments_selection' defines which segments to be processed or vis
 # endpoints)
 #
 # 3. To select segments from specified ids, e.g. 1, 4, 342, 67 (e.g., ids which raised
-# errors during a previous run and whose id where logged might need dbinspection in the GUI):
+# errors during a previous run and whose id where logged might need inspection in the GUI):
 # segments_selection:
 #   id: "1 4 342 67"
 #

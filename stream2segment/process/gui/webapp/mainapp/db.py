@@ -8,12 +8,11 @@ Created on 16 Apr 2020
 # import os
 # import threading
 
-import numpy as np
 from sqlalchemy import func
 
 # from flask import g
-from stream2segment.process.db import Segment, Class, Station, Download
-from stream2segment.io.db.sqlevalexpr import exprquery, Inspector
+from stream2segment.process.db.models import Segment, Class, Station, Download
+from stream2segment.process.db.sqlevalexpr import exprquery, Inspector
 from stream2segment.io.db import secure_dburl
 from stream2segment.io.db.models import get_classlabels
 

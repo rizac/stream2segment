@@ -16,7 +16,7 @@ from pandas.errors import EmptyDataError
 from click.testing import CliRunner
 
 from stream2segment.cli import cli
-from stream2segment.process.db import Event, Segment
+from stream2segment.process.db.models import Event, Segment
 from stream2segment.process import SkipSegment
 from stream2segment.resources import get_templates_fpath
 from stream2segment.process.main import run as process_main_run

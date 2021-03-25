@@ -3,13 +3,10 @@ Created on Oct 7, 2017
 
 @author: riccardo
 '''
-import os
-import sys
 from io import BytesIO
 import time
 from datetime import datetime
 import pandas as pd
-from tempfile import NamedTemporaryFile
 
 from mock import patch
 import pytest
@@ -17,9 +14,9 @@ import numpy as np
 from obspy.core.stream import read
 
 from stream2segment.process import SkipSegment
-from stream2segment.process.db import get_stream
+from stream2segment.process.db.models import get_stream
 from stream2segment.process.main import get_slices
-from stream2segment.process.writers import CsvWriter, HDFWriter
+from stream2segment.process.writers import HDFWriter
 
 class MockSegment(object):
     def __init__(self, data):

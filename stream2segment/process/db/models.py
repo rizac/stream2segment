@@ -21,13 +21,13 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import relationship, backref
 from sqlalchemy.orm.session import object_session
-from sqlalchemy.sql.expression import func, text, case, select
+from sqlalchemy.sql.expression import text, case, select
 from obspy.core.stream import _read  # noqa
 from obspy.core.inventory.inventory import read_inventory
 
 from stream2segment.io.db.sqlconstructs import missing_data_ratio, missing_data_sec, \
     duration_sec, deg2km, concat, substr
-from stream2segment.io.db.sqlevalexpr import exprquery
+from stream2segment.process.db.sqlevalexpr import exprquery
 from stream2segment.process import SkipSegment
 from stream2segment.io.db import models, get_session  # noqa
 # (get_session should be imported from here in user code)

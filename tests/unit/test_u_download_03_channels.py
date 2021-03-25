@@ -23,7 +23,7 @@ except ImportError:
 import numpy as np
 import pytest
 
-from stream2segment.download.db import DataCenter, Download, Station, Channel
+from stream2segment.download.db.models import DataCenter, Download, Station, Channel
 from stream2segment.download.modules.events import get_events_df
 from stream2segment.download.modules.datacenters import get_datacenters_df
 from stream2segment.download.modules.channels import get_channels_df

@@ -28,7 +28,7 @@ except ImportError:
 
 import pytest
 
-from stream2segment.download.db import DataCenter, Download
+from stream2segment.download.db.models import DataCenter, Download
 from stream2segment.download.modules.datacenters import get_datacenters_df,\
     _get_local_routing_service
 from stream2segment.download.modules.utils import urljoin as original_urljoin

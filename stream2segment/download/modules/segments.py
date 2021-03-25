@@ -21,7 +21,7 @@ import pandas as pd
 from stream2segment.io import Fdsnws
 from stream2segment.io.cli import get_progressbar
 from stream2segment.io.db.pdsql import dbquery2df, mergeupdate, DbManager
-from stream2segment.download.db import DataCenter, Segment
+from stream2segment.download.db.models import DataCenter, Segment
 from stream2segment.download.modules.utils import read_async, DbExcLogger, logwarn_dataframe, DownloadStats, formatmsg, s2scodes, url2str
 from stream2segment.download.exc import NothingToDownload
 from stream2segment.download.modules.mseedlite import MSeedError, unpack as mseedunpack

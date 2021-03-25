@@ -29,13 +29,13 @@ from itertools import chain, repeat
 import numpy as np
 
 from stream2segment.io.db import secure_dburl, close_session
-from stream2segment.io.db.sqlevalexpr import exprquery
+from stream2segment.process.db.sqlevalexpr import exprquery
 from stream2segment.io.log import logfilepath, close_logger, elapsed_time
 from stream2segment.io.cli import get_progressbar, ascii_decorate
 from stream2segment.io.inputvalidation import validate_param, valid_session
 from stream2segment.process.inputvalidation import load_config_for_process, valid_pyfunc
 from stream2segment.process import SkipSegment
-from stream2segment.process.db import get_session, Segment, Station
+from stream2segment.process.db.models import get_session, Segment, Station
 from stream2segment.process.log import configlog4processing
 from stream2segment.process.writers import get_writer
 

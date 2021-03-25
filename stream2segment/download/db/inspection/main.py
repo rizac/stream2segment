@@ -18,7 +18,7 @@ from future.utils import viewitems
 from jinja2 import Environment, FileSystemLoader
 from sqlalchemy import func, or_
 
-from stream2segment.download.db import Download, Segment, DataCenter, Station
+from stream2segment.download.db.models import Download, Segment, DataCenter, Station
 from stream2segment.download.modules.utils import EVENTWS_SAFE_PARAMS, DownloadStats
 from stream2segment.io import yaml_load, Fdsnws, open2writetext
 from stream2segment.io.cli import ascii_decorate
@@ -182,7 +182,7 @@ def get_dreport_str_iter(session, download_ids=None, config=True, log=True):
 
 
 def infoquery(session, download_ids=None, config=True, log=True):
-    '''Returns a query for getting data for dbinspection (show_stats=False in the
+    '''Returns a query for getting data for inspection (show_stats=False in the
     functions above)'''
     # IMPORTANT: If it happens to access backref relationships (e.g. Download.segments)
     # consider calling configure_mappers() first:

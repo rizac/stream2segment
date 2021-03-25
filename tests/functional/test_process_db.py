@@ -14,10 +14,10 @@ import pytest
 from stream2segment.cli import cli
 from stream2segment.resources import get_templates_fpath
 from stream2segment.io.db.models import get_classlabels
-from stream2segment.process.db import (get_inventory, get_stream,
-                                       Event, Station, Segment,
-                                       Channel, Download, DataCenter, ClassLabelling,
-                                       Class)
+from stream2segment.process.db.models import (get_inventory, get_stream,
+                                              Event, Station, Segment,
+                                              Channel, Download, DataCenter, ClassLabelling,
+                                              Class)
 from stream2segment.process.main import query4process
 from stream2segment.process.log import configlog4processing as o_configlog4processing
 

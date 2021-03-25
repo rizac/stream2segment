@@ -6,7 +6,7 @@ import logging
 import os
 import sys
 
-from stream2segment.download import db as ddb
+from stream2segment.download.db import models as ddb
 from stream2segment.io.log import LevelFilter
 
 

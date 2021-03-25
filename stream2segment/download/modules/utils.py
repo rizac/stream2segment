@@ -31,7 +31,7 @@ import psutil
 
 from stream2segment.io.db.pdsql import harmonize_columns, \
     harmonize_rows, colnames, syncdf
-from stream2segment.download.db import Event, Station, Channel
+from stream2segment.download.db.models import Event, Station, Channel
 from stream2segment.download.exc import FailedDownload
 from stream2segment.download.url import (read_async as original_read_async,
                                          responses)

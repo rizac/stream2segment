@@ -15,7 +15,7 @@ from datetime import timedelta
 import numpy as np
 import pandas as pd
 
-from stream2segment.download.db import Station, Channel, Event, Segment
+from stream2segment.download.db.models import Station, Channel, Event, Segment
 from stream2segment.download.modules.utils import formatmsg
 from stream2segment.download.exc import FailedDownload
 from stream2segment.io.cli import get_progressbar

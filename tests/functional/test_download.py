@@ -30,7 +30,7 @@ from stream2segment.cli import cli
 from stream2segment.download.main import get_events_df, get_datacenters_df, \
     get_channels_df, download_save_segments, save_inventories
 from stream2segment.download.log import configlog4download
-from stream2segment.download.db import Segment, Download, Station, Channel, \
+from stream2segment.download.db.models import Segment, Download, Station, Channel, \
     Event, DataCenter
 from stream2segment.io.db.models import withdata
 from stream2segment.io.db.pdsql import dbquery2df, insertdf, updatedf,\
@@ -542,7 +542,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         assert clirunner.ok(result)
         assert not mock_download_save_segments.called
 
-        # test some edge cases, if run from eclipse, a debugger and dbinspection of self.log_msg()
+        # test some edge cases, if run from eclipse, a debugger and inspection of self.log_msg()
         # might be needed to check that everything is printed right. IF WE CHANGE THE MESSAGES
         # TO BE DISPLAYED, THEN CHANGE THE STRING BELOW:
         str_err = "Eida routing service error"
@@ -562,7 +562,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         mock_get_datacenters_df.side_effect = \
             lambda *a, **v: self.get_datacenters_df(None, *a, **v)
 
-        # test some edge cases, if run from eclipse, a debugger and dbinspection of self.log_msg()
+        # test some edge cases, if run from eclipse, a debugger and inspection of self.log_msg()
         # might be needed to check that everything is printed right. IF WE CHANGE THE MESSAGES
         # TO BE DISPLAYED, THEN CHANGE THE STRING BELOW:
         str_err = "No channel matches user defined filters"

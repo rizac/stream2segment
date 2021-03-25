@@ -10,7 +10,7 @@ import os
 from io import BytesIO
 import traceback
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime
 import yaml
 
 import pytest
@@ -23,8 +23,8 @@ from obspy.core.inventory.inventory import read_inventory
 
 from click.testing import CliRunner
 
-import stream2segment.download.db as dbd
-import stream2segment.process.db as dbp
+import stream2segment.download.db.models as dbd
+import stream2segment.process.db.models as dbp
 # from stream2segment.io.db.models import Base, Event, DataCenter, WebService, Download,\
 #     Station, Channel, Segment
 from stream2segment.traveltimes.ttloader import TTTable

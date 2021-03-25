@@ -23,7 +23,7 @@ from stream2segment.io import yaml_safe_dump
 from stream2segment.io.db.pdsql import dbquery2df
 from stream2segment.io.db import secure_dburl, close_session
 from stream2segment.download.inputvalidation import load_config_for_download, pop_param
-from stream2segment.download.db import Download
+from stream2segment.download.db.models import Download
 from stream2segment.download.exc import NothingToDownload, FailedDownload
 from stream2segment.download.modules.events import get_events_df
 from stream2segment.download.modules.datacenters import get_datacenters_df
@@ -55,7 +55,7 @@ def download(config, log2file=True, verbose=False, **param_overrides):
         errors and critical messages (=Python exceptions): if the download
         routine exits with no exception, the file content is written to the
         database (`Download` table) and the file deleted. Otherwise, the file
-        will be left on the system for dbinspection
+        will be left on the system for inspection
     :param verbose: if True (default: False) print some log information also on
         the standard output (usually the screen), as well as progress bars
         showing the estimated remaining time for each sub task. This option is
