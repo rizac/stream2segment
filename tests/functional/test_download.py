@@ -28,7 +28,8 @@ import pandas as pd
 
 from stream2segment.cli import cli
 from stream2segment.download.main import get_events_df, get_datacenters_df, \
-    get_channels_df, download_save_segments, save_inventories, configlog4download
+    get_channels_df, download_save_segments, save_inventories
+from stream2segment.download.log import configlog4download
 from stream2segment.download.db import Segment, Download, Station, Channel, \
     Event, DataCenter
 from stream2segment.io.db.models import withdata

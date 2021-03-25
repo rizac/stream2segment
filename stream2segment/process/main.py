@@ -30,18 +30,18 @@ import numpy as np
 
 from stream2segment.io.db import secure_dburl, close_session
 from stream2segment.io.db.sqlevalexpr import exprquery
-from stream2segment.io.log import logfilepath, close_logger, LevelFilter, elapsed_time
+from stream2segment.io.log import logfilepath, close_logger, elapsed_time
 from stream2segment.io.cli import get_progressbar, ascii_decorate
-from stream2segment.io.inputvalidation import valid_pyfunc, load_config_for_process, \
-    validate_param, valid_session
+from stream2segment.io.inputvalidation import validate_param, valid_session
+from stream2segment.process.inputvalidation import load_config_for_process, valid_pyfunc
 from stream2segment.process import SkipSegment
 from stream2segment.process.db import get_session, Segment, Station
+from stream2segment.process.log import configlog4processing
 from stream2segment.process.writers import get_writer
 
 
-
-# make the logger refer to the root of this package ('stream2segment.download')
-# This is necessary to make all loggers oif this package refer to the one below:
+# make the logger refer to the parent of this package (`rfind` below. For info:
+# https://docs.python.org/3/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__[:__name__.rfind('.')])
 
 
@@ -106,7 +106,7 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None,
         log2file = log2file or ''  # assure we have a string
 
     try:
-        loghandlers = configlog4processing(logger, log2file, verbose)
+        configlog4processing(logger, log2file, verbose)
         abp = os.path.abspath
         info = [
             "Input database:      %s" % secure_dburl(dburl),
@@ -204,59 +204,6 @@ def s2smap(pyfunc, dburl, segments_selection=None, config=None, *,
     finally:
         close_session(session, True)
         close_logger(logger)
-
-
-def configlog4processing(logger, logfile_path='', verbose=False):
-    """Configures the logger, setting it to a `INFO` level with a list of
-    default handlers:
-
-    - If `logfile_path` is given (not empty), a :class:`logging.FileHandler` (
-      streaming to that file) will capture all messages of at least level INFO
-      (e.g., INFO, WARNING, ERROR).
-      See :func:`logfilepath` if you want to create automatically a log file
-      path in the same directory of a given processing file.
-
-    - If `verbose` = True, a :class:`StreamHandler` (streaming to standard
-      output) will capture ONLY messages of level INFO (20) and ERROR (40) and
-      CRITICAL (50), ideal for showing relevant information to the user on a
-      terminal
-
-    The returned list can thus contain 0, 1 or 2 loggers depending on the
-    arguments.
-
-    Implementation detail: this method modifies these values for performance
-    reason:
-    ```
-    logging._srcfile = None
-    logging.logThreads = 0
-    logging.logProcesses = 0
-    ```
-
-    :return: a list of handlers added to the logger
-    """
-    # https://docs.python.org/2/howto/logging.html#optimization:
-    logging._srcfile = None  # pylint: disable=protected-access
-    logging.logThreads = 0
-    logging.logProcesses = 0
-
-    logger.setLevel(logging.INFO)  # necessary to forward to handlers
-    handlers = []
-    if logfile_path:
-        logger.addHandler(logging.FileHandler(logfile_path, mode='w'))
-    if verbose:
-        # handlers.append(SysOutStreamHandler(sys.stdout))
-        sysout_streamer = logging.StreamHandler(sys.stdout)
-        sysout_streamer.setFormatter(logging.Formatter('%(message)s'))
-        # configure the levels we want to print (20: info, 40: error, 50: critical)
-        l_filter = LevelFilter((20, 40, 50))
-        sysout_streamer.addFilter(l_filter)
-        # set minimum level (for safety):
-        sysout_streamer.setLevel(min(l_filter.levels))
-        logger.addHandler(sysout_streamer)
-
-    for hand in handlers:
-        logger.addHandler(hand)
-    # return handlers
 
 
 def _run(session, pyfunc, writer, config=None, segments_selection=None,

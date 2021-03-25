@@ -21,10 +21,10 @@ from obspy.core.utcdatetime import UTCDateTime
 
 from stream2segment.process import gui
 from stream2segment.process.inspectimport import iterfuncs
+from stream2segment.process.lib.traces import sn_split
 from stream2segment.io import yaml_safe_dump, StringIO  # <- io.StringIO py2 compatible
 from stream2segment.gui.webapp.mainapp.jsplot import Plot, isoformat
 from stream2segment.gui.webapp.mainapp import db
-from stream2segment.process.lib.traces import sn_split
 
 # number of points per plot. Used to resample points:
 NPTS_WIDE = 900  # FIXME: automatic retrieve from the GUI?

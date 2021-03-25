@@ -24,7 +24,8 @@ import pytest
 
 from stream2segment.cli import cli
 from stream2segment.download.main import get_events_df, get_datacenters_df, \
-    save_inventories, get_channels_df, download_save_segments, configlog4download
+    save_inventories, get_channels_df, download_save_segments
+from stream2segment.download.log import configlog4download
 from stream2segment.download.db import Segment, Download, Station
 from stream2segment.io.db.pdsql import insertdf, updatedf
 from stream2segment.download.modules.utils import s2scodes

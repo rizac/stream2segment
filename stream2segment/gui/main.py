@@ -15,6 +15,37 @@ import threading
 
 from flask import Flask
 
+from stream2segment.io import yaml_load
+from stream2segment.io.inputvalidation import (validate_param, valid_session,
+                                               _extract_segments_selection)
+from stream2segment.process.inspectimport import load_source
+
+
+def show_gui(dburl, pyfile, configfile):
+    """Show downloaded data plots in a system browser dynamic web page"""
+    session, pymodule, config_dict, segments_selection = \
+        load_config_for_visualization(dburl, pyfile, configfile)
+    run_in_browser(create_s2s_show_app(session, pymodule, config_dict,
+                                       segments_selection))
+    return 0
+
+
+def load_config_for_visualization(dburl, pyfile=None, config=None):
+    """Check visualization arguments and return a tuple of well formed args.
+    Raise :class:`BadParam` if any param is invalid
+    """
+    # in process and download routines, validation is in a separate inputvalidation.py
+    # module. Here for the moment we leave it here
+    session = validate_param('dburl', dburl, valid_session, for_process=True, scoped=True)
+    pymodule = None if not pyfile else validate_param('pyfile', pyfile, load_source)
+    config_dict = {} if not config else validate_param('configfile', config, yaml_load)
+    seg_sel = _extract_segments_selection(config_dict)
+
+    return session, pymodule, config_dict, seg_sel
+
+
+
+
 
 def create_s2s_show_app(session, pymodule=None, config=None, segments_selection=None):
     """Create a new app for processing. Note that config_py_file is the

@@ -28,9 +28,14 @@ from collections import OrderedDict, defaultdict
 
 import click
 
-# from stream2segment import main
+# in case of delays showing cli --help, consider importing inside the functions
+# https://www.tomrochette.com/problems/2020/03/07
+# (but also consider that it might cause issues in refactoring / moving modules)
+import stream2segment.download.inputvalidation
 import stream2segment.download.main
+import stream2segment.process.inputvalidation
 import stream2segment.process.main
+import stream2segment.gui.main
 from stream2segment.resources import get_templates_fpath
 from stream2segment.io import inputvalidation
 
@@ -42,7 +47,7 @@ class clickutils(object):  # noqa
     EQA = "(event search parameter)"
     # Keyword attributes fot Options that accept a db URL also in form of the
     # file path to a download config (with the db url in it):
-    DBURL_OR_YAML_ATTRS = dict(type=inputvalidation.valid_dburl_or_download_yamlpath,
+    DBURL_OR_YAML_ATTRS = dict(type=stream2segment.download.inputvalidation.valid_dburl_or_download_yamlpath,
                                metavar='TEXT or PATH',
                                help=("Database URL where data has been saved. "
                                      "It can also be the path of a YAML file "
@@ -376,9 +381,9 @@ def init(outdir):
 @click.option('-d', '--dburl', is_eager=True)
 @click.option('-es', '--eventws')
 @click.option('-s', '--start', '--starttime', "starttime",
-              type=inputvalidation.valid_date, metavar='DATE or DATETIME')
+              type=stream2segment.download.inputvalidation.valid_date, metavar='DATE or DATETIME')
 @click.option('-e', '--end', '--endtime', 'endtime',
-              type=inputvalidation.valid_date, metavar='DATE or DATETIME', )
+              type=stream2segment.download.inputvalidation.valid_date, metavar='DATE or DATETIME', )
 @click.option('-n', '--network', '--networks', '--net', 'network')
 @click.option('-z', '--station', '--stations', '--sta', 'station')
 @click.option('-l', '--location', '--locations', '--loc', 'location')
@@ -436,10 +441,6 @@ def download(config, dburl, eventws, starttime, endtime, network,  # noqa
     """
     _locals = dict(locals())  # MUST BE THE FIRST STATEMENT
 
-    # import here to improve slow click cli (at least when --help is invoked)
-    # https://www.tomrochette.com/problems/2020/03/07
-    from stream2segment import main
-
     # REMEMBER: NO LOCAL VARIABLES OTHERWISE WE MESS UP THE CONFIG OVERRIDES
     # ARGUMENTS
     try:
@@ -477,7 +478,7 @@ def download(config, dburl, eventws, starttime, endtime, network,  # noqa
 @click.option("-f", "--funcname",
               help="The name of the user-defined processing function in the "
                    "given python file. Defaults to '%s' when "
-                   "missing" % inputvalidation.valid_default_processing_funcname())
+                   "missing" % stream2segment.process.inputvalidation.valid_default_processing_funcname())
 @click.option("-a", "--append", is_flag=True, default=False,
               help="Append results to the output file (this flag is ignored if "
                    "no output file is provided. The output file will be "
@@ -518,10 +519,6 @@ def process(dburl, config, pyfile, funcname, append, no_prompt,
     replaced with [pyfile])
     """
     _locals = dict(locals())  # MUST BE THE FIRST STATEMENT
-
-    # import here to improve slow click cli (at least when --help is invoked)
-    # https://www.tomrochette.com/problems/2020/03/07
-    from stream2segment import main
 
     # REMEMBER: NO LOCAL VARIABLES OTHERWISE WE MESS UP THE CONFIG OVERRIDES
     # ARGUMENTS
@@ -568,15 +565,11 @@ def show(dburl, configfile, pyfile):
     """Show waveform plots and metadata in the browser,
     customizable with user-defined configuration and custom Plots
     """
-    # import here to improve slow click cli (at least when --help is invoked)
-    # https://www.tomrochette.com/problems/2020/03/07
-    from stream2segment import main
-
     try:
         ret = 0
         with warnings.catch_warnings():  # capture (ignore) warnings
             warnings.simplefilter("ignore")
-            main.show(dburl, pyfile, configfile)
+            stream2segment.gui.main.show_gui(dburl, pyfile, configfile)
     except inputvalidation.BadParam as err:
         print(err)
         ret = 2  # exit with 1 as normal python exceptions
