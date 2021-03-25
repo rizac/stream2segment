@@ -10,7 +10,7 @@ from builtins import object  # pylint: disable=redefined-builtin
 from mock import patch
 import pytest
 
-from stream2segment.main import s2smap
+from stream2segment.process.main import s2smap
 from stream2segment.process import SkipSegment
 
 

@@ -16,8 +16,8 @@ from stream2segment.resources import get_templates_fpath
 from stream2segment.process.db import (get_inventory, get_stream,
                                        get_classlabels, Event, Station, Segment,
                                        Channel, Download, DataCenter, ClassLabelling)
-from stream2segment.io.log import configlog4processing as o_configlog4processing
-from stream2segment.process.main import query4process
+from stream2segment.process.main import query4process, \
+    configlog4processing as o_configlog4processing
 
 
 @pytest.fixture

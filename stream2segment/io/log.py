@@ -8,10 +8,8 @@ Class handling logger for downloading and processing
 # make the following(s) behave like python3 counterparts if running from python2.7.x
 # (http://python-future.org/imports.html#explicit-imports):
 from builtins import object  # pylint: disable=redefined-builtin
-
-import logging
-from datetime import datetime
-import sys
+import time
+from datetime import datetime, timedelta
 
 
 class LevelFilter(object):  # pylint: disable=too-few-public-methods
@@ -43,66 +41,6 @@ class LevelFilter(object):  # pylint: disable=too-few-public-methods
         return True if record.levelno in self.levels else False
 
 
-class SysOutStreamHandler(logging.StreamHandler):
-    """Handler that prints to screen the logging messages.
-    It implements a LevelFilter so that only special levels (not only levels
-    "up to") are printed to screen. By default, these levels are 20 (info),
-    40 (error) and 50 (critical)
-    """
-    def __init__(self, out=sys.stdout, levels=(20, 40, 50)):
-        super(SysOutStreamHandler, self).__init__(out)
-        self.setLevel(min(levels))
-        # custom filtering: do not print certain levels (default: print info
-        # and critical):
-        self.addFilter(LevelFilter(levels))
-        # this should be the default, but for safety set it again:
-        self.setFormatter(logging.Formatter('%(message)s'))
-
-
-def configlog4processing(logger, logfile_path='', verbose=False):
-    """Configures the logger, setting it to a `INFO` level with a list of
-    default handlers:
-
-    - If `logfile_path` is given (not empty), a :class:`logging.FileHandler` (
-      streaming to that file) will capture all messages of at least level INFO
-      (e.g., INFO, WARNING, ERROR).
-      See :func:`logfilepath` if you want to create automatically a log file
-      path in the same directory of a given processing file.
-
-    - If `verbose` = True, a :class:`StreamHandler` (streaming to standard
-      output) will capture ONLY messages of level INFO (20) and ERROR (40) and
-      CRITICAL (50), ideal for showing relevant information to the user on a
-      terminal
-
-    The returned list can thus contain 0, 1 or 2 loggers depending on the
-    arguments.
-
-    Implementation detail: this method modifies these values for performance
-    reason:
-    ```
-    logging._srcfile = None
-    logging.logThreads = 0
-    logging.logProcesses = 0
-    ```
-
-    :return: a list of handlers added to the logger
-    """
-    # https://docs.python.org/2/howto/logging.html#optimization:
-    logging._srcfile = None  # pylint: disable=protected-access
-    logging.logThreads = 0
-    logging.logProcesses = 0
-
-    logger.setLevel(logging.INFO)  # necessary to forward to handlers
-    handlers = []
-    if logfile_path:
-        handlers.append(logging.FileHandler(logfile_path, mode='w'))
-    if verbose:
-        handlers.append(SysOutStreamHandler(sys.stdout))
-    for hand in handlers:
-        logger.addHandler(hand)
-    return handlers
-
-
 def logfilepath(filepath):
     """Return a log file associated to the given `filepath`, i.e.:
     `filepath + "[now].log"` where [now] is the current date-time in ISO
@@ -116,9 +54,30 @@ def logfilepath(filepath):
     return filepath + (".%s.log" % _now)
 
 
-def closelogger(logger):
+def close_logger(logger):
     """Close all logger handlers and removes them from logger"""
     handlers = logger.handlers[:]
     for handler in handlers:
-        handler.close()
+        try:
+            handler.close()  # maybe already closed? pass in case
+        except Exception:  # noqa
+            pass
         logger.removeHandler(handler)
+
+
+def elapsed_time(t0_sec, t1_sec=None):
+    """Time elapsed from `t0_sec` until `t1_sec`, as `timedelta` object rounded
+    to seconds. If `t1_sec` is None, it will default to `time.time()` (the
+    current time since the epoch, in seconds)
+
+    :param t0_sec: (float) the start time in seconds. Usually it is the result
+        of a previous call to `time.time()`, before starting a process that
+        had to be monitored
+    :param t1_sec: (float) the end time in seconds. If None, it defaults to
+        `time.time()` (current time since the epoch, in seconds)
+
+    :return: a timedelta object, rounded to seconds
+    """
+    return timedelta(seconds=round((time.time() if t1_sec is None else t1_sec) - t0_sec))
+
+

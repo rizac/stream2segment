@@ -19,7 +19,7 @@ import psutil
 from future.utils import string_types
 
 from stream2segment.download import db as ddb
-from stream2segment.io.log import logfilepath, closelogger, LevelFilter
+from stream2segment.io.log import logfilepath, close_logger, LevelFilter, elapsed_time
 from stream2segment.io import yaml_safe_dump
 from stream2segment.io.db.pdsql import dbquery2df
 from stream2segment.io.db import secure_dburl, close_session
@@ -36,9 +36,6 @@ from stream2segment.download.modules.stations import (save_inventories,
                                                       query4inventorydownload)
 
 
-from stream2segment.main import logger, elapsedtime
-
-logging.Filter
 
 # make the logger refer to the root of this package ('stream2segment.download')
 # This is necessary to make all loggers oif this package refer to the one below:
@@ -96,7 +93,7 @@ def download(config, log2file=True, verbose=False, **param_overrides):
 
     ret = 0
     noexc_occurred = True
-    loghandlers = None
+    db_streamer = None  # handler logging to db upon successful completion
     download_id = None
     try:
         real_yaml_dict = load_config_for_download(config, False, **param_overrides)
@@ -108,7 +105,7 @@ def download(config, log2file=True, verbose=False, **param_overrides):
             log2file = logfilepath(config)  # auto create log file
         else:
             log2file = log2file or ''  # assure we have a string
-        loghandlers = configlog4download(logger, log2file, verbose)
+        db_streamer, _ = configlog4download(logger, log2file, verbose)
 
         # create download row with unprocessed config (yaml_load function)
         # Note that we call again load_config with parseargs=False:
@@ -122,12 +119,12 @@ def download(config, log2file=True, verbose=False, **param_overrides):
                                                        Download.log.key))
 
         stime = time.time()
-        run(download_id=download_id, isterminal=verbose,
-            authorizer=authorizer, session=session, tt_table=tt_table,
-            **d_kwargs)
-        logger.info("Completed in %s", str(elapsedtime(stime)))
+        _run(download_id=download_id, isterminal=verbose,
+             authorizer=authorizer, session=session, tt_table=tt_table,
+             **d_kwargs)
+        logger.info("Completed in %s", str(elapsed_time(stime)))
         if log2file:
-            errs, warns = loghandlers[0].errors, loghandlers[0].warnings
+            errs, warns = db_streamer.errors, db_streamer.warnings
             logger.info("%d error%s, %d warning%s", errs,
                         '' if errs == 1 else 's', warns,
                         '' if warns == 1 else 's')
@@ -148,16 +145,15 @@ def download(config, log2file=True, verbose=False, **param_overrides):
         if session is not None:
             close_session(session)  # help gc?
             # write log to db if default handlers are provided:
-            if log2file and loghandlers is not None and download_id is not None:
+            if log2file and db_streamer is not None and download_id is not None:
                 # remove file if no exceptions occurred:
-                loghandlers[0].finalize(session, download_id,
-                                        removefile=noexc_occurred)
+                db_streamer.finalize(session, download_id, removefile=noexc_occurred)
                 # the method above closes the logger, let's remove it manually
                 # before calling closelogger below to avoid closing
                 # loghandlers[0] twice:
-                logger.removeHandler(loghandlers[0])
+                # logger.removeHandler(loghandlers[0])
             close_session(session, True)  # engine disposal
-        closelogger(logger)
+        close_logger(logger)
 
     return ret
 
@@ -183,15 +179,13 @@ def _pretty_printed_str(yaml_dict):
     ]).strip()
 
 
-def run(session, download_id, eventws, starttime, endtime, dataws,
-        eventws_params, network, station, location, channel, min_sample_rate,
-        search_radius, update_metadata, inventory, timespan,
-        retry_seg_not_found, retry_url_err, retry_mseed_err, retry_client_err,
-        retry_server_err, retry_timespan_err, tt_table, advanced_settings,
-        authorizer, isterminal=False):
-    """Download waveforms related to events to a specific path. This function
-    is not intended to be called directly, use
-    :func:`stream2segment.main.download` instead
+def _run(session, download_id, eventws, starttime, endtime, dataws,
+         eventws_params, network, station, location, channel, min_sample_rate,
+         search_radius, update_metadata, inventory, timespan,
+         retry_seg_not_found, retry_url_err, retry_mseed_err, retry_client_err,
+         retry_server_err, retry_timespan_err, tt_table, advanced_settings,
+         authorizer, isterminal=False):
+    """Download waveforms related to events to a specific path.
 
     :raise: :class:`FailedDownload` exceptions
     """

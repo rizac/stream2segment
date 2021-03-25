@@ -30,6 +30,7 @@ import click
 
 # from stream2segment import main
 import stream2segment.download.main
+import stream2segment.process.main
 from stream2segment.resources import get_templates_fpath
 from stream2segment.io import inputvalidation
 
@@ -542,9 +543,9 @@ def process(dburl, config, pyfile, funcname, append, no_prompt,
                 overrides = {'advanced_settings': overrides}
             with warnings.catch_warnings():  # capture (ignore) warnings
                 warnings.simplefilter("ignore")
-                ret = main.process(dburl, pyfile, funcname, config, outfile,
-                                   log2file=True, verbose=True, append=append,
-                                   **overrides)
+                ret = stream2segment.process.main.process(dburl, pyfile, funcname, config, outfile,
+                                                          log2file=True, verbose=True, append=append,
+                                                          **overrides)
     except inputvalidation.BadParam as err:
         print(err)
         ret = 2  # exit with 1 as normal python exceptions
