@@ -37,7 +37,7 @@ class Test(object):
         self.cancelled = []
         self.progress = 0
         
-        with patch('stream2segment.utils.url.urlopen') as mock_urlopen:
+        with patch('stream2segment.download.url.urlopen') as mock_urlopen:
             self.mock_urlopen = mock_urlopen
             yield
 
