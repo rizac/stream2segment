@@ -30,6 +30,14 @@ def readfile(outfile):
         return _.read()
 
 
+class patches(object):
+    # paths container for patchers used below. Hopefully
+    # will mek easier debug when refactoring/move functions
+    open_in_browser = 'stream2segment.download.db.inspection.main.open_in_browser'
+    gettempdir = 'stream2segment.download.db.inspection.main.gettempdir'
+    valid_session = 'stream2segment.download.db.inspection.main.valid_session'
+
+
 class Test(object):
 
     # define ONCE HERE THE command name, so if we change it in the cli it will be easier to fix here
@@ -118,15 +126,14 @@ class Test(object):
                 db.session.add(seg)
                 db.session.commit()
 
-        with patch('stream2segment.main.valid_session',
-                   return_value=db.session) as mock_session:
+        with patch(patches.valid_session, return_value=db.session) as mock_session:
             yield
 
 
 # ## ======== ACTUAL TESTS: ================================
 
-    @patch('stream2segment.main.open_in_browser')
-    @patch('stream2segment.main.gettempdir')
+    @patch(patches.open_in_browser)
+    @patch(patches.gettempdir)
     def test_simple_dstats(self, mock_gettempdir, mock_open_in_browser, db, pytestdir):
         '''test a case where save inventory is True, and that we saved inventories'''
 
@@ -325,8 +332,8 @@ download statistics written to """)
         assert mock_gettempdir.called
         assert os.listdir(mytmpdir) == ['s2s_dstats.html']
 
-    @patch('stream2segment.main.open_in_browser')
-    @patch('stream2segment.main.gettempdir')
+    @patch(patches.open_in_browser)
+    @patch(patches.gettempdir)
     def test_dstats_no_segments(self, mock_gettempdir, mock_open_in_browser, db, pytestdir):
         '''test a case where save inventory is True, and that we saved inventories'''
 
