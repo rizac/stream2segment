@@ -150,12 +150,21 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
             return _get_data_from_token(*a, **kw)
         self.dc_get_data_from_token = dc_get_data_from_token_func
 
-        # class-level patchers:
-        with patch('stream2segment.utils.url.urlopen') as mock_urlopen:
+        class patches(object):
+            # paths container for class-level patchers used below. Hopefully
+            # will mek easier debug when refactoring/move functions
+            urlopen = 'stream2segment.download.url.urlopen'
+            valid_session = 'stream2segment.download.inputvalidation.valid_session'
+            close_session = 'stream2segment.download.main.close_session'
+            yaml_load = 'stream2segment.download.inputvalidation.yaml_load'
+            ThreadPool = 'stream2segment.download.url.ThreadPool'
+            configlog4download = 'stream2segment.download.main.configlog4download'
+
+        with patch(patches.urlopen) as mock_urlopen:
             self.mock_urlopen = mock_urlopen
-            with patch('stream2segment.utils.inputvalidation.valid_session', return_value=db.session):
+            with patch(patches.valid_session, return_value=db.session):
                 # this mocks yaml_load and sets inventory to False, as tests rely on that
-                with patch('stream2segment.main.closesession'):  # no-op (do not close session)
+                with patch(patches.close_session):  # no-op (do not close session)
 
                     # mock ThreadPool (tp) to run one instance at a time, so we
                     # get deterministic results:
@@ -177,8 +186,8 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                         def close(self, *a, **kw):
                             pass
                     # assign patches and mocks:
-                    with patch('stream2segment.utils.url.ThreadPool',
-                               side_effect=MockThreadPool) as mock_thread_pool:
+                    with patch(patches.ThreadPool, side_effect=MockThreadPool) \
+                            as mock_thread_pool:
 
                         def c4d(logger, logfilebasepath, verbose):
                             # config logger as usual, but redirects to a temp file
@@ -188,8 +197,8 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                                      verbose)
                             logger.addHandler(self.handler)
                             return ret
-                        with patch('stream2segment.main.configlog4download',
-                                   side_effect=c4d) as mock_config4download:
+                        with patch(patches.configlog4download, side_effect=c4d) \
+                                as mock_config4download:
                             self.mock_config4download = mock_config4download
 
                             yield

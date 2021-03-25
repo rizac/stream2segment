@@ -115,7 +115,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # self._logout_cache = ""
 
         class patches(object):
-            # paths container for class level patchers used below. Hopefully
+            # paths container for class-level patchers used below. Hopefully
             # will mek easier debug when refactoring/move functions
             urlopen = 'stream2segment.download.url.urlopen'
             valid_session = 'stream2segment.download.inputvalidation.valid_session'

@@ -197,7 +197,7 @@ BS|VETAM||HNZ|43.0805|25.6367|224.0|0.0|0.0|-90.0|200|427475.0|0.02|M/S**2|100.0
 
 
         class patches(object):
-            # paths container for class level patchers used below. Hopefully
+            # paths container for class-level patchers used below. Hopefully
             # will mek easier debug when refactoring/move functions
             urlopen = 'stream2segment.download.url.urlopen'
             valid_session = 'stream2segment.download.inputvalidation.valid_session'
