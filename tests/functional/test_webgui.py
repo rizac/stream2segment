@@ -26,7 +26,7 @@ from stream2segment.io import yaml_load
 from stream2segment.process.db.models import get_stream as original_get_stream
 
 # from stream2segment.gui.webapp import get_session
-from stream2segment.process.gui import create_s2s_show_app
+from stream2segment.process.gui.main import create_s2s_show_app
 from stream2segment.process.gui.webapp.mainapp import core as core_module
 from stream2segment.process.gui.webapp.mainapp import db as db_module
 

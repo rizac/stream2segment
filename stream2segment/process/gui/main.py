@@ -43,9 +43,6 @@ def load_config_for_visualization(dburl, pyfile=None, config=None):
     return session, pymodule, config_dict, seg_sel
 
 
-
-
-
 def create_s2s_show_app(session, pymodule=None, config=None, segments_selection=None):
     """Create a new app for processing. Note that config_py_file is the
     stream2segment GUI config, not the config passed to Flask

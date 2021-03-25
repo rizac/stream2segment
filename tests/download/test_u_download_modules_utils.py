@@ -6,9 +6,10 @@ Created on Feb 4, 2016
 '''
 from __future__ import print_function
 
+import re
 from builtins import zip
 from datetime import datetime, timedelta
-from itertools import count
+from itertools import count, product
 import time
 
 import pytest

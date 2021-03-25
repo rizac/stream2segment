@@ -6,6 +6,7 @@ Created on Dec 12, 2016
 from builtins import range, object
 
 from io import StringIO, BytesIO
+from itertools import cycle, product
 import socket
 
 import mock
@@ -21,7 +22,7 @@ from stream2segment.download.modules.utils import formatmsg
 DEFAULT_TIMEOUT = socket._GLOBAL_DEFAULT_TIMEOUT
 
 
-@patch('stream2segment.utils.url.urlopen')
+@patch('stream2segment.download.url.urlopen')
 def test_utils_url_read(mock_urlopen):
 
     def side_effect(argss):
@@ -118,8 +119,8 @@ def test_secure_dburl(input, expected_result):
 # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 @pytest.mark.skip(reason="fails if run from within n eclipse because of cryptic bytes vs string propblem")
-@patch("stream2segment.utils.Nop", side_effect=lambda *a, **v: Nop(*a, **v))
-@patch("stream2segment.utils.click_progressbar", side_effect=lambda *a, **v: progressbar(*a, **v))
+@patch("stream2segment.io.cli.Nop", side_effect=lambda *a, **v: Nop(*a, **v))
+@patch("stream2segment.io.cli.click_progressbar", side_effect=lambda *a, **v: progressbar(*a, **v))
 def test_progressbar(mock_pbar, mock_nop):
     '''this test has problems with eclipse'''
     N = 5
