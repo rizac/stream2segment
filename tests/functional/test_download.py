@@ -115,12 +115,14 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # self._logout_cache = ""
 
         class patches(object):
+            # paths container for class level patchers used below. Hopefully
+            # will mek easier debug when refactoring/move functions
             urlopen = 'stream2segment.download.url.urlopen'
-            valid_session = 'stream2segment.utils.inputvalidation.valid_session'
-            close_session = 'stream2segment.main.closesession'
-            yaml_load = 'stream2segment.utils.inputvalidation.yaml_load'
+            valid_session = 'stream2segment.download.inputvalidation.valid_session'
+            close_session = 'stream2segment.download.main.close_session'
+            yaml_load = 'stream2segment.download.inputvalidation.yaml_load'
             ThreadPool = 'stream2segment.download.url.ThreadPool'
-            config4download = 'stream2segment.main.configlog4download'
+            configlog4download = 'stream2segment.download.main.configlog4download'
 
         # class-level patchers:
         with patch(patches.urlopen) as mock_urlopen:
@@ -160,8 +162,8 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                             def close(self, *a, **kw):
                                 pass
                         # assign patches and mocks:
-                        with patch(patches.ThreadPool,
-                                   side_effect=MockThreadPool) as mock_thread_pool:
+                        with patch(patches.ThreadPool, side_effect=MockThreadPool) \
+                                as mock_thread_pool:
 
                             def c4d(logger, logfilebasepath, verbose):
                                 # config logger as usual, but redirects to a temp file
@@ -173,8 +175,8 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                 ret = configlog4download(logger, logfilebasepath, verbose)
                                 logger.addHandler(self.handler)
                                 return ret
-                            with patch(patches.config4download,
-                                       side_effect=c4d) as mock_config4download:
+                            with patch(patches.configlog4download, side_effect=c4d) \
+                                    as mock_config4download:
                                 self.mock_config4download = mock_config4download
 
                                 yield
@@ -1084,7 +1086,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
                     assert any(_.datacenter_id == fake_dc_id for _ in db.session.query(Segment))
                     assert any(_.datacenter_id != fake_dc_id for _ in db.session.query(Segment))
 
-    @patch('stream2segment.main.run_download')
+    @patch('stream2segment.download.main._run')
     def test_yaml_optional_params(self, mock_run,
                                   # fixtures:
                                   pytestdir, clirunner):

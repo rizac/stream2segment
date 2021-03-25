@@ -195,12 +195,23 @@ BS|VETAM||HNZ|43.0805|25.6367|224.0|0.0|0.0|-90.0|200|427475.0|0.02|M/S**2|100.0
         self.configfile = get_templates_fpath("download.yaml")
         # self._logout_cache = ""
 
-                # class-level patchers:
-        with patch('stream2segment.utils.url.urlopen') as mock_urlopen:
+
+        class patches(object):
+            # paths container for class level patchers used below. Hopefully
+            # will mek easier debug when refactoring/move functions
+            urlopen = 'stream2segment.download.url.urlopen'
+            valid_session = 'stream2segment.download.inputvalidation.valid_session'
+            close_session = 'stream2segment.download.main.close_session'
+            yaml_load = 'stream2segment.download.inputvalidation.yaml_load'
+            ThreadPool = 'stream2segment.download.url.ThreadPool'
+            configlog4download = 'stream2segment.download.main.configlog4download'
+
+
+        with patch(patches.urlopen) as mock_urlopen:
             self.mock_urlopen = mock_urlopen
-            with patch('stream2segment.utils.inputvalidation.valid_session', return_value=db.session):
+            with patch(patches.valid_session, return_value=db.session):
                 # this mocks yaml_load and sets inventory to False, as tests rely on that
-                with patch('stream2segment.main.closesession'):  # no-op (do not close session)
+                with patch(patches.close_session):  # no-op (do not close session)
 
                     def yload(*a, **v):
                         dic = yaml_load(*a, **v)
@@ -209,8 +220,7 @@ BS|VETAM||HNZ|43.0805|25.6367|224.0|0.0|0.0|-90.0|200|427475.0|0.02|M/S**2|100.0
                         else:
                             sdf = 0
                         return dic
-                    with patch('stream2segment.utils.inputvalidation.yaml_load',
-                               side_effect=yload) as mock_yaml_load:
+                    with patch(patches.yaml_load, side_effect=yload) as mock_yaml_load:
                         self.mock_yaml_load = mock_yaml_load
 
                         # mock ThreadPool (tp) to run one instance at a time, so we
@@ -234,8 +244,8 @@ BS|VETAM||HNZ|43.0805|25.6367|224.0|0.0|0.0|-90.0|200|427475.0|0.02|M/S**2|100.0
                             def close(self, *a, **kw):
                                 pass
                         # assign patches and mocks:
-                        with patch('stream2segment.utils.url.ThreadPool',
-                                   side_effect=MockThreadPool) as mock_thread_pool:
+                        with patch(patches.ThreadPool, side_effect=MockThreadPool) \
+                                as mock_thread_pool:
 
                             def c4d(logger, logfilebasepath, verbose):
                                 # config logger as usual, but redirects to a temp file
@@ -246,8 +256,8 @@ BS|VETAM||HNZ|43.0805|25.6367|224.0|0.0|0.0|-90.0|200|427475.0|0.02|M/S**2|100.0
                                 ret = configlog4download(logger, logfilebasepath, verbose)
                                 logger.addHandler(self.handler)
                                 return ret
-                            with patch('stream2segment.main.configlog4download',
-                                       side_effect=c4d) as mock_config4download:
+                            with patch(patches.configlog4download, side_effect=c4d) \
+                                    as mock_config4download:
                                 self.mock_config4download = mock_config4download
 
                                 yield

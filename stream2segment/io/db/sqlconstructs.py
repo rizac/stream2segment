@@ -10,9 +10,6 @@ from sqlalchemy import Integer, String, Float
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.sql.expression import FunctionElement
 
-# function `strpos`
-import stream2segment.process.main
-
 
 class strpos(FunctionElement):
     name = 'strpos'
@@ -27,7 +24,7 @@ def standard_strpos(element, compiler, **kw):
 
 @compiles(strpos, 'sqlite')
 def sqlite_strpos(element, compiler, **kw):
-    return "instr(%s)" % stream2segment.process.main.process(element.clauses)
+    return "instr(%s)" % compiler.process(element.clauses)
     # return func.instr(compiler.process(element.clauses))
 
 
@@ -45,7 +42,7 @@ def standard_concat(element, compiler, **kw):
 
 @compiles(concat, 'sqlite')
 def sqlite_concat(element, compiler, **kw):
-    return " || ".join(stream2segment.process.main.process(c) for c in element.clauses)
+    return " || ".join(compiler.process(c) for c in element.clauses)
 
 
 # two utility functions to return the timestamp from a datetime
@@ -91,13 +88,13 @@ class duration_sec(FunctionElement):
 
 @compiles(duration_sec)
 def standard_duration_sec(element, compiler, **kw):
-    starttime, endtime = [stream2segment.process.main.process(c) for c in element.clauses]
+    starttime, endtime = [compiler.process(c) for c in element.clauses]
     return _duration_postgres(starttime, endtime)
 
 
 @compiles(duration_sec, 'sqlite')
 def sqlite_duration_sec(element, compiler, **kw):
-    starttime, endtime = [stream2segment.process.main.process(c) for c in element.clauses]
+    starttime, endtime = [compiler.process(c) for c in element.clauses]
     return _duration_sqlite(starttime, endtime)
 
 
@@ -110,7 +107,7 @@ class missing_data_sec(FunctionElement):
 
 @compiles(missing_data_sec)
 def standard_missing_data_sec(element, compiler, **kw):
-    start, end, request_start, request_end = [stream2segment.process.main.process(c)
+    start, end, request_start, request_end = [compiler.process(c)
                                               for c in element.clauses]
     return "({1}) - ({0})".format(_duration_postgres(start, end),
                                   _duration_postgres(request_start, request_end))
@@ -118,7 +115,7 @@ def standard_missing_data_sec(element, compiler, **kw):
 
 @compiles(missing_data_sec, 'sqlite')
 def sqlite_missing_data_sec(element, compiler, **kw):
-    start, end, request_start, request_end = [stream2segment.process.main.process(c)
+    start, end, request_start, request_end = [compiler.process(c)
                                               for c in element.clauses]
     return "({1}) - ({0})".format(_duration_sqlite(start, end),
                                   _duration_sqlite(request_start, request_end))
@@ -133,7 +130,7 @@ class missing_data_ratio(FunctionElement):
 
 @compiles(missing_data_ratio)
 def standard_missing_data_ratio(element, compiler, **kw):
-    start, end, request_start, request_end = [stream2segment.process.main.process(c)
+    start, end, request_start, request_end = [compiler.process(c)
                                               for c in element.clauses]
     return "1.0 - (({0}) / ({1}))".format(_duration_postgres(start, end),
                                           _duration_postgres(request_start, request_end))
@@ -141,7 +138,7 @@ def standard_missing_data_ratio(element, compiler, **kw):
 
 @compiles(missing_data_ratio, 'sqlite')
 def sqlite_missing_data_ratio(element, compiler, **kw):
-    start, end, request_start, request_end = [stream2segment.process.main.process(c)
+    start, end, request_start, request_end = [compiler.process(c)
                                               for c in element.clauses]
     return "1.0 - (({0}) / ({1}))".format(_duration_sqlite(start, end),
                                           _duration_sqlite(request_start, request_end))
@@ -156,7 +153,7 @@ class deg2km(FunctionElement):
 
 @compiles(deg2km)
 def standard_deg2km(element, compiler, **kw):
-    deg = stream2segment.process.main.process(list(element.clauses)[0])
+    deg = compiler.process(list(element.clauses)[0])
     return "%s * (2.0 * 6371 * 3.14159265359 / 360.0)" % deg
 
 
@@ -170,8 +167,8 @@ class substr(FunctionElement):
 @compiles(substr)
 def standard_substr(element, compiler, **kw):
     clauses = list(element.clauses)
-    column = stream2segment.process.main.process(clauses[0])
-    start = stream2segment.process.main.process(clauses[1])
-    leng = stream2segment.process.main.process(clauses[2])
+    column = compiler.process(clauses[0])
+    start = compiler.process(clauses[1])
+    leng = compiler.process(clauses[2])
     return "substr(%s, %s, %s)" % (column, start, leng)
 
