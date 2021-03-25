@@ -9,9 +9,8 @@ from __future__ import print_function
 
 # future direct imports (needs future package installed, otherwise remove):
 # (http://python-future.org/imports.html#explicit-imports)
-from builtins import (ascii, chr, dict, filter, hex, input, # int, 
-                      map, next, oct, open, pow, range, round,
-                      super, zip)
+from builtins import (  # int,
+    open)
 
 # iterating over dictionary keys with the same set-like behaviour on Py2.7 as on Py3:
 # from future.utils import viewkeys
@@ -38,7 +37,7 @@ from stream2segment.io.db.sqlevalexpr import exprquery
 from stream2segment.process import SkipSegment
 from stream2segment.io.cli import get_progressbar
 from stream2segment.process.db import get_session, Segment, Station
-from stream2segment.utils.inputvalidation import valid_pyfunc
+from stream2segment.io.inputvalidation import valid_pyfunc
 
 
 logger = logging.getLogger(__name__)

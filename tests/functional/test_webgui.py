@@ -5,8 +5,6 @@ Created on Jul 15, 2016
 @author: riccardo
 '''
 
-import os
-import sys
 from io import BytesIO
 import json
 from itertools import product
@@ -20,10 +18,9 @@ import numpy as np
 from obspy.core.stream import read
 
 from stream2segment.process.db import (Event, WebService, Channel, Station,
-                                       DataCenter, Segment, Class, Download,
-                                       ClassLabelling)
+                                       DataCenter, Segment, Class, Download)
 from stream2segment.process.inspectimport import load_source
-from stream2segment.utils.inputvalidation import valid_session
+from stream2segment.io.inputvalidation import valid_session
 from stream2segment.resources import get_templates_fpaths
 from stream2segment.io import yaml_load
 from stream2segment.process.db import get_stream as original_get_stream

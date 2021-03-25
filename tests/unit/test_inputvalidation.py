@@ -5,7 +5,7 @@ Created on May 23, 2017
 '''
 # as we patch os.path.isfile, this seems to be the correct way to store beforehand
 # the original functions (also in other packages, e.g. pytestdir in conftest does not break):
-from os.path import isfile, basename, join, abspath, dirname, relpath
+from os.path import isfile, join, dirname
 from datetime import datetime
 from itertools import product
 
@@ -25,7 +25,7 @@ from stream2segment.cli import cli
 from stream2segment.main import configlog4download as o_configlog4download,\
     new_db_download as o_new_db_download, configlog4processing as o_configlog4processing, \
     process as o_process, download as o_download
-from stream2segment.utils.inputvalidation import valid_session as o_get_session, \
+from stream2segment.io.inputvalidation import valid_session as o_get_session, \
     valid_nslc as nslc_param_value_aslist, load_config_for_process, BadParam
 from stream2segment.download.db import Download
 from stream2segment.io.db import secure_dburl

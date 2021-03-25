@@ -11,7 +11,7 @@ from __future__ import print_function
 # make the following(s) behave like python3 counterparts if running from
 # python2.7.x
 # (http://python-future.org/imports.html#explicit-imports):
-from builtins import range, round, open, input  # pylint: disable=redefined-builtin
+from builtins import round, open, input  # pylint: disable=redefined-builtin
 
 import time
 import logging
@@ -33,7 +33,7 @@ import jinja2
 
 from sqlalchemy.sql.expression import func
 
-from stream2segment.utils.inputvalidation import load_config_for_process, pop_param,\
+from stream2segment.io.inputvalidation import load_config_for_process, pop_param,\
     load_config_for_download, valid_session, load_config_for_visualization, \
     validate_param
 from stream2segment.utils.log import configlog4download, configlog4processing,\

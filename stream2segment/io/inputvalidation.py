@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 
 from future.utils import string_types
 # from stream2segment.process import SkipSegment
-from stream2segment.io.db import database_exists
+from stream2segment.io.db import database_exists, get_session
 from stream2segment.resources import get_ttable_fpath, get_templates_fpath
 from stream2segment.process.inspectimport import load_source
 from stream2segment.traveltimes.ttloader import TTTable
@@ -688,13 +688,11 @@ def valid_session(dburl, for_process=False, scoped=False, **engine_kwargs):
             dbname = dburl[dburl.rfind('/')+1:]
             if for_process:
                 raise ValueError('Database "%s" does not exist. Provide an existing '
-                                 'database or check potential typos' % dbname)
+                                 'database' % dbname)
             else:
                 raise ValueError('Database "%s" needs to be created first' % dbname)
 
-    from stream2segment.io.db import get_session as sess_func
-
-    sess = sess_func(dburl, scoped=scoped, **engine_kwargs)
+    sess = get_session(dburl, scoped=scoped, **engine_kwargs)
 
     if not for_process:
         # Note: this creates the SCHEMA, not the database

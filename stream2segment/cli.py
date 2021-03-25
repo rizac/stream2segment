@@ -15,9 +15,7 @@ from __future__ import absolute_import, division, print_function
 
 # future direct imports (needs future package installed, otherwise remove):
 # (http://python-future.org/imports.html#explicit-imports)
-from builtins import (ascii, bytes, chr, dict, filter, hex, input,
-                      int, map, next, oct, open, pow, range, round,
-                      str, super, zip)
+from builtins import (bytes, dict, int, open, str, super)
 
 # NOTE: do not use future aliased imports
 # (http://python-future.org/imports.html#aliased-imports), they fail with urllib
@@ -33,7 +31,7 @@ import click
 # from stream2segment import main
 
 from stream2segment.resources import get_templates_fpath
-from stream2segment.utils import inputvalidation
+from stream2segment.io import inputvalidation
 
 
 class clickutils(object):  # noqa
