@@ -110,9 +110,10 @@ class _InfoGenerator(object):
         `self.__class__.__name__.lower() + ',html'
         '''
         thisdir = os.path.dirname(__file__)
-        templatespath = os.path.join(os.path.dirname(thisdir), 'webapp', 'templates')
-        csspath = os.path.join(os.path.dirname(thisdir), 'webapp', 'static', 'css')
-        env = Environment(loader=FileSystemLoader([thisdir, templatespath, csspath]))
+        templatespath = os.path.join(thisdir, 'templates')
+        csspath = os.path.join(thisdir, 'static', 'css')
+        jspath = os.path.join(thisdir, 'static', 'js')
+        env = Environment(loader=FileSystemLoader([templatespath, jspath, csspath]))
         return env.get_template('%s.html' % cls.__name__.lower())
 
 

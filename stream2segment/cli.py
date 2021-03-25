@@ -755,7 +755,7 @@ def drop(dburl, download_id):
     try:
         with warnings.catch_warnings():  # capture (ignore) warnings
             warnings.simplefilter("ignore")
-            ret = stream2segment.download.db.management.drop(dburl, download_id, input)
+            ret = stream2segment.download.db.management.drop(dburl, download_id)
         if ret is None:
             sys.exit(1)
         elif not ret:

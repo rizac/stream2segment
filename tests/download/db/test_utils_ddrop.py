@@ -22,6 +22,13 @@ from stream2segment.download.db.models import (Event, Station, WebService, Segme
 from stream2segment.download.modules.utils import s2scodes
 
 
+class patches(object):
+    # paths container for patchers used below. Hopefully
+    # will mek easier debug when refactoring/move functions
+    input = 'stream2segment.download.db.management.input'
+    valid_session = 'stream2segment.download.db.management.valid_session'
+
+
 class Test(object):
 
     # define ONCE HERE THE command name, so if we change it in the cli it will be easier to fix here
@@ -102,8 +109,7 @@ class Test(object):
                 db.session.add(seg)
                 db.session.commit()
 
-        with patch('stream2segment.main.valid_session',
-                   return_value=db.session) as mock_session:
+        with patch(patches.valid_session, return_value=db.session) as mock_session:
             yield
 
     def get_db_status(self, session):
@@ -117,7 +123,7 @@ class Test(object):
 
 # ## ======== ACTUAL TESTS: ================================
 
-    @patch('stream2segment.main.input', return_value='y')
+    @patch(patches.input, return_value='y')
     def test_simple_ddrop_boundary_cases(self, mock_input,
                                          # oytest fixtures:
                                          db):
@@ -144,7 +150,7 @@ class Test(object):
     @pytest.mark.parametrize('ids_to_delete', [(1,), (2,), (3,),
                                                (1, 2), (1, 3), (2, 3),
                                                (1, 2, 3)])
-    @patch('stream2segment.main.input', return_value='y')
+    @patch(patches.input, return_value='y')
     def test_simple_ddrop(self, mock_input, ids_to_delete,
                           # oytest fixtures:
                           db):

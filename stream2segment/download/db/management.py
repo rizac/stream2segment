@@ -1,6 +1,11 @@
 """
 Database management functions
 """
+
+# Make inpuy py2 compatible, but remember to KEEP IT HERE ALSO AFTER DROPPING PY2,
+# IT IS USED FOR TESTING!
+from builtins import input
+
 from sqlalchemy import func
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -82,7 +87,7 @@ def configure_classlabels(session, *, add, rename, delete, commit=True):
             raise
 
 
-def ddrop(dburl, download_ids, confirm_func=input):
+def drop(dburl, download_ids, confirm=True):
     """Drop data from the database by download id(s). Drops also all segments.
 
     :param confirm_func: a function accepting a single argument and that
@@ -102,12 +107,12 @@ def ddrop(dburl, download_ids, confirm_func=input):
                session.query(Download.id).filter(Download.id.in_(download_ids))]
         if not ids:
             return ret
-        if confirm_func is not None:
+        if confirm is not None:
             segs = session.query(func.count(Segment.id)).\
                 filter(Segment.download_id.in_(ids)).scalar()
-            val = confirm_func('Do you want to delete %d download execution(s) '
-                                '(id=%s) and the associated %d segment(s) from the '
-                                'database [y|n]?' % (len(ids), str(ids), segs))
+            val = input('Do you want to delete %d download execution(s) '
+                        '(id=%s) and the associated %d segment(s) from the '
+                        'database [y|n]?' % (len(ids), str(ids), segs))
             if val.lower().strip() != 'y':
                 return None
 
