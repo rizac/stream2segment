@@ -7,8 +7,8 @@ from builtins import range
 import os
 from itertools import product
 
-
-from stream2segment.io.utils import compress, decompress
+from stream2segment.download.modules.stations import compress
+from stream2segment.process.db.models import decompress
 
 
 def test_compress_decompress():

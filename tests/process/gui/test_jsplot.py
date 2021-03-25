@@ -27,7 +27,7 @@ def test_jsplot(data):
     assert x0_fromstream == x0_fromtrace == x0_custom
     tstamp2 = UTCDateTime(x0_custom).timestamp
     assert np.abs(tstamp - tstamp2) < 1e-3
-    data = stream2segment.download.db.inspection.main.tojson()[1]
+    data = plt1.tojson()[1]
     assert len(data) == 1
     [x0, dx, y, label] = data[0]
     assert x0 == UTCDateTime(x0_fromstream).isoformat() + 'Z'
