@@ -4,7 +4,9 @@ Created on Apr 2, 2019
 @author: riccardo
 '''
 import numpy as np
-from stream2segment.gui.webapp.mainapp import jsplot
+
+import stream2segment.download.dbinspection.main
+from stream2segment.process.gui.webapp.mainapp import jsplot
 from obspy.core.utcdatetime import UTCDateTime
 
 
@@ -25,7 +27,7 @@ def test_jsplot(data):
     assert x0_fromstream == x0_fromtrace == x0_custom
     tstamp2 = UTCDateTime(x0_custom).timestamp
     assert np.abs(tstamp - tstamp2) < 1e-3
-    data = plt1.tojson()[1]
+    data = stream2segment.download.dbinspection.main.tojson()[1]
     assert len(data) == 1
     [x0, dx, y, label] = data[0]
     assert x0 == UTCDateTime(x0_fromstream).isoformat() + 'Z'

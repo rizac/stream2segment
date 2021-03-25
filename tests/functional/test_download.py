@@ -542,7 +542,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         assert clirunner.ok(result)
         assert not mock_download_save_segments.called
 
-        # test some edge cases, if run from eclipse, a debugger and inspection of self.log_msg()
+        # test some edge cases, if run from eclipse, a debugger and dbinspection of self.log_msg()
         # might be needed to check that everything is printed right. IF WE CHANGE THE MESSAGES
         # TO BE DISPLAYED, THEN CHANGE THE STRING BELOW:
         str_err = "Eida routing service error"
@@ -562,7 +562,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         mock_get_datacenters_df.side_effect = \
             lambda *a, **v: self.get_datacenters_df(None, *a, **v)
 
-        # test some edge cases, if run from eclipse, a debugger and inspection of self.log_msg()
+        # test some edge cases, if run from eclipse, a debugger and dbinspection of self.log_msg()
         # might be needed to check that everything is printed right. IF WE CHANGE THE MESSAGES
         # TO BE DISPLAYED, THEN CHANGE THE STRING BELOW:
         str_err = "No channel matches user defined filters"

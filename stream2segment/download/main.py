@@ -55,7 +55,7 @@ def download(config, log2file=True, verbose=False, **param_overrides):
         errors and critical messages (=Python exceptions): if the download
         routine exits with no exception, the file content is written to the
         database (`Download` table) and the file deleted. Otherwise, the file
-        will be left on the system for inspection
+        will be left on the system for dbinspection
     :param verbose: if True (default: False) print some log information also on
         the standard output (usually the screen), as well as progress bars
         showing the estimated remaining time for each sub task. This option is

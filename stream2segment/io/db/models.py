@@ -417,3 +417,49 @@ class ClassLabelling(Base):
     @declared_attr
     def __table_args__(cls):  # noqa  # https://stackoverflow.com/a/43993950
         return (UniqueConstraint('segment_id', 'class_id', name='seg_class_uc'),)
+
+
+def get_classlabels(session, model_cls, include_counts=True):
+    """Return a list of class labels on the database of the given `session`.
+    Each class label is returned as dict with keys 'id', 'label' and
+    'description':
+    ```
+    [
+        ... ,
+        {
+         'id': int
+         'label': str,
+         'description': str
+         'count': int (number of segments labelled with this label)
+        },
+        ...
+    ]
+    ```
+
+    :param model_cls: the Class model (Python) class, e.g.
+        :class:`stream2segment.download.db.Class` or
+        :class:`stream2segment.process.db.Class` or
+    :param include_counts: boolean (True by default). Whether to include the
+        'count' in each dict. Set to False if you don't need the information
+         as the function might be faster
+    """
+    colnames = [model_cls.id.key, model_cls.label.key, model_cls.description.key,
+                'count']
+
+    if not include_counts:
+        return [{colnames[0]: c.id,
+                 colnames[1]: c.label,
+                 colnames[2]: c.description} for c in session.query(model_cls)]
+
+    # compose the query step by step:
+    query = session.query(model_cls.id, model_cls.label, model_cls.description,
+                          func.count(ClassLabelling.id).label(colnames[-1]))
+    # Join class labellings to get how many segments per class:
+    # Note: `isouter` below, which produces a left outer join, is important
+    # when we have no class labellings (i.e. third column all zeros) otherwise
+    # with a normal join we would have no results
+    query = query.join(ClassLabelling,
+                       ClassLabelling.class_id == model_cls.id, isouter=True)
+    # group by class id:
+    query = query.group_by(model_cls.id).order_by(model_cls.id)
+    return [{name: val for name, val in zip(colnames, d)} for d in query]

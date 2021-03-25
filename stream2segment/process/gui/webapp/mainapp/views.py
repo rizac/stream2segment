@@ -7,7 +7,7 @@ Views for the web app (processing)
 """
 from flask import (render_template, request, jsonify, Blueprint)
 
-from stream2segment.gui.webapp.mainapp import core
+from stream2segment.process.gui.webapp.mainapp import core
 
 
 # http://flask.pocoo.org/docs/0.12/patterns/appfactories/#basic-factories:

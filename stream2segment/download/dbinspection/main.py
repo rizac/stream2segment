@@ -1,27 +1,84 @@
-# -*- encoding: utf-8 -*-
-'''
+"""
 Module implementing the download info (print statistics and generate html page)
 
 :date: Mar 15, 2018
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
-'''
-from __future__ import print_function
-
-import os
+"""
 import json
+import os
+import sys
+import threading
 from collections import defaultdict
+from io import StringIO
+from tempfile import gettempdir
+from webbrowser import open as open_in_browser
+
 from future.utils import viewitems
-
 from jinja2 import Environment, FileSystemLoader
-from sqlalchemy.sql.expression import func, or_
+from sqlalchemy import func, or_
 
-from stream2segment.io import StringIO, yaml_load  # <- io.StringIO py2 compatible
+from stream2segment.download.db import Download, Segment, DataCenter, Station
+from stream2segment.download.modules.utils import EVENTWS_SAFE_PARAMS, DownloadStats
+from stream2segment.io import yaml_load, Fdsnws, open2writetext
 from stream2segment.io.cli import ascii_decorate
-from stream2segment.download.db import Segment, Station, DataCenter, Download
-from stream2segment.io import Fdsnws
 from stream2segment.io.db.sqlconstructs import concat
-from stream2segment.download.modules.utils import DownloadStats, EVENTWS_SAFE_PARAMS
+from stream2segment.io.inputvalidation import validate_param, valid_session
+
+
+def dreport(dburl, download_ids=None, config=True, log=True, html=False,
+            outfile=None):
+    """Create a diagnostic html page (or text string) showing the status of the
+    download. Note that html is not supported for the moment and will raise an
+    Exception. (leaving the same signatire as dstats for compatibility and
+    easing future implementations of the html page if needed)
+
+    :param config: boolean (True by default)
+    :param log: boolean (True by default)
+    """
+    _get_download_info(DReport(config, log), dburl, download_ids, html, outfile)
+
+
+def dstats(dburl, download_ids=None, maxgap_threshold=0.5, html=False,
+           outfile=None):
+    """Create a diagnostic html page (or text string) showing the status of the
+    download
+
+    :param maxgap_threshold: the max gap threshold (float)
+    """
+    _get_download_info(DStats(maxgap_threshold), dburl, download_ids, html,
+                       outfile)
+
+
+def _get_download_info(info_generator, dburl, download_ids=None, html=False,
+                       outfile=None):
+    """Process dinfo or dstats"""
+    session = validate_param('dburl', dburl, valid_session)
+    if html:
+        openbrowser = False
+        if not outfile:
+            openbrowser = True
+            outfile = os.path.join(gettempdir(), "s2s_%s.html" %
+                                   info_generator.__class__.__name__.lower())
+        # get_dstats_html returns unicode characters in py2, str in py3,
+        # so it is safe to use open like this (cf below):
+        with open(outfile, 'w', encoding='utf8', errors='replace') as opn:
+            opn.write(info_generator.html(session, download_ids))
+        if openbrowser:
+            open_in_browser('file://' + outfile)
+        threading.Timer(1, lambda: sys.exit(0)).start()
+    else:
+        itr = info_generator.str_iter(session, download_ids)
+        if outfile is not None:
+            # itr is an iterator of strings in py2, and str in py3, so open
+            # must be input differently (see utils module):
+            with open2writetext(outfile, encoding='utf8', errors='replace') as opn:
+                for line in itr:
+                    line += '\n'
+                    opn.write(line)
+        else:
+            for line in itr:
+                print(line)
 
 
 class _InfoGenerator(object):
@@ -123,39 +180,9 @@ def get_dreport_str_iter(session, download_ids=None, config=True, log=True):
             yield ''
             yield logtext
 
-# there is no much added value in providing a html page for the moment. However, the
-# function was implemented (NOT TESTED) and we leave it below for the moment
-
-# def get_dreport_html_template_arguments(session, download_ids=None, config=True, log=True):
-#     '''Returns an html page (string) yielding the download statistics and information matching the
-#     given parameters.
-#
-#     :param session: an sql-alchemy session denoting a db session to a database
-#     :param download_ids: (list of ints or None) if None, collect stats from all downloads run.
-#         Otherwise limit the output to the downloads whose ids are in the list. In any case, in
-#         case of more download runs to be considered, this function will
-#         yield also the statistics aggregating all downloads in a table at the end
-#     :param config: boolean (default: True). Whether to show the download config
-#     :param log: boolean (default: True). Whether to show the download log messages
-#     '''
-#     log_types = set()
-#     data = infoquery(session, download_ids, config, log)
-#     html_data = []
-#     for dwnl_id, dwnl_time, configtext, logtext in data:
-#         loglist = []
-#         prevmatch = None
-#         for match in re.finditer(r'^\[(\w+)\](.*?)(?=(?:$|^\[\w+\]))', logtext,
-#                                  re.MULTILINE | re.DOTALL):  # @UndefinedVariable
-#             if prevmatch is not None:
-#                 log_types.add(match.group(1))
-#                 loglist.append([match.group(1), match.group(2)])
-#         html_data.append({'id': dwnl_id, 'time': dwnl_time,
-#                           'config': configtext, 'logs': loglist})
-#     return dict(data=data, log_types=sorted(log_types))
-
 
 def infoquery(session, download_ids=None, config=True, log=True):
-    '''Returns a query for getting data for inspection (show_stats=False in the
+    '''Returns a query for getting data for dbinspection (show_stats=False in the
     functions above)'''
     # IMPORTANT: If it happens to access backref relationships (e.g. Download.segments)
     # consider calling configure_mappers() first:
@@ -177,15 +204,6 @@ def infoquery(session, download_ids=None, config=True, log=True):
             res = list(res)
             res.insert(-1, '')
         yield res
-
-
-# def get_template(mode='outcome', ):
-#     '''Returns the jinja2 template for the html page of the download statistics'''
-#     thisdir = os.path.dirname(__file__)
-#     templatespath = os.path.join(os.path.dirname(thisdir), 'webapp', 'templates')
-#     csspath = os.path.join(os.path.dirname(thisdir), 'webapp', 'static', 'css')
-#     env = Environment(loader=FileSystemLoader([thisdir, templatespath, csspath]))
-#     return env.get_template('d.%s.info.html' % mode)
 
 
 def tojson(obj):

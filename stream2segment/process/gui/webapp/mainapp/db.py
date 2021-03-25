@@ -12,11 +12,10 @@ import numpy as np
 from sqlalchemy import func
 
 # from flask import g
-from stream2segment.process.db import (Segment, Class, ClassLabelling,
-                                       Station, Download,
-                                       get_classlabels as _get_classes)
+from stream2segment.process.db import Segment, Class, Station, Download
 from stream2segment.io.db.sqlevalexpr import exprquery, Inspector
 from stream2segment.io.db import secure_dburl
+from stream2segment.io.db.models import get_classlabels
 
 # import atexit
 
@@ -150,7 +149,7 @@ def get_classes(segment_id=None):
         segment = get_segment(segment_id)
         return [] if not segment else sorted(c.id for c in segment.classes)
 
-    return _get_classes(get_session(), include_counts=True)
+    return get_classlabels(get_session(), Class, include_counts=True)
 
 
 def get_metadata(segment_id=None):

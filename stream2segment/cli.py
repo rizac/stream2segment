@@ -15,7 +15,7 @@ from __future__ import absolute_import, division, print_function
 
 # future direct imports (needs future package installed, otherwise remove):
 # (http://python-future.org/imports.html#explicit-imports)
-from builtins import (bytes, dict, int, open, str, super)
+from builtins import (bytes, dict, int, open, str, super, input)
 
 # NOTE: do not use future aliased imports
 # (http://python-future.org/imports.html#aliased-imports), they fail with urllib
@@ -31,11 +31,14 @@ import click
 # in case of delays showing cli --help, consider importing inside the functions
 # https://www.tomrochette.com/problems/2020/03/07
 # (but also consider that it might cause issues in refactoring / moving modules)
+import stream2segment.download.dbinspection.main
 import stream2segment.download.inputvalidation
 import stream2segment.download.main
+import stream2segment.download.dbmanagement
 import stream2segment.process.inputvalidation
 import stream2segment.process.main
-import stream2segment.gui.main
+import stream2segment.process.gui.main
+from stream2segment.download.dbmanagement import classlabels
 from stream2segment.resources import get_templates_fpath
 from stream2segment.io import inputvalidation
 
@@ -328,10 +331,9 @@ def init(outdir):
     ])
     # import here to improve slow click cli (at least when --help is invoked)
     # https://www.tomrochette.com/problems/2020/03/07
-    from stream2segment import main
 
     try:
-        copied_files = main.init(outdir, True, *helpdict)  # pass only helpdict keys
+        copied_files = copy_example_files(outdir, True, *helpdict)  # pass only helpdict keys
         if not copied_files:
             print("No file copied")
         else:
@@ -348,6 +350,64 @@ def init(outdir):
         print('')
         print("error: %s" % str(exc))
     sys.exit(1)
+
+
+def copy_example_files(outpath, prompt=True, *filenames):
+    """Initialize an output directory writing therein the given template files
+
+    :param prompt: bool (default: True) telling if a prompt message (Python
+        `input` function) should be issued to warn the user when overwriting
+        files. The user should return a string or integer where '1' means
+        'overwrite all files', '2' means 'overwrite only non-existing', and any
+        other value will return without copying.
+    """
+    import jinja2, shutil
+    from stream2segment.resources import get_templates_fpaths
+    from stream2segment.resources.templates import DOCVARS
+
+    if not os.path.isdir(outpath):
+        os.makedirs(outpath)
+        if not os.path.isdir(outpath):
+            raise Exception("Unable to create '%s'" % outpath)
+
+    if prompt:
+        existing_files = [f for f in filenames
+                          if os.path.isfile(os.path.join(outpath, f))]
+        non_existing_files = [f for f in filenames if f not in existing_files]
+        if existing_files:
+            suffix = ("Type:\n1: overwrite all files\n2: write only non-existing\n"
+                      "0 or any other value: do nothing (exit)")
+            msg = ("The following file(s) "
+                   "already exist on '%s':\n%s"
+                   "\n\n%s") % (outpath, "\n".join([_ for _ in existing_files]), suffix)
+            val = input(msg)
+            try:
+                val = int(val)
+                if val == 2:
+                    if not non_existing_files:
+                        raise ValueError()  # fall back to "exit" case
+                    else:
+                        filenames = non_existing_files
+                elif val != 1:
+                    raise ValueError()  # fall back to "exit" case
+            except ValueError:
+                return []
+
+    srcfilepaths = get_templates_fpaths(*filenames)
+    if srcfilepaths:
+        basedir = os.path.dirname(srcfilepaths[0])
+        env = jinja2.Environment(loader=jinja2.FileSystemLoader(basedir),
+                                 keep_trailing_newline=True)
+        copied_files = []
+        for srcfilepath in srcfilepaths:
+            filename = os.path.basename(srcfilepath)
+            outfilepath = os.path.join(outpath, filename)
+            if os.path.splitext(filename)[1].lower() in ('.yaml', '.py'):
+                env.get_template(filename).stream(DOCVARS).dump(outfilepath)
+            else:
+                shutil.copyfile(srcfilepath, outfilepath)
+            copied_files.append(outfilepath)
+    return copied_files
 
 
 # Short recap here (READ IF YOU PLAN TO EDIT OPTIONS BELOW, SKIP OTHERWISE):
@@ -569,7 +629,7 @@ def show(dburl, configfile, pyfile):
         ret = 0
         with warnings.catch_warnings():  # capture (ignore) warnings
             warnings.simplefilter("ignore")
-            stream2segment.gui.main.show_gui(dburl, pyfile, configfile)
+            stream2segment.process.gui.main.show_gui(dburl, pyfile, configfile)
     except inputvalidation.BadParam as err:
         print(err)
         ret = 2  # exit with 1 as normal python exceptions
@@ -578,7 +638,7 @@ def show(dburl, configfile, pyfile):
     sys.exit(ret)
 
 
-@cli.group(short_help="Downloaded data analysis and inspection")
+@cli.group(short_help="Downloaded data analysis and dbinspection")
 def dl():  # pylint: disable=missing-docstring
     pass
 
@@ -615,15 +675,14 @@ def stats(dburl, download_id, maxgap_threshold, html, outfile):
     """
     # import here to improve slow click cli (at least when --help is invoked)
     # https://www.tomrochette.com/problems/2020/03/07
-    from stream2segment import main
 
     print('Fetching data, please wait (this might take a while depending on '
           'the db size and connection)')
     try:
         with warnings.catch_warnings():  # capture (ignore) warnings
             warnings.simplefilter("ignore")
-            main.dstats(dburl, download_id or None, maxgap_threshold,
-                        html, outfile)
+            stream2segment.download.dbinspection.main.dstats(dburl, download_id or None, maxgap_threshold,
+                                                             html, outfile)
         if outfile is not None:
             print("download statistics written to '%s'" % outfile)
         sys.exit(0)
@@ -632,7 +691,7 @@ def stats(dburl, download_id, maxgap_threshold, html, outfile):
         sys.exit(1)  # exit with 1 as normal python exceptions
 
 
-@dl.command(short_help="Return download information for inspection")
+@dl.command(short_help="Return download information for dbinspection")
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option('-did', '--download-id', multiple=True, type=int,
               help="Limit the download statistics to a specified set of "
@@ -656,7 +715,6 @@ def report(dburl, download_id, config, log, outfile):
     """
     # import here to improve slow click cli (at least when --help is invoked)
     # https://www.tomrochette.com/problems/2020/03/07
-    from stream2segment import main
 
     print('Fetching data, please wait (this might take a while depending on the '
           'db size and connection)')
@@ -666,8 +724,8 @@ def report(dburl, download_id, config, log, outfile):
         html = False
         with warnings.catch_warnings():  # capture (ignore) warnings
             warnings.simplefilter("ignore")
-            main.dreport(dburl, download_id or None,
-                         bool(config), bool(log), html, outfile)
+            stream2segment.download.dbinspection.main.dreport(dburl, download_id or None,
+                                                              bool(config), bool(log), html, outfile)
         if outfile is not None:
             print("download report written to '%s'" % outfile)
         sys.exit(0)
@@ -691,16 +749,13 @@ def drop(dburl, download_id):
     all segments, stations and channels downloaded with the given download
     execution
     """
-    # import here to improve slow click cli (at least when --help is invoked)
-    # https://www.tomrochette.com/problems/2020/03/07
-    from stream2segment import main
 
     print('Fetching data, please wait (this might take a while depending on '
           'the db size and connection)')
     try:
         with warnings.catch_warnings():  # capture (ignore) warnings
             warnings.simplefilter("ignore")
-            ret = main.ddrop(dburl, download_id, True)
+            ret = stream2segment.download.dbmanagement.drop(dburl, download_id, input)
         if ret is None:
             sys.exit(1)
         elif not ret:
@@ -743,12 +798,6 @@ def classlabel(dburl, add, rename, delete, no_prompt):
     Class labels can then be used for e.g., supervised classification problems,
     or tp perform custom selection on specific segments before processing.
     """
-    # import here to improve slow click cli (at least when --help is invoked)
-    # https://www.tomrochette.com/problems/2020/03/07
-    from stream2segment.process.db import (configure_classlabels,
-                                           get_classlabels)
-    from stream2segment.main import input  # <- for mocking in testing
-
     add_arg, rename_arg, delete_arg = {}, {}, []
     try:
         if add:
@@ -770,18 +819,13 @@ def classlabel(dburl, add, rename, delete, no_prompt):
             if input(msg) != 'y':
                 sys.exit(1)
 
-        session = inputvalidation.validate_param("dburl", dburl,
-                                                 inputvalidation.valid_session,
-                                                 for_process=False, scoped=False)
-        configure_classlabels(session, add=add_arg, rename=rename_arg,
-                              delete=delete_arg)
+        c_labels = classlabels(dburl, add=add, rename=rename, delete=delete)
         print('Done. Current class labels on the database:')
-        clabels = get_classlabels(session, include_counts=False)
-        if not clabels:
+        if not c_labels:
             print('None')
         else:
-            for clbl in clabels:
-                print("%s (%s)" % (clbl['label'], clbl['description']))
+            for c_lbl in c_labels:
+                print("%s (%s)" % (c_lbl['label'], c_lbl['description']))
         sys.exit(0)
     except inputvalidation.BadParam as err:
         print(err)

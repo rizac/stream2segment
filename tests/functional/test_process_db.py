@@ -13,9 +13,11 @@ import pytest
 
 from stream2segment.cli import cli
 from stream2segment.resources import get_templates_fpath
+from stream2segment.io.db.models import get_classlabels
 from stream2segment.process.db import (get_inventory, get_stream,
-                                       get_classlabels, Event, Station, Segment,
-                                       Channel, Download, DataCenter, ClassLabelling)
+                                       Event, Station, Segment,
+                                       Channel, Download, DataCenter, ClassLabelling,
+                                       Class)
 from stream2segment.process.main import query4process
 from stream2segment.process.log import configlog4processing as o_configlog4processing
 
@@ -209,8 +211,9 @@ class Test(object):
                             # fixtures:
                             db4process):
 
+        FIXME
         # legacy code: get_classlabels was get_classes, feel lazy:
-        get_classes = get_classlabels
+        get_classes = lambda session, *v: get_classlabels(session, Class)
 
         classes = get_classes(db4process.session)
         assert not classes

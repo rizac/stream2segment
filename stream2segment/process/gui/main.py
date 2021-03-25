@@ -7,7 +7,6 @@ Functions for launching the web app
 '''
 from __future__ import print_function
 
-import os
 import uuid
 from webbrowser import open as open_in_browser
 import random
@@ -52,17 +51,17 @@ def create_s2s_show_app(session, pymodule=None, config=None, segments_selection=
     stream2segment GUI config, not the config passed to Flask
     `app.config.from_pyfile`.
     """
-    from stream2segment.gui import webapp
+    from stream2segment.process.gui import webapp
     # http://flask.pocoo.org/docs/0.12/patterns/appfactories/#basic-factories
     app = Flask(webapp.__name__)
 
-    from stream2segment.gui.webapp.mainapp import core
+    from stream2segment.process.gui.webapp.mainapp import core
     core.init(app, session, pymodule, config, segments_selection)
 
     # Note that the templae_folder of the Blueprint and the static paths in
     # the HTML are relative to the path of THIS MODULE, so execute the lines
     # below HERE or good luck changing all static paths in the html:
-    from stream2segment.gui.webapp.mainapp.views import main_app
+    from stream2segment.process.gui.webapp.mainapp.views import main_app
     app.register_blueprint(main_app)
 
     return app

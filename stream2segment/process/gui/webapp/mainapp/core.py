@@ -5,7 +5,6 @@ Core functionalities for the main GUI web application (show command)
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
-import os
 
 # make the following(s) behave like python3 counterparts if running from py2.7+
 # (http://python-future.org/imports.html#explicit-imports):
@@ -19,12 +18,13 @@ import yaml
 from obspy import Stream, Trace
 from obspy.core.utcdatetime import UTCDateTime
 
+import stream2segment.download.dbinspection.main
 from stream2segment.process import gui
 from stream2segment.process.inspectimport import iterfuncs
 from stream2segment.process.lib.traces import sn_split
 from stream2segment.io import yaml_safe_dump, StringIO  # <- io.StringIO py2 compatible
-from stream2segment.gui.webapp.mainapp.jsplot import Plot, isoformat
-from stream2segment.gui.webapp.mainapp import db
+from stream2segment.process.gui.webapp.mainapp import Plot, isoformat
+from stream2segment.process.gui.webapp.mainapp import db
 
 # number of points per plot. Used to resample points:
 NPTS_WIDE = 900  # FIXME: automatic retrieve from the GUI?
@@ -273,7 +273,7 @@ def get_segment_data(seg_id, plot_indices, all_components, preprocessed,
             sn_windows = []
 
     return {
-        'plots': [p.tojson(z, NPTS_WIDE) for p, z in zip(plots, zooms_)],
+        'plots': [stream2segment.download.dbinspection.main.tojson(z, NPTS_WIDE) for p, z in zip(plots, zooms_)],
         'seg_id': seg_id,
         'plot_types': [p.is_timeseries for p in plots],
         'sn_windows': sn_windows,
