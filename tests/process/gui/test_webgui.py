@@ -175,7 +175,7 @@ class Test(object):
         return json.loads(_data)
 
 
-    @patch('stream2segment.gui.webapp.mainapp.views.core.get_segment_id')
+    @patch('stream2segment.process.gui.webapp.mainapp.views.core.get_segment_id')
     def test_root_no_config_and_pyfile_and_classes(self,
                                                    mock_get_segment_id,
                                                    # fixtures:
@@ -394,9 +394,9 @@ class Test(object):
 
 
     @pytest.mark.parametrize('has_labellings', [True, False])
-    @patch('stream2segment.process.db.get_stream',
+    @patch('stream2segment.process.db.models.get_stream',
            side_effect=original_get_stream)
-    @patch('stream2segment.gui.webapp.mainapp.views.core.get_segment_id')
+    @patch('stream2segment.process.gui.webapp.mainapp.views.core.get_segment_id')
     def test_get_segment(self,
                          mock_get_segment_id,
                          mock_get_stream,
@@ -470,6 +470,7 @@ class Test(object):
                     # segment id 1 so it's fine
                 assert mock_get_stream.call_count == expected_stream_call_count
                 # https:
+                assert resp.status_code == 200
                 data = self.jsonloads(resp.data)
                 assert len(data['plots']) == len(d['plot_indices'])
                 assert bool(len(data['metadata'])) == metadata
@@ -482,7 +483,7 @@ class Test(object):
                 # we should add a test for the zooms, too
                 db.session.remove()
 
-    @patch('stream2segment.gui.webapp.mainapp.views.core.get_segment_id')
+    @patch('stream2segment.process.gui.webapp.mainapp.views.core.get_segment_id')
     def test_segment_sa_station_inv_errors_in_preprocessed_traces(self,
                                                                   mock_get_segment_id,
                                                                   # fixtures:
@@ -548,7 +549,7 @@ class Test(object):
 
 
     @pytest.mark.parametrize('calculate_sn_spectra', [True, False])
-    @patch('stream2segment.gui.webapp.mainapp.views.core.get_segment_id')
+    @patch('stream2segment.process.gui.webapp.mainapp.views.core.get_segment_id')
     def test_change_config(self,
                            mock_get_segment_id,
                            calculate_sn_spectra,

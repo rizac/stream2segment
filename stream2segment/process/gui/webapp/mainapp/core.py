@@ -273,7 +273,7 @@ def get_segment_data(seg_id, plot_indices, all_components, preprocessed,
             sn_windows = []
 
     return {
-        'plots': [stream2segment.download.db.inspection.main.tojson(z, NPTS_WIDE) for p, z in zip(plots, zooms_)],
+        'plots': [p.tojson(z, NPTS_WIDE) for p, z in zip(plots, zooms_)],
         'seg_id': seg_id,
         'plot_types': [p.is_timeseries for p in plots],
         'sn_windows': sn_windows,
