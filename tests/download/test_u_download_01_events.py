@@ -83,10 +83,12 @@ class Test(object):
 
         # define class level patchers (we do not use a yiled as we need to do more stuff in the
         # finalizer, see below
-        patchers = []
+        patchers = [
+            patch('stream2segment.download.url.urlopen'),
+            patch('stream2segment.download.url.ThreadPool')
+        ]
 
-        patchers.append(patch('stream2segment.utils.url.urlopen'))
-        self.mock_urlopen = patchers[-1].start()
+        self.mock_urlopen = patchers[-2].start()
 
         # mock ThreadPool (tp) to run one instance at a time, so we get deterministic results:
         class MockThreadPool(object):
@@ -107,7 +109,6 @@ class Test(object):
             def close(self, *a, **kw):
                 pass
         # assign patches and mocks:
-        patchers.append(patch('stream2segment.utils.url.ThreadPool'))
         self.mock_tpool = patchers[-1].start()
         self.mock_tpool.side_effect = MockThreadPool
 
