@@ -28,7 +28,7 @@ import pandas as pd
 
 from stream2segment.cli import cli
 from stream2segment.download.main import get_events_df, get_datacenters_df, \
-    get_channels_df, download_save_segments, save_inventories
+    get_channels_df, download_save_segments, save_inventories, configlog4download
 from stream2segment.download.db import Segment, Download, Station, Channel, \
     Event, DataCenter
 from stream2segment.io.db.models import withdata
@@ -39,7 +39,6 @@ from stream2segment.download.modules.mseedlite import unpack
 from stream2segment.download.url import URLError, HTTPError, responses
 from stream2segment.resources import get_templates_fpath
 from stream2segment.io import yaml_load
-from stream2segment.utils.log import configlog4download
 
 
 class Test(object):

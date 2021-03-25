@@ -35,7 +35,7 @@ from sqlalchemy.sql.expression import func
 
 from stream2segment.io.inputvalidation import load_config_for_process, valid_session, load_config_for_visualization, \
     validate_param
-from stream2segment.utils.log import configlog4processing,\
+from stream2segment.io.log import configlog4processing,\
     closelogger, logfilepath
 import stream2segment.download.db as dbd
 from stream2segment.process.main import run as run_process, run_and_yield, \

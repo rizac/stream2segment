@@ -6,9 +6,6 @@ Created on Feb 14, 2017
 from __future__ import print_function, division
 
 import os
-import sys
-from itertools import product
-import mock
 from click.testing import CliRunner
 from mock import patch
 import pandas as pd
@@ -18,9 +15,8 @@ from stream2segment.cli import cli
 from stream2segment.resources import get_templates_fpath
 from stream2segment.process.db import (get_inventory, get_stream,
                                        get_classlabels, Event, Station, Segment,
-                                       Channel, Download, DataCenter, Class,
-                                       ClassLabelling)
-from stream2segment.utils.log import configlog4processing as o_configlog4processing
+                                       Channel, Download, DataCenter, ClassLabelling)
+from stream2segment.io.log import configlog4processing as o_configlog4processing
 from stream2segment.process.main import query4process
 
 

@@ -5,28 +5,14 @@ Created on Feb 14, 2017
 '''
 from __future__ import print_function, division
 
-from builtins import str, object  # pylint: disable=redefined-builtin
-import os
-import re
+from builtins import object  # pylint: disable=redefined-builtin
 
-import mock
 from mock import patch
 import pytest
-import numpy as np
-from obspy.core.stream import read
-from future.utils import integer_types
 
-from stream2segment.cli import cli
 from stream2segment.main import s2smap
 from stream2segment.process import SkipSegment
-from stream2segment.process.main import run as process_main_run, \
-    get_default_chunksize as o_get_default_chunksize, process_segments as o_process_segments,\
-    process_segments_mp as o_process_segments_mp, \
-    _get_chunksize_defaults as _o_get_chunksize_defaults, query4process
-from stream2segment.utils.log import configlog4processing as o_configlog4processing
-from stream2segment.resources import get_templates_fpath
-from stream2segment.io import yaml_load
-from stream2segment.process.writers import BaseWriter
+
 
 class Test(object):
 
