@@ -43,6 +43,17 @@ from stream2segment.resources import get_templates_fpath
 from stream2segment.io.inputvalidation import BadParam
 
 
+# convention: root functions are appended the "_func" suffix
+
+# from stream2segment.download.main import download as download_func
+# from stream2segment.process.main import process as process_func
+# from stream2segment.process.gui.main import show_gui as show_func
+# from stream2segment.download.db.inspection.main import (dreport as dreport_func,
+#                                                         dstats as dstats_func)
+# from stream2segment.download.db.management import (classlabels as classlabels_func,
+#                                                    drop as drop_function)
+
+
 class clickutils(object):  # noqa
     """Container for all `click` related stuff to be used here"""
 
