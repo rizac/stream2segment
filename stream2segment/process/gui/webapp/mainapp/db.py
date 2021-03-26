@@ -12,7 +12,7 @@ from sqlalchemy import func
 
 # from flask import g
 from stream2segment.process.db.models import (Segment, Class, Station, Download,
-                                              ClassLabelling
+                                              ClassLabelling)
 from stream2segment.process.db.sqlevalexpr import exprquery, Inspector
 from stream2segment.io.db import secure_dburl
 from stream2segment.io.db.models import get_classlabels

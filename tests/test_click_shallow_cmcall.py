@@ -162,20 +162,19 @@ def test_click_process(mock_process):
     assert lst == ['d', pyfile, None, conffile, 'c']
     assert result.exit_code == 0
     
-    # test dburl supplied via config: NOT VALID ANYMORE: the extrapolation of dburl from
-    # yaml is performed in inputvalidation now
-    # mock_process.reset_mock()
-    # result = runner.invoke(cli, ['process', '-d', d_conffile , '-c', conffile, '-p', pyfile, 'c'])
-    # lst = list(mock_process.call_args_list[0][0])
-    # assert lst == [yaml_load(d_conffile)['dburl'], pyfile, None, conffile, 'c']
-    # assert result.exit_code == 0
+    # test dburl supplied via config
+    mock_process.reset_mock()
+    result = runner.invoke(cli, ['process', '-d', d_conffile , '-c', conffile, '-p', pyfile, 'c'])
+    lst = list(mock_process.call_args_list[0][0])
+    assert lst == [yaml_load(d_conffile)['dburl'], pyfile, None, conffile, 'c']
+    assert result.exit_code == 0
     
     # test funcname supplied via cli:
     mock_process.reset_mock()
     result = runner.invoke(cli, ['process', '--funcname', 'wat?', '-d', d_conffile ,
                                  '-c', conffile, '-p', pyfile, 'c'])
     lst = list(mock_process.call_args_list[0][0])
-    assert lst == [d_conffile, pyfile, 'wat?', conffile, 'c']
+    assert lst == [yaml_load(d_conffile)['dburl'], pyfile, 'wat?', conffile, 'c']
     assert result.exit_code == 0
 
     # test an error in params: -dburl instead of --dburl:
