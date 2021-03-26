@@ -21,7 +21,7 @@ from obspy.core.utcdatetime import UTCDateTime
 import stream2segment.download.db.inspection.main
 from stream2segment.process import gui
 from stream2segment.process.inspectimport import iterfuncs
-from stream2segment.process.lib.traces import sn_split
+from stream2segment.process.funclib.traces import sn_split
 from stream2segment.io import yaml_safe_dump, StringIO  # <- io.StringIO py2 compatible
 from stream2segment.process.gui.webapp.mainapp.jsplot import Plot, isoformat
 from stream2segment.process.gui.webapp.mainapp import db

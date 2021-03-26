@@ -12,8 +12,8 @@ import mock
 from obspy.core import Trace
 from obspy.core.utcdatetime import UTCDateTime
 
-from stream2segment.process.lib.ndarrays import fft as orig_fft
-from stream2segment.process.lib.traces import fft, bandpass, dfreq, maxabs, timeof
+from stream2segment.process.funclib.ndarrays import fft as orig_fft
+from stream2segment.process.funclib.traces import fft, bandpass, dfreq, maxabs, timeof
 
 
 @pytest.mark.parametrize('arr, arr_len_after_trim, fft_npts',

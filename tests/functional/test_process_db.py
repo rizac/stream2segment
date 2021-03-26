@@ -53,24 +53,30 @@ class Test(object):
     def init(self, request, pytestdir, db4process):
         db4process.create(to_file=True)
         session = db4process.session
-        # sets up the mocked functions: db session handling (using the already created session)
-        # and log file handling:
-        with patch('stream2segment.utils.inputvalidation.valid_session', return_value=session):
-            with patch('stream2segment.main.closesession',
-                       side_effect=lambda *a, **v: None):
-                with patch('stream2segment.main.configlog4processing') as mock2:
+
+        class patches(object):
+            # paths container for class-level patchers used below. Hopefully
+            # will mek easier debug when refactoring/move functions
+            valid_session = 'stream2segment.process.main.valid_session'
+            close_session = 'stream2segment.process.main.close_session'
+            configlog4processing = 'stream2segment.process.main.configlog4processing'
+
+        # sets up the mocked functions: db session handling (using the already created
+        # session) and log file handling:
+        with patch(patches.valid_session, return_value=session):
+            with patch(patches.close_session, side_effect=lambda *a, **v: None):
+                with patch(patches.configlog4processing) as mock2:
 
                     def clogd(logger, logfilebasepath, verbose):
                         # config logger as usual, but redirects to a temp file
                         # that will be deleted by pytest, instead of polluting the program
                         # package:
-                        ret = o_configlog4processing(logger,
-                                                     pytestdir.newfile('.log') \
-                                                     if logfilebasepath else None,
-                                                     verbose)
+                        o_configlog4processing(logger,
+                                               pytestdir.newfile('.log') \
+                                               if logfilebasepath else None,
+                                               verbose)
 
-                        self._logfilename = ret[0].baseFilename
-                        return ret
+                        self._logfilename = logger.handlers[0].baseFilename
 
                     mock2.side_effect = clogd
 

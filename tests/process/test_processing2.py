@@ -72,7 +72,7 @@ class Test(object):
                         # config logger as usual, but redirects to a temp file
                         # that will be deleted by pytest, instead of polluting the program
                         # package:
-                        ret = o_configlog4processing(logger,
+                        o_configlog4processing(logger,
                                                      pytestdir.newfile('.log') \
                                                      if logfilebasepath else None,
                                                      verbose)

@@ -17,7 +17,7 @@ import numpy as np
 from numpy import true_divide as np_true_divide
 
 
-from stream2segment.process.lib.ndarrays import cumsumsq, argtrim, snr, dfreq, freqs, powspec, \
+from stream2segment.process.funclib.ndarrays import cumsumsq, argtrim, snr, dfreq, freqs, powspec, \
     triangsmooth
 
 
