@@ -17,7 +17,7 @@ import logging
 import psutil
 from future.utils import string_types
 
-from stream2segment.download.log import configlog4download
+from stream2segment.download.log import configlog4download, DbStreamHandler
 from stream2segment.io.log import logfilepath, close_logger, elapsed_time
 from stream2segment.io import yaml_safe_dump
 from stream2segment.io.db.pdsql import dbquery2df
@@ -103,7 +103,11 @@ def download(config, log2file=True, verbose=False, **param_overrides):
             log2file = logfilepath(config)  # auto create log file
         else:
             log2file = log2file or ''  # assure we have a string
-        db_streamer, _ = configlog4download(logger, log2file, verbose)
+        configlog4download(logger, log2file, verbose)
+
+        if logger.handlers and logger.handlers[0] and \
+                isinstance(logger.handlers[0], DbStreamHandler):
+            db_streamer = logger.handlers[0]
 
         # create download row with unprocessed config (yaml_load function)
         # Note that we call again load_config with parseargs=False:
@@ -121,7 +125,7 @@ def download(config, log2file=True, verbose=False, **param_overrides):
              authorizer=authorizer, session=session, tt_table=tt_table,
              **d_kwargs)
         logger.info("Completed in %s", str(elapsed_time(stime)))
-        if log2file:
+        if db_streamer is not None:
             errs, warns = db_streamer.errors, db_streamer.warnings
             logger.info("%d error%s, %d warning%s", errs,
                         '' if errs == 1 else 's', warns,
@@ -143,13 +147,9 @@ def download(config, log2file=True, verbose=False, **param_overrides):
         if session is not None:
             close_session(session)  # help gc?
             # write log to db if default handlers are provided:
-            if log2file and db_streamer is not None and download_id is not None:
-                # remove file if no exceptions occurred:
+            if db_streamer is not None and download_id is not None:
+                # remove file if no exceptions occurred (close the handler, too):
                 db_streamer.finalize(session, download_id, removefile=noexc_occurred)
-                # the method above closes the logger, let's remove it manually
-                # before calling closelogger below to avoid closing
-                # loghandlers[0] twice:
-                # logger.removeHandler(loghandlers[0])
             close_session(session, True)  # engine disposal
         close_logger(logger)
 

@@ -11,7 +11,8 @@ Created on 16 Apr 2020
 from sqlalchemy import func
 
 # from flask import g
-from stream2segment.process.db.models import Segment, Class, Station, Download
+from stream2segment.process.db.models import (Segment, Class, Station, Download,
+                                              ClassLabelling
 from stream2segment.process.db.sqlevalexpr import exprquery, Inspector
 from stream2segment.io.db import secure_dburl
 from stream2segment.io.db.models import get_classlabels
@@ -148,7 +149,7 @@ def get_classes(segment_id=None):
         segment = get_segment(segment_id)
         return [] if not segment else sorted(c.id for c in segment.classes)
 
-    return get_classlabels(get_session(), Class, include_counts=True)
+    return get_classlabels(get_session(), Class, ClassLabelling)
 
 
 def get_metadata(segment_id=None):

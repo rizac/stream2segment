@@ -15,7 +15,6 @@ from click.testing import CliRunner
 from stream2segment.cli import cli
 from stream2segment.resources import get_templates_fpaths, get_templates_fpath
 from stream2segment.io import yaml_load
-from stream2segment.main import init as orig_init, show as orig_show
 from stream2segment.process.inspectimport import load_source
 
 
@@ -37,10 +36,13 @@ def download_setup(pytestdir):
     return download_setup_func
 
 
-@patch("stream2segment.main.configlog4download")
-@patch("stream2segment.main.new_db_download")
-@patch("stream2segment.utils.inputvalidation.valid_session")
-@patch("stream2segment.main.run_download", return_value=0)
+PKG = 'stream2segment.download'
+
+
+@patch(PKG + ".main.configlog4download")
+@patch(PKG + ".main.new_db_download")
+@patch(PKG + ".inputvalidation.valid_session")
+@patch(PKG + ".main._run", return_value=0)
 def test_click_download(mock_download, mock_create_sess, mock_new_db_download,
                         mock_configlog4download, download_setup):
     runner = CliRunner()
@@ -140,7 +142,7 @@ def test_click_download(mock_download, mock_create_sess, mock_new_db_download,
     assert not mock_download.called
 
 
-@patch("stream2segment.main.process", return_value=0)
+@patch("stream2segment.cli._process", return_value=0)
 def test_click_process(mock_process):
     runner = CliRunner()
 
@@ -160,19 +162,20 @@ def test_click_process(mock_process):
     assert lst == ['d', pyfile, None, conffile, 'c']
     assert result.exit_code == 0
     
-    # test dburl supplied via config
-    mock_process.reset_mock()
-    result = runner.invoke(cli, ['process', '-d', d_conffile , '-c', conffile, '-p', pyfile, 'c'])
-    lst = list(mock_process.call_args_list[0][0])
-    assert lst == [yaml_load(d_conffile)['dburl'], pyfile, None, conffile, 'c']
-    assert result.exit_code == 0
+    # test dburl supplied via config: NOT VALID ANYMORE: the extrapolation of dburl from
+    # yaml is performed in inputvalidation now
+    # mock_process.reset_mock()
+    # result = runner.invoke(cli, ['process', '-d', d_conffile , '-c', conffile, '-p', pyfile, 'c'])
+    # lst = list(mock_process.call_args_list[0][0])
+    # assert lst == [yaml_load(d_conffile)['dburl'], pyfile, None, conffile, 'c']
+    # assert result.exit_code == 0
     
     # test funcname supplied via cli:
     mock_process.reset_mock()
     result = runner.invoke(cli, ['process', '--funcname', 'wat?', '-d', d_conffile ,
                                  '-c', conffile, '-p', pyfile, 'c'])
     lst = list(mock_process.call_args_list[0][0])
-    assert lst == [yaml_load(d_conffile)['dburl'], pyfile, 'wat?', conffile, 'c']
+    assert lst == [d_conffile, pyfile, 'wat?', conffile, 'c']
     assert result.exit_code == 0
 
     # test an error in params: -dburl instead of --dburl:
@@ -189,9 +192,15 @@ def test_click_process(mock_process):
     assert result.exit_code == 0
 
 
-@patch("stream2segment.main.show", side_effect=orig_show)
-@patch("stream2segment.gui.main.open_in_browser")
-@patch("stream2segment.main.create_s2s_show_app")  # , return_value=mock.Mock())
+from stream2segment.process.gui.main import show_gui as orig_show
+
+
+PKG = 'stream2segment.process.gui.main'
+
+
+@patch("stream2segment.cli.show_gui", side_effect=orig_show)
+@patch(PKG + ".open_in_browser")
+@patch(PKG + ".create_s2s_show_app")  # , return_value=mock.Mock())
 def test_click_show(mock_create_s2s_show_app, mock_open_in_browser, mock_show):
     runner = CliRunner()
     d_conffile, conffile, pyfile = \
@@ -200,12 +209,13 @@ def test_click_show(mock_create_s2s_show_app, mock_open_in_browser, mock_show):
     # when asserting if we called open_in_browser, since tha latter is inside a thread which
     # executes with a delay of 1.5 seconds, we need to make our function here. Quite hacky,
     # but who cares
-    def assert_opened_in_browser(url=None):  # if None, assert
-        time.sleep(2)  # to be safe
-        mock_open_in_browser.assert_called_once
-        args = mock_open_in_browser.call_args_list[0][0]
-        assert len(args) == 1
-        assert args[0].startswith('http://127.0.0.1:')
+    # def assert_opened_in_browser(url=None):  # if None, assert
+    #     time.sleep(2)  # to be safe
+    #     mock_open_in_browser.assert_called_once
+    #     args = mock_open_in_browser.call_args_list[0][0]
+    #     assert len(args) == 1
+    #     assert args[0].startswith('http://127.0.0.1:')
+
     # test no dburl supplied
     mock_show.reset_mock()
     mock_open_in_browser.reset_mock()
@@ -225,14 +235,15 @@ def test_click_show(mock_create_s2s_show_app, mock_open_in_browser, mock_show):
     # assert_opened_in_browser('d')
 
     # test dburl supplied via config (dburl ok)
-    mock_show.reset_mock()
-    mock_open_in_browser.reset_mock()
-    result = runner.invoke(cli, ['show', '-d', d_conffile , '-c', conffile, '-p', pyfile])
-    lst = list(mock_show.call_args_list[0][0])
-    dburl = yaml_load(d_conffile)['dburl']
-    assert lst == [dburl, pyfile, conffile]
-    assert result.exit_code == 0
-    assert_opened_in_browser(dburl)
+    # INVALID: NOW the extrapolation is performed via input_validation
+    # mock_show.reset_mock()
+    # mock_open_in_browser.reset_mock()
+    # result = runner.invoke(cli, ['show', '-d', d_conffile , '-c', conffile, '-p', pyfile])
+    # lst = list(mock_show.call_args_list[0][0])
+    # dburl = yaml_load(d_conffile)['dburl']
+    # assert lst == [dburl, pyfile, conffile]
+    # assert result.exit_code == 0
+    # assert_opened_in_browser(dburl)
 
     # test an error in params: -dburl instead of --dburl:
     mock_show.reset_mock()
@@ -251,8 +262,10 @@ def test_click_show(mock_create_s2s_show_app, mock_open_in_browser, mock_show):
     assert not mock_open_in_browser.called
 
 
-@patch("stream2segment.main.input")
-@patch("stream2segment.main.init", side_effect=orig_init)
+from stream2segment.cli import copy_example_files as copyeexfiles
+
+@patch("stream2segment.cli.input")
+@patch("stream2segment.cli.copy_example_files", side_effect=copyeexfiles)
 def test_click_template(mock_main_init, mock_input, pytestdir):
     runner = CliRunner()
     # assert help works:
@@ -369,7 +382,7 @@ def test_click_template_realcopy(pytestdir):
     assert result.exit_code == 0
 
 
-@patch("stream2segment.main.dstats", return_value=0)
+@patch("stream2segment.cli.dstats", return_value=0)
 def test_click_dstats(mock_da):
 
     prefix = ['dl', 'stats']
@@ -408,7 +421,7 @@ def test_click_dstats(mock_da):
     assert result.exit_code != 0
 
 
-@patch("stream2segment.main.dreport", return_value=0)
+@patch("stream2segment.cli.dreport", return_value=0)
 def test_click_dreport(mock_da):
 
     prefix = ['dl', 'report']

@@ -65,7 +65,7 @@ def configlog4download(logger, logfile_path='', verbose=False):
         sysout_streamer.setLevel(min(l_filter.levels))
         logger.addHandler(sysout_streamer)
 
-    return db_streamer, sysout_streamer
+    # return db_streamer, sysout_streamer
 
     # custom StreamHandler: count errors and warnings:
     # handlers = []

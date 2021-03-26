@@ -36,7 +36,7 @@ def classlabels(dburl, *, add, rename, delete):
                                              inputvalidation.valid_session,
                                              for_process=False, scoped=False)
     configure_classlabels(session, add=add, rename=rename, delete=delete)
-    return get_classlabels(session, Class, include_counts=False)
+    return get_classlabels(session, Class)
 
 
 def configure_classlabels(session, *, add, rename, delete, commit=True):

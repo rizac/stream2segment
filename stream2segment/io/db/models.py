@@ -419,7 +419,7 @@ class ClassLabelling(Base):
         return (UniqueConstraint('segment_id', 'class_id', name='seg_class_uc'),)
 
 
-def get_classlabels(session, model_cls, include_counts=True):
+def get_classlabels(session, c_model, clbl_model=None):
     """Return a list of class labels on the database of the given `session`.
     Each class label is returned as dict with keys 'id', 'label' and
     'description':
@@ -436,30 +436,29 @@ def get_classlabels(session, model_cls, include_counts=True):
     ]
     ```
 
-    :param model_cls: the Class model (Python) class, e.g.
+    :param c_model: the Class ORM (Python class), e.g.
         :class:`stream2segment.download.db.Class` or
         :class:`stream2segment.process.db.Class` or
-    :param include_counts: boolean (True by default). Whether to include the
-        'count' in each dict. Set to False if you don't need the information
-         as the function might be faster
+    :param clbl_model: the ClassLabelling ORM (Python class). If non None,
+        then the function will include the 'count' in each dict. None by default
+        (which should also speed up the query)
     """
-    colnames = [model_cls.id.key, model_cls.label.key, model_cls.description.key,
+    colnames = [c_model.id.key, c_model.label.key, c_model.description.key,
                 'count']
 
-    if not include_counts:
+    if clbl_model is None:
         return [{colnames[0]: c.id,
                  colnames[1]: c.label,
-                 colnames[2]: c.description} for c in session.query(model_cls)]
+                 colnames[2]: c.description} for c in session.query(c_model)]
 
     # compose the query step by step:
-    query = session.query(model_cls.id, model_cls.label, model_cls.description,
-                          func.count(ClassLabelling.id).label(colnames[-1]))
+    query = session.query(c_model.id, c_model.label, c_model.description,
+                          func.count(clbl_model.id).label(colnames[-1]))
     # Join class labellings to get how many segments per class:
     # Note: `isouter` below, which produces a left outer join, is important
     # when we have no class labellings (i.e. third column all zeros) otherwise
     # with a normal join we would have no results
-    query = query.join(ClassLabelling,
-                       ClassLabelling.class_id == model_cls.id, isouter=True)
+    query = query.join(clbl_model, clbl_model.class_id == c_model.id, isouter=True)
     # group by class id:
-    query = query.group_by(model_cls.id).order_by(model_cls.id)
+    query = query.group_by(c_model.id).order_by(c_model.id)
     return [{name: val for name, val in zip(colnames, d)} for d in query]
