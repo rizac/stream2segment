@@ -9,7 +9,6 @@ from builtins import input
 from sqlalchemy import func
 from sqlalchemy.exc import SQLAlchemyError
 
-
 from stream2segment.io import inputvalidation
 from stream2segment.io.db import close_session
 from stream2segment.io.db.models import get_classlabels
