@@ -372,18 +372,6 @@ def valid_nslc(value):
         raise ValueError(str(exc))
 
 
-def valid_dburl_or_download_yamlpath(value, param_name='dburl'):
-    """Return the database path from 'value': 'value' can be a file (in that
-    case is assumed to be a yaml file with the `param_name` key in it, which
-    must denote a db path) or the database path otherwise
-    """
-    if not isinstance(value, string_types) or not value:
-        raise TypeError('please specify a string denoting either a path to a '
-                        'yaml file with the `dburl` parameter defined, or a '
-                        'valid db path')
-    return yaml_load(value)[param_name] if (os.path.isfile(value)) else value
-
-
 def valid_authorizer(restricted_data, dataws, configfile=None):
     """Create an :class:`stream2segment.download.utils.Authorizer`
     (handling authentication/authorization) from the given restricted_data

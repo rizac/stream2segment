@@ -22,16 +22,10 @@ from click.testing import CliRunner
 import pytest
 
 from stream2segment.cli import cli
-from stream2segment.main import configlog4download as o_configlog4download,\
-    new_db_download as o_new_db_download, configlog4processing as o_configlog4processing
+from stream2segment.process.main import configlog4processing as o_configlog4processing
 from stream2segment.process.main import process as o_process
-from stream2segment.download.main import download as o_download
-from stream2segment.io.inputvalidation import valid_session as o_get_session, \
-    BadParam
-from stream2segment.download.inputvalidation import valid_nslc as nslc_param_value_aslist
+from stream2segment.io.inputvalidation import valid_session as o_get_session, BadParam
 from stream2segment.process.inputvalidation import load_config_for_process
-from stream2segment.download.db.models import Download
-from stream2segment.io.db import secure_dburl
 from stream2segment.resources import get_templates_fpaths, get_templates_fpath
 from stream2segment.io import yaml_load
 
@@ -91,413 +85,34 @@ class Test(object):
         # Although we do not test db stuff here other than checking a download id has written,
         # we iterate through all given db's
 
-        # patchers:
-        def cfd_side_effect(logger, logfilebasepath, verbose):
-            # config logger as usual, but redirects to a temp file
-            # that will be deleted by pytest, instead of polluting the program
-            # package:
-            return o_configlog4download(logger, pytestdir.newfile('.log'), verbose)
-
-        with patch('stream2segment.main.configlog4download',
-                   side_effect=cfd_side_effect) as _:
-            self.mock_config4download = _
-
-            with patch('stream2segment.main.new_db_download',
-                       side_effect=o_new_db_download) as _:
-                self.mock_new_db_download = _
-
-                with patch('stream2segment.utils.inputvalidation.valid_session') as _:
-                    def csess(dbpath, *a, **v):
-                        if dbpath == db.dburl:
-                            return db.session
-                        return o_get_session(dbpath, *a, **v)
-                    _.side_effect = csess
-
-                    with patch('stream2segment.main.closesession') as _:
-                        self.mock_close_session = _
-
-                        with patch('stream2segment.main.run_download',
-                                   side_effect = lambda *a, **v: None) as _:  # no-op
-                            self.mock_run_download = _
-
-                            with patch('stream2segment.main.configlog4processing',
-                                       side_effect=o_configlog4processing) as _:
-                                self.mock_configlog4processing = _
-
-                                with patch('stream2segment.main.run_process',
-                                           side_effect=lambda *a, **v: None) as _:
-                                    self.mock_run_process = _
-
-                                    yield
-
-    def test_paper_suppl_config(self,
-                                # fixtures:
-                                db, data, run_cli_download):
-        '''test the yaml providede in the supplemented material for the paper'''
-        result = run_cli_download('-c', data.path('download_poligon_article.yaml'))  # conflict
-        # assert we did write to the db:
-        assert result.exit_code == 0
-        assert db.session.query(Download).count() == 1
+        class patches(object):
+            # paths container for class-level patchers used below. Hopefully
+            # will mek easier debug when refactoring/move functions
+            valid_session = 'stream2segment.process.inputvalidation.valid_session'
+            close_session = 'stream2segment.process.main.close_session'
+            configlog4processing = 'stream2segment.process.main.configlog4processing'
+            run_process = 'stream2segment.process.main._run'
 
 
-    def test_download_bad_values(self,
-                                 # fixtures:
-                                 db, run_cli_download):
-        '''test different scenarios where the value in the dwonload.yaml are not well formatted'''
+        with patch(patches.valid_session) as _:
+            def csess(dbpath, *a, **v):
+                if dbpath == db.dburl:
+                    return db.session
+                return o_get_session(dbpath, *a, **v)
+            _.side_effect = csess
 
-        # INCREMENT THIS VARIABLE EVERY TIME YOU RUN A SUCCESSFUL DOWNLOAD
-        dcount = 0
+            with patch(patches.close_session) as _:
+                self.mock_close_session = _
 
-        # test dataws provided multiple times in the cli:
-        result = run_cli_download('-ds', 'http://a/fdsnws/dataselect/1/query',
-                                  '--dataws', 'http://b/fdsnws/dataselect/1/query')
-        dataws = self.mock_run_download.call_args_list[-1][1]['dataws']
-        assert sorted(dataws) == ['http://a/fdsnws/dataselect/1/query',
-                                  'http://b/fdsnws/dataselect/1/query']
-        assert result.exit_code == 0
-        dcount += 1
+                with patch(patches.configlog4processing,
+                           side_effect=o_configlog4processing) as _:
+                    self.mock_configlog4processing = _
 
+                    with patch(patches.run_process,
+                               side_effect=lambda *a, **v: None) as _:
+                        self.mock_run_process = _
 
-        # test that eventws_params is optional if not provided
-        result = run_cli_download(removals=['eventws_params'])
-        assert result.exit_code == 0
-        dcount += 1
-
-        # now check parameters supplied in config and in `eventws` subdict
-        result = run_cli_download(eventws_params={'maxmagnitude': 5})
-        assert result.exit_code == 0
-        dcount += 1
-        # check maxmagnitude is NOT in the eventws params:
-        eventws_params = self.mock_run_download.call_args_list[-1][1]['eventws_params']
-        assert 'maxmagnitude' in eventws_params
-
-        # same as above, but let's check a type error? No, it does not raise
-        # because the validation function is float (and float('5') works)
-        result = run_cli_download(eventws_params={'maxmagnitude': '5'})
-        assert result.exit_code == 0
-        dcount += 1
-
-        # same as above, but let's check real a type error, because in this case
-        # the validation function is stream2segment 'valid_between''
-        result = run_cli_download(minlatitude = '5')
-        assert result.exit_code != 0
-        assert msgin('Error: Invalid type for "minlatitude":', result.output)
-
-        # same as above, but with conflicts:
-        # COMMENT OUT: THIS IS IMPLEMENTED IN test_download_eventws_query_args:
-        # for param_name in ['minlat', 'maxlatitude']:
-        #     result = run_cli_download(eventws_params={param_name: 5})
-        #     assert result.exit_code != 0
-        #     assert msgin('Conflicting names ', result.output)
-        #     assert msgin('"eventws_params"', result.output)
-
-        eventswparams = ['minlat', 'minlatitude', 'maxlat', 'maxlatitude',
-                         'minlon', 'minlongitude', 'maxlon', 'maxlongitude']
-        result = run_cli_download(removals=eventswparams)  # conflict
-        assert all(_ not in result.output for _ in eventswparams)
-        assert result.exit_code == 0
-        dcount += 1
-
-        result = run_cli_download(min_sample_rate='abc')  # conflict
-        assert result.exit_code != 0
-        assert msgin('"min_sample_rate"', result.output)
-        # sometimes we move functions, messing around with what should be logged
-        # or not. In most of the tests of this function, the exception traceback should
-        # not be there. Perform the check in this case:
-        assert "traceback" not in result.output.lower()
-
-        result = run_cli_download(removals=['min_sample_rate'])  # conflict
-        assert self.mock_run_download.call_args_list[-1][1]['min_sample_rate'] == 0
-        assert result.exit_code == 0
-        dcount += 1
-
-        result = run_cli_download(networks={'a': 'b'})  # conflict
-        assert result.exit_code != 0
-        assert msgin('Error: Conflicting names "network" / "networks"', result.output)
-        result = run_cli_download(network={'a': 'b'})
-        assert result.exit_code == 0
-        dcount += 1
-        # thus providing dict is actually fine and will iterate over its keys:
-        assert self.mock_run_download.call_args_list[-1][1]['network'] == ['a']
-        # do some asserts only for this case to test how we print the arguments to string:
-        # assert "tt_table: <TTTable object, " in result.output
-        assert "starttime: 2006-01-01 00:00:00" in result.output
-        assert "traveltimes_model:" in result.output
-        _dburl = db.dburl
-        if not db.is_sqlite:
-            _dburl = secure_dburl(_dburl)
-        # assert dburl is in result.output (sqlite:memory is quotes, postgres not. we do not
-        # care to investigate why, jsut assert either string is there:
-        assert "dburl: '%s'" % _dburl in result.output or "dburl: %s" % _dburl in result.output
-
-        # check the session:
-        # assert we did write to the db:
-        assert db.session.query(Download).count() == dcount
-
-        result = run_cli_download(networks='!*')  # conflicting names
-        assert result.exit_code != 0
-        assert msgin('Error: Conflicting names "network" / "networks"', result.output)
-        # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == dcount
-        # to be sure we have printed the bad parameter message only:
-        assert len(result.output.strip().split('\n')) == 1
-
-        result = run_cli_download(network='!*')  # invalid value
-        assert result.exit_code != 0
-        assert msgin('Error: Invalid value for "network": ', result.output)
-        # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == dcount
-        # to be sure we have printed the bad parameter message only:
-        assert len(result.output.strip().split('\n')) == 1
-
-        result = run_cli_download(net='!*')  # conflicting names
-        assert result.exit_code != 0
-        assert msgin('Error: Conflicting names "network" / "net"', result.output)
-        # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == dcount
-        # to be sure we have printed the bad parameter message only:
-        assert len(result.output.strip().split('\n')) == 1
-
-        # test error from the command line. Result is the same as above as the check is made
-        # AFTER click
-        result = run_cli_download('-n', '!*')  # invalid value
-        assert result.exit_code != 0
-        assert msgin('Error: Invalid value for "network": ', result.output)
-        # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == dcount
-
-        # no such option:
-        result = run_cli_download('--zrt', '!*')
-        assert result.exit_code != 0
-        assert 'Error: no such option: --zrt' in result.output  # why -z and not -zz? whatever...
-        # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == dcount
-
-        # no such option from within the yaml:
-        result = run_cli_download(zz='!*')
-        assert result.exit_code != 0
-        assert msgin('Error: No such option "zz"', result.output)
-        # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == dcount
-
-        # what about conflicting arguments?
-        result = run_cli_download(networks='!*', net='opu')  # invalid value
-        assert result.exit_code != 0
-        assert msgin('Conflicting names "network" / "net" / "networks"', result.output) or \
-            msgin('Conflicting names "network" / "networks" / "net"', result.output)
-        # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == dcount
-
-        result = run_cli_download(starttime=[])  # invalid type
-        assert result.exit_code != 0
-        assert msgin('Error: Invalid type for "starttime":', result.output)
-        # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == dcount
-
-        # mock implementing conflicting names in the yaml file:
-        result = run_cli_download(start='wat')  # invalid value
-        assert result.exit_code != 0
-        assert msgin('Error: Conflicting names "starttime" / "start"', result.output)
-        # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == dcount
-
-        # mock implementing bad value in the cli: (cf with the previous test):
-        # THE MESSAGE BELOW IS DIFFERENT BECAUSE WE PROVIDE A CLI VALIDATION FUNCTION
-        # See the case of travetimes model below where, without a cli validation function,
-        # the message is the same when we provide a bad argument in the yaml or from the cli
-        result = run_cli_download('--starttime', 'wat')  # invalid value
-        assert result.exit_code != 0
-        assert msgin('Error: Invalid value for "-s" / "--start" / "--starttime": wat', result.output)
-        # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == dcount
-
-        # This should work:
-        result = run_cli_download('--start', '2006-03-14')  # invalid value
-        assert result.exit_code == 0
-        dcount += 1
-        run_download_kwargs = self.mock_run_download.call_args_list[-1][1]
-        assert run_download_kwargs['starttime'] == datetime(2006, 3, 14)
-        # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == dcount
-
-        # now test the same as above BUT with a cli-only argument (-t0):
-        result = run_cli_download('-s', 'wat')  # invalid value typed from the command line
-        assert result.exit_code != 0
-        assert msgin('Error: Invalid value for "-s" / "--start" / "--starttime":', result.output)
-        # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == dcount
-
-        result = run_cli_download(endtime='wat')  # try with end
-        assert result.exit_code != 0
-        assert msgin('Error: Invalid value for "endtime":', result.output)
-        # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == dcount
-
-        result = run_cli_download(end='wat')  # try with end
-        assert result.exit_code != 0
-        assert msgin('Error: Conflicting names "endtime" / "end"', result.output)
-        # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == dcount
-
-        # now test the same as above BUT with the wrong value from the command line:
-        result = run_cli_download('-e', 'wat')  # invalid value typed from the command line
-        assert result.exit_code != 0
-        assert msgin('Error: Invalid value for "-e" / "--end" / "--endtime":', result.output)
-        # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == dcount
-
-        result = run_cli_download(traveltimes_model=[])  # invalid type
-        assert result.exit_code != 0
-        assert msgin('Error: Invalid type for "traveltimes_model":', result.output)
-        # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == dcount
-
-        result = run_cli_download(traveltimes_model='wat')  # invalid value
-        assert result.exit_code != 0
-        assert msgin('Error: Invalid value for "traveltimes_model":', result.output)
-        # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == dcount
-
-        # same as above but with error from the cli, not from within the config yaml:
-        result = run_cli_download('--traveltimes-model', 'wat')  # invalid value
-        assert result.exit_code != 0
-        assert msgin('Error: Invalid value for "traveltimes_model":', result.output)
-        # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == dcount
-
-        result = run_cli_download(removals=['inventory'])  # invalid value
-        assert result.exit_code != 0
-        assert msgin('Error: Missing value for "inventory"', result.output)
-        # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == dcount
-
-        d_yaml_file = get_templates_fpath("download.yaml")
-
-        result = run_cli_download(dburl=d_yaml_file)  # existing file, invalid db url
-        assert result.exit_code != 0
-        # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == dcount
-
-        result = run_cli_download(dburl="sqlite:/whatever")  # invalid db url
-        assert result.exit_code != 0
-        assert msgin('Error: Invalid value for "dburl":', result.output)
-        # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == dcount
-
-        result = run_cli_download(dburl="sqlite://whatever")  # invalid db url
-        assert result.exit_code != 0
-        assert msgin('Error: Invalid value for "dburl":', result.output)
-        # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == dcount
-
-        result = run_cli_download(dburl=[])  # invalid type
-        assert result.exit_code != 0
-        assert msgin('Error: Invalid type for "dburl":', result.output)
-        # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == dcount
-
-        # Test an invalif configfile. This can be done only via command line
-        result = run_cli_download('-c', 'frjkwlag5vtyhrbdd_nleu3kvshg w')
-        assert result.exit_code != 0
-        assert msgin('Error: Invalid value for "-c" / "--config":', result.output)
-        # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == dcount
-
-        result = run_cli_download(removals=['maxmagnitude'])  # remove an opt. param.
-        assert result.exit_code == 0
-        dcount += 1
-        # check maxmagnitude is NOT in the eventws params:
-        eventws_params = self.mock_run_download.call_args_list[-1][1]['eventws_params']
-        assert 'maxmagnitude' not in eventws_params
-        # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == dcount
-
-        result = run_cli_download(removals=['advanced_settings'])  # remove an opt. param.
-        assert result.exit_code != 0
-        assert msgin('Error: Missing value for "advanced_settings"', result.output)
-        # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == dcount
-
-        result = run_cli_download(advanced_settings={})  # remove an opt. param.
-        assert result.exit_code != 0
-        assert 'Error: Missing value for "advanced_settings.download_blocksize"' \
-               in result.output
-        # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == dcount
-
-        # search radius:
-        for search_radius in [{'min': 5}, {'min': 5, 'max': 6, 'minmag': 7}]:
-            result = run_cli_download(search_radius=search_radius)
-            assert result.exit_code != 0
-            assert ('Error: Invalid value for "search_radius": '
-                    "provide either 'min', 'max' or "
-                    "'minmag', 'maxmag', 'minmag_radius', 'maxmag_radius'") in result.output
-
-        result = run_cli_download(search_radius={'min': 5, 'max': '6'})
-        assert result.exit_code != 0
-        assert ('Error: Invalid value for "search_radius": '
-                "numeric values expected") in result.output
-
-        result = run_cli_download(search_radius={'minmag': 15, 'maxmag': 7,
-                                                 'minmag_radius': 5,
-                                                 'maxmag_radius': 4})
-        assert result.exit_code != 0
-        assert ('Error: Invalid value for "search_radius": '
-                'minmag should not be greater than maxmag') in result.output
-
-        result = run_cli_download(search_radius={'minmag': 7, 'maxmag': 8,
-                                                 'minmag_radius': -1,
-                                                 'maxmag_radius': 0})
-        assert result.exit_code != 0
-        assert ('Error: Invalid value for "search_radius": '
-                'minmag_radius and maxmag_radius should be greater than 0') in result.output
-
-        result = run_cli_download(search_radius={'minmag': 5, 'maxmag': 5,
-                                                 'minmag_radius': 4,
-                                                 'maxmag_radius': 4})
-        assert result.exit_code != 0
-        assert ('Error: Invalid value for "search_radius": '
-                'to supply a constant radius, '
-                'set "min: 0" and specify the radius with the "max" argument') in result.output
-
-        result = run_cli_download(search_radius={'min': -1, 'max': 5})
-        assert result.exit_code != 0
-        assert ('Error: Invalid value for "search_radius": '
-                'min should not be lower than 0') in result.output
-
-        result = run_cli_download(search_radius={'min': 0, 'max': 0})
-        assert result.exit_code != 0
-        assert ('Error: Invalid value for "search_radius": '
-                'max should be greater than 0') in result.output
-
-        result = run_cli_download(search_radius={'min': 4, 'max': 3})
-        assert result.exit_code != 0
-        assert ('Error: Invalid value for "search_radius": '
-                'min should be lower than max') in result.output
-
-        # check advanced_settings renaming of max_thread_workers
-        # normal "new" case:
-        adv = dict(self.yaml_def_params['advanced_settings'])
-        adv['max_concurrent_downloads'] = 2
-        result = run_cli_download(advanced_settings=adv)
-        # Test max_concurrent_downloads checking the printed config (hacky but quick):
-        assert 'max_concurrent_downloads: 2' in \
-               result.output[result.output.index('advanced_settings'):]
-        # now provide a "old" config and check we converted to the new param:
-
-        # with patch('stream2segment.main.run_download') as mock_r_d:
-
-        adv.pop('max_concurrent_downloads')
-        adv['max_thread_workers'] = 55
-        result = run_cli_download(advanced_settings=adv)
-        # in the printed config, we still have mac_thread_workers
-        assert 'max_thread_workers: 55' in \
-               result.output[result.output.index('advanced_settings'):]
-        # But not in the advanced settings dict passed to the download routine:
-        adv_settings = self.mock_run_download.call_args[-1]['advanced_settings']
-        # adv_settings = mock_r_d.call_args[-1]['advanced_settings']
-        assert 'max_thread_workers' not in adv_settings
-        assert adv_settings['max_concurrent_downloads'] == 55
+                        yield
 
 
 def test_process_bad_types(pytestdir):
@@ -579,11 +194,14 @@ def test_process_bad_types(pytestdir):
                  result.output)
 
 
-
-@patch('stream2segment.utils.inputvalidation.valid_session')
-@patch('stream2segment.main.closesession')
-@patch('stream2segment.main.configlog4processing')
-@patch('stream2segment.main.run_process')
+# @patch('stream2segment.utils.inputvalidation.valid_session')
+# @patch('stream2segment.main.closesession')
+# @patch('stream2segment.main.configlog4processing')
+# @patch('stream2segment.main.run_process')
+@patch('stream2segment.process.inputvalidation.valid_session')
+@patch('stream2segment.process.main.close_session')
+@patch('stream2segment.process.main.configlog4processing')
+@patch('stream2segment.process.main._run')
 def test_process_verbosity(mock_run_process, mock_configlog, mock_closesess, mock_getsess,
                            # fixtures:
                            db, capsys, pytestdir):
@@ -608,18 +226,18 @@ def test_process_verbosity(mock_run_process, mock_configlog, mock_closesess, moc
         # config logger as usual, but redirects to a temp file
         # that will be deleted by pytest, instead of polluting the program
         # package:
-        ret = o_configlog4processing(logger,
-                                     pytestdir.newfile('.log') if logfilebasepath else None,
-                                     verbose)
+        o_configlog4processing(logger,
+                               pytestdir.newfile('.log') if logfilebasepath else None,
+                               verbose)
 
-        vars['numloggers'] = len(ret)
+        vars['numloggers'] = len(logger.handlers)
 
         vars['logfilepath'] = None
         try:
-            vars['logfilepath'] = ret[0].baseFilename
+            vars['logfilepath'] = logger.handlers[0].baseFilename
         except (IndexError, AttributeError):
             pass
-        return ret
+
     mock_configlog.side_effect = clogd
 
     conffile, pyfile = get_templates_fpaths("paramtable.yaml", "paramtable.py")

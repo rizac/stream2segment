@@ -98,13 +98,10 @@ class Test(object):
         class patches(object):
             # paths container for class-level patchers used below. Hopefully
             # will mek easier debug when refactoring/move functions
-            urlopen = 'stream2segment.download.url.urlopen'
-            valid_session = 'stream2segment.download.inputvalidation.valid_session'
-            close_session = 'stream2segment.download.main.close_session'
-            yaml_load = 'stream2segment.download.inputvalidation.yaml_load'
-            ThreadPool = 'stream2segment.download.url.ThreadPool'
             configlog4download = 'stream2segment.download.main.configlog4download'
             new_db_download = 'stream2segment.download.main.new_db_download'
+            valid_session = 'stream2segment.download.inputvalidation.valid_session'
+            close_session = 'stream2segment.download.main.close_session'
             run_download = 'stream2segment.download.main._run'
 
         with patch(patches.configlog4download, side_effect=cfd_side_effect) as _:

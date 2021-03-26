@@ -41,7 +41,7 @@ from stream2segment.download.db import management as dbmanagement
 
 from stream2segment.resources import get_templates_fpath
 from stream2segment.io.inputvalidation import BadParam
-
+from stream2segment.io import yaml_load
 
 # convention: root functions are appended the "_func" suffix
 
@@ -57,20 +57,39 @@ from stream2segment.io.inputvalidation import BadParam
 class clickutils(object):  # noqa
     """Container for all `click` related stuff to be used here"""
 
+    @staticmethod
+    def valid_dburl_or_download_yamlpath(value, param_name='dburl'):
+        """Return the database path from 'value': 'value' can be a file (in that
+        case is assumed to be a yaml file with the `param_name` key in it, which
+        must denote a db path) or the database path otherwise
+        """
+        if not isinstance(value, str):
+            raise ValueError('Please provide a string')
+        if os.path.isfile(value):
+            yaml_dict = {}
+            try:
+                yaml_dict = yaml_load(value)
+            except Exception:
+                raise ValueError('file exists but can not be read as YAML')
+            try:
+                return yaml_dict[param_name]
+            except KeyError:
+                raise ValueError('%d not found in YAML file %s' % (param_name, value))
+        return value
+
     # shorthand string for event-related download params:
     EQA = "(event search parameter)"
     # Keyword attributes fot Options that accept a db URL also in form of the
     # file path to a download config (with the db url in it):
-    DBURL_OR_YAML_ATTRS = dict(#type=stream2segment.download.inputvalidation.valid_dburl_or_download_yamlpath,
-                               metavar='TEXT or PATH',
-                               help=("Database URL where data has been saved. "
-                                     "It can also be the path of a YAML file "
-                                     "with the property 'dburl' (e.g., the "
-                                     "config file used for downloading). "
-                                     "IMPORTANT: if the URL contains passwords "
-                                     "we STRONGLY suggest to use a file instead "
-                                     "of typing the URL on the terminal"),
-                               required=True)
+    DBURL_OR_YAML_ATTRS = dict(
+        type=lambda val: clickutils.valid_dburl_or_download_yamlpath(val),
+        metavar='TEXT or PATH',
+        help=("Database URL where data has been saved. It can also be the path of a "
+              "YAML file with the property 'dburl' (e.g., the config file used for "
+              "downloading). WARNING: if the URL contains passwords it is safer to use "
+              "a file instead of typing the URL on the terminal"),
+        required=True
+    )
     # custom type for Options accepting an existing File:
     ExistingPath = click.Path(exists=True, file_okay=True, dir_okay=False,
                               writable=False, readable=True)
