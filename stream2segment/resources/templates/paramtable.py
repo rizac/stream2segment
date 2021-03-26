@@ -29,12 +29,12 @@ from obspy import Trace, Stream, UTCDateTime
 from obspy.geodetics import degrees2kilometers as d2km
 # decorators needed to setup this module @gui.preprocess @gui.plot:
 from stream2segment.process import gui, SkipSegment
-# strem2segment functions for processing obspy Traces. This is just a list of possible
+# straem2segment functions for processing obspy Traces. This is just a list of possible
 # functions to show how to import them:
-from stream2segment.process.lib.traces import ampratio, bandpass, cumsumsq,\
+from stream2segment.process.funclib.traces import ampratio, bandpass, cumsumsq,\
     timeswhere, fft, maxabs, utcdatetime, ampspec, powspec, timeof, sn_split
 # stream2segment function for processing numpy arrays:
-from stream2segment.process.lib.ndarrays import triangsmooth, snr
+from stream2segment.process.funclib.ndarrays import triangsmooth, snr
 
 
 def main(segment, config):
