@@ -172,7 +172,7 @@ class Test(object):
     @mock.patch('stream2segment.process.main.process_segments_mp',
                 side_effect=o_process_segments_mp)
     @mock.patch('stream2segment.process.main._get_chunksize_defaults')
-    @mock.patch('stream2segment.main.run_process', side_effect=process_main_run)
+    @mock.patch('stream2segment.process.main._run', side_effect=process_main_run)
     def test_multiprocess_chunksize_combinations(self,
                                                  mock_run_func,
                                                  mock_get_chunksize_defaults,
