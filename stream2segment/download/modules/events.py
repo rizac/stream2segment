@@ -7,7 +7,6 @@ Events download functions
 """
 # make the following(s) behave like python3 counterparts if running from python2.7.x
 # (http://python-future.org/imports.html#explicit-imports):
-from builtins import map, next, zip, range, object
 
 import os
 # import sys
@@ -18,20 +17,24 @@ from datetime import timedelta
 import numpy as np
 import pandas as pd
 
-from stream2segment.utils import StringIO
-from stream2segment.download.utils import (dbsyncdf, FailedDownload,
-                                           response2normalizeddf, formatmsg,
-                                           EVENTWS_MAPPING)
-from stream2segment.io.db.models import WebService, Event
-from stream2segment.utils.url import urlread, socket, HTTPError
-from stream2segment.utils import urljoin, strptime, get_progressbar
+from stream2segment.io import StringIO  # <- io.StringIO py2 compatible
+from stream2segment.io.cli import get_progressbar
+from stream2segment.download.modules.utils import (dbsyncdf, response2normalizeddf, formatmsg,
+                                                   EVENTWS_MAPPING, strptime, urljoin)
+from stream2segment.download.exc import FailedDownload
+from stream2segment.download.db.models import WebService, Event
+from stream2segment.download.url import urlread, socket, HTTPError
 
 # logger: do not use logging.getLogger(__name__) but point to
 # stream2segment.download.logger: this way we preserve the logging namespace
 # hierarchy
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial) when
 # calling logging functions of stream2segment.download.utils:
-from stream2segment.download import logger  # @IgnorePep8
+# from stream2segment.download import logger  # @IgnorePep8
+
+
+import logging
+logger = logging.getLogger(__name__)
 
 
 def get_events_df(session, url, evt_query_args, start, end,

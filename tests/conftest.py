@@ -10,7 +10,7 @@ import os
 from io import BytesIO
 import traceback
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime
 import yaml
 
 import pytest
@@ -23,12 +23,13 @@ from obspy.core.inventory.inventory import read_inventory
 
 from click.testing import CliRunner
 
-from stream2segment.io.db.models import Base, Event, DataCenter, WebService, Download,\
-    Station, Channel, Segment
+import stream2segment.download.db.models as dbd
+import stream2segment.process.db.models as dbp
+# from stream2segment.io.db.models import Base, Event, DataCenter, WebService, Download,\
+#     Station, Channel, Segment
 from stream2segment.traveltimes.ttloader import TTTable
-from stream2segment.utils.resources import yaml_load
-from stream2segment.io.utils import dumps_inv
-from stream2segment.process.db import _toggle_enhance_segment
+from stream2segment.io import yaml_load
+from stream2segment.download.modules.stations import compress
 
 
 # https://docs.pytest.org/en/3.0.0/parametrize.html#basic-pytest-generate-tests-example
@@ -346,12 +347,11 @@ def db(request, tmpdir_factory):  # pylint: disable=invalid-name
         inside the tests'''
         def __init__(self, dburl):
             self.dburl = dburl
-            self._base = Base
             self._session = None
             self.engine = None
             self.session_maker = None
 
-        def create(self, to_file=False, process=False, base=None):
+        def create(self, to_file=False, process=False, custom_base=None):
             '''creates the database, deleting it if already existing (i.e., if this method
             has already been called and self.delete has not been called).
             :param to_file: boolean (False by default) tells whether, if the url denotes sqlite,
@@ -360,9 +360,9 @@ def db(request, tmpdir_factory):  # pylint: disable=invalid-name
             closed too.
             :param process: ignored if base is supplied, if True attaches obspy methods
                 to the ORM classes (streams2segment.process.db)
-            :param base: the Base class whereby creating the db schema. If None (the
-            default) it defaults to streams2segment.io.db.models.Base (with obspy methods
-            in streams2segment.process.db attached, if process=True)
+            :param custom_base: the Base class whereby creating the db schema. If None (the
+            default) it defaults to the download ot process Base defined in s2s,
+            depending on the value of the `process` argument
             '''
             self.delete()
             self.dburl = 'sqlite:///' + \
@@ -370,10 +370,9 @@ def db(request, tmpdir_factory):  # pylint: disable=invalid-name
                 if self.is_sqlite and to_file else self.dburl
 
             self.engine = create_engine(self.dburl)
-            if base is not None:
-                self._base = base
-            if process:
-                _toggle_enhance_segment(True)
+            self._base = custom_base
+            if self._base is None:
+                self._base = dbp.Base if process else dbd.Base
             self._base.metadata.create_all(self.engine)  # @UndefinedVariable
 
         @property
@@ -419,9 +418,6 @@ def db(request, tmpdir_factory):  # pylint: disable=invalid-name
                     pass
                 self.engine.dispose()
 
-            # clear enhanced segment:
-            _toggle_enhance_segment(False)
-
             # clear file if sqlite:
             sqlite = "sqlite:///"
             if self.dburl.startswith(sqlite):
@@ -460,58 +456,59 @@ def db4process(db, data):
             '''Returns the segment ids matching the given criteria'''
             data_seed_id = 'ok.' if with_inventory else 'no.'
             data_seed_id += 'ok' if with_data else ('gap' if with_gap else 'no')
-            return self.session.query(Segment).filter(Segment.data_seed_id == data_seed_id)
+            return self.session.query(dbp.Segment).filter(dbp.Segment.data_seed_id == data_seed_id)
 
         def create(self, to_file=False):
             '''Calls db.create and then populates the database with the data for processing
             tests'''
+
             # re-init a sqlite database (no-op if the db is not sqlite):
             db.create(to_file, True)
             # init db:
             session = db.session
 
             # Populate the database:
-            dwl = Download()
+            dwl = dbp.Download()
             session.add(dwl)
             session.commit()
 
-            wsv = WebService(id=1, url='eventws')
+            wsv = dbp.WebService(id=1, url='eventws')
             session.add(wsv)
             session.commit()
 
             # setup an event:
-            ev1 = Event(id=1, webservice_id=wsv.id, event_id='abc1', latitude=8, longitude=9,
+            ev1 = dbp.Event(id=1, webservice_id=wsv.id, event_id='abc1', latitude=8, longitude=9,
                         magnitude=5, depth_km=4, time=datetime.utcnow())
-            ev2 = Event(id=2, webservice_id=wsv.id, event_id='abc2', latitude=8, longitude=9,
+            ev2 = dbp.Event(id=2, webservice_id=wsv.id, event_id='abc2', latitude=8, longitude=9,
                         magnitude=5, depth_km=4, time=datetime.utcnow())
-            ev3 = Event(id=3, webservice_id=wsv.id, event_id='abc3', latitude=8, longitude=9,
+            ev3 = dbp.Event(id=3, webservice_id=wsv.id, event_id='abc3', latitude=8, longitude=9,
                         magnitude=5, depth_km=4, time=datetime.utcnow())
 
             session.add_all([ev1, ev2, ev3])
             session.commit()
 
-            dtc = DataCenter(station_url='asd', dataselect_url='sdft')
+            dtc = dbp.DataCenter(station_url='asd', dataselect_url='sdft')
             session.add(dtc)
             session.commit()
 
             # s_ok stations have lat and lon > 11, other stations do not
             inv_xml = data.read("inventory_GE.APE.xml")
-            s_ok = Station(datacenter_id=dtc.id, latitude=11, longitude=12, network='ok',
+            s_ok = dbp.Station(datacenter_id=dtc.id, latitude=11, longitude=12, network='ok',
                            station='ok', start_time=datetime.utcnow(),
-                           inventory_xml=dumps_inv(inv_xml))
+                           inventory_xml=compress(inv_xml))
             session.add(s_ok)
             session.commit()
 
-            s_none = Station(datacenter_id=dtc.id, latitude=-31, longitude=-32, network='no',
+            s_none = dbp.Station(datacenter_id=dtc.id, latitude=-31, longitude=-32, network='no',
                              station='no', start_time=datetime.utcnow())
             session.add(s_none)
             session.commit()
 
-            c_ok = Channel(station_id=s_ok.id, location='ok', channel="ok", sample_rate=56.7)
+            c_ok = dbp.Channel(station_id=s_ok.id, location='ok', channel="ok", sample_rate=56.7)
             session.add(c_ok)
             session.commit()
 
-            c_none = Channel(station_id=s_none.id, location='no', channel="no", sample_rate=56.7)
+            c_none = dbp.Channel(station_id=s_none.id, location='no', channel="no", sample_rate=56.7)
             session.add(c_none)
             session.commit()
 
@@ -523,13 +520,13 @@ def db4process(db, data):
 
                 # ch_.location  below reflects if the station has inv
                 atts = dict(atts_ok, data_seed_id='%s.ok' % ch_.location, download_code=200)
-                sg1 = Segment(channel_id=ch_.id, datacenter_id=dtc.id, event_id=ev1.id,
+                sg1 = dbp.Segment(channel_id=ch_.id, datacenter_id=dtc.id, event_id=ev1.id,
                               download_id=dwl.id, event_distance_deg=35, **atts)
                 atts = dict(atts_gap, data_seed_id='%s.gap' % ch_.location, download_code=200)
-                sg2 = Segment(channel_id=ch_.id, datacenter_id=dtc.id, event_id=ev2.id,
+                sg2 = dbp.Segment(channel_id=ch_.id, datacenter_id=dtc.id, event_id=ev2.id,
                               download_id=dwl.id, event_distance_deg=35, **atts)
                 atts = dict(atts_none, data_seed_id='%s.no' % ch_.location, download_code=204)
-                sg3 = Segment(channel_id=ch_.id, datacenter_id=dtc.id, event_id=ev3.id,
+                sg3 = dbp.Segment(channel_id=ch_.id, datacenter_id=dtc.id, event_id=ev3.id,
                               download_id=dwl.id, event_distance_deg=35, **atts)
                 session.add_all([sg1, sg2, sg3])
                 session.commit()

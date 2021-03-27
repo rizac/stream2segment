@@ -9,9 +9,8 @@ from __future__ import print_function
 
 # future direct imports (needs future package installed, otherwise remove):
 # (http://python-future.org/imports.html#explicit-imports)
-from builtins import (ascii, chr, dict, filter, hex, input, # int, 
-                      map, next, oct, open, pow, range, round,
-                      super, zip)
+from builtins import (  # int,
+    open)
 
 # iterating over dictionary keys with the same set-like behaviour on Py2.7 as on Py3:
 # from future.utils import viewkeys
@@ -27,22 +26,23 @@ from multiprocessing import Pool, cpu_count
 import signal
 from itertools import chain, repeat
 
-# from future.utils import itervalues
-
 import numpy as np
 
-# from sqlalchemy import func
-# from sqlalchemy.orm import load_only
-
-from stream2segment.io.db.sqlevalexpr import exprquery
+from stream2segment.io.db import secure_dburl, close_session
+from stream2segment.process.db.sqlevalexpr import exprquery
+from stream2segment.io.log import logfilepath, close_logger, elapsed_time
+from stream2segment.io.cli import get_progressbar, ascii_decorate
+from stream2segment.io.inputvalidation import validate_param, valid_session
+from stream2segment.process.inputvalidation import load_config_for_process, valid_pyfunc
 from stream2segment.process import SkipSegment
-from stream2segment.utils import get_progressbar
-from stream2segment.process.db import get_session
-from stream2segment.io.db.models import Segment, Station
-from stream2segment.utils.inputvalidation import valid_pyfunc
+from stream2segment.process.db.models import get_session, Segment, Station
+from stream2segment.process.log import configlog4processing
+from stream2segment.process.writers import get_writer
 
 
-logger = logging.getLogger(__name__)
+# make the logger refer to the parent of this package (`rfind` below. For info:
+# https://docs.python.org/3/howto/logging.html#advanced-logging-tutorial):
+logger = logging.getLogger(__name__[:__name__.rfind('.')])
 
 
 # Disclaimer: this module is over-documented to keep track of all implementation
@@ -53,9 +53,162 @@ logger = logging.getLogger(__name__)
 # 4. Python multiprocessing with RDBMS queries
 
 
-def run(session, pyfunc, writer, config=None, segments_selection=None,
-        show_progress=False, multi_process=False, chunksize=None,
-        skip_exceptions=None):
+def process(dburl, pyfile, funcname=None, config=None, outfile=None,
+            log2file=False, verbose=False, append=False, **param_overrides):
+    """Start a processing routine, fetching segments from the database at the
+    given URL and optionally saving the processed data into `outfile`.
+    See the doc-strings in stream2segment templates (command `s2s init`) for
+    implementing a process module and configuration (arguments `pyfile` and
+    `config`).
+
+    :param dburl: str. The URL of the database where data has been previously
+        downloaded. It can be the path of the YAML config file used for
+        downloading data, in that case the file parameter 'dburl' will be taken
+    :param pyfile: str: path to the processing module
+    :param funcname: str or None (default: None). The function name in `pyfile`
+        to be used (None means: use default name, currently "main")
+    :param config: str. Path of the configuration file in YAML syntax
+    :param outfile: str or None. The destination file where to write the
+        processing output, either ".csv" or ".hdf". If not given, the returned
+        values of `funcname` in `pyfile` will be ignored, if given.
+    :param log2file: bool or str (default: False). If str, it is the log file
+        path (whose directory must exist). If True, the log file path will be
+        built as `outfile` + ".[now].log" or (if no output file is given) as
+        `pyfile` + ".[now].log" ([now] = current date and time in ISO format).
+        If False, logging is disabled.
+    :param verbose: if True (default: False) print some log information also on
+        the screen (messages of level info and critical), as well as a progress
+        bar showing the estimated remaining time. This option is set to True
+        when this function is invoked from the command line interface (`cli.py`)
+    :param append: bool (default False) ignored if the output file is not given
+        or non existing, otherwise: if False, overwrite the existing output
+        file. If True, process unprocessed segments only (checking the segment
+        id), and append to the given file, without replacing existing data.
+    :param param_overrides: additional parameter(s) for the YAML `config`. The
+        value of existing config parameters will be overwritten, e.g. if
+        `config` is {'a': 1} and `param_overrides` is `a=2`, the result is
+        {'a': 2}. Note however that when both parameters are dictionaries, the
+        result will be merged. E.g. if `config` is {'a': {'b': 1, 'c': 1}} and
+        `param_overrides` is `a={'c': 2, 'd': 2}`, the result is
+        {'a': {'b': 1, 'c': 2, 'd': 2}}
+    """
+    # checks dic values (modify in place) and returns dic value(s) needed here:
+    # Outside the try catch below as BadParam might be raised and need to
+    # be caught by the caller (see `cli.py`)
+    session, pyfunc, funcname, config_dict, segments_selection, multi_process, \
+        chunksize = load_config_for_process(dburl, pyfile, funcname,
+                                                             config, outfile,
+                                                             **param_overrides)
+
+    if log2file is True:
+        log2file = logfilepath(outfile or pyfile)  # auto create log file
+    else:
+        log2file = log2file or ''  # assure we have a string
+
+    try:
+        configlog4processing(logger, log2file, verbose)
+        abp = os.path.abspath
+        info = [
+            "Input database:      %s" % secure_dburl(dburl),
+            "Processing function: %s:%s" % (abp(pyfile), funcname),
+            "Config. file:        %s" % (abp(config) if config else 'n/a'),
+            "Log file:            %s" % (abp(log2file) if log2file else 'n/a'),
+            "Output file:         %s" % (abp(outfile) if outfile else 'n/a')
+        ]
+        logger.info(ascii_decorate("\n".join(info)))
+
+        stime = time.time()
+        writer_options = config_dict.get('advanced_settings', {}).\
+            get('writer_options', {})
+        _run(session, pyfunc, get_writer(outfile, append, writer_options),
+             config_dict, segments_selection, verbose, multi_process,
+             chunksize, None)
+        logger.info("Completed in %s", str(elapsed_time(stime)))
+        return 0  # contrarily to download, an exception should always raise
+        # and log as error with the stack trace
+        # (this includes pymodule exceptions e.g. TypeError)
+    except KeyboardInterrupt:
+        logger.critical("Aborted by user")  # see comment above
+        raise
+    except:  # @IgnorePep8 pylint: disable=broad-except
+        logger.critical("Process aborted", exc_info=True)  # see comment above
+        raise
+    finally:
+        close_session(session, True)
+        close_logger(logger)
+
+
+def s2smap(pyfunc, dburl, segments_selection=None, config=None, *,
+           logfile='', show_progress=False, multi_process=False, chunksize=None,
+           skip_exceptions=None):
+    """Return an iterator that applies the function `pyfunc` to every segment
+    found on the database at the URL `dburl`, processing only segments matching
+    the given selection (`segments_selection`), yielding the results in the form
+    of the tuple:
+    ```
+        (output:Any, segment_id:int)
+    ```
+    (where output is the return value of `pyfunc`)
+
+    :param pyfunc: a Python function with signature (= accepting arguments):
+        `(segment:Segment, config:dict)`. The first argument is the segment
+        object which will be automatically passed from this function
+    :param dburl: the database URL. Supported formats are Sqlite and Postgres
+        (See https://docs.sqlalchemy.org/en/14/core/engines.html#database-urls).
+    :param segments_selection: a dict[str, str] of Segments attributes mapped to
+        a given selection expression, e.g.:
+        ```
+        {
+            'event.magnitude': '<=6',
+            'channel.channel': 'HHZ',
+            'maxgap_numsamples': '(-0.5, 0.5)',
+            'has_data': 'true'
+        }
+        ```
+        (the last two keys assure segments with no gaps, and with data.
+        'has_data': 'true' is basically a default to be provided in most cases)
+    :param config: dict of additional needed arguments to be passed to `pyfunc`,
+        usually defining configuration parameters
+    :param safe_exceptions: tuple of Python exceptions that will not interrupt the whole
+        execution. Instead, they will be logged to file, with the relative segment id.
+        If `logfile` (see below) is empty, then safe exceptions will be yielded. In this
+        case, the `output` variable can be either the returned value of `pyfunc`, or any
+        given safe exception, and the user is responsible to check that
+    :param logfile: string. When not empty, it denotes the path of the log file
+        where exceptions will be logged, with the relative segment id
+    :param show_progress: print progress bar to standard output (usually, the terminal
+        window) and estimated remaining time
+    :param multi_process: enable multi process (parallel sub-processes) to speed up
+        execution. When not boolean, this parameter can be an integer denoting the
+        exact number of subprocesses to be allocated (only for advanced users. True is
+        fine in most cases)
+    :param chunksize: the size, in number of segments, of each chunk of data that will
+        be loaded from the database. Increasing this number speeds up the load but also
+        increases memory consumption. None (the default) means: set size automatically
+    """
+    session = validate_param('dburl', dburl, valid_session, for_process=True)
+    try:
+        configlog4processing(logger, logfile, show_progress)
+        stime = time.time()
+        yield from run_and_yield(session,
+                                 fetch_segments_ids(session, segments_selection),
+                                 pyfunc, config, show_progress, multi_process,
+                                 chunksize, skip_exceptions)
+        logger.info("Completed in %s", str(elapsed_time(stime)))
+    except KeyboardInterrupt:
+        logger.critical("Aborted by user")  # see comment above
+        raise
+    except:  # @IgnorePep8 pylint: disable=broad-except
+        logger.critical("Process aborted", exc_info=True)  # see comment above
+        raise
+    finally:
+        close_session(session, True)
+        close_logger(logger)
+
+
+def _run(session, pyfunc, writer, config=None, segments_selection=None,
+         show_progress=False, multi_process=False, chunksize=None,
+         skip_exceptions=None):
     """Run `pyfunc` according to the given `config`, outputting result to `writer`
 
     :param session: the SQLAlchemy database session

@@ -12,24 +12,26 @@ from builtins import zip, object
 import re
 from itertools import cycle
 
-import numpy as np
 import pandas as pd
 from sqlalchemy import or_, and_
 
-from stream2segment.io.db.models import DataCenter, Station, Channel
-from stream2segment.download.utils import read_async, response2normalizeddf, FailedDownload,\
-    DbExcLogger, dbsyncdf, to_fdsn_arg, formatmsg, logwarn_dataframe
-from stream2segment.utils import get_progressbar, strconvert
+from stream2segment.io.cli import get_progressbar
 from stream2segment.io.db.pdsql import dbquery2df, shared_colnames, mergeupdate
-
-from stream2segment.utils.url import Request  # this handles py2and3 compatibility
-
+from stream2segment.download.db.models import DataCenter, Station, Channel
+from stream2segment.download.url import Request  # this handles py2and3 compatibility
+from stream2segment.download.modules.utils import (read_async, response2normalizeddf,
+                                                   dbsyncdf, to_fdsn_arg,
+                                                   formatmsg, logwarn_dataframe, strconvert)
+from stream2segment.download.exc import FailedDownload
 
 # logger: do not use logging.getLogger(__name__) but point to stream2segment.download.logger:
 # this way we preserve the logging namespace hierarchy
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial) when calling logging
 # functions of stream2segment.download.utils:
-from stream2segment.download import logger  # @IgnorePep8
+# from stream2segment.download import logger  # @IgnorePep8
+
+import logging
+logger = logging.getLogger(__name__)
 
 
 def get_channels_df(session, datacenters_df, eidavalidator, net, sta, loc, cha,

@@ -13,7 +13,7 @@ For any new variable name to be implemented here in the future, note also that:
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
-from stream2segment.download.utils import EVENTWS_MAPPING
+from stream2segment.download.modules.utils import EVENTWS_MAPPING
 from stream2segment.process.main import _get_chunksize_defaults
 from stream2segment.process.writers import SEGMENT_ID_COLNAME, HDF_DEFAULT_CHUNKSIZE
 
@@ -211,7 +211,7 @@ PROCESS_PY_MAINFUNC = """
 Main processing function. The user should implement here the processing for any
 given selected segment. Useful links for functions, libraries and utilities:
 
-- `stream2segment.process.lib.traces` (small processing library implemented in
+- `stream2segment.process.funclib.traces` (small processing library implemented in
    this program, most of its functions are imported here by default)
 - `ObpPy <https://docs.obspy.org/packages/index.html>`_
 - `ObsPy Stream <https://docs.obspy.org/packages/autogen/obspy.core.stream.Stream.html>_`

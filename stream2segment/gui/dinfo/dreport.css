@@ -1,9 +1,0 @@
-.warning{
-	color: blue;
-}
-.error, .critical{
-	color: red;
-}
-.debug{
-	color: gray;
-}

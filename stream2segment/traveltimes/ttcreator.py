@@ -28,8 +28,7 @@ from obspy.taup.helper_classes import SlownessModelError
 from obspy.taup.tau_model import TauModel
 from obspy.taup.taup_time import TauPTime
 
-from stream2segment.utils import get_progressbar
-
+from stream2segment.io.cli import get_progressbar
 
 # global vars
 DEFAULT_SD_MAX = 700.0  # in km

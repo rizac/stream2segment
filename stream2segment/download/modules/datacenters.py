@@ -7,7 +7,7 @@ Data center(s) download functions
 """
 # Make the following(s) behave like python3 counterparts if running from
 # Python 2.7.x (http://python-future.org/imports.html#explicit-imports):
-from builtins import map, next, zip, range, object
+from builtins import zip, object
 
 import os
 from datetime import datetime, timedelta
@@ -17,10 +17,13 @@ from collections import defaultdict
 import pandas as pd
 from future.utils import string_types
 
-from stream2segment.io.db.models import DataCenter, Fdsnws
-from stream2segment.download.utils import FailedDownload, dbsyncdf, formatmsg
-from stream2segment.utils import strconvert, urljoin, strptime
-from stream2segment.utils.url import URLException, urlread
+from stream2segment.io import Fdsnws
+from stream2segment.download.db.models import DataCenter
+from stream2segment.download.modules.utils import dbsyncdf, formatmsg, \
+    strconvert, strptime, urljoin
+from stream2segment.download.exc import FailedDownload
+from stream2segment.download.url import URLException, urlread
+from stream2segment.resources import get_resource_abspath
 
 
 # logger: do not use logging.getLogger(__name__) but point to
@@ -28,8 +31,10 @@ from stream2segment.utils.url import URLException, urlread
 # hierarchy
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial)
 # when calling logging functions of stream2segment.download.utils:
-from stream2segment.download import logger  # @IgnorePep8
-from stream2segment.utils.resources import get_templates_fpath, get_resources_fpath
+# from stream2segment.download import logger  # @IgnorePep8
+
+import logging
+logger = logging.getLogger(__name__)
 
 
 def get_datacenters_df(session, service, routing_service_url,
@@ -139,7 +144,7 @@ def _get_local_routing_service():
         expected from a successful server response, and last_modified is the
         local file last modification time
     """
-    fpath = get_resources_fpath('eidars.txt')
+    fpath = get_resource_abspath('eidars.txt')
     lastmod_dtime = datetime(1970, 1, 1) + timedelta(seconds=os.path.getmtime(fpath))
     # read from file
     with open(fpath, 'r') as opn_:

@@ -15,9 +15,7 @@ from __future__ import absolute_import, division, print_function
 
 # future direct imports (needs future package installed, otherwise remove):
 # (http://python-future.org/imports.html#explicit-imports)
-from builtins import (ascii, bytes, chr, dict, filter, hex, input,
-                      int, map, next, oct, open, pow, range, round,
-                      str, super, zip)
+from builtins import (bytes, dict, int, open, str, super, input)
 
 # NOTE: do not use future aliased imports
 # (http://python-future.org/imports.html#aliased-imports), they fail with urllib
@@ -26,33 +24,72 @@ from builtins import (ascii, bytes, chr, dict, filter, hex, input,
 import sys
 import os
 import warnings
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 
 import click
 
-# from stream2segment import main
+# Some packages are imported inside the functions to avoid naming conflicts,
+# make mocking in tests easier and speed up the cli with "--help"
+# https://www.tomrochette.com/problems/2020/03/07
+# NOTE HOWEVER, this might cause potential issues in refactoring / moving modules
 
-from stream2segment.utils.resources import get_templates_fpath, yaml_load_doc
-from stream2segment.utils import inputvalidation
+from stream2segment.download.main import download as _download
+from stream2segment.process.main import process as _process
+from stream2segment.process.gui.main import show_gui
+from stream2segment.download.db.inspection.main import dreport, dstats
+from stream2segment.download.db import management as dbmanagement
+
+from stream2segment.resources import get_templates_fpath
+from stream2segment.io.inputvalidation import BadParam
+from stream2segment.io import yaml_load
+
+# convention: root functions are appended the "_func" suffix
+
+# from stream2segment.download.main import download as download_func
+# from stream2segment.process.main import process as process_func
+# from stream2segment.process.gui.main import show_gui as show_func
+# from stream2segment.download.db.inspection.main import (dreport as dreport_func,
+#                                                         dstats as dstats_func)
+# from stream2segment.download.db.management import (classlabels as classlabels_func,
+#                                                    drop as drop_function)
 
 
 class clickutils(object):  # noqa
     """Container for all `click` related stuff to be used here"""
 
+    @staticmethod
+    def valid_dburl_or_download_yamlpath(value, param_name='dburl'):
+        """Return the database path from 'value': 'value' can be a file (in that
+        case is assumed to be a yaml file with the `param_name` key in it, which
+        must denote a db path) or the database path otherwise
+        """
+        if not isinstance(value, str):
+            raise ValueError('Please provide a string')
+        if os.path.isfile(value):
+            yaml_dict = {}
+            try:
+                yaml_dict = yaml_load(value)
+            except Exception:
+                raise ValueError('file exists but can not be read as YAML')
+            try:
+                return yaml_dict[param_name]
+            except KeyError:
+                raise ValueError('%d not found in YAML file %s' % (param_name, value))
+        return value
+
     # shorthand string for event-related download params:
     EQA = "(event search parameter)"
     # Keyword attributes fot Options that accept a db URL also in form of the
     # file path to a download config (with the db url in it):
-    DBURL_OR_YAML_ATTRS = dict(type=inputvalidation.valid_dburl_or_download_yamlpath,
-                               metavar='TEXT or PATH',
-                               help=("Database URL where data has been saved. "
-                                     "It can also be the path of a YAML file "
-                                     "with the property 'dburl' (e.g., the "
-                                     "config file used for downloading). "
-                                     "IMPORTANT: if the URL contains passwords "
-                                     "we STRONGLY suggest to use a file instead "
-                                     "of typing the URL on the terminal"),
-                               required=True)
+    DBURL_OR_YAML_ATTRS = dict(
+        type=lambda val: clickutils.valid_dburl_or_download_yamlpath(val),
+        metavar='TEXT or PATH',
+        help=("Database URL where data has been saved. It can also be the path of a "
+              "YAML file with the property 'dburl' (e.g., the config file used for "
+              "downloading). WARNING: if the URL contains passwords it is safer to use "
+              "a file instead of typing the URL on the terminal"),
+        required=True
+    )
     # custom type for Options accepting an existing File:
     ExistingPath = click.Path(exists=True, file_okay=True, dir_okay=False,
                               writable=False, readable=True)
@@ -63,7 +100,7 @@ class clickutils(object):  # noqa
         from the relative YAML parameter, if found in the YAML file
         "download.yaml"
         """
-        cfg_doc = yaml_load_doc(get_templates_fpath("download.yaml"))
+        cfg_doc = cls.yaml_load_doc(get_templates_fpath("download.yaml"))
         for option in (opt for opt in command.params if
                        opt.param_type_name == 'option'):
             if option.help is None:
@@ -75,6 +112,73 @@ class clickutils(object):  # noqa
                     option.help = option.help[:idx]
 
         return command
+
+    @classmethod
+    def yaml_load_doc(cls, filepath, varname=None, preserve_newlines=False):
+        """Return the documentation from a YAML file. The returned object is
+        a the documentation (str) of the given variable name (if `varname` is set),
+        or a dict[str, str] (defaultdict("")) of all variables found, mapped to
+        their documentation (a variable documentation is made up of all
+        consecutive commented lines -  with *no* leading spaces - placed immediately
+        before the variable). Only top-level variables can be parsed, nested ones
+        are skipped.
+
+        :param filepath: The YAML file to read the doc from
+        :param varname: str or None (the default). Return the doc for this specific
+            YAML variable. if None, returns a `defaultdict` with all top-level
+            variables found.
+        :param preserve_newlines: boolean. Whether to preserve newlines in comment
+            or not. If False (the default), each variable comment is returned as a
+            single line, concatenating parsed lines with a space
+        """
+        comments = []
+        # reg_yaml_var = re.compile("^([^:]+):\\s.*")
+        # reg_comment = re.compile("^#+(.*)")
+        ret = defaultdict(str) if varname is None else ''
+        isbytes = None
+        with open(filepath, 'r') as stream:
+            while True:
+                line = stream.readline()
+                # from the docs (https://docs.python.org/3/tutorial/inputoutput.html): if
+                # f.readline() returns an empty string, the end of the file has been
+                # reached, while a blank line is represented by '\n'
+                if not line:
+                    break
+                if isbytes is None:
+                    isbytes = isinstance(line, bytes)
+                # is line a comment? do not use regexp, it's slower
+                # m = reg_comment.match(line)
+                if line.startswith('#'):
+                    # the line is a comment, add the comment text.
+                    # Note that the line does not include last newline, if present
+                    comments.append(line[1:].strip())
+                else:
+                    # the line is not a comment line. Do we have parsed comments?
+                    if comments:
+                        # use string search and not regexp because faster:
+                        idx = line.find(': ')
+                        if idx == -1:
+                            idx = line.find(':\n')
+                        var_name = None if idx < 1 else line[:idx]
+                        # We have parsed comments. Is the line a YAML parameter?
+                        # m = reg_yaml_var.match(line)
+                        # if m and m.groups():
+                        if var_name:
+                            # the line is a yaml variable, it's name is
+                            # m.groups()[0]. Map the variable to its comment
+                            # var_name = m.groups()[0]
+                            join_char = "\n" if preserve_newlines else " "
+                            comment = join_char.join(comments)
+                            docstring = comment
+                            if isbytes:
+                                docstring = comment.decode('utf8')
+                            if varname is None:
+                                ret[var_name] = docstring
+                            elif varname == var_name:
+                                return docstring
+                    # In any case, if not comment, reset comments:
+                    comments = []
+        return ret
 
     @staticmethod
     def _config_cmd_kwargs(**kwargs):
@@ -257,10 +361,9 @@ def init(outdir):
     ])
     # import here to improve slow click cli (at least when --help is invoked)
     # https://www.tomrochette.com/problems/2020/03/07
-    from stream2segment import main
 
     try:
-        copied_files = main.init(outdir, True, *helpdict)  # pass only helpdict keys
+        copied_files = copy_example_files(outdir, True, *helpdict)  # pass only helpdict keys
         if not copied_files:
             print("No file copied")
         else:
@@ -277,6 +380,64 @@ def init(outdir):
         print('')
         print("error: %s" % str(exc))
     sys.exit(1)
+
+
+def copy_example_files(outpath, prompt=True, *filenames):
+    """Initialize an output directory writing therein the given template files
+
+    :param prompt: bool (default: True) telling if a prompt message (Python
+        `input` function) should be issued to warn the user when overwriting
+        files. The user should return a string or integer where '1' means
+        'overwrite all files', '2' means 'overwrite only non-existing', and any
+        other value will return without copying.
+    """
+    import jinja2, shutil
+    from stream2segment.resources import get_templates_fpaths
+    from stream2segment.resources.templates import DOCVARS
+
+    if not os.path.isdir(outpath):
+        os.makedirs(outpath)
+        if not os.path.isdir(outpath):
+            raise Exception("Unable to create '%s'" % outpath)
+
+    if prompt:
+        existing_files = [f for f in filenames
+                          if os.path.isfile(os.path.join(outpath, f))]
+        non_existing_files = [f for f in filenames if f not in existing_files]
+        if existing_files:
+            suffix = ("Type:\n1: overwrite all files\n2: write only non-existing\n"
+                      "0 or any other value: do nothing (exit)")
+            msg = ("The following file(s) "
+                   "already exist on '%s':\n%s"
+                   "\n\n%s") % (outpath, "\n".join([_ for _ in existing_files]), suffix)
+            val = input(msg)
+            try:
+                val = int(val)
+                if val == 2:
+                    if not non_existing_files:
+                        raise ValueError()  # fall back to "exit" case
+                    else:
+                        filenames = non_existing_files
+                elif val != 1:
+                    raise ValueError()  # fall back to "exit" case
+            except ValueError:
+                return []
+
+    srcfilepaths = get_templates_fpaths(*filenames)
+    if srcfilepaths:
+        basedir = os.path.dirname(srcfilepaths[0])
+        env = jinja2.Environment(loader=jinja2.FileSystemLoader(basedir),
+                                 keep_trailing_newline=True)
+        copied_files = []
+        for srcfilepath in srcfilepaths:
+            filename = os.path.basename(srcfilepath)
+            outfilepath = os.path.join(outpath, filename)
+            if os.path.splitext(filename)[1].lower() in ('.yaml', '.py'):
+                env.get_template(filename).stream(DOCVARS).dump(outfilepath)
+            else:
+                shutil.copyfile(srcfilepath, outfilepath)
+            copied_files.append(outfilepath)
+    return copied_files
 
 
 # Short recap here (READ IF YOU PLAN TO EDIT OPTIONS BELOW, SKIP OTHERWISE):
@@ -309,10 +470,8 @@ def init(outdir):
               type=clickutils.ExistingPath, required=True)
 @click.option('-d', '--dburl', is_eager=True)
 @click.option('-es', '--eventws')
-@click.option('-s', '--start', '--starttime', "starttime",
-              type=inputvalidation.valid_date, metavar='DATE or DATETIME')
-@click.option('-e', '--end', '--endtime', 'endtime',
-              type=inputvalidation.valid_date, metavar='DATE or DATETIME', )
+@click.option('-s', '--start', '--starttime', "starttime", metavar='DATE or DATETIME')
+@click.option('-e', '--end', '--endtime', 'endtime', metavar='DATE or DATETIME', )
 @click.option('-n', '--network', '--networks', '--net', 'network')
 @click.option('-z', '--station', '--stations', '--sta', 'station')
 @click.option('-l', '--location', '--locations', '--loc', 'location')
@@ -370,10 +529,6 @@ def download(config, dburl, eventws, starttime, endtime, network,  # noqa
     """
     _locals = dict(locals())  # MUST BE THE FIRST STATEMENT
 
-    # import here to improve slow click cli (at least when --help is invoked)
-    # https://www.tomrochette.com/problems/2020/03/07
-    from stream2segment import main
-
     # REMEMBER: NO LOCAL VARIABLES OTHERWISE WE MESS UP THE CONFIG OVERRIDES
     # ARGUMENTS
     try:
@@ -381,9 +536,8 @@ def download(config, dburl, eventws, starttime, endtime, network,  # noqa
                      if v not in ((), {}, None) and k != 'config'}
         with warnings.catch_warnings():  # capture (ignore) warnings
             warnings.simplefilter("ignore")
-            ret = main.download(config, log2file=True, verbose=True,
-                                **overrides)
-    except inputvalidation.BadParam as err:
+            ret = _download(config, log2file=True, verbose=True, **overrides)
+    except BadParam as err:
         print(err)
         ret = 2
     except:  # @IgnorePep8 pylint: disable=bare-except
@@ -411,7 +565,7 @@ def download(config, dburl, eventws, starttime, endtime, network,  # noqa
 @click.option("-f", "--funcname",
               help="The name of the user-defined processing function in the "
                    "given python file. Defaults to '%s' when "
-                   "missing" % inputvalidation.valid_default_processing_funcname())
+                   "missing" % "main")  # stream2segment.process.inputvalidation.valid_default_processing_funcname()
 @click.option("-a", "--append", is_flag=True, default=False,
               help="Append results to the output file (this flag is ignored if "
                    "no output file is provided. The output file will be "
@@ -453,10 +607,6 @@ def process(dburl, config, pyfile, funcname, append, no_prompt,
     """
     _locals = dict(locals())  # MUST BE THE FIRST STATEMENT
 
-    # import here to improve slow click cli (at least when --help is invoked)
-    # https://www.tomrochette.com/problems/2020/03/07
-    from stream2segment import main
-
     # REMEMBER: NO LOCAL VARIABLES OTHERWISE WE MESS UP THE CONFIG OVERRIDES
     # ARGUMENTS
     try:
@@ -477,10 +627,9 @@ def process(dburl, config, pyfile, funcname, append, no_prompt,
                 overrides = {'advanced_settings': overrides}
             with warnings.catch_warnings():  # capture (ignore) warnings
                 warnings.simplefilter("ignore")
-                ret = main.process(dburl, pyfile, funcname, config, outfile,
-                                   log2file=True, verbose=True, append=append,
-                                   **overrides)
-    except inputvalidation.BadParam as err:
+                ret = _process(dburl, pyfile, funcname, config, outfile, log2file=True,
+                               verbose=True, append=append, **overrides)
+    except BadParam as err:
         print(err)
         ret = 2  # exit with 1 as normal python exceptions
     except:  # @IgnorePep8 pylint: disable=bare-except
@@ -502,16 +651,12 @@ def show(dburl, configfile, pyfile):
     """Show waveform plots and metadata in the browser,
     customizable with user-defined configuration and custom Plots
     """
-    # import here to improve slow click cli (at least when --help is invoked)
-    # https://www.tomrochette.com/problems/2020/03/07
-    from stream2segment import main
-
     try:
         ret = 0
         with warnings.catch_warnings():  # capture (ignore) warnings
             warnings.simplefilter("ignore")
-            main.show(dburl, pyfile, configfile)
-    except inputvalidation.BadParam as err:
+            show_gui(dburl, pyfile, configfile)
+    except BadParam as err:
         print(err)
         ret = 2  # exit with 1 as normal python exceptions
     except:
@@ -556,19 +701,17 @@ def stats(dburl, download_id, maxgap_threshold, html, outfile):
     """
     # import here to improve slow click cli (at least when --help is invoked)
     # https://www.tomrochette.com/problems/2020/03/07
-    from stream2segment import main
 
     print('Fetching data, please wait (this might take a while depending on '
           'the db size and connection)')
     try:
         with warnings.catch_warnings():  # capture (ignore) warnings
             warnings.simplefilter("ignore")
-            main.dstats(dburl, download_id or None, maxgap_threshold,
-                        html, outfile)
+            dstats(dburl, download_id or None, maxgap_threshold, html, outfile)
         if outfile is not None:
             print("download statistics written to '%s'" % outfile)
         sys.exit(0)
-    except inputvalidation.BadParam as err:
+    except BadParam as err:
         print(err)
         sys.exit(1)  # exit with 1 as normal python exceptions
 
@@ -597,7 +740,6 @@ def report(dburl, download_id, config, log, outfile):
     """
     # import here to improve slow click cli (at least when --help is invoked)
     # https://www.tomrochette.com/problems/2020/03/07
-    from stream2segment import main
 
     print('Fetching data, please wait (this might take a while depending on the '
           'db size and connection)')
@@ -607,12 +749,11 @@ def report(dburl, download_id, config, log, outfile):
         html = False
         with warnings.catch_warnings():  # capture (ignore) warnings
             warnings.simplefilter("ignore")
-            main.dreport(dburl, download_id or None,
-                         bool(config), bool(log), html, outfile)
+            dreport(dburl, download_id or None, bool(config), bool(log), html, outfile)
         if outfile is not None:
             print("download report written to '%s'" % outfile)
         sys.exit(0)
-    except inputvalidation.BadParam as err:
+    except BadParam as err:
         print(err)
         sys.exit(1)  # exit with 1 as normal python exceptions
 
@@ -632,16 +773,13 @@ def drop(dburl, download_id):
     all segments, stations and channels downloaded with the given download
     execution
     """
-    # import here to improve slow click cli (at least when --help is invoked)
-    # https://www.tomrochette.com/problems/2020/03/07
-    from stream2segment import main
 
     print('Fetching data, please wait (this might take a while depending on '
           'the db size and connection)')
     try:
         with warnings.catch_warnings():  # capture (ignore) warnings
             warnings.simplefilter("ignore")
-            ret = main.ddrop(dburl, download_id, True)
+            ret = dbmanagement.drop(dburl, download_id)
         if ret is None:
             sys.exit(1)
         elif not ret:
@@ -654,7 +792,7 @@ def drop(dburl, download_id):
                 msg += "DELETED (%d associated segments deleted)" % val
             print(msg)
         sys.exit(0)
-    except inputvalidation.BadParam as err:
+    except BadParam as err:
         print(err)
         sys.exit(1)  # exit with 1 as normal python exceptions
 
@@ -684,12 +822,6 @@ def classlabel(dburl, add, rename, delete, no_prompt):
     Class labels can then be used for e.g., supervised classification problems,
     or tp perform custom selection on specific segments before processing.
     """
-    # import here to improve slow click cli (at least when --help is invoked)
-    # https://www.tomrochette.com/problems/2020/03/07
-    from stream2segment.process.db import (configure_classlabels,
-                                           get_classlabels)
-    from stream2segment.main import input  # <- for mocking in testing
-
     add_arg, rename_arg, delete_arg = {}, {}, []
     try:
         if add:
@@ -711,20 +843,16 @@ def classlabel(dburl, add, rename, delete, no_prompt):
             if input(msg) != 'y':
                 sys.exit(1)
 
-        session = inputvalidation.validate_param("dburl", dburl,
-                                                 inputvalidation.valid_session,
-                                                 for_process=False, scoped=False)
-        configure_classlabels(session, add=add_arg, rename=rename_arg,
-                              delete=delete_arg)
+        c_labels = dbmanagement.classlabels(dburl, add=add_arg, rename=rename_arg,
+                                            delete=delete_arg)
         print('Done. Current class labels on the database:')
-        clabels = get_classlabels(session, include_counts=False)
-        if not clabels:
+        if not c_labels:
             print('None')
         else:
-            for clbl in clabels:
-                print("%s (%s)" % (clbl['label'], clbl['description']))
+            for c_lbl in c_labels:
+                print("%s (%s)" % (c_lbl['label'], c_lbl['description']))
         sys.exit(0)
-    except inputvalidation.BadParam as err:
+    except BadParam as err:
         print(err)
         sys.exit(1)  # exit with 1 as normal python exceptions
 

@@ -7,29 +7,33 @@ Stations (inventory) download functions
 """
 # make the following(s) behave like python3 counterparts if running from python2.7.x
 # (http://python-future.org/imports.html#explicit-imports):
-from builtins import map, next, zip, range, object
+from builtins import zip
 
-import logging
 from datetime import datetime
+from io import BytesIO
+import gzip
+import zipfile
+import zlib
+import bz2
 
 import pandas as pd
 
-from stream2segment.io.db.models import DataCenter, Station, Segment
-from stream2segment.download.utils import read_async, DbExcLogger, formatmsg, url2str,\
-    err2str
-from stream2segment.utils import get_progressbar
+from stream2segment.io.cli import get_progressbar
 from stream2segment.io.db.pdsql import DbManager
-from stream2segment.io.utils import dumps_inv
-
-from stream2segment.utils.url import Request  # handles py2,3 compatibility
+from stream2segment.download.db.models import DataCenter, Station, Segment
+from stream2segment.download.modules.utils import read_async, DbExcLogger, formatmsg, url2str,\
+    err2str
+from stream2segment.download.url import Request, get_host
 
 # logger: do not use logging.getLogger(__name__) but point to
 # stream2segment.download.logger: this way we preserve the logging namespace
 # hierarchy
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial) when
 # calling logging functions of stream2segment.download.utils:
-from stream2segment.download import logger  # @IgnorePep8
-from stream2segment.utils.url import get_host
+# from stream2segment.download import logger  # @IgnorePep8
+
+import logging
+logger = logging.getLogger(__name__)
 
 
 def _get_sta_request(datacenter_url, network, station, start_time, end_time):
@@ -96,12 +100,53 @@ def save_inventories(session, stations_df, max_thread_workers, timeout,
                     empty += 1
                 else:
                     downloaded += 1
-                    dbmanager.add(pd.DataFrame({Station.id.key: [sta_id],
-                                                Station.inventory_xml.key: [dumps_inv(data)]}))
+                    dfr = pd.DataFrame({Station.id.key: [sta_id],
+                                        Station.inventory_xml.key: [compress(data)]})
+                    dbmanager.add(dfr)
 
     dbmanager.close()
 
     return downloaded, empty, errors
+
+
+def compress(bytestr, compression='gzip', compresslevel=9):
+    """Compress `bytestr` returning a new compressed byte sequence
+
+    :param bytestr: (string) a sequence of bytes to be compressed
+    :param compression: String, either ['bz2', 'zlib', 'gzip', 'zip'. Default: 'gzip']
+        The compression library to use (after serializing `obj` with the given format)
+        on the serialized data. If None or empty string, no compression is applied, and
+        `bytestr` is returned as it is
+    :param compresslevel: integer (9 by default). Ignored if `compression` is None,
+        empty or 'zip' (the latter does not accept this argument), this parameter
+        controls the level of compression; 1 is fastest and produces the least
+        compression, and 9 is slowest and produces the most compression
+    """
+    if compression == 'bz2':
+        return bz2.compress(bytestr, compresslevel=compresslevel)
+    elif compression == 'zlib':
+        return zlib.compress(bytestr, compresslevel)
+    elif compression:
+        sio = BytesIO()
+        if compression == 'gzip':
+            with gzip.GzipFile(mode='wb', fileobj=sio,
+                               compresslevel=compresslevel) as gzip_obj:
+                gzip_obj.write(bytestr)
+                # Note: DO NOT return sio.getvalue() WITHIN the with statement,
+                # the gzip file obj needs to be closed first. FIXME: ref?
+        elif compression == 'zip':
+            # In this case, use the compress argument to ZipFile to compress the data,
+            # since writestr() does not take compress as an argument. See:
+            # https://pymotw.com/2/zipfile/#writing-data-from-sources-other-than-files
+            with zipfile.ZipFile(sio, 'w', compression=zipfile.ZIP_DEFLATED) as zip_obj:
+                zip_obj.writestr("x", bytestr)  # first arg must be a nonempty str
+        else:
+            raise ValueError("compression '%s' not in ('gzip', 'zlib', 'bz2', 'zip')" %
+                             str(compression))
+
+        return sio.getvalue()
+
+    return bytestr
 
 
 def query4inventorydownload(session, force_update):
