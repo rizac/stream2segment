@@ -640,4 +640,4 @@ Z3 A318A * * 2015-11-17T10:32:52 2019-02-02T23:59:00"""]
                               # 'http://ws.resif.fr/ph5/fdsnws/dataselect/1/query',
                               'http://webservices.ingv.it/fdsnws/dataselect/1/query'])
         lmsg = self.log_msg()
-        assert "2 data center URL(s) discarded" not in lmsg
+        assert "2 data center URL(s) discarded" in lmsg

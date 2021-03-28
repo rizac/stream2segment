@@ -5,6 +5,7 @@ Module implementing the download info (print statistics and generate html page)
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
+from __future__ import print_function
 import json
 import os
 import sys
@@ -82,33 +83,34 @@ def _get_download_info(info_generator, dburl, download_ids=None, html=False,
 
 
 class _InfoGenerator(object):
-    '''Base class for any subclasses returning Download info in text and html
-    content. Subclasses should overwrite `self.str_iter` and `self.html_template_arguments`
-    '''
+    """Base class for any subclasses returning Download info in text and html
+    content. Subclasses should overwrite `self.str_iter` and
+    `self.html_template_arguments`
+    """
 
     def str_iter(self, session, download_ids=None):
-        '''Returns an iterator yielding chunks of strings denoting the string
-        representation of this object'''
+        """Return an iterator yielding chunks of strings denoting the string
+        representation of this object"""
         pass
 
     def html(self, session, download_ids=None):
-        '''Returns a string with the html representation of this object'''
+        """Return a string with the html representation of this object"""
         args = self.html_template_arguments(session, download_ids)
         args.setdefault('title', self.__class__.__name__)
         return self.get_template().render(**args)
 
     def html_template_arguments(self, session, download_ids=None):
-        '''Subclasses should return here a dict to be passed as arguments to
+        """Subclasses should return here a dict to be passed as arguments to
         the jinja2 template`
-        '''
+        """
         return {}
 
     @classmethod
     def get_template(cls):
-        '''Returns the jinja2 template for this object
+        """Return the jinja2 template for this object
         The html file must be an existing file a file with name
         `self.__class__.__name__.lower() + ',html'
-        '''
+        """
         thisdir = os.path.dirname(__file__)
         templatespath = os.path.join(thisdir, 'templates')
         csspath = os.path.join(thisdir, 'static', 'css')
@@ -118,52 +120,53 @@ class _InfoGenerator(object):
 
 
 class DReport(_InfoGenerator):
-    '''Class handling the generation of download reports in text format (no html supported
-    for the moment)'''
+    """Class handling the generation of download reports in text format (no html
+    supported for the moment)
+    """
 
     def __init__(self, config=True, log=True):
         self.config = config
         self.log = log
 
     def str_iter(self, session, download_ids=None):
-        '''Returns an iterator yielding chunks of strings denoting the string
-        representation of this object'''
+        """Returns an iterator yielding chunks of strings denoting the string
+        representation of this object"""
         return get_dreport_str_iter(session, download_ids, self.config, self.log)
 
     def html_template_arguments(self, session, download_ids=None):
-        '''Returns a dict to be passed as arguments to
-        the jinja2 template'''
+        """Returns a dict to be passed as arguments to
+        the jinja2 template"""
         raise Exception('html version not available')
-        # return get_dreport_html_template_arguments(session, download_ids, self.config, self.log)
 
 
 class DStats(_InfoGenerator):
-    '''Class handling the generation of download statistics in text and html format'''
+    """Class handling the generation of download statistics in text and html format"""
 
     def __init__(self, maxgap_threshold=0.5):
         self.maxgap_threshold = maxgap_threshold
 
     def str_iter(self, session, download_ids=None):
-        '''Returns an iterator yielding chunks of strings denoting the string
-        representation of this object'''
+        """Returns an iterator yielding chunks of strings denoting the string
+        representation of this object"""
         return get_dstats_str_iter(session, download_ids, self.maxgap_threshold)
 
     def html_template_arguments(self, session, download_ids=None):
-        '''Returns a dict to be passed as arguments to
-        the jinja2 template'''
+        """Returns a dict to be passed as arguments to
+        the jinja2 template"""
         return get_dstats_html_template_arguments(session, download_ids, self.maxgap_threshold)
 
 
 def get_dreport_str_iter(session, download_ids=None, config=True, log=True):
-    '''Returns an iterator yielding the download report (log and config) for the given
+    """Returns an iterator yielding the download report (log and config) for the given
     download_ids
 
     :param session: an sql-alchemy session denoting a db session to a database
-    :param download_ids: (list of ints or None) if None, collect statistics from all downloads run.
-        Otherwise limit the output to the downloads whose ids are in the list
+    :param download_ids: (list of ints or None) if None, collect statistics from all
+        downloads run. Otherwise limit the output to the downloads whose ids are in
+        the list
     :param config: boolean (default: True). Whether to show the download config
     :param log: boolean (default: True). Whether to show the download log messages
-    '''
+    """
     data = infoquery(session, download_ids, config, log)
     for dwnl_id, dwnl_time, configtext, logtext in data:
         yield ''
@@ -183,11 +186,11 @@ def get_dreport_str_iter(session, download_ids=None, config=True, log=True):
 
 
 def infoquery(session, download_ids=None, config=True, log=True):
-    '''Returns a query for getting data for inspection (show_stats=False in the
-    functions above)'''
+    """Returns a query for getting data for inspection (show_stats=False in the
+    functions above)"""
     # IMPORTANT: If it happens to access backref relationships (e.g. Download.segments)
     # consider calling configure_mappers() first:
-    # configure_mappers()  # https://stackoverflow.com/questions/14921777/backref-class-attribute
+    # configure_mappers()  # https://stackoverflow.com/q/14921777
     attrs = [Download.id, Download.run_time]
     if config:
         attrs.append(Download.config)
@@ -208,39 +211,44 @@ def infoquery(session, download_ids=None, config=True, log=True):
 
 
 def tojson(obj):
-    '''converts obj to json formatted string without whitespaces to minimize string size'''
+    """Convert obj to json formatted string without whitespaces to minimize string size"""
     return json.dumps(obj, separators=(',', ':'))
 
 
 def get_dstats_str_iter(session, download_ids=None, maxgap_threshold=0.5):
-    '''Returns an iterator yielding the download statistics and information matching the
-    given parameters.
-    The returned string can be joined and printed to screen or file and is made of tables
-    showing the segment data on the db per data-center and download run, plus some download
-    information.
+    """Return an iterator yielding the download statistics and information
+    matching the given parameters.
+    The returned string can be joined and printed to screen or file and is
+    made of tables showing the segment data on the db per data-center and
+    download run, plus some download information.
 
     :param session: an sql-alchemy session denoting a db session to a database
-    :param download_ids: (list of ints or None) if None, collect statistics from all downloads run.
-        Otherwise limit the output to the downloads whose ids are in the list. In any case, in
-        case of more download runs to be considered, this function will
-        yield also the statistics aggregating all downloads in a table at the end
-    :param maxgap_threshold: (float, default 0.5).
-        Sets the threshold whereby a segment is to be
-        considered with gaps or overlaps. By default is 0.5, meaning that a segment whose
-        'maxgap_numsamples' value is > 0.5 has gaps, and a segment whose 'maxgap_numsamples'
-        value is < 0.5 has overlaps. Such segments will be marked with a special class
-        'OK Gaps Overlaps' in the table columns.
-    '''
-    # Benchmark: the bare minimum (with postgres on external server) request takes around 12
-    # sec and 14 seconds adding all necessary information. Therefore, we choose the latter
+    :param download_ids: (list of ints or None) if None, collect statistics
+        from all downloads run. Otherwise limit the output to the downloads
+        whose ids are in the list. In any case, in case of more download runs
+        to be considered, this function will yield also the statistics
+        aggregating all downloads in a table at the end
+    :param maxgap_threshold: (float, default 0.5). The threshold whereby a
+        segment is to be considered with gaps or overlaps. By default is 0.5,
+        meaning that a segment whose
+        'maxgap_numsamples' value is > 0.5 has gaps, and a segment whose
+        'maxgap_numsamples' value is < 0.5 has overlaps. Such segments will be
+        marked with a special class 'OK Gaps Overlaps' in the table columns.
+    """
+    # Benchmark: the bare minimum (with postgres on external server) request
+    # takes around 12 sec and 14 seconds adding all necessary information.
+    # Therefore, we choose the latter
     maxgap_bexpr = get_maxgap_sql_expr(maxgap_threshold)
     data = session.query(func.count(Segment.id),
                          Segment.download_code,
                          Segment.datacenter_id,
                          Segment.download_id,
                          maxgap_bexpr)
-    data = filterquery(data, download_ids).group_by(Segment.download_id, Segment.datacenter_id,
-                                                    Segment.download_code, maxgap_bexpr)
+
+    data = filterquery(data, download_ids).group_by(Segment.download_id,
+                                                    Segment.datacenter_id,
+                                                    Segment.download_code,
+                                                    maxgap_bexpr)
 
     dwlids = get_downloads(session, download_ids)
     show_aggregate_stats = len(dwlids) > 1
@@ -267,7 +275,7 @@ def get_dstats_str_iter(session, download_ids=None, maxgap_threshold=0.5):
         yield ''
         yield 'Executed: %s' % str(druntime)
         yield "Event query parameters:%s" % (' N/A' if not evtparams else '')
-        if evparamlen is None and evtparams:  # calculate eventparamlen for string alignement
+        if evparamlen is None and evtparams:  # get evparamlen for str. align.
             evparamlen = max(len(_) for _ in evtparams)
         for param in sorted(evtparams):
             yield ("  %-{:d}s = %s".format(evparamlen)) % (param, str(evtparams[param]))
@@ -289,21 +297,22 @@ def get_dstats_str_iter(session, download_ids=None, maxgap_threshold=0.5):
 
 
 def get_dstats_html_template_arguments(session, download_ids=None, maxgap_threshold=0.5):
-    '''Returns an html page (string) yielding the download statistics and information matching the
-    given parameters.
+    """Return an html page (string) yielding the download statistics and
+    information matching the given parameters.
 
     :param session: an sql-alchemy session denoting a db session to a database
-    :param download_ids: (list of ints or None) if None, collect statistics from all downloads run.
-        Otherwise limit the output to the downloads whose ids are in the list. In any case, in
-        case of more download runs to be considered, this function will
-        yield also the statistics aggregating all downloads in a table at the end
-    :param maxgap_threshold: (float, default 0.5).
-        Sets the threshold whereby a segment is to be
-        considered with gaps or overlaps. By default is 0.5, meaning that a segment whose
-        'maxgap_numsamples' value is > 0.5 has gaps, and a segment whose 'maxgap_numsamples'
-        value is < 0.5 has overlaps. Such segments will be marked with a special class
+    :param download_ids: (list of ints or None) if None, collect statistics
+        from all downloads run. Otherwise limit the output to the downloads
+        whose ids are in the list. In any case, in case of more download runs
+        to be considered, this function will yield also the statistics
+        aggregating all downloads in a table at the end
+    :param maxgap_threshold: (float, default 0.5). The threshold whereby a
+        segment is to be considered with gaps or overlaps. By default is 0.5,
+        meaning that a segment whose 'maxgap_numsamples' value is > 0.5 has
+        gaps, and a segment whose 'maxgap_numsamples' value is < 0.5 has
+        overlaps. Such segments will be marked with a special class
         'OK Gaps Overlaps' in the table columns.
-    '''
+    """
     sta_data, codes, datacenters, downloads, networks = \
         get_dstats_html_data(session, download_ids, maxgap_threshold)
     # selected codes by default the Ok one. To know which position is
@@ -324,18 +333,20 @@ def get_dstats_html_template_arguments(session, download_ids=None, maxgap_thresh
 
 
 def filterquery(query, download_ids=None):
-    '''adds a filter to the given query if download_ids is not None, and returns a new
-    query. Otherwise, if download_ids is None, it's no-op and returns query itself'''
+    """Add a filter to the given query if download_ids is not None, and return
+    a new query. Otherwise, if download_ids is None, it's no-op and returns
+    query itself
+    """
     if download_ids is not None:
         query = query.filter(Segment.download_id.in_(download_ids))
     return query
 
 
 def yaml_get(yaml_content):
-    '''Returns the arguments used for the eventws query stored in the yaml,
+    """Returns the arguments used for the eventws query stored in the yaml,
     or an empty dict in case of errors
 
-    :param yaml_content: yaml formatted string representing a download config'''
+    :param yaml_content: yaml formatted string representing a download config"""
     try:
         dic = yaml_load(StringIO(yaml_content))
         ret = {k: dic[k] for k in EVENTWS_SAFE_PARAMS if k in dic}
@@ -347,10 +358,10 @@ def yaml_get(yaml_content):
 
 
 def get_downloads(sess, download_ids=None):
-    '''Returns a dict of download ids mapped to the tuple
+    """Returns a dict of download ids mapped to the tuple
     (download_run_time, download_eventws_query_args)
     the first element is a string, the second a dict
-    '''
+    """
     query = filterquery(sess.query(Download.id, Download.run_time, Download.config),
                         download_ids).order_by(Download.run_time.asc())
     return {did: (time.isoformat(), yaml_get(cfg))
@@ -358,7 +369,7 @@ def get_downloads(sess, download_ids=None):
 
 
 def get_datacenters(sess, dc_ids=None):
-    '''returns a dict of datacenters id mapped to the network location of their url'''
+    """returns a dict of datacenters id mapped to the network location of their url"""
     query = sess.query(DataCenter.id, DataCenter.dataselect_url)
     if dc_ids is not None:
         query = query.filter(DataCenter.id.in_(dc_ids))
@@ -373,8 +384,8 @@ def get_datacenters(sess, dc_ids=None):
 
 
 def get_maxgap_sql_expr(maxgap_threshold=0.5):
-    '''returns a sql-alchemy binary expression which matches segments with gaps/overlaps,
-    according to the given threshold'''
+    """returns a sql-alchemy binary expression which matches segments with gaps/overlaps,
+    according to the given threshold"""
     return or_(Segment.maxgap_numsamples < -abs(maxgap_threshold),
                Segment.maxgap_numsamples > abs(maxgap_threshold))
 
@@ -389,7 +400,7 @@ class DownloadStats2(DownloadStats):
 
 
 def get_dstats_html_data(session, download_ids=None, maxgap_threshold=0.5):
-    '''Returns the tuple
+    """Returns the tuple
         sta_list, codes, datacenters, downloads, networks
 
     where: sta_list is a list stations data and their download codes (togehter with the number
@@ -414,7 +425,7 @@ def get_dstats_html_data(session, download_ids=None, maxgap_threshold=0.5):
         'maxgap_numsamples' value is > 0.5 has gaps, and a segment whose 'maxgap_numsamples'
         value is < 0.5 has overlaps. Such segments will be marked with a special class
         'OK Gaps Overlaps' in the table columns.
-    '''
+    """
     # Benchmark: the bare minimum (with postgres on external server) request takes around 12
     # sec and 14 seconds adding all necessary information. Therefore, we choose the latter
     maxgap_bexpr = get_maxgap_sql_expr(maxgap_threshold)

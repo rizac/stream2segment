@@ -90,17 +90,21 @@ def get_datacenters_df(session, service, routing_service_url,
                                          (str(verr)), _url))
 
     dc_df = pd.DataFrame()  # empty by default
-    if dclist:
-        # attempt saving to db only if we might have something to save:
+    if dclist:  # pandas raises if list is empty
+        # Note keep_duplicates = False below for simplicity (duplicates with stations
+        # (and channels) are checked against the db, but in this case it's too complex,
+        # and might not always result in a solution)
         dc_df = dbsyncdf(pd.DataFrame(dclist), session, [DataCenter.station_url],
                          DataCenter.id, buf_size=db_bufsize or len(dclist),
-                         keep_duplicates='first')
+                         keep_duplicates=False)
+        discarded += len(dclist) - len(dc_df)
 
     if dc_df.empty:
         raise FailedDownload(Exception("No FDSN-compliant datacenter found"))
 
-    if discarded:
-        logger.info("%d data center URL(s) discarded", discarded)
+    if discarded > 0:
+        logger.info(formatmsg("%d data center(s) discarded", "possible non-FDSN URL"),
+                    discarded)
 
     return dc_df, EidaValidator(dc_df, eidars_response_text)
 
