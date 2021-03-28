@@ -153,7 +153,8 @@ class DStats(_InfoGenerator):
     def html_template_arguments(self, session, download_ids=None):
         """Returns a dict to be passed as arguments to
         the jinja2 template"""
-        return get_dstats_html_template_arguments(session, download_ids, self.maxgap_threshold)
+        return get_dstats_html_template_arguments(session, download_ids,
+                                                  self.maxgap_threshold)
 
 
 def get_dreport_str_iter(session, download_ids=None, config=True, log=True):
@@ -211,7 +212,9 @@ def infoquery(session, download_ids=None, config=True, log=True):
 
 
 def tojson(obj):
-    """Convert obj to json formatted string without whitespaces to minimize string size"""
+    """Convert obj to json formatted string without whitespaces to minimize
+    string size
+    """
     return json.dumps(obj, separators=(',', ':'))
 
 
@@ -284,7 +287,8 @@ def get_dstats_str_iter(session, download_ids=None, maxgap_threshold=0.5):
         if statz is None:
             yield "No segments downloaded"
         else:
-            yield "Downlaoaded segments per data center url (row) and response type (column):"
+            yield ("Downlaoaded segments per data center url (row) "
+                   "and response type (column):")
             yield ""
             yield str(statz)
 
@@ -317,7 +321,8 @@ def get_dstats_html_template_arguments(session, download_ids=None, maxgap_thresh
         get_dstats_html_data(session, download_ids, maxgap_threshold)
     # selected codes by default the Ok one. To know which position is
     # in codes is a little hacky:
-    selcodes = [i for i, c in enumerate(codes) if list(c) == list(DownloadStats2.resp[200])[:2]]
+    selcodes = [i for i, c in enumerate(codes)
+                if list(c) == list(DownloadStats2.resp[200])[:2]]
     # downloads are all selected by default
     seldownloads = list(downloads.keys())
     seldatacenters = list(datacenters.keys())
@@ -343,10 +348,11 @@ def filterquery(query, download_ids=None):
 
 
 def yaml_get(yaml_content):
-    """Returns the arguments used for the eventws query stored in the yaml,
+    """Return the arguments used for the eventws query stored in the yaml,
     or an empty dict in case of errors
 
-    :param yaml_content: yaml formatted string representing a download config"""
+    :param yaml_content: yaml formatted string representing a download config
+    """
     try:
         dic = yaml_load(StringIO(yaml_content))
         ret = {k: dic[k] for k in EVENTWS_SAFE_PARAMS if k in dic}
@@ -369,7 +375,9 @@ def get_downloads(sess, download_ids=None):
 
 
 def get_datacenters(sess, dc_ids=None):
-    """returns a dict of datacenters id mapped to the network location of their url"""
+    """Return a dict of datacenters id mapped to the network location of their
+    url
+    """
     query = sess.query(DataCenter.id, DataCenter.dataselect_url)
     if dc_ids is not None:
         query = query.filter(DataCenter.id.in_(dc_ids))
@@ -384,8 +392,9 @@ def get_datacenters(sess, dc_ids=None):
 
 
 def get_maxgap_sql_expr(maxgap_threshold=0.5):
-    """returns a sql-alchemy binary expression which matches segments with gaps/overlaps,
-    according to the given threshold"""
+    """Return a SALAlchemy binary expression which matches segments with
+    gaps/overlaps, according to the given threshold
+    """
     return or_(Segment.maxgap_numsamples < -abs(maxgap_threshold),
                Segment.maxgap_numsamples > abs(maxgap_threshold))
 
@@ -400,34 +409,39 @@ class DownloadStats2(DownloadStats):
 
 
 def get_dstats_html_data(session, download_ids=None, maxgap_threshold=0.5):
-    """Returns the tuple
+    """Return the tuple
         sta_list, codes, datacenters, downloads, networks
 
-    where: sta_list is a list stations data and their download codes (togehter with the number
-        of segments downloaded and matching the given code)
-    codes is a list of tuples (title, legend) representing the titles and legends of all
-        download codes found
-    datacenters the output of `get_datacenters`
-    downloads is the output of `get_downloads`
-    networks is a list of strings denoting the networks found
+    where:
+    - sta_list is a list stations data and their download codes (together with
+      the number of segments downloaded and matching the given code)
+    - codes is a list of tuples (title, legend) representing the titles and
+      legends of all download codes found
+    - datacenters the output of `get_datacenters`
+    - downloads is the output of `get_downloads`
+    - networks is a list of strings denoting the networks found
 
-    The returned data is used to build the html page showing the download info / statistics.
-    All returned elements will be basically injected as json string in the html page and
-    processed inthere by the browser with a js library also injected in the html page.
+    The returned data is used to build the html page showing the download
+    info / statistics. All returned elements will be basically injected as JSON
+    string in the html page and processed therein by the browser with a js
+    library also injected in the html page.
 
     :param session: an sql-alchemy session denoting a db session to a database
-    :param download_ids: (list of ints or None) if None, collect statistics from all downloads run.
-        Otherwise limit the output to the downloads whose ids are in the list. In any case, in
-        case of more download runs to be considered, this function will
-        yield also the statistics aggregating all downloads in a table at the end
-    :param maxgap_threshold: (float, default 0.5) the threshold whereby a segment is to be
-        considered with gaps or overlaps. By default is 0.5, meaning that a segment whose
-        'maxgap_numsamples' value is > 0.5 has gaps, and a segment whose 'maxgap_numsamples'
-        value is < 0.5 has overlaps. Such segments will be marked with a special class
+    :param download_ids: (list of ints or None) if None, collect statistics
+        from all downloads run. Otherwise limit the output to the downloads
+        whose ids are in the list. In any case, in case of more download runs
+        to be considered, this function will yield also the statistics
+        aggregating all downloads in a table at the end
+    :param maxgap_threshold: (float, default 0.5) the threshold whereby a
+        segment is to be considered with gaps or overlaps. By default is 0.5,
+        meaning that a segment whose 'maxgap_numsamples' value is > 0.5 has
+        gaps, and a segment whose 'maxgap_numsamples' value is < 0.5 has
+        overlaps. Such segments will be marked with a special class
         'OK Gaps Overlaps' in the table columns.
     """
-    # Benchmark: the bare minimum (with postgres on external server) request takes around 12
-    # sec and 14 seconds adding all necessary information. Therefore, we choose the latter
+    # Benchmark: the bare minimum (with postgres on external server) request
+    # takes around 12 sec and 14 seconds adding all necessary information.
+    # Therefore, we choose the latter
     maxgap_bexpr = get_maxgap_sql_expr(maxgap_threshold)
     data = session.query(func.count(Segment.id),
                          Station.id,
@@ -457,7 +471,10 @@ def get_dstats_html_data(session, download_ids=None, maxgap_threshold=0.5):
         netindex = networks.get(network, -1)
         if netindex == -1:
             networks[network] = netindex = len(networks)
-        sta_list = sta_data.get(staname, [staid, round(lat, 2), round(lon, 2), dc_id, netindex,
+        sta_list = sta_data.get(staname, [staid,
+                                          round(lat, 2), round(lon, 2),
+                                          dc_id,
+                                          netindex,
                                           None])
         if sta_list[-1] is None:
             sta_list[-1] = defaultdict(lambda: defaultdict(int))
@@ -469,24 +486,18 @@ def get_dstats_html_data(session, download_ids=None, maxgap_threshold=0.5):
         codesfound.add(dwn_code)
         dcidsfound.add(dc_id)
 
-    # In the html, we want to reduce all possible data, as the file might be huge
-    # modify stas_data nested dicts, replacing codes with an incremental integer
-    # and keep a separate list that maps uses codes to titles and legends
-    # So, first sort codes and keep track of their index
-    # Then, remove dicts for two reasons:
-    # js objects converts int keys as string (it's a property of js objects), this makes:
-    # 1. unnecessary quotes chars which take up space, and
-    # 2. prevents to work with other objects, e.g., storing some int key in a js Set, makes
-    #    set.has(same_key_as_string) return false
-    # 3. We do not actually need object key search in the page, as we actully loop through elements
-    #    arrays are thus fine
-    # Thus sta_data should look like:
-    # sta_data = [sta_name, [staid, stalat, stalon, sta_dcid, sta_net_index,
+    # In the html, we want to reduce all possible data, as the file might be
+    # huge. Modify hereafter `sta_data` into a list `sta_list` of this form:
+    # sta_list = [sta_name, [staid, stalat, stalon, sta_dcid, sta_net_index,
     #                        d_id1, [code1, num_seg1 , ..., codeN, num_seg],
     #                        d_id2, [code1, num_seg1 , ..., codeN, num_seg],
     #                       ],
     #            ...,
     #            ]
+    # and keep a separate list `codes` that maps uses codes to titles and
+    # legends (also note in case of size problems: JavaScript objects keys are
+    # always strings, thus int keys will be rendered with unnecessary quotes
+    # taking up space)
     sta_list = []
     sortedcodes = DownloadStats2.sortcodes(codesfound)
     codeint = {k: i for i, k in enumerate(sortedcodes)}
@@ -495,7 +506,8 @@ def get_dstats_html_data(session, download_ids=None, maxgap_threshold=0.5):
         dwnlds = values.pop()  # remove last element
         for did, segs in viewitems(dwnlds):
             values.append(did)
-            values.append([item for code in segs for item in (codeint[code], segs[code])])
+            values.append([item for code in segs
+                           for item in (codeint[code], segs[code])])
         sta_list.append(staname)
         sta_list.append(values)
 
