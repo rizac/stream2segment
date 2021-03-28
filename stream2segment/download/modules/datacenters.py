@@ -100,7 +100,7 @@ def get_datacenters_df(session, service, routing_service_url,
         raise FailedDownload(Exception("No FDSN-compliant datacenter found"))
 
     if discarded:
-        logger.info("%d data centers discarded", discarded)
+        logger.info("%d data center URL(s) discarded", discarded)
 
     return dc_df, EidaValidator(dc_df, eidars_response_text)
 

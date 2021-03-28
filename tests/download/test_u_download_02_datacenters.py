@@ -35,7 +35,7 @@ from stream2segment.download.modules.utils import urljoin as original_urljoin
 from stream2segment.download.exc import FailedDownload
 from stream2segment.download.url import URLError, HTTPError, responses
 from stream2segment.resources import get_templates_fpath
-from stream2segment.io import yaml_load
+from stream2segment.io import yaml_load, Fdsnws
 
 query_logger = logger = logging.getLogger("stream2segment")
 
@@ -516,26 +516,95 @@ UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
             filter(DataCenter.organization_name == 'eida').count() == \
             2 + EXPECTED_EIDA_DCS_FROMFILE
 
-
+    @pytest.mark.parametrize("fdsn_strict", [True, False])
     @patch('stream2segment.download.modules.datacenters.urljoin',
            side_effect = lambda *a, **v: original_urljoin(*a, **v))
-    def test_recif_bug(self, mock_urljoin, db):  # , mock_urljoin):
-        '''test fetching datacenters eida, iris, custom url and test that postdata is what we
-        expected (which is eida/iris/whatever independent)'''
+    def test_recif_bug(self, mock_urljoin, fdsn_strict, # fixtures
+                       db):  # , mock_urljoin):
+        """test fetching datacenters eida, iris, custom url and test that postdata is what we
+        expected (which is eida/iris/whatever independent)
+        """
+        class Fdsn2(Fdsnws):
+
+            def __init__(self, url):
+                super().__init__(url, fdsn_strict)
+
+        # patch.object is a mess. I tried, hard, and failed. So use normal patch:
+        with patch('stream2segment.download.modules.datacenters.Fdsnws',
+                    side_effect=lambda *a, **w: Fdsn2(*a, **w)) as mock_fdsnws:
+            # The patched still does not build correct URLs (it uses '<mock bla bla>'
+            # instead of 'dataselect' in the URLs). So:
+            mock_fdsnws.DATASEL = Fdsnws.DATASEL
+
+            # this is the output when using eida as service:
+            urlread_sideeffect = ["""http://ws.resif.fr/fdsnws/dataselect/1/query
+    ZV * * * 2018-01-01T00:00:00 2019-12-31T23:59:59
+    ZU * * * 2015-01-01T00:00:00 2017-12-31T23:59:59
+
+    http://ws.resif.fr/ph5/fdsnws/dataselect/1/query
+    ZO * * * 2018-01-01T00:00:00 2018-12-31T23:59:59
+    ZO * * * 2014-01-01T00:00:00 2016-12-31T23:59:59
+    ZO * * * 2008-01-01T00:00:00 2009-12-31T23:59:59
+    Z7 * * * 2018-01-01T00:00:00 2018-12-31T23:59:59
+    6J * * * 2018-01-01T00:00:00 2018-12-31T23:59:59
+    3C * * * 2019-01-01T00:00:00 2021-12-31T23:59:59
+    1F * * * 2018-01-01T00:00:00 2018-12-31T23:59:59
+    1D * * * 2019-01-01T00:00:00 2020-12-31T23:59:59
+
+    http://webservices.ingv.it/fdsnws/dataselect/1/query
+    ZM * * * 2017-08-26T00:00:00 2020-10-20T00:00:00
+    Z3 A319A * * 2015-12-11T12:06:34 2019-04-10T23:59:00
+    Z3 A318A * * 2015-11-17T10:32:52 2019-02-02T23:59:00"""]
+
+            d0 = datetime.utcnow()
+            d1 = d0 + timedelta(minutes=1.1)
+
+            # run tests for all these cases is useless, as these arguments are not used
+            # So comment it:
+
+            # nsl = [['ABC'], []]
+            # chans = [['HH?'], ['HH?', 'BH?'], []]
+            #
+            # for net, sta, loc, cha, stime, etime in product(nsl, nsl, nsl, chans,
+            #                                                 [None, d0], [None, d1]):
+
+            net, sta, loc, cha, stime, etime = None, None, None, None, None, None
+
+            mock_urljoin.reset_mock()
+            # normal fdsn service ("https://mocked_domain/fdsnws/station/1/query")
+            data, eida_validator = self.get_datacenters_df(urlread_sideeffect, db.session,
+                                                           "eida",
+                                                           self.routing_service,
+                                                           net, sta, loc, cha, stime, etime,
+                                                           db_bufsize=self.db_buf_size)
+            assert eida_validator is not None
+            assert mock_urljoin.called
+
+            dcs = sorted(_.dataselect_url for _ in db.session.query(DataCenter))
+            if fdsn_strict:
+                assert dcs == sorted(['http://ws.resif.fr/fdsnws/dataselect/1/query',
+                                      'http://webservices.ingv.it/fdsnws/dataselect/1/query'])
+                assert "1 data center URL(s) discarded" in self.log_msg()
+            else:
+                assert dcs == sorted(['http://ws.resif.fr/fdsnws/dataselect/1/query',
+                                      'http://ws.resif.fr/ph5/fdsnws/dataselect/1/query',
+                                      'http://webservices.ingv.it/fdsnws/dataselect/1/query'])
+                assert "1 data center URL(s) discarded" not in self.log_msg()
+
+    @patch('stream2segment.download.modules.datacenters.urljoin',
+           side_effect=lambda *a, **v: original_urljoin(*a, **v))
+    def test_same_dc_in_routingservice(self, mock_urljoin,  # fixtures
+                                       db):  # , mock_urljoin):
+        """test same datacenter in eida routing service
+        """
         # this is the output when using eida as service:
         urlread_sideeffect = ["""http://ws.resif.fr/fdsnws/dataselect/1/query
 ZV * * * 2018-01-01T00:00:00 2019-12-31T23:59:59
 ZU * * * 2015-01-01T00:00:00 2017-12-31T23:59:59
 
-http://ws.resif.fr/ph5/fdsnws/dataselect/1/query
+http://ws.resif.fr/fdsnws/dataselect/1/
 ZO * * * 2018-01-01T00:00:00 2018-12-31T23:59:59
 ZO * * * 2014-01-01T00:00:00 2016-12-31T23:59:59
-ZO * * * 2008-01-01T00:00:00 2009-12-31T23:59:59
-Z7 * * * 2018-01-01T00:00:00 2018-12-31T23:59:59
-6J * * * 2018-01-01T00:00:00 2018-12-31T23:59:59
-3C * * * 2019-01-01T00:00:00 2021-12-31T23:59:59
-1F * * * 2018-01-01T00:00:00 2018-12-31T23:59:59
-1D * * * 2019-01-01T00:00:00 2020-12-31T23:59:59
 
 http://webservices.ingv.it/fdsnws/dataselect/1/query
 ZM * * * 2017-08-26T00:00:00 2020-10-20T00:00:00
@@ -545,17 +614,30 @@ Z3 A318A * * 2015-11-17T10:32:52 2019-02-02T23:59:00"""]
         d0 = datetime.utcnow()
         d1 = d0 + timedelta(minutes=1.1)
 
-        nsl = [['ABC'], []]
-        chans = [['HH?'], ['HH?', 'BH?'], []]
+        # run tests for all these cases is actually not needed, but they are fast
+        # nsl = [['ABC'], []]
+        # chans = [['HH?'], ['HH?', 'BH?'], []]
 
-        for net, sta, loc, cha, starttime, endtime in product(nsl, nsl, nsl, chans,
-                                                              [None, d0], [None, d1]):
-            mock_urljoin.reset_mock()
-            # normal fdsn service ("https://mocked_domain/fdsnws/station/1/query")
-            data, eida_validator = self.get_datacenters_df(urlread_sideeffect, db.session,
-                                                           "eida",
-                                                           self.routing_service,
-                                                           net, sta, loc, cha, starttime, endtime,
-                                                           db_bufsize=self.db_buf_size)
-            assert eida_validator is not None
-            assert mock_urljoin.called
+        # for net, sta, loc, cha, stime, etime in product(nsl, nsl, nsl, chans,
+        #                                                 [None, d0], [None, d1]):
+
+        net, sta, loc, cha, stime, etime = None, None, None, None, None, None
+
+        mock_urljoin.reset_mock()
+        # normal fdsn service ("https://mocked_domain/fdsnws/station/1/query")
+        data, eida_validator = self.get_datacenters_df(urlread_sideeffect,
+                                                       db.session,
+                                                       "eida",
+                                                       self.routing_service,
+                                                       net, sta, loc, cha, stime,
+                                                       etime,
+                                                       db_bufsize=self.db_buf_size)
+        assert eida_validator is not None
+        assert mock_urljoin.called
+
+        dcs = sorted(_.dataselect_url for _ in db.session.query(DataCenter))
+        assert dcs == sorted([# 'http://ws.resif.fr/fdsnws/dataselect/1/query',
+                              # 'http://ws.resif.fr/ph5/fdsnws/dataselect/1/query',
+                              'http://webservices.ingv.it/fdsnws/dataselect/1/query'])
+        lmsg = self.log_msg()
+        assert "2 data center URL(s) discarded" not in lmsg

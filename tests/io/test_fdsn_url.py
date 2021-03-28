@@ -30,14 +30,13 @@ def test_models_fdsn_url_1():
         assert str(fdsn.majorversion) == str(1)
         normalizedurl = fdsn.url()
         assert normalizedurl == '%s://mock/fdsnws/station/1/query' % expected_scheme
-        for service in [Fdsnws.STATION, Fdsnws.DATASEL, Fdsnws.EVENT, 'abc']:
+        for service in list(Fdsnws.SERVICES) + ['abc']:
             assert fdsn.url(service) == normalizedurl.replace('station', service)
 
         assert fdsn.url(majorversion=55) == normalizedurl.replace('1', '55')
         assert fdsn.url(majorversion='1.1') == normalizedurl.replace('1', '1.1')
 
-        for method in [Fdsnws.QUERY, Fdsnws.QUERYAUTH, Fdsnws.APPLWADL, Fdsnws.VERSION,
-                       'abcdefg']:
+        for method in list(Fdsnws.METHODS) + ['abcdefg']:
             assert fdsn.url(method=method) == normalizedurl.replace('query', method)
 
     for url in ["fdsnws/station/1/query",
@@ -70,9 +69,7 @@ def test_resif_url():
 def test_models_fdsn_url():
     url_ = 'abc.org/fdsnws/station/1'
     for (pre, post, slash) in product(['', 'http://', 'https://'],
-                                      ['', Fdsnws.QUERY, Fdsnws.QUERYAUTH,
-                                       Fdsnws.AUTH,
-                                       Fdsnws.APPLWADL, Fdsnws.VERSION],
+                                      ['' ] + list(Fdsnws.METHODS),
                                       ['', '/', '?']
                                       ):
         if not post and slash == '?':
@@ -89,13 +86,12 @@ def test_models_fdsn_url():
         assert fdsn.majorversion == '1'
 
         normalizedurl = fdsn.url()
-        for service in [Fdsnws.STATION, Fdsnws.DATASEL, Fdsnws.EVENT, 'abc']:
+        for service in list(Fdsnws.SERVICES) + ['abc']:
             assert fdsn.url(service) == normalizedurl.replace('station', service)
 
         assert fdsn.url(majorversion=55) == normalizedurl.replace('1', '55')
 
-        for method in [Fdsnws.QUERY, Fdsnws.QUERYAUTH, Fdsnws.APPLWADL, Fdsnws.VERSION,
-                       'abcdefg']:
+        for method in list(Fdsnws.METHODS) + ['abcdefg']:
             assert fdsn.url(method=method) == normalizedurl.replace('query', method)
 
 
