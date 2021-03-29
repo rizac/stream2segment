@@ -171,18 +171,18 @@ search_radius:
 # Data (waveform segments) https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=8
 # ========================
 
-# List of URLs for downloading waveform data (data web services). All URLs must
-# be FDSN-compliant, e.g.: https://service.iris.edu/fdsnws/dataselect/1/query
-# You can also type two special values: 1) "iris" (Incorporated Research Institutions for
-# Seismology, shortcut for the URL above) or 2) "eida" (shortcut for several nodes - or
-# data centers - of the European Integrated Data Archive). Being FDSN compliant, all URLs
-# are also used to fetch automatically the stations (and channels) necessary for the
-# waveforms download. When providing several URLs, station conflicts (e.g., the same
-# station code returned by more than one URL) might happen. The program tries to resolve
+# List of URLs for downloading waveform data (data web services). All URLs must be
+# FDSN-compliant (e.g.: https://service.iris.edu/fdsnws/dataselect/1/query). You can also
+# type two special values: 1) "iris" (Incorporated Research Institutions for Seismology),
+# shortcut for the URL above or 2) "eida", shortcut for several nodes - or data centers -
+# of the European Integrated Data Archive. Being FDSN compliant, all URLs are also used
+# to fetch automatically the stations and channels necessary for the waveforms download.
+# This means that when providing several URLs, station conflicts (e.g., the same station
+# code returned by more than one URL) might happen. The program tries to resolve
 # conflicts with a Routing service (for EIDA URLs) or by checking if the station URL is
 # saved on the database from a previous download. HOWEVER, PLEASE NOTE that unresolved
-# conflicts will cause the station to be discarded (the user will be notified in the log
-# file) and all its available waveforms not to be downloaded
+# conflicts - albeit rare - will cause the station to be discarded (the user will be
+# notified in the log file) and all its available waveforms not to be downloaded
 # Implementation details: If no station /channel could be downloaded (e.g., connection
 # problems), then the requested stations and channels will be fetched from the database,
 # if non-empty (otherwise the download process will stop with an error message). The EIDA
