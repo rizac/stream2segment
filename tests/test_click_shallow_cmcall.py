@@ -142,7 +142,7 @@ def test_click_download(mock_download, mock_create_sess, mock_new_db_download,
     assert not mock_download.called
 
 
-@patch("stream2segment.cli._process", return_value=0)
+@patch("stream2segment.process.main.process", return_value=0)
 def test_click_process(mock_process):
     runner = CliRunner()
 
@@ -197,7 +197,7 @@ from stream2segment.process.gui.main import show_gui as orig_show
 PKG = 'stream2segment.process.gui.main'
 
 
-@patch("stream2segment.cli.show_gui", side_effect=orig_show)
+@patch(PKG + ".show_gui", side_effect=orig_show)
 @patch(PKG + ".open_in_browser")
 @patch(PKG + ".create_s2s_show_app")  # , return_value=mock.Mock())
 def test_click_show(mock_create_s2s_show_app, mock_open_in_browser, mock_show):
@@ -381,7 +381,7 @@ def test_click_template_realcopy(pytestdir):
     assert result.exit_code == 0
 
 
-@patch("stream2segment.cli.dstats", return_value=0)
+@patch("stream2segment.download.db.inspection.main.dstats", return_value=0)
 def test_click_dstats(mock_da):
 
     prefix = ['dl', 'stats']
@@ -420,7 +420,7 @@ def test_click_dstats(mock_da):
     assert result.exit_code != 0
 
 
-@patch("stream2segment.cli.dreport", return_value=0)
+@patch("stream2segment.download.db.inspection.main.dreport", return_value=0)
 def test_click_dreport(mock_da):
 
     prefix = ['dl', 'report']
