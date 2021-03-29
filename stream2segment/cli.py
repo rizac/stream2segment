@@ -13,13 +13,8 @@ Module implementing the Command line interface (cli) to access function in the m
 # standard python imports (must be the first import)
 from __future__ import absolute_import, division, print_function
 
-# future direct imports (needs future package installed, otherwise remove):
-# (http://python-future.org/imports.html#explicit-imports)
+# (http://python-future.org/imports.html#explicit-imports):
 from builtins import (bytes, dict, int, open, str, super, input)
-
-# NOTE: do not use future aliased imports
-# (http://python-future.org/imports.html#aliased-imports), they fail with urllib
-# related  functions with multithreading (see utils.url module)
 
 import sys
 import os
@@ -28,30 +23,9 @@ from collections import OrderedDict, defaultdict
 
 import click
 
-# Some packages are imported inside the functions to avoid naming conflicts,
-# make mocking in tests easier and speed up the cli with "--help"
-# https://www.tomrochette.com/problems/2020/03/07
-# NOTE HOWEVER, this might cause potential issues in refactoring / moving modules
-
-from stream2segment.download.main import download as _download
-from stream2segment.process.main import process as _process
-from stream2segment.process.gui.main import show_gui
-from stream2segment.download.db.inspection.main import dreport, dstats
-from stream2segment.download.db import management as dbmanagement
-
 from stream2segment.resources import get_templates_fpath
 from stream2segment.io.inputvalidation import BadParam
 from stream2segment.io import yaml_load
-
-# convention: root functions are appended the "_func" suffix
-
-# from stream2segment.download.main import download as download_func
-# from stream2segment.process.main import process as process_func
-# from stream2segment.process.gui.main import show_gui as show_func
-# from stream2segment.download.db.inspection.main import (dreport as dreport_func,
-#                                                         dstats as dstats_func)
-# from stream2segment.download.db.management import (classlabels as classlabels_func,
-#                                                    drop as drop_function)
 
 
 class clickutils(object):  # noqa
@@ -527,10 +501,11 @@ def download(config, dburl, eventws, starttime, endtime, network,  # noqa
     All other options, if provided, will overwrite the corresponding value in
     the config file
     """
-    _locals = dict(locals())  # MUST BE THE FIRST STATEMENT
+    _locals = dict(locals())  # <- THIS MUST BE THE FIRST STATEMENT OF THIS FUNCTION!
 
-    # REMEMBER: NO LOCAL VARIABLES OTHERWISE WE MESS UP THE CONFIG OVERRIDES
-    # ARGUMENTS
+    # import in function body to speed up the main module import:
+    from stream2segment.download.main import download as _download
+
     try:
         overrides = {k: v for k, v in _locals.items()
                      if v not in ((), {}, None) and k != 'config'}
@@ -605,10 +580,11 @@ def process(dburl, config, pyfile, funcname, append, no_prompt,
     execution date and time. If no output file is provided, [OUTFILE] will be
     replaced with [pyfile])
     """
-    _locals = dict(locals())  # MUST BE THE FIRST STATEMENT
+    _locals = dict(locals()) # <- THIS MUST BE THE FIRST STATEMENT OF THIS FUNCTION!
 
-    # REMEMBER: NO LOCAL VARIABLES OTHERWISE WE MESS UP THE CONFIG OVERRIDES
-    # ARGUMENTS
+    # import in function body to speed up the main module import:
+    from stream2segment.process.main import process as _process
+
     try:
         if not append and outfile and os.path.isfile(outfile) \
                 and not no_prompt and \
@@ -651,6 +627,10 @@ def show(dburl, configfile, pyfile):
     """Show waveform plots and metadata in the browser,
     customizable with user-defined configuration and custom Plots
     """
+
+    # import in function body to speed up the main module import:
+    from stream2segment.process.gui.main import show_gui
+
     try:
         ret = 0
         with warnings.catch_warnings():  # capture (ignore) warnings
@@ -699,8 +679,8 @@ def stats(dburl, download_id, maxgap_threshold, html, outfile):
     to. If missing, results will be printed to screen or opened in a web
     browser (depending on the option '--html')
     """
-    # import here to improve slow click cli (at least when --help is invoked)
-    # https://www.tomrochette.com/problems/2020/03/07
+    # import in function body to speed up the main module import:
+    from stream2segment.download.db.inspection.main import dstats
 
     print('Fetching data, please wait (this might take a while depending on '
           'the db size and connection)')
@@ -738,8 +718,8 @@ def report(dburl, download_id, config, log, outfile):
     to. If missing, results will be printed to screen or opened in a web
     browser (depending on the option '--html')
     """
-    # import here to improve slow click cli (at least when --help is invoked)
-    # https://www.tomrochette.com/problems/2020/03/07
+    # import in function body to speed up the main module import:
+    from stream2segment.download.db.inspection.main import dreport
 
     print('Fetching data, please wait (this might take a while depending on the '
           'db size and connection)')
@@ -773,13 +753,15 @@ def drop(dburl, download_id):
     all segments, stations and channels downloaded with the given download
     execution
     """
+    # import in function body to speed up the main module import:
+    from stream2segment.download.db.management import drop
 
     print('Fetching data, please wait (this might take a while depending on '
           'the db size and connection)')
     try:
         with warnings.catch_warnings():  # capture (ignore) warnings
             warnings.simplefilter("ignore")
-            ret = dbmanagement.drop(dburl, download_id)
+            ret = drop(dburl, download_id)
         if ret is None:
             sys.exit(1)
         elif not ret:
@@ -822,6 +804,9 @@ def classlabel(dburl, add, rename, delete, no_prompt):
     Class labels can then be used for e.g., supervised classification problems,
     or tp perform custom selection on specific segments before processing.
     """
+    # import in function body to speed up the main module import:
+    from stream2segment.download.db.management import classlabels
+
     add_arg, rename_arg, delete_arg = {}, {}, []
     try:
         if add:
@@ -843,8 +828,7 @@ def classlabel(dburl, add, rename, delete, no_prompt):
             if input(msg) != 'y':
                 sys.exit(1)
 
-        c_labels = dbmanagement.classlabels(dburl, add=add_arg, rename=rename_arg,
-                                            delete=delete_arg)
+        c_labels = classlabels(dburl, add=add_arg, rename=rename_arg, delete=delete_arg)
         print('Done. Current class labels on the database:')
         if not c_labels:
             print('None')
