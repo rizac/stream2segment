@@ -357,11 +357,56 @@ class Test(object):
         # assert we did not write to the db, cause the error threw before setting up db:
         assert db.session.query(Download).count() == dcount
 
-    def test_download_bad_values_template(self,
+
+    def test_download_bad_values_dburl(self,
                                           # fixtures:
                                           db, run_cli_download):
+        '''test different scenarios with the value of the db url'''
         # INCREMENT THIS VARIABLE EVERY TIME YOU RUN A SUCCESSFUL DOWNLOAD
         dcount = 0
+
+        d_yaml_file = get_templates_fpath("download.yaml")
+
+        result = run_cli_download(dburl=d_yaml_file)  # existing file, invalid db url
+        assert result.exit_code != 0
+        # assert we did not write to the db, cause the error threw before setting up db:
+        assert db.session.query(Download).count() == dcount
+
+        result = run_cli_download(dburl="sqlite:/whatever")  # invalid db url
+        assert result.exit_code != 0
+        assert msgin('Error: Invalid value for "dburl":', result.output)
+        # assert we did not write to the db, cause the error threw before setting up db:
+        assert db.session.query(Download).count() == dcount
+
+        result = run_cli_download(dburl="sqlite://whatever")  # invalid db url
+        assert result.exit_code != 0
+        assert msgin('Error: Invalid value for "dburl":', result.output)
+        # assert we did not write to the db, cause the error threw before setting up db:
+        assert db.session.query(Download).count() == dcount
+
+        result = run_cli_download(dburl=[])  # invalid type
+        assert result.exit_code != 0
+        assert msgin('Error: Invalid type for "dburl":', result.output)
+        # assert we did not write to the db, cause the error threw before setting up db:
+        assert db.session.query(Download).count() == dcount
+
+    def test_download_non_existing_database(self,
+                                            # fixtures:
+                                            db, run_cli_download, pytestdir):
+        # test non existing databases. For sqlite, create a new non existing file,
+        if db.is_sqlite:
+            dburl = "sqlite:///" + pytestdir.newfile(".sqlite", create=False)
+        else:
+            # for postgres, just modify the actual dburl
+            dburl = str(db.session.get_bind().url)[:-1] + str(datetime.utcnow().microsecond)
+        result = run_cli_download(dburl=dburl)  # invalid db url
+        if db.is_sqlite:
+            assert result.exit_code == 0
+        else:
+            assert 'Invalid value for "dburl":' in result.output
+            assert 'needs to be created first' in result.output
+            assert result.exit_code != 0
+
 
     def test_download_bad_values(self,
                                  # fixtures:
@@ -437,31 +482,6 @@ class Test(object):
         result = run_cli_download(removals=['inventory'])  # invalid value
         assert result.exit_code != 0
         assert msgin('Error: Missing value for "inventory"', result.output)
-        # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == dcount
-
-        d_yaml_file = get_templates_fpath("download.yaml")
-
-        result = run_cli_download(dburl=d_yaml_file)  # existing file, invalid db url
-        assert result.exit_code != 0
-        # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == dcount
-
-        result = run_cli_download(dburl="sqlite:/whatever")  # invalid db url
-        assert result.exit_code != 0
-        assert msgin('Error: Invalid value for "dburl":', result.output)
-        # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == dcount
-
-        result = run_cli_download(dburl="sqlite://whatever")  # invalid db url
-        assert result.exit_code != 0
-        assert msgin('Error: Invalid value for "dburl":', result.output)
-        # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == dcount
-
-        result = run_cli_download(dburl=[])  # invalid type
-        assert result.exit_code != 0
-        assert msgin('Error: Invalid type for "dburl":', result.output)
         # assert we did not write to the db, cause the error threw before setting up db:
         assert db.session.query(Download).count() == dcount
 

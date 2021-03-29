@@ -5,14 +5,7 @@ Input validation module
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
-# import sys
-# import re
-# import sys
-# from itertools import chain
-# import importlib
-
 from future.utils import string_types
-# from stream2segment.process import SkipSegment
 from stream2segment.io.db import database_exists, get_session
 
 
