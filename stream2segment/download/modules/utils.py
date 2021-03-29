@@ -9,17 +9,17 @@ Module implementing all functions not involving IO operations
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
 from __future__ import division
-# make the following(s) behave like python3 counterparts if running from python2.7.x
-# (http://python-future.org/imports.html#explicit-imports):
-import sys
-from builtins import zip, range
+
+from builtins import zip, range  # http://python-future.org/imports.html#explicit-imports
 
 import os
+import sys
 import re
 from datetime import datetime
 from itertools import chain
 from collections import OrderedDict
 from functools import cmp_to_key
+import logging
 
 from dateutil import parser as dateparser
 from dateutil.tz.tz import tzutc
@@ -36,14 +36,7 @@ from stream2segment.download.exc import FailedDownload
 from stream2segment.download.url import (read_async as original_read_async,
                                          responses)
 
-# # logger: do not use logging.getLogger(__name__) but point to
-# # stream2segment.download.logger: this way we preserve the logging namespace
-# # hierarchy when calling logging functions of stream2segment.download.utils
-# # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
-# from stream2segment.download import logger  # @IgnorePep8
-
-
-import logging
+# (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__)
 
 

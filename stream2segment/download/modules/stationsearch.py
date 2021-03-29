@@ -5,12 +5,11 @@ Event-based station search functions
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
-# make the following(s) behave like python3 counterparts if running from py2.7
-# (http://python-future.org/imports.html#explicit-imports):
-from builtins import zip
+from builtins import zip  # http://python-future.org/imports.html#explicit-imports
 
 from itertools import cycle
 from datetime import timedelta
+import logging
 
 import numpy as np
 import pandas as pd
@@ -22,14 +21,7 @@ from stream2segment.io.cli import get_progressbar
 from stream2segment.io.db.pdsql import mergeupdate, dfrowiter
 
 
-# # logger: do not use logging.getLogger(__name__) but point to
-# # stream2segment.download.logger: this way we preserve the logging namespace
-# # hierarchy
-# # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial) when
-# # calling logging functions of stream2segment.download.utils:
-# from stream2segment.download import logger  # @IgnorePep8
-
-import logging
+# (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__)
 
 
