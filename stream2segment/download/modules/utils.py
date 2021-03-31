@@ -344,15 +344,14 @@ def normalize_fdsn_dframe(dframe, query_type):
     :param dframe: the dataframe resulting from a FDSN query
     :param query_type: either 'event', 'channel', 'station'
     :return: a new dataframe, whose length is <= `len(dframe)`
-    :raise: ValueError in case of errors (e.g., mismatching column number, or
+    :raise: ValueError in case of errors, e.g., mismatching column number, or
         the returning Dataframe is empty, e.g. **all** rows have at least one
-        invalid value: in fact, note that invalid cell numbers are removed
-        (their row is removed from the returned data frame)
+        invalid value
     """
     dframe = rename_columns(dframe, query_type)
     ret = harmonize_fdsn_dframe(dframe, query_type)
     if ret.empty:
-        raise ValueError("Malformed data (invalid values, e.g., NaN's)")
+        raise ValueError("Malformed data (e.g., type mismatch, NaN)")
     return ret
 
 
@@ -413,9 +412,10 @@ def rename_columns(query_df, query_type):
 
     oldcolumns = query_df.columns.tolist()
     if len(oldcolumns) != len(columns):
-        raise ValueError(("Mismatching number of columns in '%s' query."
-                          "\nExpected:\n%s\nFound:\n%s") %
-                         (query_type.lower(), str(columns), str(oldcolumns)))
+        # do not provide long messages, the exception is likely to be wrapped
+        # also do not print columns, which are often just numbers with no meaning:
+        raise ValueError("Data has %d column(s), expected: %d" %
+                         (len(oldcolumns), len(columns)))
 
     return query_df.rename(columns={cold: cnew for cold, cnew in
                                     zip(oldcolumns, columns)})

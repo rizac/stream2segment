@@ -19,7 +19,7 @@ from stream2segment.io import StringIO  # <- io.StringIO py2 compatible
 from stream2segment.io.cli import get_progressbar
 from stream2segment.download.modules.utils import (dbsyncdf, response2normalizeddf, formatmsg,
                                                    EVENTWS_MAPPING, strptime, urljoin)
-from stream2segment.download.exc import FailedDownload
+from stream2segment.download.exc import FailedDownload, QuitDownload
 from stream2segment.download.db.models import WebService, Event
 from stream2segment.download.url import urlread, socket, HTTPError
 
@@ -34,58 +34,16 @@ def get_events_df(session, url, evt_query_args, start, end,
 
     eventws_id = configure_ws_fk(url, session, db_bufsize)
 
-    pd_df_list = [dfr for dfr in dataframe_iter(url, evt_query_args, start, end,
-                                                timeout,
-                                                show_progress)]
-
-    events_df = None
-    if pd_df_list:  # pd.concat below raise ValueError if ret is empty:
-        # build the data frame:
-        events_df = pd.concat(pd_df_list, axis=0, ignore_index=True, copy=False)
-
-    if events_df is None or events_df.empty:
-        # if we are here, the reason should NOT be an URL error (Http error,
-        # timeout etcetera) because those error have already raised a
-        # FailedDownload. Thus, the reasons are: the downloaded content is not
-        # parsable, or empty (the downloaded content might be the aggregation
-        # of all sub-requests contents, if the original request had to be
-        # split).
-        isfile = islocalfile(url)
-        if isfile:
-            msg = ("No event found. Check that the file is non empty and its "
-                   "content is valid")
-        else:
-            # we might have supplied a file that the program interprets as url.
-            # Check first that we surely did not provide a file and set message
-            # accordingly
-            if url in EVENTWS_MAPPING:
-                # Surely not a file. Valid FDSN:
-                msg = "No event found, try to change your search parameters"
-            elif url.lower().startswith('http://') or url.lower().startswith('https://'):
-                # Surely not a file. It might be that the content is actually
-                # invalid FDSN
-                msg = ("No event found, try to change your search parameters. "
-                       "Check also that the service returns parsable data "
-                       "(FDSN-compliant)")
-            else:
-                # Maybe file maybe url. It might be that the content is
-                # actually invalid FDSN
-                msg = ("No event found. If you supplied a file, the file was "
-                       "not found: check path and typos. "
-                       "Otherwise, try to change your search parameters: "
-                       "check also that the service returns parsable data "
-                       "(FDSN-compliant)")
-            # build the real url used for the query, so that we log the latter:
-            url, evt_query_args = _normalize(url, evt_query_args, start, end)
-            url = urljoin(url, **evt_query_args)
-
-        raise FailedDownload(formatmsg(msg, url))
+    pd_df_list = events_df_list(url, evt_query_args, start, end, timeout, show_progress)
+    # pd_df_list surely not empty (otherwise we raised FailedDownload)
+    events_df = pd.concat(pd_df_list, axis=0, ignore_index=True, copy=False)
 
     events_df[Event.webservice_id.key] = eventws_id
     events_df = dbsyncdf(events_df, session,
                          [Event.event_id, Event.webservice_id], Event.id,
                          buf_size=db_bufsize,
-                         cols_to_print_on_err=[Event.event_id.key],
+                         cols_to_print_on_err=[Event.event_id.key, Event.magnitude.key,
+                                               Event.time.key],
                          keep_duplicates='first')
 
     # try to release memory for unused columns (FIXME: NEEDS TO BE TESTED)
@@ -118,32 +76,64 @@ def configure_ws_fk(eventws_url, session, db_bufsize):
     return eventws_id
 
 
-def dataframe_iter(url, evt_query_args, start, end,
-                   timeout=15,
-                   show_progress=False):
-    """Yield pandas dataframe(s) from the event url or file
+# error string (constants, used in test so we can change them with no problem, hopefully)
+ERR_FETCH = "Unable to fetch events"
+ERR_FETCH_FDSN = "Unable to fetch events, data not in the supported FDSN format"
+ERR_FETCH_ISF = "Unable to fetch events, data not in the supported ISF format"
+ERR_READ_FDSN = "Unable to read events, data not in the supported FDSN format"
+ERR_READ_ISF = "Unable to read events, data not in the supported ISF format"
+ERR_FETCH_NODATA = "No event received, search parameters might be too strict"
+
+
+def events_df_list(url, evt_query_args, start, end, timeout=15, show_progress=False):
+    """Return a list of pandas dataframe(s) from the event url or file
 
     :param url: a valid url, a mappings string, or a local file (fdsn 'text'
         formatted)
     """
-
-    if islocalfile(url):
-        events_iter = events_iter_from_file(url, evt_query_args.get('format'))
-        url = tofileuri(url)
-    else:
-        events_iter = events_iter_from_url(url,
-                                           evt_query_args,
-                                           start, end,
-                                           timeout, show_progress)
-
-    for url_, data in events_iter:
+    urls_and_data = []
+    is_local_file = islocalfile(url)
+    if is_local_file:
+        ftype = evt_query_args.get('format') or get_format(url)
         try:
-            yield response2normalizeddf(url_, data, "event")
-        except ValueError as exc:
-            logger.warning(formatmsg("Discarding response", exc, url_))
+            urls_and_data.append(events_data_from_file(url, ftype))
+        except Exception as exc:
+            msg = ERR_READ_ISF if ftype == 'isf' else ERR_READ_FDSN
+            raise FailedDownload(formatmsg(msg, exc, tofileuri(url)))
+    else:
+        try:
+            urls_and_data = list(events_iter_from_url(url, evt_query_args, start, end,
+                                                      timeout, show_progress))
+        except QuitDownload:
+            raise
+        except ISFParseError as isf_exc:
+            raise FailedDownload(formatmsg(ERR_FETCH_ISF, isf_exc, url))
+        except Exception as exc:
+            raise FailedDownload(formatmsg(ERR_FETCH, exc, url))
+
+    pd_df_list = []
+    for url_, data in urls_and_data:
+        # data surely not empty, FDSN formatted
+        try:
+            pd_df_list.append(response2normalizeddf(url_, data, "event"))
+        except Exception as exc:
+            msg = ERR_READ_FDSN if is_local_file else ERR_FETCH_FDSN
+            if is_local_file or len(urls_and_data) == 1:  # raise:
+                raise FailedDownload(formatmsg(msg, exc, url_))
+            else:
+                logger.warning(formatmsg(msg, exc, url_))
+
+    if not pd_df_list:
+        # we cannot be here if reading from file.
+        # build the main url used for the query, so that we log the latter:
+        _url, _query_args = _normalize(url, evt_query_args, start, end)
+        raise FailedDownload(formatmsg(ERR_FETCH_FDSN, 'details in log file',
+                                       urljoin(_url, **_query_args)))
+
+    return pd_df_list
 
 
-def events_iter_from_file(file_path, format_=None):
+def events_data_from_file(file_path, format_=None):
     """Yield the tuple (filepath, events_data) from a file, which must exist
     on the local computer.
 
@@ -151,22 +141,25 @@ def events_iter_from_file(file_path, format_=None):
         it must be isf or txt. Note that support for isf is not fully complete
         (e.g., no comments allowed)
     """
-    try:
-        if format_ is None:
-            format_ = 'isf' if is_isf(file_path) else 'txt'
-        with open(file_path, encoding='utf-8') as opn:
-            data = opn.read()
-            if data and format_ == 'isf':
-                data = isfresponse2txt(data, catalog='', contributor='')
-            yield tofileuri(file_path), data
-    except Exception as exc:
-        raise FailedDownload(formatmsg("Unable to open events file", exc,
-                                       file_path))
+    if format_ is None:
+        format_ = get_format(file_path)
+    with open(file_path, encoding='utf-8') as opn:
+        data = opn.read()
+        if not data:
+            raise ValueError('Empty file')
+        if format_ == 'isf':
+            data = isfresponse2txt(data, catalog='', contributor='')
+        return tofileuri(file_path), data
 
 
-def is_isf(filepath):
-    with open(filepath, 'r') as opn:
-        return opn.readline().startswith('DATA_TYPE ')
+# def is_isf(filepath):
+#     with open(filepath, 'r') as opn:
+#         return opn.readline().startswith('DATA_TYPE ')
+
+
+def get_format(filepath):
+    with open(filepath, 'r') as _:
+        return "isf" if _.readline().startswith('DATA_TYPE ') else "txt"
 
 
 def tofileuri(file_path):
@@ -194,42 +187,49 @@ def events_iter_from_url(base_url, evt_query_args, start, end, timeout,
     base_url, evt_query_args = _normalize(base_url, evt_query_args, start, end)
     is_isf_ = evt_query_args['format'] == 'isf'
     end_iso = evt_query_args['endtime']
-    try:
-        url = urljoin(base_url, **evt_query_args)
-        result = _urlread(url, timeout, is_isf_)
-        if result is not None:
-            yield url, result  # then result is the tuple (url, raw_data)
-        else:
-            logger.info("Request seems to be too large, splitting into "
-                        "sub-requests")
 
-            # the tricky part below is actually the progressbar part. It must:
-            # 1 not be linear, thus advance "more" at lower magnitudes (where
-            #   events are more dense)
-            # 2 consider that, when the maximum magnitude depth is reached, we split
-            #   by time and in this case only the last sub-request should advance the
-            #   progress bar
-            total_pbar_steps = _get_freq_mag_distrib(evt_query_args)[2].sum()
-            with get_progressbar(show_progress, length=total_pbar_steps) as pbar:
-                downloads = [evt_query_args]
+    url = urljoin(base_url, **evt_query_args)
+    result = _urlread(url, timeout, is_isf_)
+    if result is not _SUSPECTED_REQUEST_TOO_ARGE:
+        if not result:
+            raise QuitDownload(formatmsg(ERR_FETCH_NODATA, "", url))
+        yield url, result  # then result is the tuple (url, raw_data)
+    else:
+        logger.info("Request seems to be too large, splitting into "
+                    "sub-requests")
 
-                while downloads:
-                    evt_q_args = _split_request(downloads.pop(0))
-                    for i, evt_q_arg in enumerate(evt_q_args):
-                        url = urljoin(base_url, **evt_q_arg)
-                        result = _urlread(url, timeout, is_isf_)
-                        if result is not None:
-                            # update pbar only if the end of the request equals
-                            # the global end_iso (when recursion is done on time, it
-                            # updates only on the first time chunk):
-                            if evt_q_arg['endtime'] == end_iso:
-                                steps = _get_freq_mag_distrib(evt_q_arg)[2].sum()
-                                pbar.update(steps)
-                            yield url, result  # then result is the tuple (url, raw_data)
-                        else:
-                            downloads.insert(i, evt_q_arg)
-    except Exception as exc:
-        raise FailedDownload(formatmsg("Unable to fetch events", exc, url))
+        # control that at least one subrequest returned non empty data:
+        yielded = False
+
+        # the tricky part below is actually the progressbar part. It must:
+        # 1 not be linear, thus advance "more" at lower magnitudes (where
+        #   events are more dense)
+        # 2 consider that, when the maximum magnitude depth is reached, we split
+        #   by time and in this case only the last sub-request should advance the
+        #   progress bar
+        total_pbar_steps = _get_freq_mag_distrib(evt_query_args)[2].sum()
+        with get_progressbar(show_progress, length=total_pbar_steps) as pbar:
+            downloads = [evt_query_args]
+
+            while downloads:
+                evt_q_args = _split_request(downloads.pop(0))
+                for i, evt_q_arg in enumerate(evt_q_args):
+                    url = urljoin(base_url, **evt_q_arg)
+                    result = _urlread(url, timeout, is_isf_)
+                    if result is not _SUSPECTED_REQUEST_TOO_ARGE:
+                        # update pbar only if the end of the request equals
+                        # the global end_iso (when recursion is done on time, it
+                        # updates only on the first time chunk):
+                        if evt_q_arg['endtime'] == end_iso:
+                            steps = _get_freq_mag_distrib(evt_q_arg)[2].sum()
+                            pbar.update(steps)
+                        if result:  # do not yield empty data
+                            yield url, result  # (url, raw_data)
+                            yielded = True
+                    else:
+                        downloads.insert(i, evt_q_arg)
+        if not yielded:
+            raise ValueError("no sub-request returned data")
 
 
 def _normalize(base_url, evt_query_args, start, end):
@@ -267,6 +267,9 @@ def _normalize(base_url, evt_query_args, start, end):
     return url, evt_query_args
 
 
+_SUSPECTED_REQUEST_TOO_ARGE = type('suspected_request_too_large', (object,), {})()
+
+
 def _urlread(url, timeout=None, is_isf=False):
     """Wrapper around `urlread` but returns None if the url should be split
     because of a too long request
@@ -275,17 +278,19 @@ def _urlread(url, timeout=None, is_isf=False):
         raw_data, code, msg = urlread(url, decode='utf8', timeout=timeout,
                                       raise_http_err=True, wrap_exceptions=False)
 
-        if raw_data is None:  # for safety (None has a special meaning)
+        if code == 204:
             raw_data = ''
 
-        return isfresponse2txt(raw_data) if raw_data and is_isf else raw_data
+        if raw_data and is_isf:
+            raw_data = isfresponse2txt(raw_data)
+
+        return raw_data
 
     except Exception as exc:  # pylint: disable=broad-except
         # raise only if we do NOT have timeout or http err in (413, 504)
         if isinstance(exc, socket.timeout) or \
-                (isinstance(exc, HTTPError)
-                 and exc.code in (413, 504)):  # pylint: disable=no-member
-            return None
+                (isinstance(exc, HTTPError) and exc.code in (413, 504)):  # noqa
+            return _SUSPECTED_REQUEST_TOO_ARGE
         raise
 
 
@@ -360,14 +365,24 @@ def _get_freq_mag_distrib(evt_query_args):
     return minmag, step, ret
 
 
+class ISFParseError(Exception):
+    pass
+
+
 def isfresponse2txt(nonempty_text, catalog='ISC', contributor='ISC'):
-    """Convert an isf formatted string into an FDSN text formatted string"""
+    """Convert an isf formatted string into an FDSN text formatted string
+    Expects text to be non empty, raises if no event could be parsed
+    """
     sio = StringIO(nonempty_text)
     sio.seek(0)
     try:
-        return '\n'.join('|'.join(_) for _ in isf2text_iter(sio, catalog, contributor))
+        ret = '\n'.join('|'.join(_) for _ in isf2text_iter(sio, catalog, contributor))
+        # if text is non empty, we can safely raise unformatted type:
+        if not ret:
+            raise Exception('Event block not found')  # caught and reraised below
+        return ret
     except Exception as exc:  # pylint: disable=broad-except
-        raise ValueError('Error reading .isf data: %s' % str(exc))
+        raise ISFParseError(str(exc))
 
 
 def isf2text_iter(isf_filep, catalog='', contributor=''):
