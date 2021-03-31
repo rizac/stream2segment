@@ -108,9 +108,11 @@ def events_df_list(url, evt_query_args, start, end, timeout=15, show_progress=Fa
         except QuitDownload:
             raise
         except ISFParseError as isf_exc:
-            raise FailedDownload(formatmsg(ERR_FETCH_ISF, isf_exc, url))
+            raise FailedDownload(formatmsg(ERR_FETCH_ISF, isf_exc,
+                                           normalize_url(url, evt_query_args, start, end)))
         except Exception as exc:
-            raise FailedDownload(formatmsg(ERR_FETCH, exc, url))
+            raise FailedDownload(formatmsg(ERR_FETCH, exc,
+                                           normalize_url(url, evt_query_args, start, end)))
 
     pd_df_list = []
     for url_, data in urls_and_data:
@@ -125,13 +127,22 @@ def events_df_list(url, evt_query_args, start, end, timeout=15, show_progress=Fa
                 logger.warning(formatmsg(msg, exc, url_))
 
     if not pd_df_list:
-        # we cannot be here if reading from file.
-        # build the main url used for the query, so that we log the latter:
-        _url, _query_args = _normalize(url, evt_query_args, start, end)
         raise FailedDownload(formatmsg(ERR_FETCH_FDSN, 'details in log file',
-                                       urljoin(_url, **_query_args)))
+                                       normalize_url(url, evt_query_args, start, end)))
 
     return pd_df_list
+
+
+def normalize_url(base_url, evt_query_args, start, end):
+    """Return the normalized URL string of url:
+    1. Converts base_url to a normal URL if the former is a key of EVENTWS_MAPPING
+    2. Set event_query_args 'starttime' and 'endtime' equal to the provided arguments
+       `start` and `end` (handling duplicate names such as 'start' / 'startime')
+    3. Converts 'minmag' 'maxmag' in `evt_query_args` to 'minmagnitude', 'maxmagnitude'
+    4. Adds a custom format 'text' unless the base_url is not EVENTWS_MAPPING['isc']
+    """
+    _url, _query_args = _normalize(base_url, evt_query_args, start, end)
+    return urljoin(_url, **_query_args)
 
 
 def events_data_from_file(file_path, format_=None):
@@ -154,10 +165,10 @@ def events_data_from_file(file_path, format_=None):
 
 
 class Formats(object):
-    "container for the supported text formats"
+    """Container for the supported Web service recognized format strings"""
 
     ISF = 'isf'
-    FDSN = 'txt'
+    FDSN = 'text'
 
     @staticmethod
     def get_format(filepath):
@@ -237,12 +248,12 @@ def events_iter_from_url(base_url, evt_query_args, start, end, timeout,
 
 
 def _normalize(base_url, evt_query_args, start, end):
-    """Return the normalized tuple (url, evt_query_args), i.e. url is mapped to
-    EVENTWS_MAPPING (if a key is found) and evt_query_args has surely the keys
-    'starttime', 'endtime', 'format'. Moreover, 'minmag' 'maxmag', if found,
-    are normalized into 'minmagnitude' and 'maxmagnitude' (but note that
-    'minmagnitude' and 'maxmagnitude' are not assured to be keys of the
-    returned `evt_query_args`.
+    """Return the normalized tuple (url, evt_query_args):
+    1. Converts base_url to a normal URL if the former is a key of EVENTWS_MAPPING
+    2. Set event_query_args 'starttime' and 'endtime' equal to the provided arguments
+       `start` and `end` (handling duplicate names such as 'start' / 'startime')
+    3. Converts 'minmag' 'maxmag' in `evt_query_args` to 'minmagnitude', 'maxmagnitude'
+    4. Adds a custom format 'text' unless the base_url is not EVENTWS_MAPPING['isc']
     """
     start_iso = start.isoformat()
     end_iso = end.isoformat()
