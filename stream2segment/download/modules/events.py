@@ -17,7 +17,8 @@ import pandas as pd
 
 from stream2segment.io import StringIO  # <- io.StringIO py2 compatible
 from stream2segment.io.cli import get_progressbar
-from stream2segment.download.modules.utils import (dbsyncdf, response2normalizeddf, formatmsg,
+from stream2segment.download.modules.utils import (dbsyncdf, response2normalizeddf,
+                                                   formatmsg,
                                                    EVENTWS_MAPPING, strptime, urljoin)
 from stream2segment.download.exc import FailedDownload, QuitDownload
 from stream2segment.download.db.models import WebService, Event
@@ -61,7 +62,7 @@ def configure_ws_fk(eventws_url, session, db_bufsize):
     elif islocalfile(eventws_url):
         eventws_url = tofileuri(eventws_url)
 
-    eventws_id = session.query(WebService.id).\
+    eventws_id = session.query(WebService.id). \
         filter(WebService.url == eventws_url).scalar()
 
     if eventws_id is None:  # write url to table
@@ -94,11 +95,11 @@ def events_df_list(url, evt_query_args, start, end, timeout=15, show_progress=Fa
     urls_and_data = []
     is_local_file = islocalfile(url)
     if is_local_file:
-        ftype = evt_query_args.get('format') or get_format(url)
+        frmt = evt_query_args.get('format') or Formats.get_format(url)
         try:
-            urls_and_data.append(events_data_from_file(url, ftype))
+            urls_and_data.append(events_data_from_file(url, frmt))
         except Exception as exc:
-            msg = ERR_READ_ISF if ftype == 'isf' else ERR_READ_FDSN
+            msg = ERR_READ_ISF if frmt == Formats.ISF else ERR_READ_FDSN
             raise FailedDownload(formatmsg(msg, exc, tofileuri(url)))
     else:
         try:
@@ -142,24 +143,27 @@ def events_data_from_file(file_path, format_=None):
         (e.g., no comments allowed)
     """
     if format_ is None:
-        format_ = get_format(file_path)
+        format_ = Formats.get_format(file_path)
     with open(file_path, encoding='utf-8') as opn:
         data = opn.read()
         if not data:
             raise ValueError('Empty file')
-        if format_ == 'isf':
+        if format_ == Formats.ISF:
             data = isfresponse2txt(data, catalog='', contributor='')
         return tofileuri(file_path), data
 
 
-# def is_isf(filepath):
-#     with open(filepath, 'r') as opn:
-#         return opn.readline().startswith('DATA_TYPE ')
+class Formats(object):
+    "container for the supported text formats"
 
+    ISF = 'isf'
+    FDSN = 'txt'
 
-def get_format(filepath):
-    with open(filepath, 'r') as _:
-        return "isf" if _.readline().startswith('DATA_TYPE ') else "txt"
+    @staticmethod
+    def get_format(filepath):
+        with open(filepath, 'r') as _:
+            return Formats.ISF if _.readline().startswith('DATA_TYPE ') else \
+                Formats.FDSN
 
 
 def tofileuri(file_path):
@@ -185,7 +189,7 @@ def events_iter_from_url(base_url, evt_query_args, start, end, timeout,
     length > 1 if the request was too large and had to be split
     """
     base_url, evt_query_args = _normalize(base_url, evt_query_args, start, end)
-    is_isf_ = evt_query_args['format'] == 'isf'
+    is_isf_ = evt_query_args['format'] == Formats.ISF
     end_iso = evt_query_args['endtime']
 
     url = urljoin(base_url, **evt_query_args)
@@ -261,8 +265,8 @@ def _normalize(base_url, evt_query_args, start, end):
             evt_query_args['maxmagnitude'] = maxmag
 
     url = EVENTWS_MAPPING.get(base_url, base_url)
-    evt_query_args.setdefault('format',
-                              'isf' if url == EVENTWS_MAPPING['isc'] else 'text')
+    frmt = Formats.ISF if url == EVENTWS_MAPPING['isc'] else Formats.FDSN
+    evt_query_args.setdefault('format', frmt)
 
     return url, evt_query_args
 
@@ -304,7 +308,7 @@ def _split_request(evt_query_args):
     if len(evtfreq_freq_mag_dist) < 2:  # max recusrion on magnitudes, split by time:
         start = strptime(evt_query_args['starttime'])
         end = strptime(evt_query_args['endtime'])
-        days_diff = int((end-start).days / 2.0)
+        days_diff = int((end - start).days / 2.0)
         if days_diff < 1:
             raise ValueError('maximum recursion depth reached')
         half_dtime_str = (start + timedelta(days=days_diff)).isoformat()
@@ -315,7 +319,7 @@ def _split_request(evt_query_args):
     else:
         half = evtfreq_freq_mag_dist.sum() / 2.0
         idx = 1
-        while evtfreq_freq_mag_dist[:idx+1].sum() < half:
+        while evtfreq_freq_mag_dist[:idx + 1].sum() < half:
             idx += 1
         mag_half = minmag + idx * deltamag
         evt_query_args1 = dict(evt_query_args)
@@ -339,7 +343,7 @@ def _get_freq_mag_distrib(evt_query_args):
     default_min, step, default_max = 0, .1, 9
 
     # create the function:
-    ret = ((10 ** (default_max - np.arange(default_min, default_max, step))) + 0.5).\
+    ret = ((10 ** (default_max - np.arange(default_min, default_max, step))) + 0.5). \
         astype(int)
     # set all points of magnitude <1 equal to the frequency at magnitude 1
     # (no frequency increase after that threshold)

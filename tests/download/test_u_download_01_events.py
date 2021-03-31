@@ -693,6 +693,7 @@ class Test(object):
                                        db_bufsize=self.db_buf_size)
             if filepath == txt_file:  # then we expected isf:
                 assert ERR_READ_ISF in str(fdwl.value)
+                assert 'Event block not found' in str(fdwl.value)
             else:  # then we expected fdsn:
                 assert ERR_READ_FDSN in str(fdwl.value)
             # assert "No event found. Check that the file is non empty and its content is valid" \
