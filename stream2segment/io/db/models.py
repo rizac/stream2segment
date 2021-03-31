@@ -197,6 +197,7 @@ class Event(Base):  # pylint: disable=too-few-public-methods
     magnitude = Column(Float, nullable=False)
     mag_author = Column(String)
     event_location_name = Column(String)
+    event_type = Column(String)
 
     @declared_attr
     def __table_args__(cls):  # noqa  # https://stackoverflow.com/a/43993950

@@ -212,6 +212,7 @@ class Test(object):
         # check that log has notified:
         log1 = self.log_msg()
         assert "20160508_0000113" in log1
+        assert "Adding missing nullable column(s) in data: event_type" in log1
         assert "1 database row(s) not inserted" in log1
         assert "1 row(s) discarded (malformed text data)" in log1
         assert mock_urljoin.call_count == 1
@@ -765,17 +766,22 @@ class Test(object):
                 assert (iris_df[col].values == isc_df[col].values).all()
 
     @patch('stream2segment.download.modules.events.urljoin', side_effect=urljoin)
-    def test_get_events_event_type(self, mock_urljoin, db):
-        urlread_sideeffect = ["""#EventID|Time|Latitude|Longitude|Depth/km|Author|Catalog|Contributor|ContributorID|MagType|Magnitude|MagAuthor|EventLocationName|EventType
-gfz2021edty|2021-02-28T23:37:15.211956|-17.565212|167.572067|10.0|||GFZ|gfz2021edty|M|5.787024361||Vanuatu Islands|earthquake
-gfz2021edpn|2021-02-28T21:23:50.840903|-22.500320|172.554474|26.75543594|||GFZ|gfz2021edpn|mb|4.907085435||Southeast of Loyalty Islands|earthquake
-gfz2021edoa|2021-02-28T20:37:40.931643|-22.658522|172.432373|30.70357132|||GFZ|gfz2021edoa|Mw|5.755797284||Southeast of Loyalty Islands|earthquake
+    def test_get_events_response_has_one_col_more(self, mock_urljoin, db):
+        """WARNING: THIS TEST MIGHT FAIL IN THE FUTURE IF NEW COLUMNS ARE ADDED TO OUR
+        Event MODEL. TO FIX THIS, EDIT THE RESPONSE BELOW IN ORDER TO HAVE ALWAYS ONE
+        COLUMN MORE THAN IN OUR Event MODEL
+         """
+        urlread_sideeffect = ["""#EventID|Time|Latitude|Longitude|Depth/km|Author|Catalog|Contributor|ContributorID|MagType|Magnitude|MagAuthor|EventLocationName|EventType|
+gfz2021edty|2021-02-28T23:37:15.211956|-17.565212|167.572067|10.0|||GFZ|gfz2021edty|M|5.787024361||Vanuatu Islands|earthquake|
+gfz2021edpn|2021-02-28T21:23:50.840903|-22.500320|172.554474|26.75543594|||GFZ|gfz2021edpn|mb|4.907085435||Southeast of Loyalty Islands|earthquake|
+gfz2021edoa|2021-02-28T20:37:40.931643|-22.658522|172.432373|30.70357132|||GFZ|gfz2021edoa|Mw|5.755797284||Southeast of Loyalty Islands|earthquake|
 """]
         with pytest.raises(FailedDownload) as fdw:
             data = self.get_events_df(urlread_sideeffect, db.session, "http://eventws", {},
                                       datetime.utcnow() - timedelta(seconds=1), datetime.utcnow(),
                                       db_bufsize=self.db_buf_size)
         assert str(fdw.value).startswith(ERR_FETCH_FDSN)
+        assert "column(s)" in str(fdw.value)  # test it's a columns problem
         log1 = self.log_msg()
         # the message should be in the log in a normal routine, but here it should NOT
         # be because we do not run get_events_df from the parent main function, where

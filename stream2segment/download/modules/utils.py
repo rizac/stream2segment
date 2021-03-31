@@ -281,7 +281,6 @@ def response2normalizeddf(url, raw_data, dbmodel_key):
     :param raw_data: valid FDSN data in text format. For info see:
         https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf#page=12
     """
-
     dframe = response2df(raw_data)
     oldlen, dframe = len(dframe), normalize_fdsn_dframe(dframe, dbmodel_key)
     # stations_df surely not empty:
@@ -379,8 +378,10 @@ def rename_columns(query_df, query_type):
         return query_df
 
     if query_type.lower() == "event" or query_type.lower() == "events":
+        model = Event
         columns = list(colnames(Event, pkey=False, fkey=False))
     elif query_type.lower() == "station" or query_type.lower() == "stations":
+        model = Station
         # these are the query_df columns for a station (level=station) query:
         # `Network|Station|Latitude|Longitude|Elevation|SiteName|StartTime|
         # EndTime`
@@ -391,6 +392,7 @@ def rename_columns(query_df, query_type):
                    Station.elevation.key, Station.site_name.key,
                    Station.start_time.key, Station.end_time.key]
     elif query_type.lower() == "channel" or query_type.lower() == "channels":
+        model = Channel
         # these are the query_df expected columns for a station (level=channel)
         # query:
         # `Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|
@@ -411,14 +413,32 @@ def rename_columns(query_df, query_type):
                          "Station or Channel class")
 
     oldcolumns = query_df.columns.tolist()
-    if len(oldcolumns) != len(columns):
+    if len(oldcolumns) > len(columns):
         # do not provide long messages, the exception is likely to be wrapped
         # also do not print columns, which are often just numbers with no meaning:
         raise ValueError("Data has %d column(s), expected: %d" %
                          (len(oldcolumns), len(columns)))
 
-    return query_df.rename(columns={cold: cnew for cold, cnew in
-                                    zip(oldcolumns, columns)})
+    ret = query_df.rename(columns={cold: cnew for cold, cnew in
+                          zip(oldcolumns, columns)})
+
+    # before returning, add missing nullable columns. this happens when we added new
+    # columns in our models, following some new spec, but the server response is still
+    # in the old format (if missing columns are not nullable, raise). The procedure below
+    # assumes that new columns, if any, are appended at the end of the response
+    if len(oldcolumns) < len(columns):
+        missing_cols = list(colnames(model, pkey=False, fkey=False))[len(oldcolumns):]
+        missing_non_nullable_cols = set(colnames(model, pkey=False, fkey=False,
+                                                 nullable=False)) & set(missing_cols)
+        if missing_non_nullable_cols:
+            raise ValueError("Missing non-nullable column(s) in data: %s" %
+                             (", ".join(missing_non_nullable_cols)))
+        logger.warning("Adding missing nullable column(s) in data: %s" %
+                       (", ".join(missing_cols)))
+        for col in missing_cols:
+            ret[col] = None
+
+    return ret
 
 
 def harmonize_fdsn_dframe(query_df, query_type):
