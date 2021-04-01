@@ -148,7 +148,11 @@ def dbsyncdf(dataframe, session, matching_columns, autoincrement_pkey_col,
              cols_to_print_on_err=None):
     """Call `syncdf` and writes to the logger before returning the new
     Dataframe. Raises a :class:`FailedDownload` if the returned Dataframe is
-    empty (no row saved)"""
+    empty (no row saved)
+    this function should be used for bulk insert/updates of metadata (event,
+    station, channels). Segments inserts/updates use the underling
+    :class:`pdsql.DbManager`
+    """
     db_exc_logger = DbExcLogger(cols_to_print_on_err)
 
     inserted, not_inserted, updated, not_updated, dfr = \
@@ -160,10 +164,20 @@ def dbsyncdf(dataframe, session, matching_columns, autoincrement_pkey_col,
 
     table = autoincrement_pkey_col.class_
     if dfr.empty:
+        # Build a meaningful error message for the FailedDownload exception
+        err_count = len(db_exc_logger.exc_history)
+        if not err_count:
+            first_err = 'Unknown. Try to check log for details'
+        else:
+            # Take the 1st item of the Set, who cares if it's not the first inserted:
+            first_err = next(iter(db_exc_logger.exc_history))
+        if err_count > 1:
+            err_msg = ("%d errors. Check log for details, first reported error "
+                       "is: %s") % (err_count, first_err)
+        else:
+            err_msg = 'error: ' + first_err
         raise FailedDownload(formatmsg("No row saved to table '%s'" %
-                                       table.__tablename__,
-                                       "unknown error, check log for details "
-                                       "and db connection"))
+                                       table.__tablename__, err_msg))
     dblog(table, inserted, not_inserted, updated, not_updated)
     return dfr
 
@@ -182,6 +196,7 @@ class DbExcLogger(object):
         """
         self.cols_to_print_on_err = cols_to_print_on_err
         self.max_row_count = max_row_count
+        self.exc_history = set()
 
     def failed_insert(self, dataframe, exception):
         """logs a failed db insertion
@@ -203,15 +218,16 @@ class DbExcLogger(object):
         """Function to be passed to pdsql functions on error when inserting/
         updating the database. Basically, it prints to log
         """
+        try:
+            # if SQL-Alchemy exception, try to guess the orig attribute
+            # which represents the wrapped exception
+            # http://docs.sqlalchemy.org/en/latest/core/exceptions.html
+            errmsg = str(exception.orig)
+        except AttributeError:
+            # just use the string representation of exception
+            errmsg = str(exception)
+        self.exc_history.add(errmsg)
         if not dataframe.empty:
-            try:
-                # if SQL-Alchemy exception, try to guess the orig attribute
-                # which represents the wrapped exception
-                # http://docs.sqlalchemy.org/en/latest/core/exceptions.html
-                errmsg = str(exception.orig)
-            except AttributeError:
-                # just use the string representation of exception
-                errmsg = str(exception)
             len_df = len(dataframe)
             msg = formatmsg("%d database row(s) not %s" %
                             (len_df, "updated" if update else "inserted"),

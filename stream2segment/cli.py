@@ -514,13 +514,11 @@ def download(config, dburl, eventws, starttime, endtime, network,  # noqa
             ret = _download(config, log2file=True, verbose=True, **overrides)
     except BadParam as err:
         print(err)
-        ret = 2
+        ret = 2  # 1 is reserved for FailedDownload
     except:  # @IgnorePep8 pylint: disable=bare-except
         # do not print traceback, as we already did it by configuring loggers
-        ret = 3
-    # ret might return 0 or 1 the latter in case of QuitDownload, but tests
-    # expect a non-zero value thus we skip this feature for the moment
-    sys.exit(0 if ret <= 1 else ret)
+        ret = 3  # 1 is reserved for FailedDownload
+    sys.exit(ret)
 
 
 @cli.command(short_help="Process downloaded waveform data segments by "

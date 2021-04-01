@@ -46,3 +46,20 @@ level=channel"""
 #     
 #     urlread(r)
 #     h = 9
+
+
+from stream2segment.cli import cli
+
+@pytest.mark.skipif(no_connection(),
+                    reason="no internet connection")
+def test_no_eventtype_column_db(clirunner, pytestdir, data):
+    result = clirunner.invoke(cli, ['download',
+                                    '-c', data.path('db.no_event_type_column.yaml'),
+                                    ])
+    assert ("No row saved to table 'events' (error: table events "
+            "has no column named event_type)") in result.output
+    assert result.exit_code != 0
+
+
+
+
