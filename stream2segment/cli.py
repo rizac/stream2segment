@@ -687,7 +687,7 @@ def stats(dburl, download_id, maxgap_threshold, html, outfile):
     try:
         with warnings.catch_warnings():  # capture (ignore) warnings
             warnings.simplefilter("ignore")
-            dstats(dburl, download_id or None, maxgap_threshold, html, outfile)
+            dstats(dburl, None, download_id or None, maxgap_threshold, html, outfile)
         if outfile is not None:
             print("download statistics written to '%s'" % outfile)
         sys.exit(0)
@@ -715,8 +715,7 @@ def report(dburl, download_id, config, log, outfile):
     """Return download information.
 
     [OUTFILE] (optional): the output file where the information will be saved
-    to. If missing, results will be printed to screen or opened in a web
-    browser (depending on the option '--html')
+    to. If missing, results will be printed to screen
     """
     # import in function body to speed up the main module import:
     from stream2segment.download.db.inspection.main import dreport
@@ -729,9 +728,67 @@ def report(dburl, download_id, config, log, outfile):
         html = False
         with warnings.catch_warnings():  # capture (ignore) warnings
             warnings.simplefilter("ignore")
-            dreport(dburl, download_id or None, bool(config), bool(log), html, outfile)
+            dreport(dburl, None, download_id or None, bool(config), bool(log), html, outfile)
         if outfile is not None:
             print("download report written to '%s'" % outfile)
+        sys.exit(0)
+    except BadParam as err:
+        print(err)
+        sys.exit(1)  # exit with 1 as normal python exceptions
+
+
+@dl.command(short_help="Show the log file content of the given download execution(s)")
+@click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
+@click.argument("download_indices", required=False, default=-1, type=str)
+def log(dburl, download_id, config, log, download_indices):
+    """Return download information.
+
+    [download_indices] (optional): The index of the download execution whose log has to
+    be shown, where 0 indicates the first executed download. Negative numbers start from
+    the end,  so that -1 (the default when missing) means the most recent download
+    execution. You can also use slice notations: -2:-1 means: last two download executions
+    """
+    # import in function body to speed up the main module import:
+    from stream2segment.download.db.inspection.main import dreport
+
+    print('Fetching data, please wait (this might take a while depending on the '
+          'db size and connection)')
+    try:
+        # this is hacky but in case we want to restore the html
+        # argument ...
+        html = False
+        with warnings.catch_warnings():  # capture (ignore) warnings
+            warnings.simplefilter("ignore")
+            dreport(dburl, None, download_id or None, False, True, html, None)
+        sys.exit(0)
+    except BadParam as err:
+        print(err)
+        sys.exit(1)  # exit with 1 as normal python exceptions
+
+
+@dl.command(short_help="Show the YAML config used for the given download execution(s)")
+@click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
+@click.argument("download_indices", required=False, default=-1, type=str)
+def config(dburl, download_id, config, log, download_indices):
+    """Return download information.
+
+    [download_indices] (optional): The index of the download execution whose log has to
+    be shown, where 0 indicates the first executed download. Negative numbers start from
+    the end,  so that -1 (the default when missing) means the most recent download
+    execution. You can also use slice notations: -2:-1 means: last two download executions
+    """
+    # import in function body to speed up the main module import:
+    from stream2segment.download.db.inspection.main import dreport
+
+    print('Fetching data, please wait (this might take a while depending on the '
+          'db size and connection)')
+    try:
+        # this is hacky but in case we want to restore the html
+        # argument ...
+        html = False
+        with warnings.catch_warnings():  # capture (ignore) warnings
+            warnings.simplefilter("ignore")
+            dreport(dburl, None, download_id or None, True, False, html, None)
         sys.exit(0)
     except BadParam as err:
         print(err)

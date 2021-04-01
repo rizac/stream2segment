@@ -24,11 +24,11 @@ from stream2segment.download.modules.utils import EVENTWS_SAFE_PARAMS, DownloadS
 from stream2segment.io import yaml_load, Fdsnws, open2writetext
 from stream2segment.io.cli import ascii_decorate
 from stream2segment.io.db.sqlconstructs import concat
-from stream2segment.io.inputvalidation import validate_param, valid_session
+from stream2segment.io.inputvalidation import validate_param, valid_session, BadParam
 
 
-def dreport(dburl, download_ids=None, config=True, log=True, html=False,
-            outfile=None):
+def dreport(dburl, download_indices=None, download_ids=None, config=True, log=True,
+            html=False, outfile=None):
     """Create a diagnostic html page (or text string) showing the status of the
     download. Note that html is not supported for the moment and will raise an
     Exception. (leaving the same signatire as dstats for compatibility and
@@ -37,24 +37,32 @@ def dreport(dburl, download_ids=None, config=True, log=True, html=False,
     :param config: boolean (True by default)
     :param log: boolean (True by default)
     """
-    _get_download_info(DReport(config, log), dburl, download_ids, html, outfile)
+    _get_download_info(DReport(config, log), dburl, download_indices, download_ids,
+                       html, outfile)
 
 
-def dstats(dburl, download_ids=None, maxgap_threshold=0.5, html=False,
+def dstats(dburl, download_indices=None, download_ids=None, maxgap_threshold=0.5, html=False,
            outfile=None):
     """Create a diagnostic html page (or text string) showing the status of the
     download
 
     :param maxgap_threshold: the max gap threshold (float)
     """
-    _get_download_info(DStats(maxgap_threshold), dburl, download_ids, html,
-                       outfile)
+    _get_download_info(DStats(maxgap_threshold), dburl, download_indices, download_ids,
+                       html, outfile)
 
 
-def _get_download_info(info_generator, dburl, download_ids=None, html=False,
-                       outfile=None):
+def _get_download_info(info_generator, dburl, download_indices=None, download_ids=None,
+                       html=False, outfile=None):
     """Process dinfo or dstats"""
     session = validate_param('dburl', dburl, valid_session)
+
+    if not download_ids:
+        download_ids = []
+    for _ in get_download_ids(session, download_indices):
+        if _ not in download_ids:
+            download_ids.append(_)
+
     if html:
         openbrowser = False
         if not outfile:
@@ -80,6 +88,27 @@ def _get_download_info(info_generator, dburl, download_ids=None, html=False,
         else:
             for line in itr:
                 print(line)
+
+
+def get_download_ids(session, download_indices=None):
+    if not download_indices:
+       return []
+    download_indices = str(download_indices)
+    start, stop, step = None, None, None
+    _ = download_indices.split(':')
+    try:
+        if len(_) == 1:
+            start, stop = int(_), int(_)+1
+        elif len(_) == 2:
+            start = None if not _[0] else int(_[0])
+            stop = None if not _[1] else int(_[1])
+        elif len(_) == 3:
+            start = None if not _[0] else int(_[0])
+            stop = None if not _[1] else int(_[1])
+            step = None if not _[2] else int(_[2])
+        return [_[0] for _ in query_download_data(session)][slice(start, stop, step)]
+    except Exception as exc:
+        raise BadParam("Invalid download indices", "", str(exc), param_quote='')
 
 
 class _InfoGenerator(object):
@@ -197,10 +226,11 @@ def infoquery(session, download_ids=None, config=True, log=True):
         attrs.append(Download.config)
     if log:
         attrs.append(Download.log)
-    qry = session.query(*attrs)
+    qry = query_download_data(session, attrs)
+    # qry = session.query(*attrs)
     if download_ids is not None:
         qry = qry.filter(Download.id.in_(download_ids))
-    for res in qry.order_by(Download.run_time.asc()):  # .group_by(Download.id):
+    for res in qry:   #  .order_by(Download.run_time.asc()):  # .group_by(Download.id):
         if not config and not log:  # False
             res = list(res) + ['', '']
         elif not log:
@@ -209,6 +239,15 @@ def infoquery(session, download_ids=None, config=True, log=True):
             res = list(res)
             res.insert(-1, '')
         yield res
+
+
+def query_download_data(session, attrs=(Download.id,), sort='asc'):
+    qry = session.query(*attrs)
+    if sort == 'desc':
+        qry = qry.order_by(Download.run_time.desc())
+    else:
+        qry = qry.order_by(Download.run_time.asc())
+    return qry
 
 
 def tojson(obj):
