@@ -735,58 +735,64 @@ def report(dburl, download_id, config, log, outfile):
         sys.exit(1)  # exit with 1 as normal python exceptions
 
 
-@dl.command(short_help="Show the log file content of the given download execution(s)")
+@dl.command(short_help="Show the log file content of the given download execution(s)",
+            context_settings={'ignore_unknown_options': True})
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
-@click.argument("download_indices", required=False, default=-1, type=str)
-def log(dburl, download_id, config, log, download_indices):
-    """Return download information.
+@click.argument("download_indices", required=False, nargs=-1)
+def log(dburl, download_indices):
+    """Return the log file(s) content with detailed information of the download execution
 
-    [download_indices] (optional): The index of the download execution whose log has to
-    be shown, where 0 indicates the first executed download. Negative numbers start from
-    the end,  so that -1 (the default when missing) means the most recent download
-    execution. You can also use slice notations: -2:-1 means: last two download executions
+    [DOWNLOAD_INDICES] (optional): The space-separated indices of the download executions
+    to inspect, where 0 indicates the first/oldest. To start counting from the end use a
+    negative index. E.g., -1 for the last/most recent execution, -2 for the next-to-last,
+    and so on (-1 is also the default when no argument is provided). Remember not to mix
+    up the index provided here with the download id (immutable integer uniquely
+    identifying a download execution)
     """
     # import in function body to speed up the main module import:
     from stream2segment.download.db.inspection.main import dreport
 
     print('Fetching data, please wait (this might take a while depending on the '
-          'db size and connection)')
+          'db size and connection)', file=sys.stderr, flush=True)
     try:
         # this is hacky but in case we want to restore the html
         # argument ...
         html = False
         with warnings.catch_warnings():  # capture (ignore) warnings
             warnings.simplefilter("ignore")
-            dreport(dburl, None, download_id or None, False, True, html, None)
+            dreport(dburl, download_indices or [-1], None, False, True, html, None)
         sys.exit(0)
     except BadParam as err:
         print(err)
         sys.exit(1)  # exit with 1 as normal python exceptions
 
 
-@dl.command(short_help="Show the YAML config used for the given download execution(s)")
+@dl.command(short_help="Show the YAML config of the given download execution(s)",
+            context_settings={'ignore_unknown_options': True})
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
-@click.argument("download_indices", required=False, default=-1, type=str)
-def config(dburl, download_id, config, log, download_indices):
-    """Return download information.
+@click.argument("download_indices", required=False, nargs=-1)
+def config(dburl, download_indices):
+    """Return the YAML configuration file(s) used for launching the download execution
 
-    [download_indices] (optional): The index of the download execution whose log has to
-    be shown, where 0 indicates the first executed download. Negative numbers start from
-    the end,  so that -1 (the default when missing) means the most recent download
-    execution. You can also use slice notations: -2:-1 means: last two download executions
+    [DOWNLOAD_INDICES] (optional): The space-separated indices of the download executions
+    to inspect, where 0 indicates the first/oldest. To start counting from the end use a
+    negative index. E.g., -1 for the last/most recent execution, -2 for the next-to-last,
+    and so on (-1 is also the default when no argument is provided). Remember not to mix
+    up the index provided here with the download id (immutable integer uniquely
+    identifying a download execution)
     """
     # import in function body to speed up the main module import:
     from stream2segment.download.db.inspection.main import dreport
 
     print('Fetching data, please wait (this might take a while depending on the '
-          'db size and connection)')
+          'db size and connection)', file=sys.stderr, flush=True)
     try:
         # this is hacky but in case we want to restore the html
         # argument ...
         html = False
         with warnings.catch_warnings():  # capture (ignore) warnings
             warnings.simplefilter("ignore")
-            dreport(dburl, None, download_id or None, True, False, html, None)
+            dreport(dburl, download_indices or [-1], None, True, False, html, None)
         sys.exit(0)
     except BadParam as err:
         print(err)

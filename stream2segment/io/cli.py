@@ -11,23 +11,26 @@ from itertools import chain
 from click import progressbar as click_progressbar
 
 
-def ascii_decorate(string):
+def ascii_decorate(string, frame=None):
     """Decorate the string with a frame in unicode decoration characters,
     and returns the decorated string
 
     :param string: a signle- or multi-line string
+    :param frame: list of characters or string. The string/list can have length 1,3 or 7:
+        1 character/list defines the decorator character. E.g. '#' or ('#',)
+        3 characters/lists define the (top, mid, bottom) characters. E.g. ("=", "|", "-")
+        7 characters define the (topleft, topcenter, topright, midleft, midright
+          bottomleft, bottomcenter, bottomright) characters. When None or missing,
+          this argument defaults to "╔═╗║║╚═╝"
     """
     if not string:
         return ''
-
-    # defined the frame characters:
-    # (topleft, top, topright, left, right, bottomleft, bottom, bottomright):
-    # note that top and bottom must be 1-length strings, and
-    # topleft+left=bottomleft must have the same length, as well as
-    # topright+right+bottomright
-
-    frame = "╔", "═", "╗", "║", "║", "╚", "═", "╝"
-    # frame = "###", "#", "###", "###", "###", "###", "#", "###"
+    if not frame:
+        frame = "╔", "═", "╗", "║", "║", "╚", "═", "╝"
+    if len(frame) == 1:
+        frame = frame * 8
+    elif len(frame) == 3:
+        frame = [frame[0]*3, frame[1]*2, frame[2]*3]
 
     linez = string.splitlines()
     maxlen = max(len(l) for l in linez)

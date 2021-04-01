@@ -31,9 +31,13 @@ def dreport(dburl, download_indices=None, download_ids=None, config=True, log=Tr
             html=False, outfile=None):
     """Create a diagnostic html page (or text string) showing the status of the
     download. Note that html is not supported for the moment and will raise an
-    Exception. (leaving the same signatire as dstats for compatibility and
-    easing future implementations of the html page if needed)
+    Exception. (leaving the same signature as `dstats` for compatibility and
+    easing future implementations of the html page if needed). If download ids and
+    download indices are both Nones, shows stats for all
+    downloads
 
+    :param download_indices: slice, int or str ('start', 'start:stop', 'start:stop:step')
+    :param download_ids: download ids (list of int), will be merged with download_indices
     :param config: boolean (True by default)
     :param log: boolean (True by default)
     """
@@ -41,11 +45,14 @@ def dreport(dburl, download_indices=None, download_ids=None, config=True, log=Tr
                        html, outfile)
 
 
-def dstats(dburl, download_indices=None, download_ids=None, maxgap_threshold=0.5, html=False,
-           outfile=None):
+def dstats(dburl, download_indices=None, download_ids=None, maxgap_threshold=0.5,
+           html=False, outfile=None):
     """Create a diagnostic html page (or text string) showing the status of the
-    download
+    download. If download ids and download indices are both Nones, shows stats for all
+    downloads
 
+    :param download_indices: slice, int or str ('start', 'start:stop', 'start:stop:step')
+    :param download_ids: download ids (list of int), will be merged with download_indices
     :param maxgap_threshold: the max gap threshold (float)
     """
     _get_download_info(DStats(maxgap_threshold), dburl, download_indices, download_ids,
@@ -57,11 +64,12 @@ def _get_download_info(info_generator, dburl, download_indices=None, download_id
     """Process dinfo or dstats"""
     session = validate_param('dburl', dburl, valid_session)
 
-    if not download_ids:
-        download_ids = []
-    for _ in get_download_ids(session, download_indices):
-        if _ not in download_ids:
-            download_ids.append(_)
+    if download_ids or download_indices:
+        if not download_ids:
+            download_ids = []
+        for _ in get_download_ids(session, download_indices):
+            if _ not in download_ids:
+                download_ids.append(_)
 
     if html:
         openbrowser = False
@@ -92,23 +100,44 @@ def _get_download_info(info_generator, dburl, download_indices=None, download_id
 
 def get_download_ids(session, download_indices=None):
     if not download_indices:
-       return []
-    download_indices = str(download_indices)
-    start, stop, step = None, None, None
-    _ = download_indices.split(':')
-    try:
-        if len(_) == 1:
-            start, stop = int(_), int(_)+1
-        elif len(_) == 2:
-            start = None if not _[0] else int(_[0])
-            stop = None if not _[1] else int(_[1])
-        elif len(_) == 3:
-            start = None if not _[0] else int(_[0])
-            stop = None if not _[1] else int(_[1])
-            step = None if not _[2] else int(_[2])
-        return [_[0] for _ in query_download_data(session)][slice(start, stop, step)]
-    except Exception as exc:
-        raise BadParam("Invalid download indices", "", str(exc), param_quote='')
+        return []
+
+    def raise_bad_param():
+        raise BadParam("Invalid download indices", "", str(download_indices),
+                       param_quote='')
+
+    d_indices = download_indices
+    if isinstance(d_indices, str) and ':' in d_indices:
+        # parse as slice:
+        try:
+            start, stop, step = None, None, None
+            _ = str(download_indices).split(':')
+            if len(_) == 2:
+                start = None if not _[0] else int(_[0])
+                stop = None if not _[1] else int(_[1])
+            elif len(_) == 3:
+                start = None if not _[0] else int(_[0])
+                stop = None if not _[1] else int(_[1])
+                step = None if not _[2] else int(_[2])
+            else:
+                raise_bad_param()
+        except Exception as exc:  # noqa
+            raise_bad_param()
+        d_indices = slice(start, stop, step)
+
+    if not isinstance(d_indices, slice):
+        try:
+            d_indices = [int(download_indices)]
+        except (ValueError, TypeError):
+            try:
+                d_indices = [int(_) for _ in download_indices]
+            except Exception:  # noqa
+                raise_bad_param()
+
+    d_ids = [_[0] for _ in query_download_data(session, sort='asc')]
+    if isinstance(d_indices, slice):
+        return d_ids[d_indices]
+    return [d_ids[_] for _ in d_indices]
 
 
 class _InfoGenerator(object):
@@ -198,9 +227,11 @@ def get_dreport_str_iter(session, download_ids=None, config=True, log=True):
     :param log: boolean (default: True). Whether to show the download log messages
     """
     data = infoquery(session, download_ids, config, log)
+    # if config only, use the comment as frame decorator (YAML compatible):
+    frame = None if log else '#'
     for dwnl_id, dwnl_time, configtext, logtext in data:
         yield ''
-        yield ascii_decorate('Download id: %d (%s)' % (dwnl_id, str(dwnl_time)))
+        yield ascii_decorate('Download id: %d (%s)' % (dwnl_id, str(dwnl_time)), frame)
         if config and log:
             yield ''
             yield 'Configuration:%s' % (' N/A' if not configtext else '')
@@ -213,6 +244,9 @@ def get_dreport_str_iter(session, download_ids=None, config=True, log=True):
         if logtext:
             yield ''
             yield logtext
+            # when the log ends with an exception, it looks like the exception is raised
+            # provide an end tag to make clear the exception refers to the download:
+            yield "[Log file end]"
 
 
 def infoquery(session, download_ids=None, config=True, log=True):
@@ -241,11 +275,11 @@ def infoquery(session, download_ids=None, config=True, log=True):
         yield res
 
 
-def query_download_data(session, attrs=(Download.id,), sort='asc'):
+def query_download_data(session, attrs=(Download.id,), sort=None):
     qry = session.query(*attrs)
     if sort == 'desc':
         qry = qry.order_by(Download.run_time.desc())
-    else:
+    elif sort == 'asc':
         qry = qry.order_by(Download.run_time.asc())
     return qry
 
