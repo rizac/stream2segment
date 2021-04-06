@@ -20,6 +20,7 @@ import sys
 import os
 import warnings
 from collections import OrderedDict, defaultdict
+from contextlib import contextmanager
 
 import click
 
@@ -521,6 +522,20 @@ def download(config, dburl, eventws, starttime, endtime, network,  # noqa
     sys.exit(ret)
 
 
+# @contextmanager
+# def cmd_env(warnings_filter='ignore'):
+#     try:
+#         if warnings_filter:
+#             with warnings.catch_warnings():  # capture (ignore) warnings
+#                 warnings.simplefilter(warnings_filter)
+#                 yield
+#         else:
+#             yield
+#     except BadParam as err:
+#         print(err, file=sys.stderr)
+#         sys.exit(2)  # 1 is reserved for any exception of the wrapped routine
+
+
 @cli.command(short_help="Process downloaded waveform data segments by "
                         "executing custom code on a user-defined selection of "
                         "segments")
@@ -605,7 +620,7 @@ def process(dburl, config, pyfile, funcname, append, no_prompt,
                                verbose=True, append=append, **overrides)
     except BadParam as err:
         print(err)
-        ret = 2  # exit with 1 as normal python exceptions
+        ret = 2
     except:  # @IgnorePep8 pylint: disable=bare-except
         # do not print traceback, as we already did it by configuring loggers
         ret = 3
@@ -695,7 +710,7 @@ def stats(dburl, download_id, maxgap_threshold, html, outfile, download_indices)
             dstats(dburl, download_indices or None, download_id or None,
                    maxgap_threshold, html, outfile)
         if outfile is not None:
-            print("download statistics written to '%s'" % outfile)
+            print("download statistics written to '%s'" % outfile, file=sys.stderr)
         sys.exit(0)
     except BadParam as err:
         print(err)

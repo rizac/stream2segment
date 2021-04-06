@@ -223,7 +223,7 @@ class DSummary(_InfoGenerator):
         """Returns an iterator yielding chunks of strings denoting the string
         representation of this object
         """
-        header = ('Download_id', 'Executed_at', 'Index')
+        header = ('Download id', 'Execution time', 'Index')
         lengths = [len(header[0]), 19, len(header[2])]
         for i, (did, dtime) in enumerate(query_download_data(session,
                                                              attrs=(Download.id,
@@ -296,7 +296,6 @@ def get_dreport_str_iter(session, download_ids=None, config=True, log=True):
     # if config only, use the comment as frame decorator (YAML compatible):
     frame = None if log else '#'
     for dwnl_id, dwnl_time, configtext, logtext in data:
-        yield ''
         yield ascii_decorate('Download id: %d (%s)' % (dwnl_id, str(dwnl_time)), frame)
         if config and log:
             yield ''
@@ -310,9 +309,12 @@ def get_dreport_str_iter(session, download_ids=None, config=True, log=True):
         if logtext:
             yield ''
             yield logtext
-            # when the log ends with an exception, it looks like the exception is raised
-            # provide an end tag to make clear the exception refers to the download:
+        if log:
+            # when the log ends with an exception, on the terminal it looks like the
+            # exception is raise, i.e. there is a program error. Provide an end tag to
+            # make the distinction clear:
             yield "[Log file end]"
+        yield ''
 
 
 def infoquery(session, download_ids=None, config=True, log=True):
@@ -330,7 +332,7 @@ def infoquery(session, download_ids=None, config=True, log=True):
     # qry = session.query(*attrs)
     if download_ids is not None:
         qry = qry.filter(Download.id.in_(download_ids))
-    for res in qry:   #  .order_by(Download.run_time.asc()):  # .group_by(Download.id):
+    for res in qry:
         if not config and not log:  # False
             res = list(res) + ['', '']
         elif not log:

@@ -6,6 +6,7 @@ Created on Feb 14, 2017
 '''
 from __future__ import print_function, division
 
+import re
 from builtins import str, object
 
 from datetime import datetime, timedelta
@@ -22,22 +23,25 @@ from stream2segment.io.cli import ascii_decorate
 from stream2segment.download.modules.utils import s2scodes
 
 
-def readfile(outfile):
-    with open(outfile) as _:
-        return _.read()
-
-
 class patches(object):
     # paths container for patchers used below. Hopefully
     # will mek easier debug when refactoring/move functions
-    open_in_browser = 'stream2segment.download.db.inspection.main.open_in_browser'
-    gettempdir = 'stream2segment.download.db.inspection.main.gettempdir'
+    # open_in_browser = 'stream2segment.download.db.inspection.main.open_in_browser'
+    # gettempdir = 'stream2segment.download.db.inspection.main.gettempdir'
     valid_session = 'stream2segment.download.db.inspection.main.valid_session'
 
 
 class Test(object):
     # define ONCE HERE THE command name, so if we change it in the cli it will be easier to fix here
-    CMD_PREFIX = ['dl', 'report']
+    CMD_PREFIX_CONFIG = ['dl', 'config']
+    CMD_PREFIX_LOG = ['dl', 'log']
+    CMD_PREFIX_SUMMARY = ['dl', 'summary']
+
+    config_content = 'this_is_a_yam;l_config: a'
+    log_content = 'this_is_a_yam;l_config: a'
+    d_time0 = datetime.utcnow() - timedelta(days=1)  # assure it's in the past so its download
+    # is at index 0
+    d_time1 = datetime.utcnow()
 
     # execute this fixture always even if not provided as argument:
     # https://docs.pytest.org/en/documentation-restructure/how-to/fixture.html#autouse-fixtures-xunit-setup-on-steroids
@@ -46,8 +50,14 @@ class Test(object):
         # re-init a sqlite database (no-op if the db is not sqlite):
         db.create(to_file=True)
 
+        # fake run id with no associated segments but defined log, config and time:
+        r = Download(id=1, log=self.log_content, config=self.config_content,
+                     run_time=self.d_time0)
+        db.session.add(r)
+        db.session.commit()
+
         # setup a run_id:
-        r = Download()
+        r = Download(id=2, run_time=self.d_time1)
         db.session.add(r)
         db.session.commit()
         self.run = r
@@ -127,75 +137,106 @@ class Test(object):
 
 # ## ======== ACTUAL TESTS: ================================
 
-    @patch(patches.open_in_browser)
-    @patch(patches.gettempdir)
-    def test_simple_dreport(self, mock_gettempdir, mock_open_in_browser, db, pytestdir):
-        '''test a case where save inventory is True, and that we saved inventories'''
+    def test_config(self, db):
+        CMD_PREFIX = self.CMD_PREFIX_CONFIG
+        expected_re1 = "\n".join([
+            "#+",
+            "# Download id: 2.*",
+            "#+"
+        ])
+        expected_re0 = "\n".join([
+            "#+",
+            "# Download id: 1.*",
+            "#+"
+            "\\s*",
+            re.escape(self.config_content)
+        ])
+        default_dindex_when_missing = -1
+        for dindex in [None, 0, 1]:
+            # test "no flags" case:
+            runner = CliRunner(mix_stderr=False)
+            # text output, to file
+            args = [] if dindex is None else [str(dindex)]
+            result = runner.invoke(cli, CMD_PREFIX + ['--dburl', db.dburl] + args)
+            assert not result.exception
+            output = result.output.strip()
+            if dindex == 0:
+                assert re.match(expected_re0, output)
+            elif dindex == 1:
+                assert re.match(expected_re1, output)
+            else:
+                # the default when missing is -1, i.e. dindex 1:
+                # assert re.search(expected_re0, output)
+                assert re.search(expected_re1, output)
 
-        # test "no flags" case:
-        runner = CliRunner()
-        # text output, to file
-        outfile = pytestdir.newfile('.txt')
-        result = runner.invoke(cli, self.CMD_PREFIX + ['--dburl', db.dburl,
-                                                       outfile])
-        assert not result.exception
-        expected_string = ascii_decorate("Download id: 1 (%s)" %
-                                         str(db.session.query(Download.run_time).first()[0]))
-        # result.output below is uncicode in PY2, whereas expected_string is str
-        # Thus
-        if PY2:
-            expected_string = expected_string.decode('utf8')
 
-        content = readfile(outfile)
-        assert expected_string.strip() == content.strip()
+    def test_log(self, db):
+        CMD_PREFIX = self.CMD_PREFIX_LOG
+        "╔", "═", "╗", "║", "║", "╚", "═", "╝"
+        expected_re1 = "\n".join([
+            "╔═+╗",
+            "║ Download id: 2.*",
+            "╚═+╝"
+            "\\s*",
+            "\\[[a-zA-Z ]+\\]"  # <- end of log file tag
+        ])
+        expected_re0 = "\n".join([
+            "╔═+╗",
+            "║ Download id: 1.*",
+            "╚═+╝"
+            "\\s*",
+            re.escape(self.log_content),
+            "\\[[a-zA-Z ]+\\]"  # <- end of log file tag
+        ])
+        default_dindex_when_missing = -1
+        for dindex in [None, 0, 1]:
+            # test "no flags" case:
+            runner = CliRunner(mix_stderr=False)
+            # text output, to file
+            args = [] if dindex is None else [str(dindex)]
+            result = runner.invoke(cli, CMD_PREFIX + ['--dburl', db.dburl] + args)
+            assert not result.exception
+            output = result.output.strip()
+            if dindex == 0:
+                assert re.match(expected_re0, output)
+            elif dindex == 1:
+                assert re.match(expected_re1, output)
+            else:
+                # the default when missing is -1, i.e. dindex 1:
+                # assert re.search(expected_re0, output)
+                assert re.search(expected_re1, output)
 
-        # test "normal" case:
-        runner = CliRunner()
-        # text output, to file
-        outfile = pytestdir.newfile('.txt')
-        result = runner.invoke(cli, self.CMD_PREFIX + ['--config', '--log',
-                                     '--dburl', db.dburl, outfile])
-        assert not result.exception
-        expected_string = ascii_decorate("Download id: 1 (%s)" %
-                                         str(db.session.query(Download.run_time).first()[0]))
-        expected_string += """
 
-Configuration: N/A
-
-Log messages: N/A"""
-        # result.output below is uncicode in PY2, whereas expected_string is str
-        # Thus
-        if PY2:
-            expected_string = expected_string.decode('utf8')
-
-        content = readfile(outfile)
-        assert expected_string in content
-        assert result.output.startswith("""Fetching data, please wait (this might take a while depending on the db size and connection)
-download report written to """)
-        assert not mock_open_in_browser.called
-        assert not mock_gettempdir.called
-
-        # calling with no ouptut file (print to screen, i.e. result.output):
-        result = runner.invoke(cli, self.CMD_PREFIX + ['--log',
-                                     '--config', '--dburl', db.dburl])
-        assert not result.exception
-        content = result.output
-        assert expected_string in content
-        assert result.output.startswith("""Fetching data, please wait (this might take a while depending on the db size and connection)
-""")
-        assert not mock_open_in_browser.called
-        assert not mock_gettempdir.called
-
-        expected = """Fetching data, please wait (this might take a while depending on the db size and connection)
-"""
-        # try with flags:
-        result = runner.invoke(cli, self.CMD_PREFIX + ['--dburl', '--log',
-                                                       db.dburl])
-        assert expected in result.output
-        assert not result.output[result.output.index(expected)+len(expected):]
-
-        # try with flags:
-        result = runner.invoke(cli, self.CMD_PREFIX + ['--dburl', '--config',
-                                                       db.dburl])
-        assert expected in result.output
-        assert not result.output[result.output.index(expected)+len(expected):]
+    def test_summary(self, db):
+        CMD_PREFIX = self.CMD_PREFIX_SUMMARY
+        t_0 = self.d_time0.replace(microsecond=0)
+        t_1 = self.d_time1.replace(microsecond=0)
+        expected_re1 = "\n".join([
+            'Download id\\s+Execution time\\s+Index',
+            '\\s*2\\s+' + re.escape(t_1.isoformat()) + '\\s+1',
+        ])
+        expected_re0 = "\n".join([
+            'Download id\\s+Execution time\\s+Index',
+            '\\s*1\\s+' + re.escape(t_0.isoformat()) + '\\s+0'
+        ])
+        expected_re_all = "\n".join([
+            'Download id\\s+Execution time\\s+Index',
+            '\\s*1\\s+' + re.escape(t_0.isoformat()) + '\\s+0',
+            '\\s*2\\s+' + re.escape(t_1.isoformat()) + '\\s+1'
+        ])
+        default_dindex_when_missing = -1
+        for dindex in [None, 0, 1]:
+            # test "no flags" case:
+            runner = CliRunner(mix_stderr=False)
+            # text output, to file
+            args = [] if dindex is None else [str(dindex)]
+            result = runner.invoke(cli, CMD_PREFIX + ['--dburl', db.dburl] + args)
+            assert not result.exception
+            output = result.output.strip()
+            if dindex == 0:
+                assert re.match(expected_re0, output)
+            elif dindex == 1:
+                assert re.match(expected_re1, output)
+            else:
+                # the default when missing is all:
+                assert re.search(expected_re_all, output)
