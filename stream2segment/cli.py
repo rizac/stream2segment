@@ -700,14 +700,14 @@ def stats(dburl, download_id, maxgap_threshold, html, outfile, download_indices)
     identifying a download execution)
     """
     # import in function body to speed up the main module import:
-    from stream2segment.download.db.inspection.main import dstats
+    from stream2segment.download.db.inspection.main import stats as _stats
 
     _print_waitmsg_while_fetching_data()
 
     try:
         with warnings.catch_warnings():  # capture (ignore) warnings
             warnings.simplefilter("ignore")
-            dstats(dburl, download_indices or None, download_id or None,
+            _stats(dburl, download_indices or None, download_id or None,
                    maxgap_threshold, html, outfile)
         if outfile is not None:
             print("download statistics written to '%s'" % outfile, file=sys.stderr)
@@ -732,14 +732,14 @@ def summary(dburl, download_indices):
     identifying a download execution)
     """
     # import in function body to speed up the main module import:
-    from stream2segment.download.db.inspection.main import dsummary
+    from stream2segment.download.db.inspection.main import summary as _summary
 
     _print_waitmsg_while_fetching_data()
 
     try:
         with warnings.catch_warnings():  # capture (ignore) warnings
             warnings.simplefilter("ignore")
-            dsummary(dburl, download_indices or None, None)
+            _summary(dburl, download_indices or None, None)
         sys.exit(0)
     except BadParam as err:
         print(err)
@@ -761,17 +761,14 @@ def log(dburl, download_indices):
     identifying a download execution)
     """
     # import in function body to speed up the main module import:
-    from stream2segment.download.db.inspection.main import dreport
+    from stream2segment.download.db.inspection.main import log as _log
 
     _print_waitmsg_while_fetching_data()
 
     try:
-        # this is hacky but in case we want to restore the html
-        # argument ...
-        html = False
         with warnings.catch_warnings():  # capture (ignore) warnings
             warnings.simplefilter("ignore")
-            dreport(dburl, download_indices or [-1], None, False, True, html, None)
+            _log(dburl, download_indices or [-1], None, None)
         sys.exit(0)
     except BadParam as err:
         print(err)
@@ -790,20 +787,18 @@ def config(dburl, download_indices):
     negative index. E.g., -1 for the last/most recent execution, -2 for the next-to-last,
     and so on (-1 is also the default when no argument is provided). Remember not to mix
     up the index provided here with the download id (immutable integer uniquely
-    identifying a download execution)
+    identifying a download execution). With a single passed, the configuration can
+    be piped into a YAML file and directly used in a new download.
     """
     # import in function body to speed up the main module import:
-    from stream2segment.download.db.inspection.main import dreport
+    from stream2segment.download.db.inspection.main import config as _config
 
     _print_waitmsg_while_fetching_data()
 
     try:
-        # this is hacky but in case we want to restore the html
-        # argument ...
-        html = False
         with warnings.catch_warnings():  # capture (ignore) warnings
             warnings.simplefilter("ignore")
-            dreport(dburl, download_indices or [-1], None, True, False, html, None)
+            _config(dburl, download_indices or [-1], None, None)
         sys.exit(0)
     except BadParam as err:
         print(err)

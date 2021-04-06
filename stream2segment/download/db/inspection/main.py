@@ -27,7 +27,7 @@ from stream2segment.io.db.sqlconstructs import concat
 from stream2segment.io.inputvalidation import validate_param, valid_session, BadParam
 
 
-def dsummary(dburl, download_indices=None, download_ids=None):
+def summary(dburl, download_indices=None, download_ids=None, outfile=None):
     """Show/print/return short download summary
 
     :param download_indices: download indices as slice, int, List[int] or str convertible
@@ -35,30 +35,45 @@ def dsummary(dburl, download_indices=None, download_ids=None):
         when missing, will consider all indices
     :param download_ids: download ids (list of int), will be merged with
         `download_indices`. None, the default when missing, will consider all ids
+    :param outfile: str to a local file, or any output supported, e.g. `sys.stderr`
+        When missing or None it defaults to `sys.stdout`
     """
     _get_download_info(DSummary(), dburl, download_indices, download_ids,
-                       False, None)
+                       False, outfile)
 
 
-def dreport(dburl, download_indices=None, download_ids=None, config=True, log=True,
-            html=False, outfile=None):
+def log(dburl, download_indices=None, download_ids=None, outfile=None):
     """Show/print/return the config and/or log of the given download. If download ids
-    and download indices are both Nones, shows stats for all downloads.
+    and download indices are both Nones, shows stats for all downloads
 
     :param download_indices: download indices as slice, int, List[int] or str convertible
         to int or slice ("<start>:<stop>" or "<start>:<stop>:<step>"). None, the default
         when missing, will consider all indices
     :param download_ids: download ids (list of int), will be merged with
         `download_indices`. None, the default when missing, will consider all ids
-    :param config: boolean (True by default)
-    :param log: boolean (True by default)
+    :param outfile: str to a local file, or any output supported, e.g. `sys.stderr`
+        When missing or None it defaults to `sys.stdout`
     """
-    _get_download_info(DReport(config, log), dburl, download_indices, download_ids,
-                       html, outfile)
+    _get_download_info(DLog(), dburl, download_indices, download_ids, False, outfile)
 
 
-def dstats(dburl, download_indices=None, download_ids=None, maxgap_threshold=0.5,
-           html=False, outfile=None):
+def config(dburl, download_indices=None, download_ids=None, outfile=None):
+    """Show/print/return the config and/or log of the given download. If download ids
+    and download indices are both Nones, shows stats for all downloads
+
+    :param download_indices: download indices as slice, int, List[int] or str convertible
+        to int or slice ("<start>:<stop>" or "<start>:<stop>:<step>"). None, the default
+        when missing, will consider all indices
+    :param download_ids: download ids (list of int), will be merged with
+        `download_indices`. None, the default when missing, will consider all ids
+    :param outfile: str to a local file, or any output supported, e.g. `sys.stderr`
+        When missing or None it defaults to `sys.stdout`
+    """
+    _get_download_info(DConfig(), dburl, download_indices, download_ids, False, outfile)
+
+
+def stats(dburl, download_indices=None, download_ids=None, maxgap_threshold=0.5,
+          html=False, outfile=None):
     """Create a diagnostic html page (or text string) showing the status of the
     download. If download ids and download indices are both Nones, shows stats for all
     downloads
@@ -229,6 +244,8 @@ class DSummary(_InfoGenerator):
                                                              attrs=(Download.id,
                                                                     Download.run_time),
                                                              sort='asc')):
+            # We did not filter by download ids because we want to show the download
+            # index. Thus query all download ids with `enumerate`, and filter now:
             if not download_ids or did in download_ids:
                 if header:
                     yield '  '.join(_1.rjust(_2) for _1, _2 in zip(header, lengths))
@@ -243,24 +260,59 @@ class DSummary(_InfoGenerator):
         raise Exception('html version not available')
 
 
-class DReport(_InfoGenerator):
-    """Class handling the generation of download reports in text format (no html
-    supported for the moment)
-    """
-
-    def __init__(self, config=True, log=True):
-        self.config = config
-        self.log = log
+class DLog(_InfoGenerator):
+    """Class handling the generation of download config(s) in YAML format"""
 
     def str_iter(self, session, download_ids=None):
         """Returns an iterator yielding chunks of strings denoting the string
         representation of this object"""
-        return get_dreport_str_iter(session, download_ids, self.config, self.log)
+        qry = query_download_data(session,
+                                  (Download.id, Download.run_time, Download.log))
+        if download_ids is not None:
+            qry = qry.filter(Download.id.in_(download_ids))
+        for dwnl_id, dwnl_time, log_text in qry:
+            yield ascii_decorate('Download id: %d (%s)' % (dwnl_id, str(dwnl_time)))
+            yield log_text or ''
+            # when the log ends with an exception, on the terminal it looks like the
+            # exception is raise, i.e. there is a program error. Provide an end tag to
+            # make the distinction clear:
+            yield "[Log file end]"
+            yield ''
 
     def html_template_arguments(self, session, download_ids=None):
         """Returns a dict to be passed as arguments to
         the jinja2 template"""
         raise Exception('html version not available')
+
+
+class DConfig(_InfoGenerator):
+    """Class handling the generation of download config(s) in YAML format"""
+
+    def str_iter(self, session, download_ids=None):
+        """Returns an iterator yielding chunks of strings denoting the string
+        representation of this object"""
+        qry = query_download_data(session,
+                                  (Download.id, Download.run_time, Download.config))
+        if download_ids is not None:
+            qry = qry.filter(Download.id.in_(download_ids))
+        for dwnl_id, dwnl_time, text in qry:
+            yield ascii_decorate('Download id: %d (%s)' % (dwnl_id, str(dwnl_time)), '#')
+            yield text or ''
+            yield ''
+
+    def html_template_arguments(self, session, download_ids=None):
+        """Returns a dict to be passed as arguments to
+        the jinja2 template"""
+        raise Exception('html version not available')
+
+
+def query_download_data(session, attrs=(Download.id,), sort=None):
+    qry = session.query(*attrs)
+    if sort == 'desc':
+        qry = qry.order_by(Download.run_time.desc())
+    elif sort == 'asc':
+        qry = qry.order_by(Download.run_time.asc())
+    return qry
 
 
 class DStats(_InfoGenerator):
@@ -279,84 +331,6 @@ class DStats(_InfoGenerator):
         the jinja2 template"""
         return get_dstats_html_template_arguments(session, download_ids,
                                                   self.maxgap_threshold)
-
-
-def get_dreport_str_iter(session, download_ids=None, config=True, log=True):
-    """Returns an iterator yielding the download report (log and config) for the given
-    download_ids
-
-    :param session: an sql-alchemy session denoting a db session to a database
-    :param download_ids: (list of ints or None) if None, collect statistics from all
-        downloads run. Otherwise limit the output to the downloads whose ids are in
-        the list
-    :param config: boolean (default: True). Whether to show the download config
-    :param log: boolean (default: True). Whether to show the download log messages
-    """
-    data = infoquery(session, download_ids, config, log)
-    # if config only, use the comment as frame decorator (YAML compatible):
-    frame = None if log else '#'
-    for dwnl_id, dwnl_time, configtext, logtext in data:
-        yield ascii_decorate('Download id: %d (%s)' % (dwnl_id, str(dwnl_time)), frame)
-        if config and log:
-            yield ''
-            yield 'Configuration:%s' % (' N/A' if not configtext else '')
-        if configtext:
-            yield ''
-            yield configtext
-        if config and log:
-            yield ''
-            yield 'Log messages:%s' % (' N/A' if not configtext else '')
-        if logtext:
-            yield ''
-            yield logtext
-        if log:
-            # when the log ends with an exception, on the terminal it looks like the
-            # exception is raise, i.e. there is a program error. Provide an end tag to
-            # make the distinction clear:
-            yield "[Log file end]"
-        yield ''
-
-
-def infoquery(session, download_ids=None, config=True, log=True):
-    """Returns a query for getting data for inspection (show_stats=False in the
-    functions above)"""
-    # IMPORTANT: If it happens to access backref relationships (e.g. Download.segments)
-    # consider calling configure_mappers() first:
-    # configure_mappers()  # https://stackoverflow.com/q/14921777
-    attrs = [Download.id, Download.run_time]
-    if config:
-        attrs.append(Download.config)
-    if log:
-        attrs.append(Download.log)
-    qry = query_download_data(session, attrs)
-    # qry = session.query(*attrs)
-    if download_ids is not None:
-        qry = qry.filter(Download.id.in_(download_ids))
-    for res in qry:
-        if not config and not log:  # False
-            res = list(res) + ['', '']
-        elif not log:
-            res = list(res) + ['']
-        elif not config:
-            res = list(res)
-            res.insert(-1, '')
-        yield res
-
-
-def query_download_data(session, attrs=(Download.id,), sort=None):
-    qry = session.query(*attrs)
-    if sort == 'desc':
-        qry = qry.order_by(Download.run_time.desc())
-    elif sort == 'asc':
-        qry = qry.order_by(Download.run_time.asc())
-    return qry
-
-
-def tojson(obj):
-    """Convert obj to json formatted string without whitespaces to minimize
-    string size
-    """
-    return json.dumps(obj, separators=(',', ':'))
 
 
 def get_dstats_str_iter(session, download_ids=None, maxgap_threshold=0.5):
@@ -478,14 +452,11 @@ def get_dstats_html_template_arguments(session, download_ids=None, maxgap_thresh
                 networks=networks)
 
 
-def filterquery(query, download_ids=None):
-    """Add a filter to the given query if download_ids is not None, and return
-    a new query. Otherwise, if download_ids is None, it's no-op and returns
-    query itself
+def tojson(obj):
+    """Convert obj to json formatted string without whitespaces to minimize
+    string size
     """
-    if download_ids is not None:
-        query = query.filter(Segment.download_id.in_(download_ids))
-    return query
+    return json.dumps(obj, separators=(',', ':'))
 
 
 def yaml_get(yaml_content):
@@ -513,6 +484,16 @@ def get_downloads(sess, download_ids=None):
                         download_ids).order_by(Download.run_time.asc())
     return {did: (time.isoformat(), yaml_get(cfg))
             for (did, time, cfg) in query}
+
+
+def filterquery(query, download_ids=None):
+    """Add a filter to the given query if download_ids is not None, and return
+    a new query. Otherwise, if download_ids is None, it's no-op and returns
+    query itself
+    """
+    if download_ids is not None:
+        query = query.filter(Segment.download_id.in_(download_ids))
+    return query
 
 
 def get_datacenters(sess, dc_ids=None):
