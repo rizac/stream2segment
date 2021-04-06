@@ -7,8 +7,7 @@ from future.utils import string_types
 
 from stream2segment.io import yaml_load
 from stream2segment.io.inputvalidation import (validate_param, valid_session, get_param,
-                                               pop_param)
-from stream2segment.download.inputvalidation import valid_between
+                                               pop_param, valid_between)
 from stream2segment.process.inspectimport import load_source
 
 

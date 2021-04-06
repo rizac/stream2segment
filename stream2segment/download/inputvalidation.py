@@ -7,11 +7,11 @@ from datetime import datetime, timedelta
 
 from future.utils import string_types
 
-from stream2segment.download.modules.utils import EVENTWS_SAFE_PARAMS, Authorizer, \
-    strptime, EVENTWS_MAPPING
+from stream2segment.download.modules.utils import (EVENTWS_SAFE_PARAMS, Authorizer,
+                                                   strptime, EVENTWS_MAPPING)
 from stream2segment.io import yaml_load, absrelpath, Fdsnws
-from stream2segment.io.inputvalidation import validate_param, pop_param, valid_session, \
-    get_param, BadParam
+from stream2segment.io.inputvalidation import (validate_param, pop_param, valid_session,
+                                               get_param, BadParam, valid_between)
 from stream2segment.resources import get_templates_fpath, get_ttable_fpath
 from stream2segment.traveltimes.ttloader import TTTable
 
@@ -469,24 +469,6 @@ def valid_fdsn(url, is_eventws, configfile=None):
             raise ValueError('Invalid FDSN url or file path, check typos')
 
     return Fdsnws(url).url()
-
-
-def valid_between(val, min, max, include_min=True, include_max=True, pass_if_none=True):
-    if val is None:
-        if pass_if_none:
-            return val
-        raise ValueError('value is None/null')
-
-    is_ok = min is None or val > min or (include_min and val >= min)
-    if not is_ok:
-        raise ValueError('%s must be %s %s' %
-                         (str(val), '>=' if include_min else '>', str(min)))
-
-    is_ok = max is None or val < max or (include_max and val <= max)
-    if not is_ok:
-        raise ValueError('%s must be %s %s' %
-                         (str(val), '<=' if include_max else '<', str(max)))
-    return val
 
 
 def valid_search_radius(search_radius):

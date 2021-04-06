@@ -175,6 +175,24 @@ def _param_tuple(dic, name_or_names, default=_VALUE_NOT_FOUND_, pop=False):
 ######################################################################################
 
 
+def valid_between(val, min, max, include_min=True, include_max=True, pass_if_none=True):
+    if val is None:
+        if pass_if_none:
+            return val
+        raise ValueError('value is None/null')
+
+    is_ok = min is None or val > min or (include_min and val >= min)
+    if not is_ok:
+        raise ValueError('%s must be %s %s' %
+                         (str(val), '>=' if include_min else '>', str(min)))
+
+    is_ok = max is None or val < max or (include_max and val <= max)
+    if not is_ok:
+        raise ValueError('%s must be %s %s' %
+                         (str(val), '<=' if include_max else '<', str(max)))
+    return val
+
+
 def valid_session(dburl, for_process=False, scoped=False, **engine_kwargs):
     """Create an SQL-Alchemy session from dburl. Raises if `dburl` is
     not a string, or any SqlAlchemy exception if the session could not be
