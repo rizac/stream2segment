@@ -324,7 +324,7 @@ When processing, Stream2segment will search for a function called "main", e.g.:
 def main(segment, config)
 ```
 and execute the function on each selected segment (according to the 
-'{0}' parameter in the config). See the function docstring of this 
+'%(seg_sel)s' parameter in the config). See the function docstring of this 
 module for implementation details.
 
 
@@ -336,7 +336,7 @@ and visualize the data. Contrarily to the processing, the `show` command can be
 invoked with no argument: this will show by default all database segments, 
 their metadata and a plot of their raw waveform (main plot).
 When `show` is invoked with module and config files, Stream2segment will fetch
-all segments (according to the '{0}' parameter in the config) and 
+all segments (according to the '%(seg_sel)s' parameter in the config) and 
 search for all module functions with signature:
 ```
 def function_name(segment, config)
@@ -485,7 +485,7 @@ Each attribute can be considered as segment metadata: it reflects a segment colu
   - 'datacenter', 'event', 'station', 'channel': returns all segments of the same
     datacenter, event, station or channel, all identified by the associated database id.
   `condition` is a dict of expression to filter the returned element. the argument
-  `config['{0}']` can be passed here to return only siblings selected for
+  `config['%(seg_sel)s']` can be passed here to return only siblings selected for
   processing. NOTE: Use with care when providing a `parent` argument, as the amount of
   segments might be huge (up to hundreds of thousands of segments). The amount of
   returned segments is increasing (non linearly) according to the following order of the
@@ -526,7 +526,7 @@ Each attribute can be considered as segment metadata: it reflects a segment colu
 
 ### segment attributes ###
 
-""".format(SEGSEL_PARAMNAME) + _SEGMENT_ATTRS
+""" % {'seg_sel': SEGSEL_PARAMNAME} + _SEGMENT_ATTRS
 
 YAML_WARN = """
 NOTE: **this file is written in YAML syntax**, which uses Python-style indentation to

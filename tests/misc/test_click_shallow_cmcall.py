@@ -16,6 +16,7 @@ from stream2segment.cli import cli
 from stream2segment.resources import get_templates_fpaths, get_templates_fpath
 from stream2segment.io import yaml_load
 from stream2segment.process.inspectimport import load_source
+from stream2segment.cli import copy_example_files as copyeexfiles
 
 
 @pytest.fixture
@@ -260,8 +261,6 @@ def test_click_show(mock_create_s2s_show_app, mock_open_in_browser, mock_show):
     assert result.exit_code == 0
     assert not mock_open_in_browser.called
 
-
-from stream2segment.cli import copy_example_files as copyeexfiles
 
 @patch("stream2segment.cli.input")
 @patch("stream2segment.cli.copy_example_files", side_effect=copyeexfiles)
