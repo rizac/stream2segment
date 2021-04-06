@@ -1,0 +1,47 @@
+dburl: sqlite:///db.no_event_type_column.sqlite
+starttime: '2021-02-01'
+endtime: '2021-03-01'
+eventws: http://geofon.gfz-potsdam.de/fdsnws/event/1/query
+minlatitude: null
+maxlatitude: null
+minlongitude: null
+maxlongitude: null
+mindepth: null
+maxdepth: null
+minmagnitude: null
+maxmagnitude: null
+eventws_params: null
+channel:
+- BHZ
+network: '*'
+station: '*'
+location: '*'
+min_sample_rate: 60
+update_metadata: false
+inventory: true
+search_radius:
+  min: 5
+  max: 98
+dataws:
+- eida
+- iris
+traveltimes_model: ak135_ttp+
+timespan:
+- 5.0
+- 10.0
+restricted_data: ''
+retry_seg_not_found: true
+retry_url_err: true
+retry_mseed_err: false
+retry_client_err: true
+retry_server_err: true
+retry_timespan_err: true
+advanced_settings:
+  routing_service_url: http://www.orfeus-eu.org/eidaws/routing/1/query
+  max_concurrent_downloads: null
+  e_timeout: 120
+  s_timeout: 120
+  i_timeout: 60
+  w_timeout: 30
+  download_blocksize: 1048576
+  db_buf_size: 100
