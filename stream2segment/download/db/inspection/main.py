@@ -30,12 +30,11 @@ from stream2segment.io.inputvalidation import validate_param, valid_session, Bad
 def dsummary(dburl, download_indices=None, download_ids=None):
     """Show/print/return short download summary
 
-    :param download_indices: download indices as slice, int, List[int] or str
-        ('start', 'start:stop', 'start:stop:step'). None, the default when missing,
-        means: all indices
+    :param download_indices: download indices as slice, int, List[int] or str, as
+        '[index]', '[start]:[stop]' or '[start]:[stop]:[step]'. None, the default when
+        missing, will consider all indices
     :param download_ids: download ids (list of int), will be merged with
-        `download_indices`. None, the default when missing, means: all ids
-
+        `download_indices`. None, the default when missing, will consider all ids
     """
     _get_download_info(DSummary(), dburl, download_indices, download_ids,
                        False, None)
@@ -46,11 +45,11 @@ def dreport(dburl, download_indices=None, download_ids=None, config=True, log=Tr
     """Show/print/return the config and/or log of the given download. If download ids
     and download indices are both Nones, shows stats for all downloads.
 
-    :param download_indices: download indices as slice, int, List[int] or str
-        ('start', 'start:stop', 'start:stop:step'). None, the default when missing,
-        means: all indices
+    :param download_indices: download indices as slice, int, List[int] or str, as
+        '[index]', '[start]:[stop]' or '[start]:[stop]:[step]'. None, the default when
+        missing, will consider all indices
     :param download_ids: download ids (list of int), will be merged with
-        `download_indices`. None, the default when missing, means: all ids
+        `download_indices`. None, the default when missing, will consider all ids
     :param config: boolean (True by default)
     :param log: boolean (True by default)
     """
@@ -64,11 +63,11 @@ def dstats(dburl, download_indices=None, download_ids=None, maxgap_threshold=0.5
     download. If download ids and download indices are both Nones, shows stats for all
     downloads
 
-    :param download_indices: download indices as slice, int, List[int] or str
-        ('start', 'start:stop', 'start:stop:step'). None, the default when missing,
-        means: all indices
+    :param download_indices: download indices as slice, int, List[int] or str, as
+        '[index]', '[start]:[stop]' or '[start]:[stop]:[step]'. None, the default when
+        missing, will consider all indices
     :param download_ids: download ids (list of int), will be merged with
-        `download_indices`. None, the default when missing, means: all ids
+        `download_indices`. None, the default when missing, will consider all ids
     :param maxgap_threshold: the max gap threshold (float)
     """
     _get_download_info(DStats(maxgap_threshold), dburl, download_indices, download_ids,
@@ -117,11 +116,11 @@ def get_download_ids(session, download_indices=None, download_ids=None):
     """Return a list of download ids from the given arguments, or None. Calling functions
     must interpret None as "all ids"
 
-    :param download_indices: download indices as slice, int, List[int] or str
-        ('start', 'start:stop', 'start:stop:step'). None, the default when missing,
-        means: all indices
+    :param download_indices: download indices as slice, int, List[int] or str, as
+        '[index]', '[start]:[stop]' or '[start]:[stop]:[step]'. None, the default when
+        missing, will consider all indices
     :param download_ids: download ids (list of int), will be merged with
-        `download_indices`. None, the default when missing, means: all ids
+        `download_indices`. None, the default when missing, will consider all ids
     """
     if not download_indices:
         return download_ids
