@@ -17,6 +17,7 @@ from obspy.core.stream import read
 from future.utils import integer_types
 
 from stream2segment.cli import cli
+from stream2segment.process.inputvalidation import SEGMENT_SELECT_PARAM_NAMES
 from stream2segment.process.main import _run as process_main_run, \
     get_default_chunksize as o_get_default_chunksize, \
     process_segments as o_process_segments, \
@@ -27,7 +28,7 @@ from stream2segment.resources import get_templates_fpath
 from stream2segment.io import yaml_load
 from stream2segment.process.writers import BaseWriter
 
-SEG_SEL_STRING = 'segments_selection'
+SEG_SEL_STRING = SEGMENT_SELECT_PARAM_NAMES[0]
 
 @pytest.fixture
 def yamlfile(pytestdir):

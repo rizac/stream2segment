@@ -16,7 +16,8 @@ For any new variable name to be implemented here in the future, note also that:
 from stream2segment.download.modules.utils import EVENTWS_MAPPING
 from stream2segment.process.main import _get_chunksize_defaults
 from stream2segment.process.writers import SEGMENT_ID_COLNAME, HDF_DEFAULT_CHUNKSIZE
-
+from stream2segment.process.inputvalidation import SEGMENT_SELECT_PARAM_NAMES
+SEGSEL_PARAMNAME = SEGMENT_SELECT_PARAM_NAMES[0]
 
 # REMEMBER:this list does not comprise ALL attributes  (look at _SEGMENT_ATTRS_REMOVED
 # below)
@@ -323,7 +324,7 @@ When processing, Stream2segment will search for a function called "main", e.g.:
 def main(segment, config)
 ```
 and execute the function on each selected segment (according to the 
-'segments_selection' parameter in the config). See the function docstring of this 
+'{0}' parameter in the config). See the function docstring of this 
 module for implementation details.
 
 
@@ -335,7 +336,7 @@ and visualize the data. Contrarily to the processing, the `show` command can be
 invoked with no argument: this will show by default all database segments, 
 their metadata and a plot of their raw waveform (main plot).
 When `show` is invoked with module and config files, Stream2segment will fetch
-all segments (according to the 'segments_selection' parameter in the config) and 
+all segments (according to the '{0}' parameter in the config) and 
 search for all module functions with signature:
 ```
 def function_name(segment, config)
@@ -484,7 +485,7 @@ Each attribute can be considered as segment metadata: it reflects a segment colu
   - 'datacenter', 'event', 'station', 'channel': returns all segments of the same
     datacenter, event, station or channel, all identified by the associated database id.
   `condition` is a dict of expression to filter the returned element. the argument
-  `config['segments_selection']` can be passed here to return only siblings selected for
+  `config['{0}']` can be passed here to return only siblings selected for
   processing. NOTE: Use with care when providing a `parent` argument, as the amount of
   segments might be huge (up to hundreds of thousands of segments). The amount of
   returned segments is increasing (non linearly) according to the following order of the
@@ -525,7 +526,7 @@ Each attribute can be considered as segment metadata: it reflects a segment colu
 
 ### segment attributes ###
 
-""" + _SEGMENT_ATTRS
+""".format(SEGSEL_PARAMNAME) + _SEGMENT_ATTRS
 
 YAML_WARN = """
 NOTE: **this file is written in YAML syntax**, which uses Python-style indentation to
@@ -543,22 +544,22 @@ PROCESS_YAML_MAIN = """
 # be accessible in the associated processing / visualization Python file.
 #
 # You are free to implement here anything you need: there are no mandatory parameters but
-# we strongly suggest to keep 'segments_selection' and 'sn_windows', which add also special 
+# we strongly suggest to keep '{0}' and 'sn_windows', which add also special 
 # features to the GUI.
-"""
+""".format(SEGSEL_PARAMNAME)
 
 # yamelise _SEGMENT_ATTRS (first line not commented, see below)
 _SEGMENT_ATTRS_YAML = "\n# ".join(s[8:] for s in _SEGMENT_ATTRS.splitlines())
 
 
 PROCESS_YAML_SEGMENTSELECT = """
-The parameter 'segments_selection' defines which segments to be processed or visualized.
+The parameter '{0}' defines which segments to be processed or visualized.
 # PLEASE USE THIS PARAMETER. If missing, all segments will be loaded, including segment
 # with no (or malformed) waveform data: this is in practically always useless and slows
 # down considerably the processing or visualization routine. The selection is made via
 # the list-like argument:
 #
-# segments_selection:
+# {0}:
 #   <att>: "<expression>"
 #   <att>: "<expression>"
 #   ...
@@ -567,27 +568,27 @@ The parameter 'segments_selection' defines which segments to be processed or vis
 # string expression. Example:
 #
 # 1. To select and work on segments with downloaded data (at least one byte of data):
-# segments_selection:
+# {0}:
 #   has_data: "true"
 #
 # 2. To select and work on segments of stations activated in 2017 only:
-# segments_selection:
+# {0}:
 #   station.start_time: "[2017-01-01, 2018-01-01T00:00:00)"
 # (brackets denote intervals. Square brackets include end-points, round brackets exclude
 # endpoints)
 #
 # 3. To select segments from specified ids, e.g. 1, 4, 342, 67 (e.g., ids which raised
 # errors during a previous run and whose id where logged might need inspection in the GUI):
-# segments_selection:
+# {0}:
 #   id: "1 4 342 67"
 #
 # 4. To select segments whose event magnitude is greater than 4.2:
-# segments_selection:
+# {0}:
 #   event.magnitude: ">4.2"
 # (the same way work the operators: =, >=, <=, <, !=)
 #
 # 5. To select segments with a particular channel sensor description:
-# segments_selection:
+# {0}:
 #   channel.sensor_description: "'GURALP CMG-40T-30S'"
 # (note: for attributes with str values and spaces, we need to quote twice, as otherwise
 # "GURALP CMG-40T-30S" would match 'GURALP' and 'CMG-40T-30S', but not the whole string.
@@ -595,7 +596,7 @@ The parameter 'segments_selection' defines which segments to be processed or vis
 #
 # The list of segment attribute names and types is:
 #
-# """ + _SEGMENT_ATTRS_YAML + """
+# """.format(SEGSEL_PARAMNAME) + _SEGMENT_ATTRS_YAML + """
 # """
 
 PROCESS_YAML_SNWINDOWS = """

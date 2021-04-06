@@ -20,13 +20,14 @@ from pandas.testing import assert_frame_equal
 
 from stream2segment.cli import cli
 from stream2segment.process.db.models import Segment
+from stream2segment.process.inputvalidation import SEGMENT_SELECT_PARAM_NAMES
 from stream2segment.resources import get_templates_fpath
 from stream2segment.process.main import _run as process_main_run
 from stream2segment.process.log import configlog4processing as o_configlog4processing
 from stream2segment.process.writers import BaseWriter, _SEGMENT_ID_COLNAMES, \
     SEGMENT_ID_COLNAME
 
-SEG_SEL_STR = 'segments_selection'
+SEG_SEL_STR = SEGMENT_SELECT_PARAM_NAMES[0]
 
 
 @pytest.fixture
