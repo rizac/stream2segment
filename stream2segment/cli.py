@@ -647,8 +647,8 @@ def dl():  # pylint: disable=missing-docstring
     pass
 
 
-@dl.command(short_help='Produce download statistics in either plain '
-                       'text or html format')
+@dl.command(short_help='Produce download statistics in either plain text or html format',
+            context_settings={'ignore_unknown_options': True})
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option('-did', '--download-id', multiple=True, type=int,
               help="Limit the download statistics to a specified set of "
@@ -666,16 +666,23 @@ def dl():  # pylint: disable=missing-docstring
                    "download info is visualized on a map, with statistics "
                    "on a per-station and data-center basis. A working internet "
                    "connection is needed to properly view the page")
-@click.argument("outfile", required=False, type=click.Path(file_okay=True,
-                                                           dir_okay=False,
-                                                           writable=True,
-                                                           readable=True))
-def stats(dburl, download_id, maxgap_threshold, html, outfile):
+@click.option("-o", "--outfile", required=False, type=click.Path(file_okay=True,
+                                                                 dir_okay=False,
+                                                                 writable=True,
+                                                                 readable=True),
+              help="The optional output file where the information will be saved to. "
+                   "If missing, results will be printed to screen or opened in a web "
+                   "browser, depending on the option '--html'")
+@click.argument("download_indices", required=False, nargs=-1)
+def stats(dburl, download_id, maxgap_threshold, html, outfile, download_indices):
     """Produce download statistics either in plain text or html format.
 
-    [OUTFILE] (optional): the output file where the information will be saved
-    to. If missing, results will be printed to screen or opened in a web
-    browser (depending on the option '--html')
+    [DOWNLOAD_INDICES] (optional): The space-separated indices of the download executions
+    to inspect, where 0 indicates the first/oldest. To start counting from the end use a
+    negative index. E.g., -1 for the last/most recent execution, -2 for the next-to-last,
+    and so on. When no argument is provided, all downloads are shown. Remember not to mix
+    up the index provided here with the download id (immutable integer uniquely
+    identifying a download execution)
     """
     # import in function body to speed up the main module import:
     from stream2segment.download.db.inspection.main import dstats
@@ -685,7 +692,8 @@ def stats(dburl, download_id, maxgap_threshold, html, outfile):
     try:
         with warnings.catch_warnings():  # capture (ignore) warnings
             warnings.simplefilter("ignore")
-            dstats(dburl, None, download_id or None, maxgap_threshold, html, outfile)
+            dstats(dburl, download_indices or None, download_id or None,
+                   maxgap_threshold, html, outfile)
         if outfile is not None:
             print("download statistics written to '%s'" % outfile)
         sys.exit(0)
