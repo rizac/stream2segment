@@ -647,7 +647,7 @@ def dl():  # pylint: disable=missing-docstring
     pass
 
 
-@dl.command(short_help='Produce download summary statistics in either plain '
+@dl.command(short_help='Produce download statistics in either plain '
                        'text or html format')
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option('-did', '--download-id', multiple=True, type=int,
@@ -671,7 +671,7 @@ def dl():  # pylint: disable=missing-docstring
                                                            writable=True,
                                                            readable=True))
 def stats(dburl, download_id, maxgap_threshold, html, outfile):
-    """Produce download summary statistics either in plain text or html format.
+    """Produce download statistics either in plain text or html format.
 
     [OUTFILE] (optional): the output file where the information will be saved
     to. If missing, results will be printed to screen or opened in a web
@@ -680,8 +680,8 @@ def stats(dburl, download_id, maxgap_threshold, html, outfile):
     # import in function body to speed up the main module import:
     from stream2segment.download.db.inspection.main import dstats
 
-    print('Fetching data, please wait (this might take a while depending on '
-          'the db size and connection)')
+    _print_waitmsg_while_fetching_data()
+
     try:
         with warnings.catch_warnings():  # capture (ignore) warnings
             warnings.simplefilter("ignore")
@@ -694,41 +694,29 @@ def stats(dburl, download_id, maxgap_threshold, html, outfile):
         sys.exit(1)  # exit with 1 as normal python exceptions
 
 
-@dl.command(short_help="Return download information for inspection")
+@dl.command(short_help="Show short summary of the given download execution(s)",
+            context_settings={'ignore_unknown_options': True})
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
-@click.option('-did', '--download-id', multiple=True, type=int,
-              help="Limit the download statistics to a specified set of "
-                   "download ids (integers) when missing, all downloads are "
-                   "shown")
-@click.option('-c', '--config', is_flag=True, default=None,
-              help="Returns only the config used (in YAML syntax) of the "
-                   "chosen download(s)")
-@click.option('-l', '--log', is_flag=True, default=None,
-              help="Returns only the log messages of the chosen download(s)")
-@click.argument("outfile", required=False, type=click.Path(file_okay=True,
-                                                           dir_okay=False,
-                                                           writable=True,
-                                                           readable=True))
-def report(dburl, download_id, config, log, outfile):
-    """Return download information.
+@click.argument("download_indices", required=False, nargs=-1)
+def summary(dburl, download_indices):
+    """Return a summary of the download execution
 
-    [OUTFILE] (optional): the output file where the information will be saved
-    to. If missing, results will be printed to screen
+    [DOWNLOAD_INDICES] (optional): The space-separated indices of the download executions
+    to inspect, where 0 indicates the first/oldest. To start counting from the end use a
+    negative index. E.g., -1 for the last/most recent execution, -2 for the next-to-last,
+    and so on. When no argument is provided, all downloads are shown. Remember not to mix
+    up the index provided here with the download id (immutable integer uniquely
+    identifying a download execution)
     """
     # import in function body to speed up the main module import:
-    from stream2segment.download.db.inspection.main import dreport
+    from stream2segment.download.db.inspection.main import dsummary
 
-    print('Fetching data, please wait (this might take a while depending on the '
-          'db size and connection)')
+    _print_waitmsg_while_fetching_data()
+
     try:
-        # this is hacky but in case we want to restore the html
-        # argument ...
-        html = False
         with warnings.catch_warnings():  # capture (ignore) warnings
             warnings.simplefilter("ignore")
-            dreport(dburl, None, download_id or None, bool(config), bool(log), html, outfile)
-        if outfile is not None:
-            print("download report written to '%s'" % outfile)
+            dsummary(dburl, download_indices or None, None)
         sys.exit(0)
     except BadParam as err:
         print(err)
@@ -752,8 +740,8 @@ def log(dburl, download_indices):
     # import in function body to speed up the main module import:
     from stream2segment.download.db.inspection.main import dreport
 
-    print('Fetching data, please wait (this might take a while depending on the '
-          'db size and connection)', file=sys.stderr, flush=True)
+    _print_waitmsg_while_fetching_data()
+
     try:
         # this is hacky but in case we want to restore the html
         # argument ...
@@ -784,8 +772,8 @@ def config(dburl, download_indices):
     # import in function body to speed up the main module import:
     from stream2segment.download.db.inspection.main import dreport
 
-    print('Fetching data, please wait (this might take a while depending on the '
-          'db size and connection)', file=sys.stderr, flush=True)
+    _print_waitmsg_while_fetching_data()
+
     try:
         # this is hacky but in case we want to restore the html
         # argument ...
@@ -797,6 +785,14 @@ def config(dburl, download_indices):
     except BadParam as err:
         print(err)
         sys.exit(1)  # exit with 1 as normal python exceptions
+
+
+def _print_waitmsg_while_fetching_data(**kwargs):
+    kwargs.setdefault('flush', True)
+    kwargs.setdefault('file', sys.stderr)
+    msg = ('Fetching data, please wait (this might take a while depending on the '
+           'db size and connection, if db is remote)')
+    print(msg, **kwargs)
 
 
 @cli.group(short_help="Database management")
@@ -817,8 +813,8 @@ def drop(dburl, download_id):
     # import in function body to speed up the main module import:
     from stream2segment.download.db.management import drop
 
-    print('Fetching data, please wait (this might take a while depending on '
-          'the db size and connection)')
+    _print_waitmsg_while_fetching_data()
+
     try:
         with warnings.catch_warnings():  # capture (ignore) warnings
             warnings.simplefilter("ignore")

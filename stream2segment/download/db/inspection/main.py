@@ -27,14 +27,18 @@ from stream2segment.io.db.sqlconstructs import concat
 from stream2segment.io.inputvalidation import validate_param, valid_session, BadParam
 
 
+def dsummary(dburl, download_indices=None, download_ids=None):
+    """Create Yield tuple (i:int, id:int, run_time:datetime) relative to all desired
+    download executions
+    """
+    _get_download_info(DSummary(), dburl, download_indices, download_ids,
+                       False, None)
+
+
 def dreport(dburl, download_indices=None, download_ids=None, config=True, log=True,
             html=False, outfile=None):
-    """Create a diagnostic html page (or text string) showing the status of the
-    download. Note that html is not supported for the moment and will raise an
-    Exception. (leaving the same signature as `dstats` for compatibility and
-    easing future implementations of the html page if needed). If download ids and
-    download indices are both Nones, shows stats for all
-    downloads
+    """Show/print/return the config and/or log of the given download. If download ids
+    and download indices are both Nones, shows stats for all downloads.
 
     :param download_indices: slice, int or str ('start', 'start:stop', 'start:stop:step')
     :param download_ids: download ids (list of int), will be merged with download_indices
@@ -61,15 +65,9 @@ def dstats(dburl, download_indices=None, download_ids=None, maxgap_threshold=0.5
 
 def _get_download_info(info_generator, dburl, download_indices=None, download_ids=None,
                        html=False, outfile=None):
-    """Process dinfo or dstats"""
+    """Process dreport or dstats"""
     session = validate_param('dburl', dburl, valid_session)
-
-    if download_ids or download_indices:
-        if not download_ids:
-            download_ids = []
-        for _ in get_download_ids(session, download_indices):
-            if _ not in download_ids:
-                download_ids.append(_)
+    download_ids = get_download_ids(session, download_indices, download_ids)
 
     if html:
         openbrowser = False
@@ -94,13 +92,21 @@ def _get_download_info(info_generator, dburl, download_indices=None, download_id
                     line += '\n'
                     opn.write(line)
         else:
+            printed = False
             for line in itr:
-                print(line)
+                printed = True
+                print(line, file=sys.stdout if not outfile else outfile)
+            # if we are printing onn screen, show if nothing could be printed:
+            if outfile in (None, sys.stdout) and not printed:
+                print('Nothing to show', file=sys.stderr)
 
 
-def get_download_ids(session, download_indices=None):
+def get_download_ids(session, download_indices=None, download_ids=None):
+    if not download_ids:
+        download_ids = []
+
     if not download_indices:
-        return []
+        return download_ids
 
     def raise_bad_param():
         raise BadParam("Invalid download indices", "", str(download_indices),
@@ -136,8 +142,18 @@ def get_download_ids(session, download_indices=None):
 
     d_ids = [_[0] for _ in query_download_data(session, sort='asc')]
     if isinstance(d_indices, slice):
-        return d_ids[d_indices]
-    return [d_ids[_] for _ in d_indices]
+        download_ids.extend(_ for _ in d_ids[d_indices] if _ not in download_ids)
+    # If d_indices is list, let's pass IndexError(s), as it happens for download ids not
+    # in the db. So things are slightly more complex:
+    for i in d_indices:
+        try:
+            did = d_ids[i]
+            if did not in download_ids:
+                download_ids.append(did)
+        except IndexError:
+            pass
+
+    return download_ids
 
 
 class _InfoGenerator(object):
@@ -175,6 +191,35 @@ class _InfoGenerator(object):
         jspath = os.path.join(thisdir, 'static', 'js')
         env = Environment(loader=FileSystemLoader([templatespath, jspath, csspath]))
         return env.get_template('%s.html' % cls.__name__.lower())
+
+
+class DSummary(_InfoGenerator):
+    """Class handling the generation of download reports in text format (no html
+    supported for the moment)
+    """
+
+    def str_iter(self, session, download_ids=None):
+        """Returns an iterator yielding chunks of strings denoting the string
+        representation of this object
+        """
+        header = ('Download_id', 'Executed_at', 'Index')
+        lengths = [len(header[0]), 19, len(header[2])]
+        for i, (did, dtime) in enumerate(query_download_data(session,
+                                                             attrs=(Download.id,
+                                                                    Download.run_time),
+                                                             sort='asc')):
+            if not download_ids or did in download_ids:
+                if header:
+                    yield '  '.join(_1.rjust(_2) for _1, _2 in zip(header, lengths))
+                    header = None
+                yield '  '.join([str(did).rjust(lengths[0]),
+                                dtime.replace(microsecond=0).isoformat(),
+                                str(i).rjust(lengths[2])])
+
+    def html_template_arguments(self, session, download_ids=None):
+        """Returns a dict to be passed as arguments to
+        the jinja2 template"""
+        raise Exception('html version not available')
 
 
 class DReport(_InfoGenerator):
@@ -315,16 +360,16 @@ def get_dstats_str_iter(session, download_ids=None, maxgap_threshold=0.5):
     # takes around 12 sec and 14 seconds adding all necessary information.
     # Therefore, we choose the latter
     maxgap_bexpr = get_maxgap_sql_expr(maxgap_threshold)
-    data = session.query(func.count(Segment.id),
-                         Segment.download_code,
-                         Segment.datacenter_id,
-                         Segment.download_id,
-                         maxgap_bexpr)
+    qry = session.query(func.count(Segment.id),
+                        Segment.download_code,
+                        Segment.datacenter_id,
+                        Segment.download_id,
+                        maxgap_bexpr)
 
-    data = filterquery(data, download_ids).group_by(Segment.download_id,
-                                                    Segment.datacenter_id,
-                                                    Segment.download_code,
-                                                    maxgap_bexpr)
+    data = filterquery(qry, download_ids).group_by(Segment.download_id,
+                                                   Segment.datacenter_id,
+                                                   Segment.download_code,
+                                                   maxgap_bexpr)
 
     dwlids = get_downloads(session, download_ids)
     show_aggregate_stats = len(dwlids) > 1
