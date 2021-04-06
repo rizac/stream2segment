@@ -11,7 +11,7 @@ from stream2segment.io.db import database_exists, get_session
 
 class BadParam(Exception):
     """Exception describing a bad input parameter. The purpose of this class is twofold:
-    provide clear exception messages to the user focused on the input parameter to fix,
+    provide clear exception messages to the user with info on the input parameter to fix,
     and provide a formatting style similar to :class:`click.exceptions.BadParameter`, to
     harmonize output when invoking commands from the terminal
     """
@@ -67,11 +67,10 @@ class BadParam(Exception):
     def __str__(self):
         """String representation of this object"""
         msg_preamble = self.preamble
-        if msg_preamble:
-            msg_preamble += ' '
-
         p_name = self._param_sep.join("{0}{1}{0}".format(self._param_quote, _)
                                       for _ in self.params)
+        if msg_preamble and p_name:
+            msg_preamble += ' '
 
         err_msg = self.message
         if err_msg:
@@ -139,7 +138,7 @@ def get_param(dic, name_or_names, default=_VALUE_NOT_FOUND_):
 
 def _param_tuple(dic, name_or_names, default=_VALUE_NOT_FOUND_, pop=False):
     """private base function used by the public `get` and `pop`"""
-    names = BadParam._vectorize(name_or_names)
+    names = BadParam._vectorize(name_or_names)  # noqa
     keyval = {}  # copy all param -> value mapping here
 
     for name in names:

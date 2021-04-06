@@ -287,7 +287,6 @@ segment (id=5): 4 traces (probably gaps/overlaps)
         with pytest.raises(EmptyDataError):
             csv1 = readcsv(filename)
 
-        # see comment aboive on segments_select
         if select_with_data:
             # selecting only with data means out of the three candidate segments, one
             # is discarded prior to processing:
