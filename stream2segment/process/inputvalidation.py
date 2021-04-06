@@ -6,11 +6,24 @@ import os
 from future.utils import string_types
 
 from stream2segment.io import yaml_load
-from stream2segment.io.inputvalidation import validate_param, valid_session, \
-    _extract_segments_selection, \
-    get_param
-from stream2segment.download.inputvalidation import valid_between
+from stream2segment.io.inputvalidation import (validate_param, valid_session, get_param,
+                                               pop_param)
+# from stream2segment.download.inputvalidation import valid_between
 from stream2segment.process.inspectimport import load_source
+
+
+SEGMENT_SELECT_PARAM_NAMES = ('segments_selection', 'segment_select')
+
+
+def _extract_segments_selection(config):
+    """Return the dict in `config` denoting the selection of segment. Validators
+    should all call this method so that the valid parameter names are implemented in
+    one place and can be easily modified.
+
+    :param config: the config `dict` (e.g. resulting from a YAML config file used for
+        processing, or visualization)
+    """
+    return pop_param(config, SEGMENT_SELECT_PARAM_NAMES, {})[1]
 
 
 def load_config_for_process(dburl, pyfile, funcname=None, config=None,

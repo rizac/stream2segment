@@ -168,24 +168,6 @@ def _param_tuple(dic, name_or_names, default=_VALUE_NOT_FOUND_, pop=False):
     return p_name, keyval[p_name]
 
 
-##############################################################################
-# Loading config functions. These functions should validate the whole input
-# of our main routines (download, process, show) and call validate_param()
-# with the given parameters and the low level validation functions above
-##############################################################################
-
-
-def _extract_segments_selection(config):
-    """Return the dict in `config` denoting the selection of segment. Validators
-    should all call this method so that the valid parameter names are implemented in
-    one place and can be easily modified.
-
-    :param config: the config `dict` (e.g. resulting from a YAML config file used for
-        processing, or visualization)
-    """
-    return pop_param(config, ['segments_selection', 'segment_select'], {})[1]
-
-
 #####################################################################################
 # Low level validation functions.
 # IMPORTANT: By convention, these functions should start with "valid_" and
@@ -225,14 +207,6 @@ def valid_session(dburl, for_process=False, scoped=False, **engine_kwargs):
     """
     if not isinstance(dburl, string_types):
         raise TypeError('string required, %s found' % str(type(dburl)))
-    # import in function to speed up module imports from cli:
-    # FIXME: single func!
-    # if for_process:
-    #     # important, rename otherwise conflicts with this function name:
-    #     from stream2segment.process.db import get_session as sess_func
-    # else:
-    #    # important, rename otherwise conflicts with this function name:
-    #    from stream2segment.io.db import get_session as sess_func
 
     exists = database_exists(dburl)
     # the only case when we don't care if the database exists is when

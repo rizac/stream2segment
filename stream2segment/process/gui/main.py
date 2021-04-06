@@ -15,9 +15,9 @@ import threading
 from flask import Flask
 
 from stream2segment.io import yaml_load
-from stream2segment.io.inputvalidation import (validate_param, valid_session,
-                                               _extract_segments_selection)
+from stream2segment.io.inputvalidation import validate_param, valid_session
 from stream2segment.process.inspectimport import load_source
+from stream2segment.process.inputvalidation import _extract_segments_selection
 
 
 def show_gui(dburl, pyfile, configfile):
