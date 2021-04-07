@@ -403,7 +403,10 @@ class Test(object):
         if db.is_sqlite:
             assert result.exit_code == 0
         else:
+            import re
             assert 'Invalid value for "dburl":' in result.output
+            assert re.search(' database ".*" does not exist, it needs to be created first',
+                             result.output)
             assert 'needs to be created first' in result.output
             assert result.exit_code != 0
 

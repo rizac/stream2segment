@@ -10,7 +10,7 @@ from future.utils import string_types
 from stream2segment.download.modules.utils import (EVENTWS_SAFE_PARAMS, Authorizer,
                                                    strptime, EVENTWS_MAPPING)
 from stream2segment.io import yaml_load, absrelpath, Fdsnws
-from stream2segment.io.db import DbNotFound, get_session
+from stream2segment.io.db import DbNotFound, get_session, is_sqlite
 from stream2segment.io.inputvalidation import (validate_param, pop_param,
                                                get_param, BadParam, valid_between)
 from stream2segment.resources import get_templates_fpath, get_ttable_fpath
@@ -283,9 +283,10 @@ def _validate_download_advanced_settings(config, adv_settings_key):
 
 def valid_session(dburl, scoped=False, **engine_kwargs):
     try:
-        sess = get_session(dburl, scoped, check_db_existence=True, **engine_kwargs)
+        sess = get_session(dburl, scoped, check_db_existence=not is_sqlite(dburl),
+                           **engine_kwargs)
     except DbNotFound as dbnf:
-        raise ValueError('%s. You need to create the database first' % str(dbnf))
+        raise ValueError('%s, it needs to be created first' % str(dbnf))
 
     # Note: this creates the SCHEMA, not the database
     # the import below is in the function because slightly time consuming:

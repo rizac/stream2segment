@@ -153,8 +153,7 @@ class Fdsnws(object):
         return self.url('<service>', None, '<method>')
 
 
-def yaml_safe_dump(data, stream=None, default_flow_style=False,
-                   sort_keys=False, **kwds):
+def yaml_safe_dump(data, stream=None, default_flow_style=False, sort_keys=False, **kwds):
     """Call `yaml.safe_dump` with default shortcuts
 
     :param default_flow_style: boolean, tells if collections (lists/dicts) should

@@ -13,8 +13,7 @@ def get_session(dbpath, scoped=False, check_db_existence=True, **engine_args):
     :param dbpath: the path to the database, e.g. sqlite:///path_to_my_dbase.sqlite
     :param scoped: boolean (False by default) if the session must be scoped session
     :param check_db_existence: True by default, will raise a :class:`DbNotFound` if the
-        database does not exist. Does not apply to SQLite databases, as the databse
-        correspond to a file that does not need to be created first
+        database does not exist
     :param engine_args: optional keyword argument values for the
         `create_engine` method. E.g., let's provide two engine arguments,
         `echo` and `connect_args`:
@@ -35,7 +34,7 @@ def get_session(dbpath, scoped=False, check_db_existence=True, **engine_args):
                          'the URL is not well formed or contains typos '
                          '(original error: %s)' % str(_))
 
-    if check_db_existence and not is_sqlite(dbpath):
+    if check_db_existence:
         # the only case when we don't care if the database exists is when
         # we have sqlite and we are downloading. Thus
         if not database_exists(engine):
@@ -60,15 +59,18 @@ class DbNotFound(ValueError):
         return self.args[0]
 
     def __str__(self):
+        # Warning: if you change the message below, check also the message raised in
+        # check also stream2segment.download.inputvalidation::valid_session
+        # that relies upon this:
         return 'Database "%s" does not exist' % get_dbname(self.dburl)
 
 
 def is_sqlite(dburl):
-    return dburl.lower().startswith('sqlite')
+    return isinstance(dburl, str) and dburl.lower().startswith('sqlite')
 
 
 def is_postgres(dburl):
-    return dburl.lower().startswith('postgres')
+    return isinstance(dburl, str) and dburl.lower().startswith('postgres')
 
 
 def get_dbname(dburl):
