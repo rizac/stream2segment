@@ -13,7 +13,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from stream2segment.io.db import close_session
 from stream2segment.io.db.models import get_classlabels
 from stream2segment.io.inputvalidation import validate_param
-from stream2segment.download.inputvalidation import valid_session
+from stream2segment.download.db import get_session
 from stream2segment.download.db.models import Class, Download, Segment
 
 
@@ -32,10 +32,13 @@ def classlabels(dburl, *, add, rename, delete):
     :param delete: Class labels to delete, as Squence[str] denoting the class
         labels to delete
     """
-    session = validate_param("dburl", dburl, valid_session)
-    configure_classlabels(session, add=add, rename=rename, delete=delete)
-    return get_classlabels(session, Class)
-
+    # create the session by raising a BadParam (associated to the name 'dburl') in case:
+    session = validate_param("dburl", dburl, get_session)
+    try:
+        configure_classlabels(session, add=add, rename=rename, delete=delete)
+        return get_classlabels(session, Class)
+    finally:
+        close_session(session, True)
 
 def configure_classlabels(session, *, add, rename, delete, commit=True):
     """Configure the class labels of the database related to the database
@@ -99,7 +102,8 @@ def drop(dburl, download_ids, confirm=True):
         - an exception (if the download id could not be deleted)
     """
     ret = {}
-    session = validate_param('dburl', dburl, valid_session)
+    # create the session by raising a BadParam (associated to the name 'dburl') in case:
+    session = validate_param('dburl', dburl, get_session)
     try:
         ids = [_[0] for _ in
                session.query(Download.id).filter(Download.id.in_(download_ids))]

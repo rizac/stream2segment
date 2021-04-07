@@ -21,9 +21,10 @@ from sqlalchemy import func, or_
 
 from stream2segment.io import yaml_load, Fdsnws, open2writetext
 from stream2segment.io.cli import ascii_decorate
+from stream2segment.io.db import close_session
 from stream2segment.io.db.sqlconstructs import concat
 from stream2segment.io.inputvalidation import validate_param, BadParam
-from stream2segment.download.inputvalidation import valid_session
+from stream2segment.download.db import get_session
 from stream2segment.download.db.models import Download, Segment, DataCenter, Station
 from stream2segment.download.modules.utils import EVENTWS_SAFE_PARAMS, DownloadStats
 
@@ -93,39 +94,43 @@ def stats(dburl, download_indices=None, download_ids=None, maxgap_threshold=0.5,
 def _get_download_info(info_generator, dburl, download_indices=None, download_ids=None,
                        html=False, outfile=None):
     """Process dreport or dstats"""
-    session = validate_param('dburl', dburl, valid_session)
-    download_ids = get_download_ids(session, download_indices, download_ids)
+    # create the session by raising a BadParam (associated to the name 'dburl') in case:
+    session = validate_param('dburl', dburl, get_session)
+    try:
+        download_ids = get_download_ids(session, download_indices, download_ids)
 
-    if html:
-        openbrowser = False
-        if not outfile:
-            openbrowser = True
-            outfile = os.path.join(gettempdir(), "s2s_%s.html" %
-                                   info_generator.__class__.__name__.lower())
-        # get_dstats_html returns unicode characters in py2, str in py3,
-        # so it is safe to use open like this (cf below):
-        with open(outfile, 'w', encoding='utf8', errors='replace') as opn:
-            opn.write(info_generator.html(session, download_ids))
-        if openbrowser:
-            open_in_browser('file://' + outfile)
-        threading.Timer(1, lambda: sys.exit(0)).start()
-    else:
-        itr = info_generator.str_iter(session, download_ids)
-        if outfile is not None:
-            # itr is an iterator of strings in py2, and str in py3, so open
-            # must be input differently (see utils module):
-            with open2writetext(outfile, encoding='utf8', errors='replace') as opn:
-                for line in itr:
-                    line += '\n'
-                    opn.write(line)
+        if html:
+            openbrowser = False
+            if not outfile:
+                openbrowser = True
+                outfile = os.path.join(gettempdir(), "s2s_%s.html" %
+                                       info_generator.__class__.__name__.lower())
+            # get_dstats_html returns unicode characters in py2, str in py3,
+            # so it is safe to use open like this (cf below):
+            with open(outfile, 'w', encoding='utf8', errors='replace') as opn:
+                opn.write(info_generator.html(session, download_ids))
+            if openbrowser:
+                open_in_browser('file://' + outfile)
+            threading.Timer(1, lambda: sys.exit(0)).start()
         else:
-            printed = False
-            for line in itr:
-                printed = True
-                print(line, file=sys.stdout if not outfile else outfile)
-            # if we are printing onn screen, show if nothing could be printed:
-            if outfile in (None, sys.stdout) and not printed:
-                print('Nothing to show', file=sys.stderr)
+            itr = info_generator.str_iter(session, download_ids)
+            if outfile is not None:
+                # itr is an iterator of strings in py2, and str in py3, so open
+                # must be input differently (see utils module):
+                with open2writetext(outfile, encoding='utf8', errors='replace') as opn:
+                    for line in itr:
+                        line += '\n'
+                        opn.write(line)
+            else:
+                printed = False
+                for line in itr:
+                    printed = True
+                    print(line, file=sys.stdout if not outfile else outfile)
+                # if we are printing onn screen, show if nothing could be printed:
+                if outfile in (None, sys.stdout) and not printed:
+                    print('Nothing to show', file=sys.stderr)
+    finally:
+        close_session(session, True)
 
 
 def get_download_ids(session, download_indices=None, download_ids=None):

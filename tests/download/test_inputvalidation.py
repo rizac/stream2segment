@@ -25,7 +25,7 @@ from stream2segment.cli import cli
 from stream2segment.download.main import (configlog4download as o_configlog4download,
                                           new_db_download as o_new_db_download)
 from stream2segment.download.main import download as o_download
-from stream2segment.download.inputvalidation import valid_session as o_valid_session
+from stream2segment.download.inputvalidation import get_session as o_get_session
 from stream2segment.download.inputvalidation import valid_nslc as nslc_param_value_aslist
 from stream2segment.download.db.models import Download
 from stream2segment.io.db import secure_dburl
@@ -100,7 +100,7 @@ class Test(object):
             # will mek easier debug when refactoring/move functions
             configlog4download = 'stream2segment.download.main.configlog4download'
             new_db_download = 'stream2segment.download.main.new_db_download'
-            valid_session = 'stream2segment.download.inputvalidation.valid_session'
+            get_session = 'stream2segment.download.inputvalidation.get_session'
             close_session = 'stream2segment.download.main.close_session'
             run_download = 'stream2segment.download.main._run'
 
@@ -110,11 +110,11 @@ class Test(object):
             with patch(patches.new_db_download, side_effect=o_new_db_download) as _:
                 self.mock_new_db_download = _
 
-                with patch(patches.valid_session) as _:
+                with patch(patches.get_session) as _:
                     def csess(dbpath, *a, **v):
                         if dbpath == db.dburl:
                             return db.session
-                        return o_valid_session(dbpath, *a, **v)
+                        return o_get_session(dbpath, *a, **v)
                     _.side_effect = csess
 
                     with patch(patches.close_session) as _:
@@ -656,7 +656,7 @@ def test_argument_which_accept_files_relative_and_abs_paths(mock_run_download,
         assert run_download_args[yamlarg] == yamlarg_file
 
 
-@patch('stream2segment.download.inputvalidation.valid_session')
+@patch('stream2segment.download.inputvalidation.get_session')
 @patch('stream2segment.download.main.close_session')
 @patch('stream2segment.download.main.configlog4download')
 @patch('stream2segment.download.main._run')

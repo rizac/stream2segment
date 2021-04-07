@@ -28,7 +28,7 @@ class patches(object):
     # will mek easier debug when refactoring/move functions
     # open_in_browser = 'stream2segment.download.db.inspection.main.open_in_browser'
     # gettempdir = 'stream2segment.download.db.inspection.main.gettempdir'
-    valid_session = 'stream2segment.download.db.inspection.main.valid_session'
+    get_session = 'stream2segment.download.db.inspection.main.get_session'
 
 
 class Test(object):
@@ -132,7 +132,7 @@ class Test(object):
                 db.session.add(seg)
                 db.session.commit()
 
-        with patch(patches.valid_session, return_value=db.session) as mock_session:
+        with patch(patches.get_session, return_value=db.session) as mock_session:
             yield
 
 # ## ======== ACTUAL TESTS: ================================
