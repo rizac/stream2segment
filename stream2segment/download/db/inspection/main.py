@@ -19,12 +19,13 @@ from future.utils import viewitems
 from jinja2 import Environment, FileSystemLoader
 from sqlalchemy import func, or_
 
-from stream2segment.download.db.models import Download, Segment, DataCenter, Station
-from stream2segment.download.modules.utils import EVENTWS_SAFE_PARAMS, DownloadStats
 from stream2segment.io import yaml_load, Fdsnws, open2writetext
 from stream2segment.io.cli import ascii_decorate
 from stream2segment.io.db.sqlconstructs import concat
-from stream2segment.io.inputvalidation import validate_param, valid_session, BadParam
+from stream2segment.io.inputvalidation import validate_param, BadParam
+from stream2segment.download.inputvalidation import valid_session
+from stream2segment.download.db.models import Download, Segment, DataCenter, Station
+from stream2segment.download.modules.utils import EVENTWS_SAFE_PARAMS, DownloadStats
 
 
 def summary(dburl, download_indices=None, download_ids=None, outfile=None):

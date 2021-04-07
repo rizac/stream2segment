@@ -25,7 +25,7 @@ from stream2segment.cli import cli
 from stream2segment.download.main import (configlog4download as o_configlog4download,
                                           new_db_download as o_new_db_download)
 from stream2segment.download.main import download as o_download
-from stream2segment.io.inputvalidation import valid_session as o_get_session
+from stream2segment.download.inputvalidation import valid_session as o_valid_session
 from stream2segment.download.inputvalidation import valid_nslc as nslc_param_value_aslist
 from stream2segment.download.db.models import Download
 from stream2segment.io.db import secure_dburl
@@ -114,7 +114,7 @@ class Test(object):
                     def csess(dbpath, *a, **v):
                         if dbpath == db.dburl:
                             return db.session
-                        return o_get_session(dbpath, *a, **v)
+                        return o_valid_session(dbpath, *a, **v)
                     _.side_effect = csess
 
                     with patch(patches.close_session) as _:

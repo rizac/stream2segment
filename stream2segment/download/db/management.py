@@ -2,18 +2,19 @@
 Database management functions
 """
 
-# Make inpuy py2 compatible, but remember to KEEP IT HERE ALSO AFTER DROPPING PY2,
+# Make input py2 compatible, but remember to KEEP IT HERE ALSO AFTER DROPPING PY2,
 # IT IS USED FOR TESTING!
 from builtins import input
 
 from sqlalchemy import func
 from sqlalchemy.exc import SQLAlchemyError
 
-from stream2segment.io import inputvalidation
+# from stream2segment.io import inputvalidation
 from stream2segment.io.db import close_session
 from stream2segment.io.db.models import get_classlabels
+from stream2segment.io.inputvalidation import validate_param
+from stream2segment.download.inputvalidation import valid_session
 from stream2segment.download.db.models import Class, Download, Segment
-from stream2segment.io.inputvalidation import validate_param, valid_session
 
 
 def classlabels(dburl, *, add, rename, delete):
@@ -31,9 +32,7 @@ def classlabels(dburl, *, add, rename, delete):
     :param delete: Class labels to delete, as Squence[str] denoting the class
         labels to delete
     """
-    session = inputvalidation.validate_param("dburl", dburl,
-                                             inputvalidation.valid_session,
-                                             for_process=False, scoped=False)
+    session = validate_param("dburl", dburl, valid_session)
     configure_classlabels(session, add=add, rename=rename, delete=delete)
     return get_classlabels(session, Class)
 

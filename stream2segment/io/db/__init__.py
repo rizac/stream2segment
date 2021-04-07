@@ -1,17 +1,20 @@
 import re
 from contextlib import contextmanager
 
-from sqlalchemy.exc import ProgrammingError, OperationalError
+from sqlalchemy.exc import ProgrammingError, OperationalError, SQLAlchemyError
 from sqlalchemy.orm.scoping import scoped_session
 from sqlalchemy.engine import create_engine
 from sqlalchemy.orm.session import sessionmaker
 
 
-def get_session(dbpath, scoped=False, **engine_args):
+def get_session(dbpath, scoped=False, check_db_existence=True, **engine_args):
     """Create an SQLAlchemy session for IO database operations
 
     :param dbpath: the path to the database, e.g. sqlite:///path_to_my_dbase.sqlite
     :param scoped: boolean (False by default) if the session must be scoped session
+    :param check_db_existence: True by default, will raise a :class:`DbNotFound` if the
+        database does not exist. Does not apply to SQLite databases, as the databse
+        correspond to a file that does not need to be created first
     :param engine_args: optional keyword argument values for the
         `create_engine` method. E.g., let's provide two engine arguments,
         `echo` and `connect_args`:
@@ -21,7 +24,23 @@ def get_session(dbpath, scoped=False, **engine_args):
         For info see:
         https://docs.sqlalchemy.org/en/14/core/engines.html#sqlalchemy.create_engine.params.connect_args
     """
-    engine = create_engine(dbpath, **engine_args)
+    if not isinstance(dbpath, str):
+        raise TypeError('string required, %s found' % str(type(dbpath)))
+
+    try:
+        engine = create_engine(dbpath, **engine_args)
+    except (SQLAlchemyError, ValueError) as _:
+        # ValueError: 'postgresql://4:a6gfds' (cannot create port)
+        raise ValueError('Cannot create a db engine. Possible reason: '
+                         'the URL is not well formed or contains typos '
+                         '(original error: %s)' % str(_))
+
+    if check_db_existence and not is_sqlite(dbpath):
+        # the only case when we don't care if the database exists is when
+        # we have sqlite and we are downloading. Thus
+        if not database_exists(engine):
+            raise DbNotFound(dbpath)
+
     session_factory = sessionmaker(bind=engine)
 
     if not scoped:
@@ -29,6 +48,31 @@ def get_session(dbpath, scoped=False, **engine_args):
         return session_factory()
 
     return scoped_session(session_factory)
+
+
+class DbNotFound(ValueError):
+
+    def __init__(self, dburl):
+        super().__init__(dburl)
+
+    @property
+    def dburl(self):
+        return self.args[0]
+
+    def __str__(self):
+        return 'Database "%s" does not exist' % get_dbname(self.dburl)
+
+
+def is_sqlite(dburl):
+    return dburl.lower().startswith('sqlite')
+
+
+def is_postgres(dburl):
+    return dburl.lower().startswith('postgres')
+
+
+def get_dbname(dburl):
+    return dburl[dburl.rfind('/') + 1:]
 
 
 def database_exists(url_or_engine):

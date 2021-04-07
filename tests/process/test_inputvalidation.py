@@ -24,8 +24,9 @@ import pytest
 from stream2segment.cli import cli
 from stream2segment.process.main import configlog4processing as o_configlog4processing
 from stream2segment.process.main import process as o_process
-from stream2segment.io.inputvalidation import valid_session as o_get_session, BadParam
-from stream2segment.process.inputvalidation import load_config_for_process
+from stream2segment.io.inputvalidation import BadParam
+from stream2segment.process.inputvalidation import (load_config_for_process,
+                                                    valid_session as o_valid_session)
 from stream2segment.resources import get_templates_fpaths, get_templates_fpath
 from stream2segment.io import yaml_load
 
@@ -98,7 +99,7 @@ class Test(object):
             def csess(dbpath, *a, **v):
                 if dbpath == db.dburl:
                     return db.session
-                return o_get_session(dbpath, *a, **v)
+                return o_valid_session(dbpath, *a, **v)
             _.side_effect = csess
 
             with patch(patches.close_session) as _:

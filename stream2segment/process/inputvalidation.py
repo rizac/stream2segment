@@ -6,8 +6,10 @@ import os
 from future.utils import string_types
 
 from stream2segment.io import yaml_load
-from stream2segment.io.inputvalidation import (validate_param, valid_session, get_param,
+from stream2segment.io.inputvalidation import (validate_param, get_param,
                                                pop_param, valid_between)
+# import get_session as 'valid_session' for compatibility with the download package:
+from stream2segment.io.db import get_session as valid_session
 from stream2segment.process.inspectimport import load_source
 
 
@@ -33,7 +35,7 @@ def load_config_for_process(dburl, pyfile, funcname=None, config=None,
     from `config` which must denote a path to a yaml file, or None (config_dict
     will be empty in this latter case)
     """
-    session = validate_param("dburl", dburl, valid_session, for_process=True)
+    session = validate_param("dburl", dburl, valid_session)
     funcname = validate_param("funcname", funcname, valid_funcname)
     pyfunc = validate_param("pyfile", pyfile, valid_pyfunc, funcname)
     config = validate_param("config", config or {}, yaml_load, **param_overrides)

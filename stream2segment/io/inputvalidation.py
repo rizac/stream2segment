@@ -85,8 +85,16 @@ class BadParam(Exception):
 def validate_param(param_name_or_names, value, validation_func, *v_args, **v_kwargs):
     """Validate a parameter calling and returning the value of
     `validation_func(value, *v_args, **v_kwargs)`. Any exception raised from the
-    validation function is wrapped and re-raised as :class:`InvalidValue` providing
-    the given parameter name(s) in the exception message
+    validation function is wrapped and re-raised as :class:`BadParam` with the
+    given parameter name(s) in the exception message
+
+    :paraqm param_name_or_names: str or list of strings denoting the parameter name(s)
+        a list of strings denotes parameters with optional names
+    :param value: the parameter value to validate
+    :param validation_func: the validation function whose first argument must be
+        `value`
+    :param v_args: additional positional arguments to be passed to `validation_func`
+    :param v_kwargs: additional keyword arguments to be passed to `validation_func`
     """
     try:
         return validation_func(value, *v_args, **v_kwargs)
@@ -191,66 +199,3 @@ def valid_between(val, min, max, include_min=True, include_max=True, pass_if_non
         raise ValueError('%s must be %s %s' %
                          (str(val), '<=' if include_max else '<', str(max)))
     return val
-
-
-def valid_session(dburl, for_process=False, scoped=False, **engine_kwargs):
-    """Create an SQL-Alchemy session from dburl. Raises if `dburl` is
-    not a string, or any SqlAlchemy exception if the session could not be
-    created.
-
-    IMPORTANT: This function is intended to be called through `validate_param`,
-    so that if the database session could not be created, a meaningful message
-    with the parameter name (usually, "dburl" from the cli) can be raised. Example:
-    ```
-    session = validate_param('dburl', <variable_name>, get_session, *args, **kwargs)
-    ```
-    will raise in case of failure an error message like:
-    "Error: invalid value for "dburl": <message>"
-
-    :param dburl: string denoting a database url (currently postgres and sqlite
-        supported
-    :param for_process: boolean (default: False) whether the session should be
-        used for processing, i.e. the database is supposed to exist already and
-        the `Segment` model has ObsPy method such as `Segment.stream()`
-    :param scoped: boolean (False by default) if the session must be scoped
-        session
-    :param engine_kwargs: optional keyword argument values for the
-        `create_engine` method. E.g., let's provide two engine arguments,
-        `echo` and `connect_args`:
-        ```
-        get_session(dbpath, ..., echo=True, connect_args={'connect_timeout': 10})
-        ```
-        For info see:
-        https://docs.sqlalchemy.org/en/14/core/engines.html#sqlalchemy.create_engine.params.connect_args
-    """
-    if not isinstance(dburl, string_types):
-        raise TypeError('string required, %s found' % str(type(dburl)))
-
-    exists = database_exists(dburl)
-    # the only case when we don't care if the database exists is when
-    # we have sqlite and we are downloading. Thus
-    if not dburl.startswith('sqlite') or for_process:
-        if not exists:
-            dbname = dburl[dburl.rfind('/')+1:]
-            if for_process:
-                raise ValueError('Database "%s" does not exist. Provide an existing '
-                                 'database' % dbname)
-            else:
-                raise ValueError('Database "%s" needs to be created first' % dbname)
-
-    sess = get_session(dburl, scoped=scoped, **engine_kwargs)
-
-    if not for_process:
-        # Note: this creates the SCHEMA, not the database
-        from stream2segment.download.db.models import Base
-        Base.metadata.create_all(sess.get_bind())
-
-    # assert that the database exist. The only exception is when we
-
-    # Check if database exist, which should not always be done (e.g.
-    # for_processing=True). Among other methods
-    # (https://stackoverflow.com/a/3670000
-    # https://stackoverflow.com/a/59736414) this seems to do what we need
-    # (we might also not check if the tables length > 0 sometime):
-    # sess.bind.engine.table_names()
-    return sess
