@@ -94,12 +94,11 @@ class Fdsnws(object):
             method = reg.group('method')
 
             if self.service not in self.SERVICES:
-                raise ValueError("Invalid <service> '%s' in '%s'" %
-                                 (self.service, pth))
+                raise ValueError("Invalid service '%s' in '%s'" % (self.service, pth))
             try:
                 float(self.majorversion)
             except ValueError:
-                raise ValueError("Invalid <majorversion> '%s' in '%s'" %
+                raise ValueError("Invalid major version '%s' in '%s'" %
                                  (self.majorversion, pth))
             if method not in ('', '/'):
                 method = method[1:] if method[0] == '/' else method
@@ -121,8 +120,7 @@ class Fdsnws(object):
                     path_pre = '/' + path_pre
                 self.site += path_pre
         except Exception as exc:
-            raise ValueError("FDSN URL error: %s (URL: %s)" %
-                             (str(exc).lower(), str(url)))
+            raise ValueError("Non-standard FDSN URL: %s" % str(exc).lower())
 
     def _find_str(self, tokens_list):
         try:

@@ -581,15 +581,19 @@ UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
             assert mock_urljoin.called
 
             dcs = sorted(_.dataselect_url for _ in db.session.query(DataCenter))
+            log_msg = self.log_msg()
             if fdsn_strict:
                 assert dcs == sorted(['http://ws.resif.fr/fdsnws/dataselect/1/query',
                                       'http://webservices.ingv.it/fdsnws/dataselect/1/query'])
-                assert "1 data center URL(s) discarded" in self.log_msg()
+                assert "1 data center(s) discarded" in log_msg
+                assert 'Discarding data center (Non-standard FDSN URL: ' \
+                       'invalid "/ph5" before "fdsnws"). url:' in log_msg
             else:
                 assert dcs == sorted(['http://ws.resif.fr/fdsnws/dataselect/1/query',
                                       'http://ws.resif.fr/ph5/fdsnws/dataselect/1/query',
                                       'http://webservices.ingv.it/fdsnws/dataselect/1/query'])
-                assert "1 data center URL(s) discarded" not in self.log_msg()
+                assert "1 data center(s) discarded" not in log_msg
+                assert 'Discarding data center' not in log_msg
 
     @patch('stream2segment.download.modules.datacenters.urljoin',
            side_effect=lambda *a, **v: original_urljoin(*a, **v))
@@ -640,4 +644,4 @@ Z3 A318A * * 2015-11-17T10:32:52 2019-02-02T23:59:00"""]
                               # 'http://ws.resif.fr/ph5/fdsnws/dataselect/1/query',
                               'http://webservices.ingv.it/fdsnws/dataselect/1/query'])
         lmsg = self.log_msg()
-        assert "2 data center URL(s) discarded" in lmsg
+        assert "2 data center(s) discarded" in lmsg
