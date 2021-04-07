@@ -245,9 +245,9 @@ class Test(object):
         # which raised, so no parsing and thus no discarded rows:
         # assert "2 row(s) discarded" in log2
 
-        # check that we splitted once, thus we called 2 times mock_urljoin
-        # (plus the first call):
-        assert mock_urljoin.call_count == 3
+        # We called urljoin once, plus two times because we split url time bounds once,
+        # plus one time at the end to provide the url which raised in the error message:
+        assert mock_urljoin.call_count == 4
         mock_urljoin.reset_mock()
 
 
