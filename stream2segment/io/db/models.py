@@ -256,6 +256,9 @@ def check_datacenter_urls_fdsn(mapper, connection, target):
             target.station_url = fdsn.url(Fdsnws.STATION)
             target.dataselect_url = fdsn.url(Fdsnws.DATASEL)
         except ValueError:
+            # the idea here is to populate a missing field, not to raise...
+            # however, raising might be a better solution but should be done not
+            # only when either field is None
             pass
 
 

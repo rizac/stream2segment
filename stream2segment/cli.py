@@ -621,7 +621,7 @@ def process(dburl, config, pyfile, funcname, append, no_prompt,
     except BadParam as err:
         print(err)
         ret = 2
-    except:  # @IgnorePep8 pylint: disable=bare-except
+    except Exception:  # @IgnorePep8 pylint: disable=bare-except
         # do not print traceback, as we already did it by configuring loggers
         ret = 3
     sys.exit(ret)

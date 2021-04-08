@@ -54,6 +54,7 @@ def load_pyfunc_for_process(pyfile, funcname=None):
     funcname = validate_param("funcname", funcname, valid_funcname)
     return validate_param("pyfile", pyfile, valid_pyfunc, funcname)
 
+
 def load_config(config=None, **param_overrides):
     config = validate_param("config", config or {}, yaml_load, **param_overrides)
     seg_sel = _extract_segments_selection(config)

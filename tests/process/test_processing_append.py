@@ -22,7 +22,7 @@ from stream2segment.cli import cli
 from stream2segment.process.db.models import Segment
 from stream2segment.process.inputvalidation import SEGMENT_SELECT_PARAM_NAMES
 from stream2segment.resources import get_templates_fpath
-from stream2segment.process.main import _run as process_main_run
+from stream2segment.process.main import _run_and_write as process_main_run
 from stream2segment.process.log import configlog4processing as o_configlog4processing
 from stream2segment.process.writers import BaseWriter, _SEGMENT_ID_COLNAMES, \
     SEGMENT_ID_COLNAME
@@ -48,6 +48,15 @@ def read_processing_output(filename, header=True):  # <- header only for csv
             else pd.read_csv(filename)
     else:
         raise ValueError('Unrecognized extension %s' % ext)
+
+
+class patches(object):
+    # paths container for class-level patchers used below. Hopefully
+    # will mek easier debug when refactoring/move functions
+    get_session = 'stream2segment.process.main.get_session'
+    close_session = 'stream2segment.process.main.close_session'
+    configlog4processing = 'stream2segment.process.main.configlog4processing'
+    run_process = 'stream2segment.process.main._run_and_write'
 
 
 class Test(object):
@@ -90,16 +99,9 @@ def main2(segment, config):""")
         db4process.create(to_file=True)
         session = db4process.session
 
-        class patches(object):
-            # paths container for class-level patchers used below. Hopefully
-            # will mek easier debug when refactoring/move functions
-            valid_session = 'stream2segment.process.main.valid_session'
-            close_session = 'stream2segment.process.main.close_session'
-            configlog4processing = 'stream2segment.process.main.configlog4processing'
-
         # sets up the mocked functions: db session handling (using the already created
         # session) and log file handling:
-        with patch(patches.valid_session, return_value=session):
+        with patch(patches.get_session, return_value=session):
             with patch(patches.close_session, side_effect=lambda *a, **v: None):
                 with patch(patches.configlog4processing) as mock2:
 
@@ -125,7 +127,7 @@ def main2(segment, config):""")
     # station_inventory in [true, false] and segment.data in [ok, with_gaps, empty]
     # use db4process(with_inventory, with_data, with_gap) to return sqlalchemy query for
     # those segments in case. For info see db4process in conftest.py
-    @mock.patch('stream2segment.process.main._run', side_effect=process_main_run)
+    @mock.patch(patches.run_process, side_effect=process_main_run)
     def test_simple_run_no_outfile_provided(self, mock_run,
                                             # fixtures:
                                             db4process, clirunner, yamlfile):
@@ -141,10 +143,8 @@ def main2(segment, config):""")
         lst = mock_run.call_args_list
         assert len(lst) == 1
         args, kwargs = lst[0][0], lst[0][1]
-        # assert third argument (`ondone` callback) is None 'ondone' or is a BaseWriter (no-op)
-        # class:
-        assert args[2] is None or \
-            type(args[2]) == BaseWriter  # pylint: disable=unidiomatic-typecheck
+        # assert we passed no outputfile:
+        assert args[4] is None
         # assert "Output file:  n/a" in result output:
         assert re.search('Output file:\\s+n/a', result.output)
         # assert "Output file:  n/a" in result output:

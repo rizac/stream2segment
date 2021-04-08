@@ -96,22 +96,37 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None,
         `param_overrides` is `a={'c': 2, 'd': 2}`, the result is
         {'a': {'b': 1, 'c': 2, 'd': 2}}
     """
-    config_dict, seg_sel, multi_process, chunksize, writer_options = \
-        load_config(config, **param_overrides)
+    cfg_file = config  # we will overwrite the variable
+    config, segments_selection, multi_process, chunksize, writer_options = \
+        load_config(cfg_file, **param_overrides)
 
+    abp = os.path.abspath
     if callable(pyfile):
         pyfunc = pyfile
+        fullpyfuncpath = abp(inspect.getsourcefile(pyfunc)) + ':' + pyfunc.__name__
     else:
+        # this just checks that everything is in order:
         pyfunc = load_pyfunc_for_process(pyfile, funcname)
+        fullpyfuncpath = abp(pyfile) + ':' + pyfunc.__name__
 
-    # checks dic values (modify in place) and returns dic value(s) needed here:
-    # Outside the try catch below as BadParam might be raised and need to
-    # be caught by the caller (see `cli.py`)
-    # pyfunc, config_dict, seg_selection, multi_process, chunksize = \
-    #     load_config_for_process(pyfile, funcname, config, outfile, **param_overrides)
+    log2file = log2file or ''  # force False into empty string
+    if log2file is True:
+        if outfile or pyfile:
+            log2file = logfilepath(outfile or pyfile)  # auto create log file
 
-    s2sexec(pyfunc, dburl, seg_sel, config_dict, outfile, append, writer_options,
-            log2file, verbose, multi_process, chunksize, None)
+    with _setup_logging(log2file, verbose):
+
+        info = [
+            "Input database:      %s" % secure_dburl(dburl),
+            "Processing function: %s" % fullpyfuncpath,
+            "Config. file:        %s" % (abp(cfg_file) if cfg_file else 'n/a'),
+            "Log file:            %s" % (abp(log2file) if log2file else 'n/a'),
+            "Output file:         %s" % (abp(outfile) if outfile else 'n/a')
+        ]
+        logger.info(ascii_decorate("\n".join(info)))
+
+        _run_and_write(pyfunc, dburl, segments_selection, config, outfile, append,
+                       writer_options, verbose, multi_process, chunksize, None)
 
 
 def s2sexec(pyfunc, dburl, segments_selection=None, config=None, outfile=None,
@@ -166,9 +181,8 @@ def s2sexec(pyfunc, dburl, segments_selection=None, config=None, outfile=None,
         ```
     :param log2file: bool or str (default: False). If str, it is the log file
         path (whose directory must exist). If True, the log file path will be
-        built as `outfile` + ".[now].log" or (if no output file is given) as
-        `pyfile` + ".[now].log" ([now] = current date and time in ISO format).
-        If False, logging is disabled.
+        built as `outfile` + ".[now].log". If False or no output file is given,
+        logging is disabled.
     :param verbose: if True (default: False) print some log information also on
         the screen (messages of level info and critical), as well as a progress
         bar showing the estimated remaining time. This option is set to True
@@ -184,58 +198,48 @@ def s2sexec(pyfunc, dburl, segments_selection=None, config=None, outfile=None,
         execution but will be logged to file, with the relative segment id. When missing
         or None, it defaults to :class:`stream2segmetn.process.SkipExeption`
     """
+    log2file = log2file or ''  # force False into empty string
+    if log2file is True:
+        if outfile:
+            log2file = logfilepath(outfile)  # auto create log file
 
-    """config: dict, segments_selection: array of ints or dict"""
+    with _setup_logging(log2file, verbose):
+        _run_and_write(pyfunc, dburl, segments_selection, config, outfile, append,
+                       writer_options, verbose, multi_process, chunksize, skip_exceptions)
 
-    session = validate_param("dburl", dburl, get_session)
+
+def _run_and_write(pyfunc, dburl, segments_selection=None, config=None, outfile=None,
+                   append=False, writer_options=None, show_progress=False,
+                   multi_process=False, chunksize=None, skip_exceptions=None):
     if outfile is not None:
         validate_param('outfile', outfile, valid_filewritable)
 
-    # get the pyfunc name, but only for printing, so ignore any error and provide n/a:
-    try:
-        pyfile = sys.modules[pyfunc.__module__].__file__
-        fname = pyfunc.__name__
-    except:
-        pyfile, fname = None, None
+    if config is None:
+        config = {}
+    if segments_selection is None:
+        segments_selection = {}
 
-    if log2file is True:
-        log2file = logfilepath(outfile or pyfile)  # auto create log file
-    else:
-        log2file = log2file or ''  # assure we have a string
+    session = validate_param("dburl", dburl, get_session)
+    writer = get_writer(outfile, append, writer_options)
+    seg_ids = fetch_segments_ids(session, segments_selection, writer)
+    close_session(session, True)
 
-    try:
-        configlog4processing(logger, log2file, verbose)
-        abp = os.path.abspath
-        info = [
-            "Input database:      %s" % secure_dburl(dburl),
-            "Processing function: %s" % (abp(pyfile) + ':' + fname if pyfile else 'n/a'),
-            "Config. file:        %s" % (abp(config) if config else 'n/a'),
-            "Log file:            %s" % (abp(log2file) if log2file else 'n/a'),
-            "Output file:         %s" % (abp(outfile) if outfile else 'n/a')
-        ]
-        logger.info(ascii_decorate("\n".join(info)))
+    written = 0
 
-        stime = time.time()
-        _run(session, pyfunc, get_writer(outfile, append, writer_options),
-             config, segments_selection, verbose, multi_process,
-             chunksize, skip_exceptions)
-        logger.info("Completed in %s", str(elapsed_time(stime)))
-        return 0  # contrarily to download, an exception should always raise
-        # and log as error with the stack trace
-        # (this includes pymodule exceptions e.g. TypeError)
-    except KeyboardInterrupt:
-        logger.critical("Aborted by user")  # see comment above
-        raise
-    except:  # @IgnorePep8 pylint: disable=broad-except
-        logger.critical("Process aborted", exc_info=True)  # see comment above
-        raise
-    finally:
-        close_session(session, True)
-        close_logger(logger)
+    with writer:
+        for output, segment_id in \
+                run_and_yield(dburl, seg_ids, pyfunc, config, show_progress,
+                              multi_process, chunksize, skip_exceptions):
+            if not writer.isbasewriter and output is not None:
+                writer.write(segment_id, output)
+                written += 1
+
+    logger.info("%d of %d segment(s) successfully written to the provided output",
+                written, len(seg_ids))
 
 
 def s2smap(pyfunc, dburl, segments_selection=None, config=None,
-           logfile='', show_progress=False, multi_process=False, chunksize=None,
+           logfile='', verbose=False, multi_process=False, chunksize=None,
            skip_exceptions=None):
     """Return an iterator that applies the function `pyfunc` to every segment
     found on the database at the URL `dburl`, processing only segments matching
@@ -271,7 +275,7 @@ def s2smap(pyfunc, dburl, segments_selection=None, config=None,
         or None, it defaults to :class:`stream2segmetn.process.SkipExeption`
     :param logfile: string. When not empty, it denotes the path of the log file
         where exceptions will be logged, with the relative segment id
-    :param show_progress: print progress bar to standard output (usually, the terminal
+    :param verbose: print progress bar to standard output (usually, the terminal
         window) and estimated remaining time
     :param multi_process: enable multi process (parallel sub-processes) to speed up
         execution. When not boolean, this parameter can be an integer denoting the
@@ -281,14 +285,20 @@ def s2smap(pyfunc, dburl, segments_selection=None, config=None,
         be loaded from the database. Increasing this number speeds up the load but also
         increases memory consumption. None (the default) means: set size automatically
     """
-    session = validate_param('dburl', dburl, get_session, for_process=True)
+    session = validate_param('dburl', dburl, get_session)
+    segment_ids = fetch_segments_ids(session, segments_selection)
+    close_session(session, True)
+    with _setup_logging(logfile, verbose):
+        yield from run_and_yield(dburl, segment_ids, pyfunc, config, verbose,
+                                 multi_process, chunksize, skip_exceptions)
+
+@contextmanager
+def _setup_logging(logfile, verbose):
+    """Contextmanager handling log stuff and closing session at the end"""
     try:
-        configlog4processing(logger, logfile, show_progress)
+        configlog4processing(logger, logfile, verbose)
         stime = time.time()
-        yield from run_and_yield(session,
-                                 fetch_segments_ids(session, segments_selection),
-                                 pyfunc, config, show_progress, multi_process,
-                                 chunksize, skip_exceptions)
+        yield
         logger.info("Completed in %s", str(elapsed_time(stime)))
     except KeyboardInterrupt:
         logger.critical("Aborted by user")  # see comment above
@@ -297,58 +307,16 @@ def s2smap(pyfunc, dburl, segments_selection=None, config=None,
         logger.critical("Process aborted", exc_info=True)  # see comment above
         raise
     finally:
-        close_session(session, True)
         close_logger(logger)
 
 
-def _run(session, pyfunc, writer, config=None, segments_selection=None,
-         show_progress=False, multi_process=False, chunksize=None,
-         skip_exceptions=None):
-    """Run `pyfunc` according to the given `config`, outputting result to `writer`
-
-    :param session: the SQLAlchemy database session
-    :param pyfunc: a Python function accepting as arguments a given segment object and
-        a `dict` of optional user-defined parameters. The function will be called with
-        any given segment and the provided `config` argument
-    :param writer: a Writer handling the processed output to filesystem.
-        use :class:`writers.BaseWriter` for a no-op class.
-        See :module:`stream2segment.process.writers`
-    :param config: dict of configuration parameters, usually the result of an associated
-        YAML configuration file, to be passed as second argument of `pyfunc`
-    :param segments_selection: dict denoting the segments to be selected in form of
-        segment attribute mapped to a selection expression in string format
-         (if not given, all segments will be processed)
-    :param show_progress: (boolean, default False) whether or not to show progress bar
-        and other info (e.g. remaining time, successfully processed segments) on the
-        standard output (usually, the terminal window)
-    """
-    if config is None:
-        config = {}
-    if segments_selection is None:
-        segments_selection = {}
-
-    seg_ids = fetch_segments_ids(session, segments_selection, writer)
-    written = 0
-
-    with writer:
-        for output, segment_id in \
-                run_and_yield(session, seg_ids, pyfunc, config, show_progress,
-                              multi_process, chunksize, skip_exceptions):
-            if not writer.isbasewriter and output is not None:
-                writer.write(segment_id, output)
-                written += 1
-
-    logger.info("%d of %d segment(s) successfully written to the provided output",
-                written, len(seg_ids))
-
-
-def run_and_yield(session, seg_ids, pyfunc, config, show_progress=False,
+def run_and_yield(dburl, seg_ids, pyfunc, config, show_progress=False,
                   multi_process=False, chunksize=None, skip_exceptions=None):
     """Run `pyfunc(segment, config)` on each given segment and yields its output
     as the tuple
     ```(output, segment_id)```
 
-    :param session: the SQLAlchemy database session
+    :param dburl: string database URL
     :param pyfunc: a Python function accepting as arguments a given segment object and
         a `dict` of optional user-defined parameters. The function will be called with
         any given segment and the provided `config` argument
@@ -381,8 +349,6 @@ def run_and_yield(session, seg_ids, pyfunc, config, show_progress=False,
         skip_exceptions = [SkipSegment]
     skip_exceptions = tuple(skip_exceptions)  # for safety, in case list
 
-    session.close()  # expunge all, clear all states
-
     # `create_processing_env` redirects Python BUT ALSO external libraries errors which
     # might mess up the terminal printout (e.g. progressbar). Python warnings should be
     # redirected as well because normally printed to `stderr`, so avoid capturing them
@@ -398,10 +364,10 @@ def run_and_yield(session, seg_ids, pyfunc, config, show_progress=False,
             pbar.render_progress()
 
         if multi_process:
-            itr = process_mp(session, pyfunc, config, get_slices(seg_ids, chunksize),
+            itr = process_mp(dburl, pyfunc, config, get_slices(seg_ids, chunksize),
                              pbar, num_processes, skip_exceptions)
         else:
-            itr = process_simple(session, pyfunc, config, get_slices(seg_ids, chunksize),
+            itr = process_simple(dburl, pyfunc, config, get_slices(seg_ids, chunksize),
                                  pbar, skip_exceptions)
 
         for output, is_ok, segment_id in itr:
@@ -510,23 +476,13 @@ def _get_chunksize_defaults():
     return 600, 10
 
 
-def process_mp(session, pyfunc, config, seg_ids_chunks, pbar, num_processes,
+def process_mp(dburl, pyfunc, config, seg_ids_chunks, pbar, num_processes,
                safe_exceptions_tuple):
     """Execute `pyfunc` using the multiprocessing Python module
 
     :param seg_ids_chunks: iterable yielding numpy arrays of segment ids
     """
-    # The two actions here below are a little hacky in that we might simply pass
-    # strings to this functions (dburl and python module path), but this would require
-    # checking for well formed dburl and paths here, which is what we do BEFORE, and
-    # also, the non Python multiprocessing case benefits of having already db session
-    # object and python function loaded.
-
-    # 1. The db engine has to be disposed now if we want to use multi-processing:
-    # https://stackoverflow.com/a/41722129
-    dburl = session.bind.engine.url
-    session.bind.engine.dispose()
-    # 2. We need to pass pickable stuff to each child sub-process,
+    # We need to pass pickable stuff to each child sub-process,
     # therefore no imported functions, get the file instead:
     pyfile = inspect.getsourcefile(pyfunc)
 
@@ -540,7 +496,7 @@ def process_mp(session, pyfunc, config, seg_ids_chunks, pbar, num_processes,
             for output, is_ok, segment_id in results:
                 yield output, is_ok, segment_id
             pbar.update(len(results))
-    except:  # @IgnorePep8 pylint: disable=bare-except
+    except:  # noqa
         pool.terminate()
         pool.join()
         raise
@@ -559,22 +515,24 @@ def _mp_initializer():
     signal.signal(signal.SIGINT, signal.SIG_IGN)
 
 
-def process_simple(session, pyfunc, config, seg_ids_chunks, pbar, safe_exceptions_tuple):
+def process_simple(dburl, pyfunc, config, seg_ids_chunks, pbar, safe_exceptions_tuple):
     """Execute `pyfunc` in a single system process
 
     :param seg_ids_chunks: iterable yielding numpy arrays of segment ids
     """
     segment = None  # currently processed segment id (will be used later)
-    _clear_session(session)
+    session = get_session(dburl, scoped=False, check_db_existence=False)
+    try:
+        for seg_ids_chunk in seg_ids_chunks:
+            for output, is_ok, segment in \
+                    process_segments(session, seg_ids_chunk, config, pyfunc,
+                                     safe_exceptions_tuple):
+                yield output, is_ok, segment.id
 
-    for seg_ids_chunk in seg_ids_chunks:
-        for output, is_ok, segment in \
-                process_segments(session, seg_ids_chunk, config, pyfunc,
-                                 safe_exceptions_tuple):
-            yield output, is_ok, segment.id
-
-        _clear_session(session, segment)
-        pbar.update(len(seg_ids_chunk))
+            _clear_session(session, segment)
+            pbar.update(len(seg_ids_chunk))
+    finally:
+        close_session(session)
 
 
 def _clear_session(session, segment=None):
@@ -628,8 +586,7 @@ def process_segments_mp(args):
                 ret.append((output, is_ok, segment.id))
             return ret
         finally:
-            session.close()
-            session.bind.engine.dispose()
+            close_session(session, True)
 
 
 def process_segments(session, seg_ids_chunk, config, pyfunc, safe_exceptions_tuple):

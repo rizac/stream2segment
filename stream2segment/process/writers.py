@@ -43,7 +43,7 @@ class BaseWriter(object):
 
     def __init__(self, outputfile=None, append=False):
         self.append = append
-        self.outputfile = os.path.abspath(outputfile)
+        self.outputfile = os.path.abspath(outputfile) if outputfile else None
         self.outputfilehandle = None
         # self._isbasewriter = self.__class__ is BaseWriter
         self._segment_id_colname = SEGMENT_ID_COLNAME

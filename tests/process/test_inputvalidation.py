@@ -11,6 +11,8 @@ from itertools import product
 
 # this can not apparently be fixed with the future package:
 # The problem is io.StringIO accepts unicodes in python2 and strings in python3:
+from stream2segment.process.inputvalidation import load_config
+
 try:
     from cStringIO import StringIO  # python2.x pylint: disable=unused-import
 except ImportError:
@@ -22,11 +24,10 @@ from click.testing import CliRunner
 import pytest
 
 from stream2segment.cli import cli
-from stream2segment.process.main import configlog4processing as o_configlog4processing
+from stream2segment.process.main import (configlog4processing as o_configlog4processing,
+                                         get_session as o_get_session)
 from stream2segment.process.main import process as o_process
 from stream2segment.io.inputvalidation import BadParam
-from stream2segment.process.inputvalidation import (load_config_for_process,
-                                                    valid_session as o_valid_session)
 from stream2segment.resources import get_templates_fpaths, get_templates_fpath
 from stream2segment.io import yaml_load
 
@@ -72,6 +73,14 @@ def msgin(msg, click_output):
     else:
         return msg in click_output
 
+class patches(object):
+    # paths container for class-level patchers used below. Hopefully
+    # will mek easier debug when refactoring/move functions
+    get_session = 'stream2segment.process.main.get_session'
+    close_session = 'stream2segment.process.main.close_session'
+    configlog4processing = 'stream2segment.process.main.configlog4processing'
+    run_process = 'stream2segment.process.main._run_and_write'
+
 
 class Test(object):
 
@@ -86,20 +95,12 @@ class Test(object):
         # Although we do not test db stuff here other than checking a download id has written,
         # we iterate through all given db's
 
-        class patches(object):
-            # paths container for class-level patchers used below. Hopefully
-            # will mek easier debug when refactoring/move functions
-            valid_session = 'stream2segment.process.inputvalidation.valid_session'
-            close_session = 'stream2segment.process.main.close_session'
-            configlog4processing = 'stream2segment.process.main.configlog4processing'
-            run_process = 'stream2segment.process.main._run'
 
-
-        with patch(patches.valid_session) as _:
+        with patch(patches.get_session) as _:
             def csess(dbpath, *a, **v):
                 if dbpath == db.dburl:
                     return db.session
-                return o_valid_session(dbpath, *a, **v)
+                return o_get_session(dbpath, *a, **v)
             _.side_effect = csess
 
             with patch(patches.close_session) as _:
@@ -199,10 +200,10 @@ def test_process_bad_types(pytestdir):
 # @patch('stream2segment.main.closesession')
 # @patch('stream2segment.main.configlog4processing')
 # @patch('stream2segment.main.run_process')
-@patch('stream2segment.process.inputvalidation.valid_session')
-@patch('stream2segment.process.main.close_session')
-@patch('stream2segment.process.main.configlog4processing')
-@patch('stream2segment.process.main._run')
+@patch(patches.get_session)
+@patch(patches.close_session)
+@patch(patches.configlog4processing)
+@patch(patches.run_process)
 def test_process_verbosity(mock_run_process, mock_configlog, mock_closesess, mock_getsess,
                            # fixtures:
                            db, capsys, pytestdir):
@@ -308,12 +309,9 @@ def test_processing_advanced_settings_num_processes(adv_set,
     p_yaml_file, p_py_file = \
         get_templates_fpaths("paramtable.yaml", "paramtable.py")
 
-    session, pyfunc, funcname, config, segment_selection, multi_process, chunksize =\
-        load_config_for_process("sqlite:///",
-                                p_py_file, None,
-                                config=p_yaml_file,
-                                outfile=None,
-                                advanced_settings=adv_set)
+    config, seg_sel, multi_process, chunksize, writer_options =\
+        load_config(config=p_yaml_file,
+                    advanced_settings=adv_set)
     assert exp_multiprocess_value == multi_process
 
 
@@ -323,11 +321,7 @@ def test_processing_advanced_settings_bad_params():
     adv_set = {'multi_process': 'a'}
     # (pytest.raises problems with PyCharm, simply try .. catch the old way):
     try:
-        _ = load_config_for_process("sqlite:///",
-                                    p_py_file, None,
-                                    config=p_yaml_file,
-                                    outfile=None,
-                                    advanced_settings=adv_set)
+        _ = load_config(config=p_yaml_file, advanced_settings=adv_set)
         assert False, "should raise"
     except BadParam as bp:
         assert 'Invalid type for "advanced_settings.multi_process"' in str(bp)
@@ -335,16 +329,7 @@ def test_processing_advanced_settings_bad_params():
     adv_set = {'multi_process': True, "segments_chunksize": 'a'}
     # (pytest.raises problems with PyCharm, simply try .. catch the old way):
     try:
-        _ = load_config_for_process("sqlite:///",
-                                    p_py_file, None,
-                                    config=p_yaml_file,
-                                    outfile=None,
-                                    advanced_settings=adv_set)
+        _ = load_config(config=p_yaml_file, advanced_settings=adv_set)
         assert False, "should raise"
     except BadParam as bp:
         assert 'Invalid type for "advanced_settings.segments_chunksize"' in str(bp)
-
-    # with pytest.raises(BadParam) as bp:
-    #
-    #     assert str(bp)
-    #     asd = 9
