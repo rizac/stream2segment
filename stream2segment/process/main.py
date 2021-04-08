@@ -343,7 +343,7 @@ def _run(session, pyfunc, writer, config=None, segments_selection=None,
 
 
 def run_and_yield(session, seg_ids, pyfunc, config, show_progress=False,
-                  multi_process=False, chunksize=None, skip_excetpions=None):
+                  multi_process=False, chunksize=None, skip_exceptions=None):
     """Run `pyfunc(segment, config)` on each given segment and yields its output
     as the tuple
     ```(output, segment_id)```
@@ -352,9 +352,6 @@ def run_and_yield(session, seg_ids, pyfunc, config, show_progress=False,
     :param pyfunc: a Python function accepting as arguments a given segment object and
         a `dict` of optional user-defined parameters. The function will be called with
         any given segment and the provided `config` argument
-    :param yield_exceptions: boolean (default False). If True, output can be also
-        an Exception, and will denote unsuccessfully processed segments. If False, output
-        is yielded only upon successful execution of `pyfunc`
     :param config: dict of configuration parameters, usually the result of an associated
         YAML configuration file, to be passed as second argument of `pyfunc`
     :param show_progress: (boolean, default False) whether or not to show progress bar
@@ -363,6 +360,9 @@ def run_and_yield(session, seg_ids, pyfunc, config, show_progress=False,
     :param multi_process: (bool, or numeric) Use multiprocessing.Pool. A numeric value
         will be equal to true, using a Pool with the specified number of processes (only
         for advanced users: true is fine and sufficient in most cases)
+    :param skip_exceptions: tuple of Python exceptions that will not interrupt the whole
+        execution but will be logged to file, with the relative segment id. When missing
+        or None, it defaults to :class:`stream2segmetn.process.SkipExeption`
     """
     done, errors = 0, 0
     seg_len = len(seg_ids)
@@ -377,9 +377,9 @@ def run_and_yield(session, seg_ids, pyfunc, config, show_progress=False,
     if chunksize is None:
         chunksize = get_default_chunksize(seg_len, show_progress)
 
-    if skip_excetpions is None:
-        skip_excetpions = [SkipSegment]
-    safe_excetpions = tuple(skip_excetpions)  # for safety, in case list
+    if skip_exceptions is None:
+        skip_exceptions = [SkipSegment]
+    skip_exceptions = tuple(skip_exceptions)  # for safety, in case list
 
     session.close()  # expunge all, clear all states
 
@@ -399,10 +399,10 @@ def run_and_yield(session, seg_ids, pyfunc, config, show_progress=False,
 
         if multi_process:
             itr = process_mp(session, pyfunc, config, get_slices(seg_ids, chunksize),
-                             pbar, num_processes, safe_excetpions)
+                             pbar, num_processes, skip_exceptions)
         else:
             itr = process_simple(session, pyfunc, config, get_slices(seg_ids, chunksize),
-                                 pbar, safe_excetpions)
+                                 pbar, skip_exceptions)
 
         for output, is_ok, segment_id in itr:
             if is_ok:
