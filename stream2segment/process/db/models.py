@@ -29,8 +29,7 @@ from stream2segment.io.db.sqlconstructs import missing_data_ratio, missing_data_
     duration_sec, deg2km, concat, substr
 from stream2segment.process.db.sqlevalexpr import exprquery
 from stream2segment.process import SkipSegment
-from stream2segment.io.db import models, get_session  # noqa
-# (get_session should be imported from here in user code)
+from stream2segment.io.db import models
 
 
 Base = declarative_base(cls=models.Base)

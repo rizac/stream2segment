@@ -1,2 +1,2 @@
-# make this the central point for importing processing related db session:
+# import here for namespacing reasons (https://stackoverflow.com/a/18979314):
 from stream2segment.io.db import get_session

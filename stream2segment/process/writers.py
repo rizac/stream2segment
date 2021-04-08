@@ -43,7 +43,7 @@ class BaseWriter(object):
 
     def __init__(self, outputfile=None, append=False):
         self.append = append
-        self.outputfile = outputfile
+        self.outputfile = os.path.abspath(outputfile)
         self.outputfilehandle = None
         # self._isbasewriter = self.__class__ is BaseWriter
         self._segment_id_colname = SEGMENT_ID_COLNAME
@@ -119,6 +119,11 @@ class BaseWriter(object):
             return False
         finally:
             self.outputfilehandle = None
+
+    def __str__(self):
+        return "%s (output: %s)" % (self.__class__.__name__ ,
+                                    os.path.abspath(self.outputfile) if self.outputfile
+                                    else 'n/a')
 
 
 class CsvWriter(BaseWriter):

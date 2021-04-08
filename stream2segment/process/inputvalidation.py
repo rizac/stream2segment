@@ -9,7 +9,7 @@ from stream2segment.io import yaml_load
 from stream2segment.io.inputvalidation import (validate_param, get_param,
                                                pop_param, valid_between)
 # import get_session as 'valid_session' for compatibility with the download package:
-from stream2segment.io.db import get_session as valid_session
+from stream2segment.process.db import get_session
 from stream2segment.process.inspectimport import load_source
 
 

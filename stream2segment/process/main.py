@@ -329,24 +329,15 @@ def run_and_yield(session, seg_ids, pyfunc, config, show_progress=False,
 def fetch_segments_ids(session, segments_selection, writer=None):
     """Return the numpy array of segments ids to process
 
-    :param segments_selection: dict[str, str] denoting a segment selection
+    :param session: SQLAlchemy session object
+    :param segments_selection: dict[str, str] denoting a segment selection, or an
+        iterable of integers denoting the segment ids
     :param writer: A Writer or None. See :module:`stream2segment.process.writers`.
         If not None, the writer is used to fetch the already processed segments
         and return only segments to process
     :return: the numpy array of integers denoting the ids of the segments to process
         according to `config` and `writer` settings
     """
-    # The query is always loaded in memory (https://stackoverflow.com/a/11769768), thus
-    # we load ids only into a numpy array for efficiency. Querying with offset
-    # and limit is not necessarily faster (if offset is close to "the end", the db might
-    # build anyway the full list of segments, we experienced it in the GUI), other
-    # solutions as query and yielding make the code too complex
-    # (http://docs.sqlalchemy.org/en/latest/orm/query.html#sqlalchemy.orm.query.Query.yield_per).
-    # `query4process` below is thus called with "ids_only" (see doc for details).
-    # Note that querying attributes instead of the full instances does not cache the
-    # results. I.e., after the line below we do not need to issue `session.expunge_all()`
-    qry = query4process(session, segments_selection, ids_only=True)
-
     skip_already_processed = False
     if writer is not None:
         if writer.append:
@@ -359,10 +350,27 @@ def fetch_segments_ids(session, segments_selection, writer=None):
         elif writer.outputfileexists:
             logger.info('Overwriting existing output file')
 
-    logger.info("Fetching segments to process (please wait)")
-    seg_ids = np.array(qry.all(), dtype=int).flatten()
-    # we flatten the array because the qry.all() returns 1element tuples,
-    # so we want to convert e.g. [[1], [5], [6]] to [1, 5, 6]
+    if not isinstance(segments_selection, dict):
+        try:
+            seg_ids = np.asarray(segments_selection, dtype=int)
+        except Exception as exc:
+            raise ValueError('Unable to convert the segments selection to an array of '
+                             'integer IDs: %s' % str(exc))
+    else:
+        # The query is always loaded in memory (https://stackoverflow.com/a/11769768), so
+        # we load ids only into a numpy array for efficiency. Querying with offset and
+        # limit is not necessarily faster (if offset is close to "the end", the db might
+        # build anyway the full list of segments, as seen in the GUI), other solutions as
+        # query and yielding are not a full solution and make the code too complex
+        # (http://docs.sqlalchemy.org/en/latest/orm/query.html#sqlalchemy.orm.query.Query.yield_per).
+        # `query4process` below is thus called with "ids_only". Note that querying
+        # attributes instead of the full instances does not cache the results. I.e.,
+        # after the line below we do not need to issue `session.expunge_all()`
+        qry = query4process(session, segments_selection, ids_only=True)
+        logger.info("Fetching segments to process (please wait)")
+        seg_ids = np.array(qry.all(), dtype=int).flatten()
+        # we flatten the array because the qry.all() returns 1element tuples,
+        # so we want to convert e.g. [[1], [5], [6]] to [1, 5, 6]
 
     if skip_already_processed:
         # it might be more elegant to issue a query with a NOT IS IN ...
