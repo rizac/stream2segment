@@ -27,27 +27,40 @@ def _extract_segments_selection(config):
     return pop_param(config, SEGMENT_SELECT_PARAM_NAMES, {})[1]
 
 
-def load_config_for_process(dburl, pyfile, funcname=None, config=None,
-                            outfile=None, **param_overrides):
-    """Check process arguments. Returns the tuple session, pyfunc, config_dict,
-    where session is the dql alchemy session from `dburl`, `funcname` is the
-    Python function loaded from `pyfile`, and config_dict is the dict loaded
-    from `config` which must denote a path to a yaml file, or None (config_dict
-    will be empty in this latter case)
-    """
-    session = validate_param("dburl", dburl, valid_session)
-    funcname = validate_param("funcname", funcname, valid_funcname)
-    pyfunc = validate_param("pyfile", pyfile, valid_pyfunc, funcname)
-    config = validate_param("config", config or {}, yaml_load, **param_overrides)
-    if outfile is not None:
-        validate_param('outfile', outfile, valid_filewritable)
-        # (ignore return value of filewritable: it's outfile, we already have it)
-    seg_sel = _extract_segments_selection(config)
+# def load_config_for_process(pyfile, funcname=None, config=None,
+#                             outfile=None, **param_overrides):
+#     """Check process arguments. Returns the tuple session, pyfunc, config_dict,
+#     where session is the dql alchemy session from `dburl`, `funcname` is the
+#     Python function loaded from `pyfile`, and config_dict is the dict loaded
+#     from `config` which must denote a path to a yaml file, or None (config_dict
+#     will be empty in this latter case)
+#     """
+#     funcname = validate_param("funcname", funcname, valid_funcname)
+#     pyfunc = validate_param("pyfile", pyfile, valid_pyfunc, funcname)
+#     config = validate_param("config", config or {}, yaml_load, **param_overrides)
+#     if outfile is not None:
+#         validate_param('outfile', outfile, valid_filewritable)
+#         # (ignore return value of filewritable: it's outfile, we already have it)
+#     seg_sel = _extract_segments_selection(config)
+#
+#     multi_process, chunksize = _get_process_advanced_settings(config,
+#                                                               'advanced_settings')
+#
+#     return pyfunc, config, seg_sel, multi_process, chunksize, writer_options
 
+
+def load_pyfunc_for_process(pyfile, funcname=None):
+    """Loads the Python function"""
+    funcname = validate_param("funcname", funcname, valid_funcname)
+    return validate_param("pyfile", pyfile, valid_pyfunc, funcname)
+
+def load_config(config=None, **param_overrides):
+    config = validate_param("config", config or {}, yaml_load, **param_overrides)
+    seg_sel = _extract_segments_selection(config)
     multi_process, chunksize = _get_process_advanced_settings(config,
                                                               'advanced_settings')
-
-    return session, pyfunc, funcname, config, seg_sel, multi_process, chunksize
+    writer_options = config.get('advanced_settings', {}).get('writer_options', {})
+    return config, seg_sel, multi_process, chunksize, writer_options
 
 
 def _get_process_advanced_settings(config, adv_settings_key):

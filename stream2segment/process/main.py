@@ -28,16 +28,18 @@ from itertools import chain, repeat
 
 import numpy as np
 
+from stream2segment.io import yaml_load
 from stream2segment.io.db import secure_dburl, close_session
 from stream2segment.process.db.sqlevalexpr import exprquery
 from stream2segment.io.log import logfilepath, close_logger, elapsed_time
 from stream2segment.io.cli import get_progressbar, ascii_decorate
 from stream2segment.io.inputvalidation import validate_param
-from stream2segment.process.inputvalidation import (load_config_for_process,
-                                                    valid_pyfunc,)
-                                                    # valid_session)
+from stream2segment.process.inputvalidation import (valid_pyfunc, load_config,
+                                                    valid_filewritable,
+                                                    load_pyfunc_for_process)
 from stream2segment.process import SkipSegment
-from stream2segment.process.db.models import get_session, Segment, Station
+from stream2segment.process.db import get_session
+from stream2segment.process.db.models import Segment, Station
 from stream2segment.process.log import configlog4processing
 from stream2segment.process.writers import get_writer
 
@@ -64,11 +66,11 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None,
     `config`).
 
     :param dburl: str. The URL of the database where data has been previously
-        downloaded. It can be the path of the YAML config file used for
-        downloading data, in that case the file parameter 'dburl' will be taken
-    :param pyfile: str: path to the processing module
-    :param funcname: str or None (default: None). The function name in `pyfile`
-        to be used (None means: use default name, currently "main")
+        downloaded
+    :param pyfile: str: path to the processing module, or Python function
+    :param funcname: str or None (default: None). Ignored if `pyfile` is a Python
+        function. Otherwise, if `pyfile` is a file path of a Python module, this is
+        the module function name (None means: use default name, currently "main")
     :param config: str. Path of the configuration file in YAML syntax
     :param outfile: str or None. The destination file where to write the
         processing output, either ".csv" or ".hdf". If not given, the returned
@@ -94,13 +96,107 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None,
         `param_overrides` is `a={'c': 2, 'd': 2}`, the result is
         {'a': {'b': 1, 'c': 2, 'd': 2}}
     """
+    config_dict, seg_sel, multi_process, chunksize, writer_options = \
+        load_config(config, **param_overrides)
+
+    if callable(pyfile):
+        pyfunc = pyfile
+    else:
+        pyfunc = load_pyfunc_for_process(pyfile, funcname)
+
     # checks dic values (modify in place) and returns dic value(s) needed here:
     # Outside the try catch below as BadParam might be raised and need to
     # be caught by the caller (see `cli.py`)
-    session, pyfunc, funcname, config_dict, segments_selection, multi_process, \
-        chunksize = load_config_for_process(dburl, pyfile, funcname,
-                                                             config, outfile,
-                                                             **param_overrides)
+    # pyfunc, config_dict, seg_selection, multi_process, chunksize = \
+    #     load_config_for_process(pyfile, funcname, config, outfile, **param_overrides)
+
+    s2sexec(pyfunc, dburl, seg_sel, config_dict, outfile, append, writer_options,
+            log2file, verbose, multi_process, chunksize, None)
+
+
+def s2sexec(pyfunc, dburl, segments_selection=None, config=None, outfile=None,
+            append=False, writer_options=None, log2file=False, verbose=False,
+            multi_process=False, chunksize=None, skip_exceptions=None):
+    """Start a processing routine, fetching segments from the database at the
+    given URL and optionally saving the processed data into `outfile`.
+    See the doc-strings in stream2segment templates (command `s2s init`) for
+    implementing a process module and configuration (arguments `pyfile` and
+    `config`).
+
+    :param pyfunc: a Python function with signature `function(segment, config)`
+        str: path to the processing module, or Python function. Remember
+    :param dburl: str. The URL of the database where data has been previously
+        downloaded
+    :param segments_selection: The segments to be processed. It can be a numeric
+        array of integers denoting the segment IDs, or a dict[str, str] of Segments
+        attributes mapped to a given selection expression, e.g.:
+        ```
+        {
+            'event.magnitude': '<=6',
+            'channel.channel': 'HHZ',
+            'maxgap_numsamples': '(-0.5, 0.5)',
+            'has_data': 'true'
+        }
+        ```
+        (the last two keys assure segments with no gaps, and with data.
+        'has_data': 'true' is basically a default to be provided in most cases)
+    :param config: dict. Optional argument to be passed to `pyfunc`. Populate it
+        with user-defined parameter needed in your processing function
+    :param outfile: str or None. The destination file where to write the
+        processing output, either ".csv" or ".hdf". If not given, the returned
+        values of `funcname` in `pyfile` will be ignored, if given.
+    :param append: bool (default False) ignored if the output file is not given
+        or non existing, otherwise: if False, overwrite the existing output
+        file. If True, process unprocessed segments only (checking the segment
+        id), and append to the given file, without replacing existing data.
+    :param writer_options: Ignored if the output is not HDF. Otherwise, it is a dict of
+        optional arguments to be passed to the HDF `append` function:
+        https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.HDFStore.append.html?highlight=hdfstore#pandas-hdfstore-append
+        with the exception of the arguments `value` and `append`, which are not
+        configurable and will be overwritten (also note that `format` and `key`
+        will be set by default and do not need to be input). Example of such a dict:
+        ```
+        {
+            'chunksize': 1200,
+            'min_itemsize': {
+                'col1': 10
+                'col2': 20
+            }
+        }
+        ```
+    :param log2file: bool or str (default: False). If str, it is the log file
+        path (whose directory must exist). If True, the log file path will be
+        built as `outfile` + ".[now].log" or (if no output file is given) as
+        `pyfile` + ".[now].log" ([now] = current date and time in ISO format).
+        If False, logging is disabled.
+    :param verbose: if True (default: False) print some log information also on
+        the screen (messages of level info and critical), as well as a progress
+        bar showing the estimated remaining time. This option is set to True
+        when this function is invoked from the command line interface (`cli.py`)
+    :param multi_process: enable multi process (parallel sub-processes) to speed up
+        execution. When not boolean, this parameter can be an integer denoting the
+        exact number of subprocesses to be allocated (only for advanced users. True is
+        fine in most cases)
+    :param chunksize: the size, in number of segments, of each chunk of data that will
+        be loaded from the database. Increasing this number speeds up the load but also
+        increases memory consumption. None (the default) means: set size automatically
+    :param skip_exceptions: tuple of Python exceptions that will not interrupt the whole
+        execution but will be logged to file, with the relative segment id. When missing
+        or None, it defaults to :class:`stream2segmetn.process.SkipExeption`
+    """
+
+    """config: dict, segments_selection: array of ints or dict"""
+
+    session = validate_param("dburl", dburl, get_session)
+    if outfile is not None:
+        validate_param('outfile', outfile, valid_filewritable)
+
+    # get the pyfunc name, but only for printing, so ignore any error and provide n/a:
+    try:
+        pyfile = sys.modules[pyfunc.__module__].__file__
+        fname = pyfunc.__name__
+    except:
+        pyfile, fname = None, None
 
     if log2file is True:
         log2file = logfilepath(outfile or pyfile)  # auto create log file
@@ -112,7 +208,7 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None,
         abp = os.path.abspath
         info = [
             "Input database:      %s" % secure_dburl(dburl),
-            "Processing function: %s:%s" % (abp(pyfile), funcname),
+            "Processing function: %s" % (abp(pyfile) + ':' + fname if pyfile else 'n/a'),
             "Config. file:        %s" % (abp(config) if config else 'n/a'),
             "Log file:            %s" % (abp(log2file) if log2file else 'n/a'),
             "Output file:         %s" % (abp(outfile) if outfile else 'n/a')
@@ -120,11 +216,9 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None,
         logger.info(ascii_decorate("\n".join(info)))
 
         stime = time.time()
-        writer_options = config_dict.get('advanced_settings', {}).\
-            get('writer_options', {})
         _run(session, pyfunc, get_writer(outfile, append, writer_options),
-             config_dict, segments_selection, verbose, multi_process,
-             chunksize, None)
+             config, segments_selection, verbose, multi_process,
+             chunksize, skip_exceptions)
         logger.info("Completed in %s", str(elapsed_time(stime)))
         return 0  # contrarily to download, an exception should always raise
         # and log as error with the stack trace
@@ -140,7 +234,7 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None,
         close_logger(logger)
 
 
-def s2smap(pyfunc, dburl, segments_selection=None, config=None, *,
+def s2smap(pyfunc, dburl, segments_selection=None, config=None,
            logfile='', show_progress=False, multi_process=False, chunksize=None,
            skip_exceptions=None):
     """Return an iterator that applies the function `pyfunc` to every segment
@@ -157,8 +251,9 @@ def s2smap(pyfunc, dburl, segments_selection=None, config=None, *,
         object which will be automatically passed from this function
     :param dburl: the database URL. Supported formats are Sqlite and Postgres
         (See https://docs.sqlalchemy.org/en/14/core/engines.html#database-urls).
-    :param segments_selection: a dict[str, str] of Segments attributes mapped to
-        a given selection expression, e.g.:
+    :param segments_selection: The segments to be processed. It can be a numeric array
+        of integers denoting the segment IDs, or a dict[str, str] of Segments attributes
+        mapped to a given selection expression, e.g.:
         ```
         {
             'event.magnitude': '<=6',
@@ -171,11 +266,9 @@ def s2smap(pyfunc, dburl, segments_selection=None, config=None, *,
         'has_data': 'true' is basically a default to be provided in most cases)
     :param config: dict of additional needed arguments to be passed to `pyfunc`,
         usually defining configuration parameters
-    :param safe_exceptions: tuple of Python exceptions that will not interrupt the whole
-        execution. Instead, they will be logged to file, with the relative segment id.
-        If `logfile` (see below) is empty, then safe exceptions will be yielded. In this
-        case, the `output` variable can be either the returned value of `pyfunc`, or any
-        given safe exception, and the user is responsible to check that
+    :param skip_exceptions: tuple of Python exceptions that will not interrupt the whole
+        execution but will be logged to file, with the relative segment id. When missing
+        or None, it defaults to :class:`stream2segmetn.process.SkipExeption`
     :param logfile: string. When not empty, it denotes the path of the log file
         where exceptions will be logged, with the relative segment id
     :param show_progress: print progress bar to standard output (usually, the terminal
@@ -188,7 +281,7 @@ def s2smap(pyfunc, dburl, segments_selection=None, config=None, *,
         be loaded from the database. Increasing this number speeds up the load but also
         increases memory consumption. None (the default) means: set size automatically
     """
-    session = validate_param('dburl', dburl, valid_session, for_process=True)
+    session = validate_param('dburl', dburl, get_session, for_process=True)
     try:
         configlog4processing(logger, logfile, show_progress)
         stime = time.time()
