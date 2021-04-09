@@ -158,15 +158,22 @@ def s2sexec(pyfunc, dburl, segments_selection=None, config=None, outfile=None,
     :param config: dict. Optional argument to be passed to `pyfunc`. Populate it
         with user-defined parameter needed in your processing function
     :param outfile: str or None. The destination file where to write the
-        processing output, either ".csv" or ".hdf". If not given, the returned
-        values of `funcname` in `pyfile` will be ignored, if given.
+        processing output, either ".csv" or ".hdf". The type of output will be inferred
+        from the file extension, and defaults to CSV when missing or unknown.
+        If no output file is given, the returned values of `funcname` in `pyfile` will be
+        ignored, if given.
     :param append: bool (default False) ignored if the output file is not given
         or non existing, otherwise: if False, overwrite the existing output
         file. If True, process unprocessed segments only (checking the segment
         id), and append to the given file, without replacing existing data.
-    :param writer_options: Ignored if the output is not HDF. Otherwise, it is a dict of
-        optional arguments to be passed to the HDF `append` function:
-        https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.HDFStore.append.html?highlight=hdfstore#pandas-hdfstore-append
+    :param writer_options: dict of options for the writer. When None or missing, it
+        defaults to the empty dict (no options). If the output is CSV, it is a dict of
+        the keyword arguments (kwargs) to be passed to the csv writer:
+        https://docs.python.org/3/library/csv.html#csv.DictWriter
+        Note that some arguments are set by default if missing: `delimiter` (","),
+        `quotechar` ('"') and `quoting` (`csv.QUOTE_MINIMAL`).
+        If the output is HDF, it is a dict of the kwargs of the `append` function:
+        https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.HDFStore.append.html
         with the exception of the arguments `value` and `append`, which are not
         configurable and will be overwritten (also note that `format` and `key`
         will be set by default and do not need to be input). Example of such a dict:
