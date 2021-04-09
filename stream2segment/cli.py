@@ -41,7 +41,6 @@ class clickutils(object):  # noqa
         if not isinstance(value, str):
             raise ValueError('Please provide a string')
         if os.path.isfile(value):
-            yaml_dict = {}
             try:
                 yaml_dict = yaml_load(value)
             except Exception:
@@ -91,9 +90,9 @@ class clickutils(object):  # noqa
     @classmethod
     def yaml_load_doc(cls, filepath, varname=None, preserve_newlines=False):
         """Return the documentation from a YAML file. The returned object is
-        a the documentation (str) of the given variable name (if `varname` is set),
+        the docstring of the given variable name (if `varname` is set),
         or a dict[str, str] (defaultdict("")) of all variables found, mapped to
-        their documentation (a variable documentation is made up of all
+        their docstring (a variable documentation is made up of all
         consecutive commented lines -  with *no* leading spaces - placed immediately
         before the variable). Only top-level variables can be parsed, nested ones
         are skipped.
@@ -514,26 +513,17 @@ def download(config, dburl, eventws, starttime, endtime, network,  # noqa
             warnings.simplefilter("ignore")
             ret = _download(config, log2file=True, verbose=True, **overrides)
     except BadParam as err:
-        print(err)
-        ret = 2  # 1 is reserved for FailedDownload
+        _print_badparam_and_exit(err)
     except:  # @IgnorePep8 pylint: disable=bare-except
         # do not print traceback, as we already did it by configuring loggers
         ret = 3  # 1 is reserved for FailedDownload
     sys.exit(ret)
 
 
-# @contextmanager
-# def cmd_env(warnings_filter='ignore'):
-#     try:
-#         if warnings_filter:
-#             with warnings.catch_warnings():  # capture (ignore) warnings
-#                 warnings.simplefilter(warnings_filter)
-#                 yield
-#         else:
-#             yield
-#     except BadParam as err:
-#         print(err, file=sys.stderr)
-#         sys.exit(2)  # 1 is reserved for any exception of the wrapped routine
+@contextmanager
+def _print_badparam_and_exit(bad_param_exception):
+    print(bad_param_exception, file=sys.stderr)
+    sys.exit(2)  # 1 is reserved for other stuff (e.g. FailedDownload)
 
 
 @cli.command(short_help="Process downloaded waveform data segments by "
@@ -552,8 +542,7 @@ def download(config, dburl, eventws, starttime, endtime, network,  # noqa
               type=clickutils.ExistingPath, required=True)
 @click.option("-f", "--funcname",
               help="The name of the user-defined processing function in the "
-                   "given python file. Defaults to '%s' when "
-                   "missing" % "main")  # stream2segment.process.inputvalidation.valid_default_processing_funcname()
+                   "given python file. Defaults to 'main' when missing")
 @click.option("-a", "--append", is_flag=True, default=False,
               help="Append results to the output file (this flag is ignored if "
                    "no output file is provided. The output file will be "
@@ -577,9 +566,8 @@ def download(config, dburl, eventws, starttime, endtime, network,  # noqa
                    "the number of CPUs in the system. This option is ignored "
                    "if --multi-process is not given")
 @click.argument('outfile', required=False)
-def process(dburl, config, pyfile, funcname, append, no_prompt,
-            multi_process, num_processes,
-            outfile):
+def process(dburl, config, pyfile, funcname, append, no_prompt, multi_process,
+            num_processes, outfile):
     """Process downloaded waveform data segments via a custom python file and a
     configuration file.
 
@@ -596,7 +584,7 @@ def process(dburl, config, pyfile, funcname, append, no_prompt,
     _locals = dict(locals()) # <- THIS MUST BE THE FIRST STATEMENT OF THIS FUNCTION!
 
     # import in function body to speed up the main module import:
-    from stream2segment.process.main import process as _process
+    from stream2segment.process.main import process as _process, load_p_config
 
     try:
         if not append and outfile and os.path.isfile(outfile) \
@@ -606,22 +594,24 @@ def process(dburl, config, pyfile, funcname, append, no_prompt,
                                    os.path.dirname(os.path.abspath(outfile)))):
             ret = 1
         else:
-            # override config values for multi_process and num_processes
-            overrides = {k: v for k, v in _locals.items()
-                         if v not in ((), {}, None) and k in
-                         ('multi_process', 'num_processes')}
-            if overrides:
-                # if given, put these into 'advanced_settings' sub-dict. Note
-                # that nested dict will be merged with the values of the config
-                overrides = {'advanced_settings': overrides}
+            overrides = {}
+            if multi_process:
+                multi_process = num_processes if num_processes else True
+                # override config advanced_settings. Note that dict will be merged,
+                # so other advanced settings will not be deleted:
+                overrides = {'advanced_settings': {'multi_process': multi_process}}
+
             with warnings.catch_warnings():  # capture (ignore) warnings
                 warnings.simplefilter("ignore")
-                ret = _process(dburl, pyfile, funcname, config, outfile, log2file=True,
-                               verbose=True, append=append, **overrides)
+                _, seg_sel, m_p, chunksize, w_options = load_p_config(config, **overrides)
+                if funcname:
+                    pyfile += '::' + funcname
+                ret = _process(pyfile, dburl, seg_sel, config, outfile, append=append,
+                               writer_options=w_options, logfile=True, verbose=True,
+                               multi_process=m_p, chunksize=chunksize)
     except BadParam as err:
-        print(err)
-        ret = 2
-    except Exception:  # @IgnorePep8 pylint: disable=bare-except
+        _print_badparam_and_exit(err)
+    except:  # noqa
         # do not print traceback, as we already did it by configuring loggers
         ret = 3
     sys.exit(ret)
@@ -650,8 +640,7 @@ def show(dburl, configfile, pyfile):
             warnings.simplefilter("ignore")
             show_gui(dburl, pyfile, configfile)
     except BadParam as err:
-        print(err)
-        ret = 2  # exit with 1 as normal python exceptions
+        _print_badparam_and_exit(err)
     except:
         ret = 3
     sys.exit(ret)
@@ -713,8 +702,7 @@ def stats(dburl, download_id, maxgap_threshold, html, outfile, download_indices)
             print("download statistics written to '%s'" % outfile, file=sys.stderr)
         sys.exit(0)
     except BadParam as err:
-        print(err)
-        sys.exit(1)  # exit with 1 as normal python exceptions
+        _print_badparam_and_exit(err)
 
 
 @dl.command(short_help="Show short summary of the given download execution(s)",
@@ -742,8 +730,7 @@ def summary(dburl, download_indices):
             _summary(dburl, download_indices or None, None)
         sys.exit(0)
     except BadParam as err:
-        print(err)
-        sys.exit(1)  # exit with 1 as normal python exceptions
+        _print_badparam_and_exit(err)
 
 
 @dl.command(short_help="Show the log file content of the given download execution(s)",
@@ -771,8 +758,7 @@ def log(dburl, download_indices):
             _log(dburl, download_indices or [-1], None, None)
         sys.exit(0)
     except BadParam as err:
-        print(err)
-        sys.exit(1)  # exit with 1 as normal python exceptions
+        _print_badparam_and_exit(err)
 
 
 @dl.command(short_help="Show the YAML config of the given download execution(s)",
@@ -801,8 +787,7 @@ def config(dburl, download_indices):
             _config(dburl, download_indices or [-1], None, None)
         sys.exit(0)
     except BadParam as err:
-        print(err)
-        sys.exit(1)  # exit with 1 as normal python exceptions
+        _print_badparam_and_exit(err)
 
 
 def _print_waitmsg_while_fetching_data(**kwargs):
@@ -850,8 +835,7 @@ def drop(dburl, download_id):
             print(msg)
         sys.exit(0)
     except BadParam as err:
-        print(err)
-        sys.exit(1)  # exit with 1 as normal python exceptions
+        _print_badparam_and_exit(err)
 
 
 @db.command(short_help="Add/rename/delete class labels from the database")
@@ -912,15 +896,7 @@ def classlabel(dburl, add, rename, delete, no_prompt):
                 print("%s (%s)" % (c_lbl['label'], c_lbl['description']))
         sys.exit(0)
     except BadParam as err:
-        print(err)
-        sys.exit(1)  # exit with 1 as normal python exceptions
-
-
-# Old click Group (not used anymore):
-
-# @cli.group(short_help="Program utilities")
-# def utils():  # noqa
-#     pass
+        _print_badparam_and_exit(err)
 
 
 if __name__ == '__main__':

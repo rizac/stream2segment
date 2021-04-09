@@ -5,8 +5,6 @@ Input validation module
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
-from future.utils import string_types
-from stream2segment.io.db import database_exists, get_session
 
 
 class BadParam(Exception):

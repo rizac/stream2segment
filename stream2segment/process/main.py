@@ -21,7 +21,6 @@ import sys
 import logging
 from contextlib import contextmanager
 import warnings
-import inspect
 from multiprocessing import Pool, cpu_count
 import signal
 from itertools import chain, repeat
@@ -34,12 +33,12 @@ from stream2segment.process.db.sqlevalexpr import exprquery
 from stream2segment.io.log import logfilepath, close_logger, elapsed_time
 from stream2segment.io.cli import get_progressbar, ascii_decorate
 from stream2segment.io.inputvalidation import validate_param
-from stream2segment.process.inputvalidation import (valid_pyfunc, load_config,
+from stream2segment.process.inputvalidation import (valid_pyfunc, load_p_config,
                                                     valid_filewritable,
-                                                    load_pyfunc_for_process)
+                                                    check_pyfunc_or_pyfile)
 from stream2segment.process import SkipSegment
 from stream2segment.process.db import get_session
-from stream2segment.process.db.models import Segment, Station
+# from stream2segment.process.db.models import Segment, Station
 from stream2segment.process.log import configlog4processing
 from stream2segment.process.writers import get_writer
 
@@ -57,80 +56,8 @@ logger = logging.getLogger(__name__[:__name__.rfind('.')])
 # 4. Python multiprocessing with RDBMS queries
 
 
-def process(dburl, pyfile, funcname=None, config=None, outfile=None,
-            log2file=False, verbose=False, append=False, **param_overrides):
-    """Start a processing routine, fetching segments from the database at the
-    given URL and optionally saving the processed data into `outfile`.
-    See the doc-strings in stream2segment templates (command `s2s init`) for
-    implementing a process module and configuration (arguments `pyfile` and
-    `config`).
-
-    :param dburl: str. The URL of the database where data has been previously
-        downloaded
-    :param pyfile: str: path to the processing module, or Python function
-    :param funcname: str or None (default: None). Ignored if `pyfile` is a Python
-        function. Otherwise, if `pyfile` is a file path of a Python module, this is
-        the module function name (None means: use default name, currently "main")
-    :param config: str. Path of the configuration file in YAML syntax
-    :param outfile: str or None. The destination file where to write the
-        processing output, either ".csv" or ".hdf". If not given, the returned
-        values of `funcname` in `pyfile` will be ignored, if given.
-    :param log2file: bool or str (default: False). If str, it is the log file
-        path (whose directory must exist). If True, the log file path will be
-        built as `outfile` + ".[now].log" or (if no output file is given) as
-        `pyfile` + ".[now].log" ([now] = current date and time in ISO format).
-        If False, logging is disabled.
-    :param verbose: if True (default: False) print some log information also on
-        the screen (messages of level info and critical), as well as a progress
-        bar showing the estimated remaining time. This option is set to True
-        when this function is invoked from the command line interface (`cli.py`)
-    :param append: bool (default False) ignored if the output file is not given
-        or non existing, otherwise: if False, overwrite the existing output
-        file. If True, process unprocessed segments only (checking the segment
-        id), and append to the given file, without replacing existing data.
-    :param param_overrides: additional parameter(s) for the YAML `config`. The
-        value of existing config parameters will be overwritten, e.g. if
-        `config` is {'a': 1} and `param_overrides` is `a=2`, the result is
-        {'a': 2}. Note however that when both parameters are dictionaries, the
-        result will be merged. E.g. if `config` is {'a': {'b': 1, 'c': 1}} and
-        `param_overrides` is `a={'c': 2, 'd': 2}`, the result is
-        {'a': {'b': 1, 'c': 2, 'd': 2}}
-    """
-    cfg_file = config  # we will overwrite the variable
-    config, segments_selection, multi_process, chunksize, writer_options = \
-        load_config(cfg_file, **param_overrides)
-
-    abp = os.path.abspath
-    if callable(pyfile):
-        pyfunc = pyfile
-        fullpyfuncpath = abp(inspect.getsourcefile(pyfunc)) + ':' + pyfunc.__name__
-    else:
-        # this just checks that everything is in order:
-        pyfunc = load_pyfunc_for_process(pyfile, funcname)
-        fullpyfuncpath = abp(pyfile) + ':' + pyfunc.__name__
-
-    log2file = log2file or ''  # force False into empty string
-    if log2file is True:
-        if outfile or pyfile:
-            log2file = logfilepath(outfile or pyfile)  # auto create log file
-
-    with _setup_logging(log2file, verbose):
-
-        info = [
-            "Input database:      %s" % secure_dburl(dburl),
-            "Processing function: %s" % fullpyfuncpath,
-            "Config. file:        %s" % (abp(cfg_file) if cfg_file else 'n/a'),
-            "Log file:            %s" % (abp(log2file) if log2file else 'n/a'),
-            "Output file:         %s" % (abp(outfile) if outfile else 'n/a')
-        ]
-        logger.info(ascii_decorate("\n".join(info)))
-
-        _run_and_write(pyfunc, dburl, segments_selection, config, outfile, append,
-                       writer_options, verbose, multi_process, chunksize, None)
-
-
-def s2sexec(pyfunc, dburl, segments_selection=None, config=None, outfile=None,
-            append=False, writer_options=None, log2file=False, verbose=False,
+def process(pyfunc, dburl, segments_selection=None, config=None, outfile=None,
+            append=False, writer_options=None, logfile=False, verbose=False,
             multi_process=False, chunksize=None, skip_exceptions=None):
     """Start a processing routine, fetching segments from the database at the
     given URL and optionally saving the processed data into `outfile`.
@@ -138,13 +65,15 @@ def s2sexec(pyfunc, dburl, segments_selection=None, config=None, outfile=None,
     implementing a process module and configuration (arguments `pyfile` and
     `config`).
 
-    :param pyfunc: a Python function with signature `function(segment, config)`
-        str: path to the processing module, or Python function. Remember
-    :param dburl: str. The URL of the database where data has been previously
-        downloaded
-    :param segments_selection: The segments to be processed. It can be a numeric
-        array of integers denoting the segment IDs, or a dict[str, str] of Segments
-        attributes mapped to a given selection expression, e.g.:
+    :param pyfunc: the processing function, i.e. a Python function with signature
+        (arguments) `(segment, config)`, or a path of a Python module with a function
+        "def main(segment, config) implemented therein, which will be imported and
+        executed. To specify a different function name, append the function name to
+        the path after two colons, e.g.: "/home/mymodule.py::myfunction"
+    :param dburl: str. The URL of the database where data has been previously downloaded
+    :param segments_selection: The segments to be processed. It can be a sequence of
+        integers (tuple, list, numpy array) denoting the segment IDs, or a dict[str, str]
+        of Segments attributes mapped to a given selection expression, e.g.:
         ```
         {
             'event.magnitude': '<=6',
@@ -154,14 +83,22 @@ def s2sexec(pyfunc, dburl, segments_selection=None, config=None, outfile=None,
         }
         ```
         (the last two keys assure segments with no gaps, and with data.
-        'has_data': 'true' is basically a default to be provided in most cases)
-    :param config: dict. Optional argument to be passed to `pyfunc`. Populate it
-        with user-defined parameter needed in your processing function
+        'has_data': 'true' is basically a default to be provided in most cases). If None
+        or missing, it defaults to the dict `{'has_data`: True}`
+    :param config: dict or YAML file. Optional argument to be passed to `pyfunc`.
+        Populate it with user-defined parameter needed in your processing function. If
+        you implemented a YAML file following the guidelines of the available templates
+        (see command `s2s init`), then you can load the config as dict and other function
+        argument via :func:`load_p_config`:
+        ```
+        config, segments_selection, multi_process, chunksize, writer_options = \
+            load_p_config(yaml_file)
+        ```
     :param outfile: str or None. The destination file where to write the
         processing output, either ".csv" or ".hdf". The type of output will be inferred
         from the file extension, and defaults to CSV when missing or unknown.
-        If no output file is given, the returned values of `funcname` in `pyfile` will be
-        ignored, if given.
+        If no output file is given, the returned values of the processing function will
+        be ignored
     :param append: bool (default False) ignored if the output file is not given
         or non existing, otherwise: if False, overwrite the existing output
         file. If True, process unprocessed segments only (checking the segment
@@ -186,10 +123,12 @@ def s2sexec(pyfunc, dburl, segments_selection=None, config=None, outfile=None,
             }
         }
         ```
-    :param log2file: bool or str (default: False). If str, it is the log file
-        path (whose directory must exist). If True, the log file path will be
-        built as `outfile` + ".[now].log". If False or no output file is given,
-        logging is disabled.
+    :param logfile: str or boolean (default: False). If str, it is the log file
+        path (whose directory must exist). If True, it will be inferred from the
+        output file or the Python file of the processing function, if given, by appending
+        ".[now].log" to the file path ([now] denotes the current timestamp and avoids
+        overwriting previous log files). If False, or True but no log file path can be
+        inferred, then logging is disabled.
     :param verbose: if True (default: False) print some log information also on
         the screen (messages of level info and critical), as well as a progress
         bar showing the estimated remaining time. This option is set to True
@@ -197,7 +136,9 @@ def s2sexec(pyfunc, dburl, segments_selection=None, config=None, outfile=None,
     :param multi_process: enable multi process (parallel sub-processes) to speed up
         execution. When not boolean, this parameter can be an integer denoting the
         exact number of subprocesses to be allocated (only for advanced users. True is
-        fine in most cases)
+        fine in most cases). Please note that when multi process is activated, the
+        processing function must be pickable
+        (https://docs.python.org/3/library/pickle.html#pickle-picklable)
     :param chunksize: the size, in number of segments, of each chunk of data that will
         be loaded from the database. Increasing this number speeds up the load but also
         increases memory consumption. None (the default) means: set size automatically
@@ -205,14 +146,40 @@ def s2sexec(pyfunc, dburl, segments_selection=None, config=None, outfile=None,
         execution but will be logged to file, with the relative segment id. When missing
         or None, it defaults to :class:`stream2segmetn.process.SkipExeption`
     """
-    log2file = log2file or ''  # force False into empty string
-    if log2file is True:
-        if outfile:
-            log2file = logfilepath(outfile)  # auto create log file
+    cfg_file = None  # we will overwrite the variable
+    if isinstance(config, str):
+        cfg_file = config
+        config = validate_param("config", config or {}, yaml_load)
 
-    with _setup_logging(log2file, verbose):
+    pyfunc_is_callable = callable(pyfunc)
+    pyfunc, pyfile = check_pyfunc_or_pyfile(pyfunc)
+    if multi_process and not pyfunc_is_callable:
+        # Note: if pyfile is a str (file path) then pyfunc is imported with importlib. We
+        # cannot pass pyfunc as argument because it is not pickable
+        # (FIXME: this is an old claim, write a test?),
+        # and thus we pass pyfile (the function path), delegating the child workers to
+        # (re)load pyfunc each time
+        pyfunc = pyfile
+
+    if logfile is True:
+        if outfile or not pyfunc_is_callable:
+            logfile = logfilepath(outfile or pyfile)  # auto create log file
+    elif not logfile:
+        logfile = ''   # force False into empty string
+
+    with _setup_logging(logfile, verbose):
+        abp = os.path.abspath
+        info = [
+            "Input database:      %s" % secure_dburl(dburl),
+            "Processing function: %s" % pyfile,
+            "Config. file:        %s" % (abp(cfg_file) if cfg_file else 'n/a'),
+            "Log file:            %s" % (abp(logfile) if logfile else 'n/a'),
+            "Output file:         %s" % (abp(outfile) if outfile else 'n/a')
+        ]
+        logger.info(ascii_decorate("\n".join(info)))
+
         _run_and_write(pyfunc, dburl, segments_selection, config, outfile, append,
-                       writer_options, verbose, multi_process, chunksize, skip_exceptions)
+                       writer_options, verbose, multi_process, chunksize, None)
 
 
 def _run_and_write(pyfunc, dburl, segments_selection=None, config=None, outfile=None,
@@ -224,7 +191,7 @@ def _run_and_write(pyfunc, dburl, segments_selection=None, config=None, outfile=
     if config is None:
         config = {}
     if segments_selection is None:
-        segments_selection = {}
+        segments_selection = {'has_data': True}
 
     session = validate_param("dburl", dburl, get_session)
     writer = get_writer(outfile, append, writer_options)
@@ -287,7 +254,8 @@ def s2smap(pyfunc, dburl, segments_selection=None, config=None,
     :param multi_process: enable multi process (parallel sub-processes) to speed up
         execution. When not boolean, this parameter can be an integer denoting the
         exact number of subprocesses to be allocated (only for advanced users. True is
-        fine in most cases)
+        fine in most cases). If multi process is on `pyfunc` must be pickable
+        (https://docs.python.org/3/library/pickle.html#pickle-picklable)
     :param chunksize: the size, in number of segments, of each chunk of data that will
         be loaded from the database. Increasing this number speeds up the load but also
         increases memory consumption. None (the default) means: set size automatically
@@ -326,7 +294,11 @@ def run_and_yield(dburl, seg_ids, pyfunc, config, show_progress=False,
     :param dburl: string database URL
     :param pyfunc: a Python function accepting as arguments a given segment object and
         a `dict` of optional user-defined parameters. The function will be called with
-        any given segment and the provided `config` argument
+        any given segment and the provided `config` argument. The argument can also be
+        a path to a Python module, with optional double semicolon separating the name
+        of the function to search therein. Use this latter option when multi_process is
+        on to avoid pickable problems, e.g. if the function has to be loaded from custom
+        file.
     :param config: dict of configuration parameters, usually the result of an associated
         YAML configuration file, to be passed as second argument of `pyfunc`
     :param show_progress: (boolean, default False) whether or not to show progress bar
@@ -489,16 +461,12 @@ def process_mp(dburl, pyfunc, config, seg_ids_chunks, pbar, num_processes,
 
     :param seg_ids_chunks: iterable yielding numpy arrays of segment ids
     """
-    # We need to pass pickable stuff to each child sub-process,
-    # therefore no imported functions, get the file instead:
-    pyfile = inspect.getsourcefile(pyfunc)
-
     pool = Pool(processes=num_processes, initializer=_mp_initializer)
     try:
         for results in \
                 pool.imap_unordered(process_segments_mp,
-                                    ((seg_ids_chunk, dburl, config, pyfile,
-                                      pyfunc.__name__, safe_exceptions_tuple)
+                                    ((seg_ids_chunk, dburl, config, pyfunc,
+                                      safe_exceptions_tuple)
                                      for seg_ids_chunk in seg_ids_chunks)):
             for output, is_ok, segment_id in results:
                 yield output, is_ok, segment_id
@@ -567,7 +535,7 @@ def process_segments_mp(args):
     """Function to be used INSIDE A CHILD python-process to process a chunk of segments
     Takes care of releasing db session and other stuff.
 
-    :param args: the tuple (seg_ids_chunk, dburl, config, pyfile, funcname)
+    :param args: the tuple (seg_ids_chunk, dburl, config, func_or_pyfile, funcname)
         where seg_ids_chunk is a numpy array of segment ids, dburl is the database
         url (string), config is the config dict, pyfile is the path to the processing
         module (string) and funcname is the processing function name to be called
@@ -577,8 +545,8 @@ def process_segments_mp(args):
         (boolean) tells if `output` is NOT an Exception, and segment_id is the id of the
         segment processed
     """
-    seg_ids_chunk, dburl, config, pyfile, funcname, safe_exceptions_tuple = args
-    pyfunc = valid_pyfunc(pyfile, funcname)
+    seg_ids_chunk, dburl, config, func_or_pyfile, safe_exceptions_tuple = args
+    pyfunc = func_or_pyfile if callable(func_or_pyfile) else valid_pyfunc(func_or_pyfile)
     session = get_session(dburl)
     ret = []
 

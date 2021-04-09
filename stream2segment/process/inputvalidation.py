@@ -2,14 +2,13 @@
 Input validation for the process routine
 """
 import os
+import inspect
 
 from future.utils import string_types
 
 from stream2segment.io import yaml_load
 from stream2segment.io.inputvalidation import (validate_param, get_param,
                                                pop_param, valid_between)
-# import get_session as 'valid_session' for compatibility with the download package:
-from stream2segment.process.db import get_session
 from stream2segment.process.inspectimport import load_source
 
 
@@ -27,35 +26,40 @@ def _extract_segments_selection(config):
     return pop_param(config, SEGMENT_SELECT_PARAM_NAMES, {})[1]
 
 
-# def load_config_for_process(pyfile, funcname=None, config=None,
-#                             outfile=None, **param_overrides):
-#     """Check process arguments. Returns the tuple session, pyfunc, config_dict,
-#     where session is the dql alchemy session from `dburl`, `funcname` is the
-#     Python function loaded from `pyfile`, and config_dict is the dict loaded
-#     from `config` which must denote a path to a yaml file, or None (config_dict
-#     will be empty in this latter case)
-#     """
-#     funcname = validate_param("funcname", funcname, valid_funcname)
-#     pyfunc = validate_param("pyfile", pyfile, valid_pyfunc, funcname)
-#     config = validate_param("config", config or {}, yaml_load, **param_overrides)
-#     if outfile is not None:
-#         validate_param('outfile', outfile, valid_filewritable)
-#         # (ignore return value of filewritable: it's outfile, we already have it)
-#     seg_sel = _extract_segments_selection(config)
-#
-#     multi_process, chunksize = _get_process_advanced_settings(config,
-#                                                               'advanced_settings')
-#
-#     return pyfunc, config, seg_sel, multi_process, chunksize, writer_options
+def check_pyfunc_or_pyfile(pyfunc):
+    """Check pyfunc or pyfile, returns the tuple (pyfunc, func_path)
+    where func_path has the form <module_path>::<function_name>
+    """
+    pname = 'pyfunc'
+    if not callable(pyfunc):
+        pname = 'pyfile'
+        pyfunc = validate_param(pname, pyfunc, valid_pyfunc)
+
+    return pyfunc, validate_param(pname, pyfunc, _get_func_path)
 
 
-def load_pyfunc_for_process(pyfile, funcname=None):
-    """Loads the Python function"""
-    funcname = validate_param("funcname", funcname, valid_funcname)
-    return validate_param("pyfile", pyfile, valid_pyfunc, funcname)
+def _get_func_path(pyfunc):
+    return inspect.getsourcefile(pyfunc) + '::' + pyfunc.__name__
 
 
-def load_config(config=None, **param_overrides):
+def load_p_config(config=None, **param_overrides):
+    """Loads a YAML configuration file for processing, returning a tuple of 5 elements:
+
+    config:dict
+    segments_selection:dict
+    multi_process:Union[bool, int]
+    chunksize:Union[None, int]
+    writer_options:Union[None, dict]
+
+    :param config: file path to a YAMl file or dict
+    :param param_overrides: additional parameter(s) for the YAML `config`. The
+        value of existing config parameters will be overwritten, e.g. if
+        `config` is {'a': 1} and `param_overrides` is `a=2`, the result is
+        {'a': 2}. **Note however that when both parameters are dictionaries, the
+        result will be merged**. E.g. if `config` is {'a': {'b': 1, 'c': 1}} and
+        `param_overrides` is `a={'c': 2, 'd': 2}`, the result is
+        {'a': {'b': 1, 'c': 2, 'd': 2}}
+    """
     config = validate_param("config", config or {}, yaml_load, **param_overrides)
     seg_sel = _extract_segments_selection(config)
     multi_process, chunksize = _get_process_advanced_settings(config,
@@ -102,30 +106,31 @@ def valid_filewritable(filepath):
     return filepath
 
 
-def valid_funcname(funcname=None):
-    """Return the Python module from the given python file"""
-    if funcname is None:
-        funcname = valid_default_processing_funcname()
-
-    if not isinstance(funcname, string_types):
-        raise TypeError('string required, not %s' % str(type(funcname)))
-
-    return funcname
-
-
 def valid_default_processing_funcname():
     """Return 'main', the default function name for processing, when such
     a name is not given"""
     return 'main'
 
 
-def valid_pyfunc(pyfile, funcname):
-    """Return the Python module from the given python file"""
+def valid_pyfunc(pyfile):
+    """Return the Python module from the given Python file
+    An optional double semicolon separates the python module path and the function
+    name implemented therein. If missing the function name to search defaults to
+    :func:`valid_default_processing_funcname`
+    """
     if not isinstance(pyfile, string_types):
-        raise TypeError('string required, not %s' % str(type(pyfile)))
+        raise TypeError('Python file must be given as string, not %s' %
+                        str(type(pyfile)))
 
-    if not os.path.isfile(pyfile):
-        raise Exception('file does not exist')
+    funcname = valid_default_processing_funcname()
+    sep = '::'
+    idx = pyfile.rfind(sep)
+    if idx >= 0:
+        funcname = pyfile[idx + len(sep):]
+        pyfile = pyfile[:idx]
+
+    if not pyfile or not os.path.isfile(pyfile):
+        raise Exception('File does not exist: "%s"' % pyfile)
 
     pymoduledict = load_source(pyfile).__dict__
 
@@ -138,6 +143,6 @@ def valid_pyfunc(pyfile, funcname):
                          '"raise SkipSegment(.." instead of "raise ValueError(..."')
 
     if funcname not in pymoduledict:
-        raise Exception('function "%s" not found in %s' %
+        raise Exception('Function "%s" not found in %s' %
                         (str(funcname), pyfile))
     return pymoduledict[funcname]
