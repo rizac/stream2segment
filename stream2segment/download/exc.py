@@ -5,9 +5,9 @@ class QuitDownload(Exception):
     """This is an abstract-like class representing an Exception to be raised
     as soon as something causes no segments to be downloaded.
 
-    This class should not be called directly. Rather, the user should re-raise
+    **IMPORTANT**: This class should not be called directly. The user should re-raise
     a :class:`NothingToDownload` or :class:`FailedDownload` (see their
-    documentation)
+    documentation) because those are the exceptions caught and handled by the program
     """
 
     def __init__(self, exc_or_msg):

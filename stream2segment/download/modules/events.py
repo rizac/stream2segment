@@ -20,7 +20,7 @@ from stream2segment.io.cli import get_progressbar
 from stream2segment.download.modules.utils import (dbsyncdf, response2normalizeddf,
                                                    formatmsg,
                                                    EVENTWS_MAPPING, strptime, urljoin)
-from stream2segment.download.exc import FailedDownload, QuitDownload
+from stream2segment.download.exc import FailedDownload, NothingToDownload
 from stream2segment.download.db.models import WebService, Event
 from stream2segment.download.url import urlread, socket, HTTPError
 
@@ -105,7 +105,7 @@ def events_df_list(url, evt_query_args, start, end, timeout=15, show_progress=Fa
         try:
             urls_and_data = list(events_iter_from_url(url, evt_query_args, start, end,
                                                       timeout, show_progress))
-        except QuitDownload:
+        except NothingToDownload:
             raise
         except ISFParseError as isf_exc:
             raise FailedDownload(formatmsg(ERR_FETCH_ISF, isf_exc,
@@ -207,7 +207,7 @@ def events_iter_from_url(base_url, evt_query_args, start, end, timeout,
     result = _urlread(url, timeout, is_isf_)
     if result is not _SUSPECTED_REQUEST_TOO_ARGE:
         if not result:
-            raise QuitDownload(formatmsg(ERR_FETCH_NODATA, "", url))
+            raise NothingToDownload(formatmsg(ERR_FETCH_NODATA, "", url))
         yield url, result  # then result is the tuple (url, raw_data)
     else:
         logger.info("Request seems to be too large, splitting into "

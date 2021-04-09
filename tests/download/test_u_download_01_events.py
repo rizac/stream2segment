@@ -33,7 +33,7 @@ from stream2segment.download.modules.events import (get_events_df, isf2text_iter
                                                     ERR_READ_FDSN, ERR_READ_ISF,
                                                     ERR_FETCH, ERR_FETCH_NODATA)
 from stream2segment.download.modules.utils import response2normalizeddf, urljoin
-from stream2segment.download.exc import FailedDownload, QuitDownload
+from stream2segment.download.exc import FailedDownload, NothingToDownload
 from stream2segment.download.url import URLError, HTTPError, responses
 from stream2segment.resources import get_templates_fpath
 from stream2segment.io import yaml_load
@@ -332,7 +332,7 @@ class Test(object):
         urlread_sideeffect = ['']
         mock_pbar.reset_mock()
         mock_pbar.return_value.updates = []
-        with pytest.raises(QuitDownload) as fldl:
+        with pytest.raises(NothingToDownload) as fldl:
             # returning empty data
             _ = self.get_events_df(urlread_sideeffect, db.session, "abcd", {},
                                    start=datetime(2010, 1, 1),
@@ -560,7 +560,7 @@ class Test(object):
         # Now mock empty or invalid data:
         for url_read_side_effect in [b'', b'!invalid!']:
 
-            expected_exc = QuitDownload if not url_read_side_effect else FailedDownload
+            expected_exc = NothingToDownload if not url_read_side_effect else FailedDownload
             expected_err = ERR_FETCH_NODATA if not url_read_side_effect else ERR_FETCH_FDSN
 
             # Now provide a FDSN url:
