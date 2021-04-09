@@ -38,7 +38,7 @@ from stream2segment.process.inputvalidation import (valid_pyfunc, load_p_config,
                                                     check_pyfunc_or_pyfile)
 from stream2segment.process import SkipSegment
 from stream2segment.process.db import get_session
-# from stream2segment.process.db.models import Segment, Station
+from stream2segment.process.db.models import Segment, Station
 from stream2segment.process.log import configlog4processing
 from stream2segment.process.writers import get_writer
 

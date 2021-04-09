@@ -249,8 +249,8 @@ def test_process_verbosity(mock_run_process, mock_configlog, mock_closesess, moc
     # stdout
     outfile = pytestdir.newfile()
     mock_run_process.side_effect = lambda *a, **v: None
-    ret = o_process(dburl, pyfile, funcname=None, config=conffile, outfile=outfile,
-                    log2file=True, verbose=True)
+    ret = o_process(pyfile, dburl, config=conffile, outfile=outfile,
+                    logfile=True, verbose=True)
     out, err = capsys.readouterr()
     assert len(out)  # assert empty (avoid comparing to strings and potential py2 py3 headache)
     assert vars['numloggers'] == 2
@@ -258,8 +258,8 @@ def test_process_verbosity(mock_run_process, mock_configlog, mock_closesess, moc
     # run verbosity = False, with output file. This configures a logger to log file
     outfile = pytestdir.newfile()
     mock_run_process.side_effect = lambda *a, **v: None
-    ret = o_process(dburl, pyfile, funcname=None, config=conffile, outfile=outfile,
-                    log2file=False, verbose=False)
+    ret = o_process(pyfile, dburl, config=conffile, outfile=outfile,
+                    logfile=False, verbose=False)
     out, err = capsys.readouterr()
     assert not out  # assert empty (avoid comparing to strings and potential py2 py3 headache)
     assert vars['numloggers'] == 0
@@ -267,16 +267,16 @@ def test_process_verbosity(mock_run_process, mock_configlog, mock_closesess, moc
     # run verbosity = False, with output file. This configures a logger to log file
     outfile = pytestdir.newfile()
     mock_run_process.side_effect = lambda *a, **v: None
-    ret = o_process(dburl, pyfile, funcname=None, config=conffile, outfile=outfile,
-                    log2file=True, verbose=False)
+    ret = o_process(pyfile, dburl, config=conffile, outfile=outfile,
+                    logfile=True, verbose=False)
     out, err = capsys.readouterr()
     assert not out  # assert empty (avoid comparing to strings and potential py2 py3 headache)
     assert vars['numloggers'] == 1
 
     # run verbosity = True, with no output file. This configures a logger stderr and a logger stdout
     mock_run_process.side_effect = lambda *a, **v: None
-    ret = o_process(dburl, pyfile, funcname=None, config=conffile, outfile=None,
-                    log2file=True, verbose=True)
+    ret = o_process(pyfile, dburl, config=conffile, outfile=None,
+                    logfile=True, verbose=True)
     out, err = capsys.readouterr()
     with open(vars['logfilepath']) as _opn:
         expected_out = _opn.read()
@@ -289,8 +289,8 @@ def test_process_verbosity(mock_run_process, mock_configlog, mock_closesess, moc
     # run verbosity = False, with no output file. This configures a logger stderr but no logger
     # stdout with no file
     mock_run_process.side_effect = lambda *a, **v: None
-    ret = o_process(dburl, pyfile, funcname=None, config=conffile, outfile=None,
-                    log2file=False, verbose=False)
+    ret = o_process(pyfile, dburl, config=conffile, outfile=None,
+                    logfile=False, verbose=False)
     out, err = capsys.readouterr()
     assert not out  # assert empty (avoid comparing to strings and potential py2 py3 headache)
     assert vars['logfilepath'] is None

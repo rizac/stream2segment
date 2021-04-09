@@ -21,7 +21,7 @@ from stream2segment.process.db.models import (Event, WebService, Channel, Statio
                                               DataCenter, Segment, Class, Download)
 from stream2segment.process.inputvalidation import SEGMENT_SELECT_PARAM_NAMES
 from stream2segment.process.inspectimport import load_source
-from stream2segment.process.inputvalidation import valid_session
+from stream2segment.process.db import get_session
 from stream2segment.resources import get_templates_fpaths
 from stream2segment.io import yaml_load
 from stream2segment.process.db.models import get_stream as original_get_stream
@@ -47,7 +47,7 @@ class Test(object):
     def init(self, request, db, data):
         # re-init a sqlite database (no-op if the db is not sqlite):
         db.create(to_file=True)
-        self.session = db._session = valid_session(db.dburl, scoped=True)
+        self.session = db._session = get_session(db.dburl, scoped=True)
         # hack to set a scoped session on pur db when calling db.session:
         db._session = self.session
         self.app = create_s2s_show_app(self.session, self.pymodule, self.configdict,
