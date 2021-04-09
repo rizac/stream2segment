@@ -708,8 +708,12 @@ def stats(dburl, download_id, maxgap_threshold, html, outfile, download_indices)
 @dl.command(short_help="Show short summary of the given download execution(s)",
             context_settings={'ignore_unknown_options': True})
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
+@click.option('-did', '--download-id', multiple=True, type=int,
+              help="Limit the download statistics to a specified set of "
+                   "download ids (integers). when missing, all downloads are "
+                   "shown")
 @click.argument("download_indices", required=False, nargs=-1)
-def summary(dburl, download_indices):
+def summary(dburl, download_id, download_indices):
     """Return a summary of the download execution
 
     [DOWNLOAD_INDICES] (optional): The space-separated indices of the download executions
@@ -727,7 +731,7 @@ def summary(dburl, download_indices):
     try:
         with warnings.catch_warnings():  # capture (ignore) warnings
             warnings.simplefilter("ignore")
-            _summary(dburl, download_indices or None, None)
+            _summary(dburl, download_indices or None, download_id or None)
         sys.exit(0)
     except BadParam as err:
         _print_badparam_and_exit(err)
@@ -736,8 +740,12 @@ def summary(dburl, download_indices):
 @dl.command(short_help="Show the log file content of the given download execution(s)",
             context_settings={'ignore_unknown_options': True})
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
+@click.option('-did', '--download-id', multiple=True, type=int,
+              help="Limit the download statistics to a specified set of "
+                   "download ids (integers). when missing, all downloads are "
+                   "shown")
 @click.argument("download_indices", required=False, nargs=-1)
-def log(dburl, download_indices):
+def log(dburl, download_id, download_indices):
     """Return the log file(s) content with detailed information of the download execution
 
     [DOWNLOAD_INDICES] (optional): The space-separated indices of the download executions
@@ -755,7 +763,7 @@ def log(dburl, download_indices):
     try:
         with warnings.catch_warnings():  # capture (ignore) warnings
             warnings.simplefilter("ignore")
-            _log(dburl, download_indices or [-1], None, None)
+            _log(dburl, download_indices or [-1], download_id or None, None)
         sys.exit(0)
     except BadParam as err:
         _print_badparam_and_exit(err)
@@ -764,8 +772,12 @@ def log(dburl, download_indices):
 @dl.command(short_help="Show the YAML config of the given download execution(s)",
             context_settings={'ignore_unknown_options': True})
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
+@click.option('-did', '--download-id', multiple=True, type=int,
+              help="Limit the download statistics to a specified set of "
+                   "download ids (integers). when missing, all downloads are "
+                   "shown")
 @click.argument("download_indices", required=False, nargs=-1)
-def config(dburl, download_indices):
+def config(dburl, download_id, download_indices):
     """Return the YAML configuration file(s) used for launching the download execution
 
     [DOWNLOAD_INDICES] (optional): The space-separated indices of the download executions
@@ -784,7 +796,7 @@ def config(dburl, download_indices):
     try:
         with warnings.catch_warnings():  # capture (ignore) warnings
             warnings.simplefilter("ignore")
-            _config(dburl, download_indices or [-1], None, None)
+            _config(dburl, download_indices or [-1], download_id or None, None)
         sys.exit(0)
     except BadParam as err:
         _print_badparam_and_exit(err)

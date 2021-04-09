@@ -13,6 +13,7 @@ import yaml
 from click.testing import CliRunner
 
 from stream2segment.cli import cli
+from stream2segment.process.inputvalidation import SEGMENT_SELECT_PARAM_NAMES
 from stream2segment.resources import get_templates_fpaths, get_templates_fpath
 from stream2segment.io import yaml_load
 from stream2segment.process.inspectimport import load_source
@@ -42,7 +43,7 @@ PKG = 'stream2segment.download'
 
 @patch(PKG + ".main.configlog4download")
 @patch(PKG + ".main.new_db_download")
-@patch(PKG + ".inputvalidation.valid_session")
+@patch(PKG + ".inputvalidation.get_session")
 @patch(PKG + ".main._run", return_value=0)
 def test_click_download(mock_download, mock_create_sess, mock_new_db_download,
                         mock_configlog4download, download_setup):
@@ -150,6 +151,12 @@ def test_click_process(mock_process):
     d_conffile, conffile, pyfile = \
         get_templates_fpaths("download.yaml", "paramtable.yaml", "paramtable.py")
 
+    def dic2comparabletuple(dic):
+        return [[_, dic[_]] for _ in sorted(dic)]
+
+    segsel = dic2comparabletuple(yaml_load(conffile)[SEGMENT_SELECT_PARAM_NAMES[0]])
+
+
     # test no dburl supplied
     mock_process.reset_mock()
     result = runner.invoke(cli, ['process', '-c', conffile, '-p', pyfile, 'c'])
@@ -160,14 +167,16 @@ def test_click_process(mock_process):
     mock_process.reset_mock()
     result = runner.invoke(cli, ['process', '-d', 'd', '-c', conffile, '-p', pyfile, 'c'])
     lst = list(mock_process.call_args_list[0][0])
-    assert lst == ['d', pyfile, None, conffile, 'c']
+    lst[2] = dic2comparabletuple(lst[2])  # convert segm. selection to a comparable tuple
+    assert lst == [pyfile, 'd', segsel, conffile, 'c']
     assert result.exit_code == 0
     
     # test dburl supplied via config
     mock_process.reset_mock()
     result = runner.invoke(cli, ['process', '-d', d_conffile , '-c', conffile, '-p', pyfile, 'c'])
     lst = list(mock_process.call_args_list[0][0])
-    assert lst == [yaml_load(d_conffile)['dburl'], pyfile, None, conffile, 'c']
+    lst[2] = dic2comparabletuple(lst[2])  # convert segm. selection to a comparable tuple
+    assert lst == [pyfile, yaml_load(d_conffile)['dburl'], segsel, conffile, 'c']
     assert result.exit_code == 0
     
     # test funcname supplied via cli:
@@ -175,7 +184,8 @@ def test_click_process(mock_process):
     result = runner.invoke(cli, ['process', '--funcname', 'wat?', '-d', d_conffile ,
                                  '-c', conffile, '-p', pyfile, 'c'])
     lst = list(mock_process.call_args_list[0][0])
-    assert lst == [yaml_load(d_conffile)['dburl'], pyfile, 'wat?', conffile, 'c']
+    lst[2] = dic2comparabletuple(lst[2])  # convert segm. selection to a comparable tuple
+    assert lst == [pyfile + '::wat?', yaml_load(d_conffile)['dburl'], segsel, conffile, 'c']
     assert result.exit_code == 0
 
     # test an error in params: -dburl instead of --dburl:
@@ -380,7 +390,7 @@ def test_click_template_realcopy(pytestdir):
     assert result.exit_code == 0
 
 
-@patch("stream2segment.download.db.inspection.main.dstats", return_value=0)
+@patch("stream2segment.download.db.inspection.main.stats", return_value=0)
 def test_click_dstats(mock_da):
 
     prefix = ['dl', 'stats']
@@ -395,17 +405,22 @@ def test_click_dstats(mock_da):
 
     result = runner.invoke(cli, prefix + ['-d', 'dburl', '-did', 1, '-did', 2])
     lst = list(mock_da.call_args_list[-1][0])
-    assert lst == ['dburl', (1, 2), 0.5, False, None]
+    assert lst == ['dburl', None, (1, 2), 0.5, False, None]
+    assert result.exit_code == 0
+
+    result = runner.invoke(cli, prefix + ['-d', 'dburl', '-1', '2'])
+    lst = list(mock_da.call_args_list[-1][0])
+    assert lst == ['dburl', ('-1', '2'), None, 0.5, False, None]
     assert result.exit_code == 0
 
     result = runner.invoke(cli, prefix + ['-d', 'dburl'])
     lst = list(mock_da.call_args_list[-1][0])
-    assert lst == ['dburl', None, 0.5, False, None]
+    assert lst == ['dburl', None, None, 0.5, False, None]
     assert result.exit_code == 0
 
     result = runner.invoke(cli, prefix + ['-d', 'dburl', '-g', 0.77, '--html', 'abc'])
     lst = list(mock_da.call_args_list[-1][0])
-    assert lst == ['dburl', None, 0.77, True, 'abc']
+    assert lst == ['dburl', ('abc',), None, 0.77, True, None]
     assert result.exit_code == 0
 
     mock_da.reset_mock()
@@ -419,59 +434,90 @@ def test_click_dstats(mock_da):
     assert result.exit_code != 0
 
 
-@patch("stream2segment.download.db.inspection.main.dreport", return_value=0)
-def test_click_dreport(mock_da):
+pkg = "stream2segment.download.db.inspection.main"
 
-    prefix = ['dl', 'report']
-    runner = CliRunner()
-    # assert help works:
-    mock_da.reset_mock()
-    result = runner.invoke(cli, prefix + ['--help'])
-    assert not mock_da.called
-    assert result.exit_code == 0
 
-    # do a little test with variable length download ids
-    result = runner.invoke(cli, prefix + ['-d', 'dburl', '-did', 1, '-did', 2])
-    lst = list(mock_da.call_args_list[-1][0])
-    assert lst == ['dburl', (1, 2), False, False, False, None]
-    assert result.exit_code == 0
+# @patch("stream2segment.download.db.inspection.main.report", return_value=0)
+@pytest.mark.parametrize('mocked_func_path', [
+    pkg+'.config', pkg+'.log', pkg+'.summary'
+])
+def test_click_dreport(mocked_func_path):
+    with patch(mocked_func_path, return_value=[]) as mock_da:
+        prefix = ['dl', mocked_func_path.split('.')[-1]]
+        runner = CliRunner()
+        # assert help works:
+        mock_da.reset_mock()
+        result = runner.invoke(cli, prefix + ['--help'])
+        assert not mock_da.called
+        assert result.exit_code == 0
 
-    # do a little test with variable length download ids
-    result = runner.invoke(cli, prefix + ['-d', 'dburl', '-did', 1, '-did', 2,
-                                          '--log', '--config'])
-    lst = list(mock_da.call_args_list[-1][0])
-    assert lst == ['dburl', (1, 2), True, True, False, None]
-    assert result.exit_code == 0
+        is_summary_command = prefix[-1] == 'summary'
+        default_when_missing = None if is_summary_command else [-1]
 
-    result = runner.invoke(cli, prefix + ['-d', 'dburl'])
-    lst = list(mock_da.call_args_list[-1][0])
-    assert lst == ['dburl', None, False, False, False, None]
-    assert result.exit_code == 0
+        # do a little test with variable length download ids
+        result = runner.invoke(cli, prefix + ['-d', 'dburl', '-did', 1, '-did', 2])
+        lst = list(mock_da.call_args_list[-1][0])
+        if is_summary_command:
+            # summary command does not have a 4th argument (outfile). This argument is
+            # always None for the other two commands because not used anymore. Hacky add:
+            lst += [None]
+        assert lst == ['dburl', default_when_missing, (1, 2), None]
+        assert result.exit_code == 0
+        # mock_da.reset_mock()
 
-    result = runner.invoke(cli, prefix + ['-d', 'dburl', '--log'])
-    lst = list(mock_da.call_args_list[-1][0])
-    assert lst == ['dburl', None, False, True, False, None]
-    assert result.exit_code == 0
+        # do a little test with variable length download ids
+        result = runner.invoke(cli, prefix + ['-d', 'dburl',  '-1', '2'])
+        lst = list(mock_da.call_args_list[-1][0])
+        if is_summary_command:
+            # summary command does not have a 4th argument (outfile). This argument is
+            # always None for the other two commands because not used anymore. Hacky add:
+            lst += [None]
+        assert lst == ['dburl', ('-1', '2'), None, None]
+        assert result.exit_code == 0
+        # mock_da.reset_mock()
 
-    result = runner.invoke(cli, prefix + ['-d', 'dburl', '--config'])
-    lst = list(mock_da.call_args_list[-1][0])
-    assert lst == ['dburl', None, True, False, False, None]
-    assert result.exit_code == 0
+        # do a little test with variable length download ids
+        result = runner.invoke(cli, prefix + ['-d', 'dburl', '-did', 1, '-did', 2,
+                                              '-2', 'b'])
+        lst = list(mock_da.call_args_list[-1][0])
+        if is_summary_command:
+            # summary command does not have a 4th argument (outfile). This argument is
+            # always None for the other two commands because not used anymore. Hacky add:
+            lst += [None]
+        assert lst == ['dburl', ('-2', 'b'), (1, 2), None]
+        assert result.exit_code == 0
+        # mock_da.reset_mock()
 
-    result = runner.invoke(cli, prefix + ['-d', 'dburl', '-c', '-l', '--html', 'abc'])
-    lst = list(mock_da.call_args_list[-1][0])
-    # assert lst == ['dburl', None, True, True, True, 'abc']
-    assert result.exit_code != 0  # --html option not supported
+        result = runner.invoke(cli, prefix + ['-d', 'dburl'])
+        lst = list(mock_da.call_args_list[-1][0])
+        if is_summary_command:
+            # summary command does not have a 4th argument (outfile). This argument is
+            # always None for the other two commands because not used anymore. Hacky add:
+            lst += [None]
+        assert lst == ['dburl', default_when_missing, None, None]
+        assert result.exit_code == 0
+        # mock_da.reset_mock()
 
-    mock_da.reset_mock()
-    result = runner.invoke(cli, prefix + ['-d', 'dburl', '-g'])
-    assert not mock_da.called
-    assert result.exit_code != 0
+        # all unknown arguments are parsed as download indices:
+        result = runner.invoke(cli, prefix + ['-d', 'dburl', '-c', '-l', '--html', 'abc'])
+        lst = list(mock_da.call_args_list[-1][0])
+        if is_summary_command:
+            # summary command does not have a 4th argument (outfile). This argument is
+            # always None for the other two commands because not used anymore. Hacky add:
+            lst += [None]
+        assert lst == ['dburl', ('-c', '-l', '--html', 'abc',), None, None]
+        assert result.exit_code == 0  # --html option not supported
+        # mock_da.reset_mock()
 
-    mock_da.reset_mock()
-    result = runner.invoke(cli, prefix + ['-d', 'dburl', '-did', 'a'])
-    assert not mock_da.called
-    assert result.exit_code != 0
+        # mock_da.reset_mock()
+        # result = runner.invoke(cli, prefix + ['-d', 'dburl', '-g'])
+        # assert not mock_da.called
+        # assert result.exit_code != 0
+        #
+        # mock_da.reset_mock()
+        # result = runner.invoke(cli, prefix + ['-d', 'dburl', '-did', 'a'])
+        # assert not mock_da.called
+        # assert result.exit_code != 0
 
 
 # FINAL NOTE:
