@@ -26,7 +26,7 @@ class patches(object):
     # paths container for patchers used below. Hopefully
     # will mek easier debug when refactoring/move functions
     input = 'stream2segment.download.db.management.input'
-    valid_session = 'stream2segment.download.db.management.valid_session'
+    get_session = 'stream2segment.download.db.management.get_session'
 
 
 class Test(object):
@@ -109,7 +109,7 @@ class Test(object):
                 db.session.add(seg)
                 db.session.commit()
 
-        with patch(patches.valid_session, return_value=db.session) as mock_session:
+        with patch(patches.get_session, return_value=db.session) as mock_session:
             yield
 
     def get_db_status(self, session):

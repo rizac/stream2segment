@@ -15,9 +15,12 @@ import threading
 from flask import Flask
 
 from stream2segment.io import yaml_load
-from stream2segment.io.inputvalidation import (validate_param, valid_session,
-                                               _extract_segments_selection)
+from stream2segment.io.inputvalidation import validate_param
 from stream2segment.process.inspectimport import load_source
+# valid_session below is imported from stream2segment.process and not stream2segment.io
+# for consistency, but it is currently the same exact function
+from stream2segment.process.db import get_session
+from stream2segment.process.inputvalidation import _extract_segments_selection
 
 
 def show_gui(dburl, pyfile, configfile):
@@ -35,7 +38,7 @@ def load_config_for_visualization(dburl, pyfile=None, config=None):
     """
     # in process and download routines, validation is in a separate inputvalidation.py
     # module. Here for the moment we leave it here
-    session = validate_param('dburl', dburl, valid_session, for_process=True, scoped=True)
+    session = validate_param('dburl', dburl, get_session, scoped=True)
     pymodule = None if not pyfile else validate_param('pyfile', pyfile, load_source)
     config_dict = {} if not config else validate_param('configfile', config, yaml_load)
     seg_sel = _extract_segments_selection(config_dict)

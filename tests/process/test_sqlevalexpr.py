@@ -39,13 +39,19 @@ class Test(object):
             sess.commit()
         sess.rollback()
 
+        dcen = DataCenter(station_url="x/station/fdsnws/station/1/")  # another invalid fdsn name
+        with pytest.raises(IntegrityError):
+            sess.add(dcen)
+            sess.commit()
+        sess.rollback()
+
         # https://service.iris.edu/fdsnws/station/1/
 
-        dcen = DataCenter(station_url="x/station/fdsnws/station/1/")  # this is save (fdsn)
+        dcen = DataCenter(station_url="domain/fdsnws/station/1/")  # this is save (fdsn)
         sess.add(dcen)
         sess.commit()
 
-        # this is safe (both provided):
+        # this is safe (both provided): FIXME!! should we pass here??
         dcen = DataCenter(station_url="x/station/abc", dataselect_url="x/station/abc")
         sess.add(dcen)
         sess.commit()

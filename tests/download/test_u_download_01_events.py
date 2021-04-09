@@ -26,10 +26,14 @@ import pandas as pd
 import pytest
 
 from stream2segment.download.db.models import Event, Download, WebService
-from stream2segment.download.modules.events import get_events_df, isf2text_iter,\
-    _get_freq_mag_distrib, islocalfile as o_islocalfile
+from stream2segment.download.modules.events import (get_events_df, isf2text_iter,
+                                                    _get_freq_mag_distrib,
+                                                    islocalfile as o_islocalfile,
+                                                    ERR_FETCH_FDSN, ERR_FETCH_ISF,
+                                                    ERR_READ_FDSN, ERR_READ_ISF,
+                                                    ERR_FETCH, ERR_FETCH_NODATA)
 from stream2segment.download.modules.utils import response2normalizeddf, urljoin
-from stream2segment.download.exc import FailedDownload
+from stream2segment.download.exc import FailedDownload, QuitDownload
 from stream2segment.download.url import URLError, HTTPError, responses
 from stream2segment.resources import get_templates_fpath
 from stream2segment.io import yaml_load
@@ -208,7 +212,9 @@ class Test(object):
         # check that log has notified:
         log1 = self.log_msg()
         assert "20160508_0000113" in log1
+        assert "Adding missing nullable column(s) in data: event_type" in log1
         assert "1 database row(s) not inserted" in log1
+        assert "1 row(s) discarded (malformed text data)" in log1
         assert mock_urljoin.call_count == 1
         mock_urljoin.reset_mock()
 
@@ -224,19 +230,24 @@ class Test(object):
             data = self.get_events_df(urlread_sideeffect, db.session, "http://eventws", {},
                                       datetime.utcnow() - timedelta(seconds=1), datetime.utcnow(),
                                       db_bufsize=self.db_buf_size)
+        # assert the error message is of type:
+        # "Unable to fetch events (urlopeneror"...
+        # (check only for the prefix present
+        assert str(fld.value).startswith(ERR_FETCH + " (")
+
         # assert we got the same result as above:
         assert len(db.session.query(Event).all()) == len(pd.unique(data['id'])) == \
             len(data) == 3
         log2 = self.log_msg()
 
-        # log text has the message about the second (successful) dwnload, with the
-        # two rows discarded:
-        assert "2 row(s) discarded" in log2
-        # test that the exception has expected mesage:
-        assert "Unable to fetch events" in str(fld)
-        # check that we splitted once, thus we called 2 times mock_urljoin
-        # (plus the first call):
-        assert mock_urljoin.call_count == 3
+        # log text has the message about the second (successful) download, with the
+        # two rows discarded: LEGACY CODE, not true anymore: the parsing happens after fetching data,
+        # which raised, so no parsing and thus no discarded rows:
+        # assert "2 row(s) discarded" in log2
+
+        # We called urljoin once, plus two times because we split url time bounds once,
+        # plus one time at the end to provide the url which raised in the error message:
+        assert mock_urljoin.call_count == 4
         mock_urljoin.reset_mock()
 
 
@@ -321,14 +332,21 @@ class Test(object):
         urlread_sideeffect = ['']
         mock_pbar.reset_mock()
         mock_pbar.return_value.updates = []
-        with pytest.raises(FailedDownload) as fldl:
-            # now it should raise because of a 413:
+        with pytest.raises(QuitDownload) as fldl:
+            # returning empty data
             _ = self.get_events_df(urlread_sideeffect, db.session, "abcd", {},
                                    start=datetime(2010, 1, 1),
                                    end=datetime(2011, 1, 1),
                                    db_bufsize=self.db_buf_size)
         # test that we did not increment the pbar (exceptions)
-        assert "Discarding response (Empty input data)" in self.log_msg()
+        expected_str = 'No event received, search parameters might be too strict'
+        assert str(fldl.value).startswith(expected_str)
+        # the string will be in the log during a download routine, but not here because
+        # we do not call get_events_df from the parent main function. So:
+        assert expected_str not in self.log_msg()
+
+        # we do not notify empty responses anymore, we simply pass:
+        # assert "Discarding response (Empty input data)" in self.log_msg()
         assert not mock_pbar.called
 
         # Now let's supply a successful response:
@@ -485,6 +503,7 @@ class Test(object):
         '''test request splitted, but reading from BAD events file'''
         urlread_sideeffect = [socket.timeout, 500]
 
+        # create a invalid FDSN file (with a column length mismatch):
         filepath = pytestdir.newfile('.txt', create=True)
         with open(filepath, 'w') as _fpn:
             _fpn.write("""000|45.68|26.64|163.0|BUC|EMSC-RTS|BUC|505351|ml|3.4|BUC|ROMANIA
@@ -492,15 +511,15 @@ class Test(object):
 """)
 
         # provide a valid file (that exists but is malformed) and tst the err message:
-        expected_err_msg = ('No event found. Check that the file is non empty '
-                            'and its content is valid')
+        expected_err_msg = ERR_READ_FDSN
+
         with pytest.raises(FailedDownload) as fdl:
             _ = self.get_events_df(urlread_sideeffect, db.session, filepath, {},
                                    start=datetime(2010, 1, 1),
                                    end=datetime(2011, 1, 1),
                                    db_bufsize=self.db_buf_size)
 
-        assert expected_err_msg in str(fdl)
+        assert expected_err_msg in str(fdl.value)
         assert not self.mock_urlopen.called
         
         # Now provide a url and test the error message. Test that we get a 500 error
@@ -513,53 +532,76 @@ class Test(object):
                                    end=datetime(2011, 1, 1),
                                    db_bufsize=self.db_buf_size)
 
-        expected_err_msg = 'Unable to fetch events (HTTP Error 500: Internal Server Error)'
         # the string above might change across python versions: Thus:
         # assert expected_err_msg in str(fdl)
         # might fail and thus cause annoying debugs.
         # We then test that our message is there and a '500' is found in the error:
-        assert 'Unable to fetch events' in str(fdl)
-        assert '500' in str(fdl)
+        assert (ERR_FETCH + ' ') in str(fdl.value)
+        assert '500' in str(fdl.value)
         assert self.mock_urlopen.called  # urlopen HAS been called!
         self.mock_urlopen.reset_mock()
 
+        with pytest.raises(FailedDownload) as fdl:
+            _ = self.get_events_df([413, '', ''], db.session, 'iris', {},
+                                   start=datetime(2010, 1, 1),
+                                   end=datetime(2011, 1, 1),
+                                   db_bufsize=self.db_buf_size)
+
+        # the string above might change across python versions: Thus:
+        # assert expected_err_msg in str(fdl)
+        # might fail and thus cause annoying debugs.
+        # We then test that our message is there and a '500' is found in the error:
+        assert (ERR_FETCH + ' ') in str(fdl.value)
+        assert self.mock_urlopen.called  # urlopen HAS been called!
+        self.mock_urlopen.reset_mock()
+
+        # NO_DATA_ERR = "No event received, search parameters might be too strict. "
+        # INVALID_DATA_ERR = ", ".join([E_FETCH_EVTS, E_PARSE_FDSN])
         # Now mock empty or invalid data:
         for url_read_side_effect in [b'', b'!invalid!']:
+
+            expected_exc = QuitDownload if not url_read_side_effect else FailedDownload
+            expected_err = ERR_FETCH_NODATA if not url_read_side_effect else ERR_FETCH_FDSN
+
             # Now provide a FDSN url:
-            with pytest.raises(FailedDownload) as fdl:
+            with pytest.raises(expected_exc) as fdl:
                 _ = self.get_events_df([url_read_side_effect], db.session, 'iris', {},
                                        start=datetime(2010, 1, 1),
                                        end=datetime(2011, 1, 1),
                                        db_bufsize=self.db_buf_size)
 
-            assert 'No event found, try to change your search parameters' in str(fdl)
+            assert str(fdl.value).startswith(expected_err)
             assert self.mock_urlopen.called
             self.mock_urlopen.reset_mock()
 
             # Now provide a custom url (don't know if FDSN):
-            with pytest.raises(FailedDownload) as fdl:
+            with pytest.raises(expected_exc) as fdl:
                 _ = self.get_events_df([url_read_side_effect], db.session,
                                        'http://custom_service', {},
                                        start=datetime(2010, 1, 1),
                                        end=datetime(2011, 1, 1),
                                        db_bufsize=self.db_buf_size)
 
-            assert ('No event found, try to change your search parameters. Check '
-                    'also that the service returns parsable data (FDSN-compliant)') in str(fdl)
+            assert str(fdl.value).startswith(expected_err)
+
+            # assert ('No event found, try to change your search parameters. Check '
+            #         'also that the service returns parsable data (FDSN-compliant)') in str(fdl)
             assert self.mock_urlopen.called
             self.mock_urlopen.reset_mock()
             
             # Now provide a custom "string" (url? file? if url, don't know if FDSN):
-            with pytest.raises(FailedDownload) as fdl:
+            with pytest.raises(expected_exc) as fdl:
                 _ = self.get_events_df([url_read_side_effect], db.session, 'filepath', {},
                                        start=datetime(2010, 1, 1),
                                        end=datetime(2011, 1, 1),
                                        db_bufsize=self.db_buf_size)
-        
-            assert ('No event found. If you supplied a file, the file was not found: '
-                    'check path and typos. Otherwise, try to change your search parameters: '
-                    'check also that the service returns parsable data (FDSN-compliant)') \
-                in str(fdl.value)
+
+            assert str(fdl.value).startswith(expected_err)
+
+            # assert ('No event found. If you supplied a file, the file was not found: '
+            #         'check path and typos. Otherwise, try to change your search parameters: '
+            #         'check also that the service returns parsable data (FDSN-compliant)') \
+            #     in str(fdl.value)
             assert self.mock_urlopen.called
             self.mock_urlopen.reset_mock()
 
@@ -567,9 +609,9 @@ class Test(object):
     def test_get_events_eventws_from_isc(self, mock_isf_to_text,
                                          # fixtures:
                                          db, data):
-        '''test request splitted, but reading from BAD events file'''
+        '''test bad events from isc'''
 
-        # now it should raise because of a 413:
+        # normal query from emsc, data exopected as FDSN, returend as FDSN
         _ = self.get_events_df(None, db.session, 'emsc', {},
                                start=datetime(2010, 1, 1),
                                end=datetime(2011, 1, 1),
@@ -577,13 +619,14 @@ class Test(object):
         assert not mock_isf_to_text.called
         assert db.session.query(Event.id).count() == 2
 
+        # data expected as isf, returned as FDSN:
         with pytest.raises(FailedDownload) as fld:
             # now it should raise because of a 413:
             _ = self.get_events_df(None, db.session, 'isc', {},
                                    start=datetime(2010, 1, 1),
                                    end=datetime(2011, 1, 1),
                                    db_bufsize=self.db_buf_size)
-        assert "No event found, try to change your search parameters" in str(fld.value)
+        assert ERR_FETCH_ISF in str(fld.value)
         assert mock_isf_to_text.called
         mock_isf_to_text.reset_mock()
         assert not mock_isf_to_text.called
@@ -638,6 +681,7 @@ class Test(object):
                     filepath
                 assert db.session.query(Event.id).count() == expected_events
 
+        # two common errors in which the format is wrong:
         for filepath, expected_events, evt_query_arg in \
             [(txt_file, 0, {'format': 'isf'}),
              (isf_file, 0, {'format': 'txt'})]:
@@ -648,8 +692,13 @@ class Test(object):
                                        start=datetime(2010, 1, 1),
                                        end=datetime(2011, 1, 1),
                                        db_bufsize=self.db_buf_size)
-            assert "No event found. Check that the file is non empty and its content is valid" \
-                in str(fdwl)
+            if filepath == txt_file:  # then we expected isf:
+                assert ERR_READ_ISF in str(fdwl.value)
+                assert 'Event block not found' in str(fdwl.value)
+            else:  # then we expected fdsn:
+                assert ERR_READ_FDSN in str(fdwl.value)
+            # assert "No event found. Check that the file is non empty and its content is valid" \
+            #     in str(fdwl)
             assert mock_islocalfile.call_args_list[-1][0][0] == filepath
             assert db.session.query(Event.id).count() == expected_events
 
@@ -715,3 +764,26 @@ class Test(object):
             if col not in (Event.event_id.key, # Event.time.key,
                            Event.event_location_name.key,):
                 assert (iris_df[col].values == isc_df[col].values).all()
+
+    @patch('stream2segment.download.modules.events.urljoin', side_effect=urljoin)
+    def test_get_events_response_has_one_col_more(self, mock_urljoin, db):
+        """WARNING: THIS TEST MIGHT FAIL IN THE FUTURE IF NEW COLUMNS ARE ADDED TO OUR
+        Event MODEL. TO FIX THIS, EDIT THE RESPONSE BELOW IN ORDER TO HAVE ALWAYS ONE
+        COLUMN MORE THAN IN OUR Event MODEL
+         """
+        urlread_sideeffect = ["""#EventID|Time|Latitude|Longitude|Depth/km|Author|Catalog|Contributor|ContributorID|MagType|Magnitude|MagAuthor|EventLocationName|EventType|
+gfz2021edty|2021-02-28T23:37:15.211956|-17.565212|167.572067|10.0|||GFZ|gfz2021edty|M|5.787024361||Vanuatu Islands|earthquake|
+gfz2021edpn|2021-02-28T21:23:50.840903|-22.500320|172.554474|26.75543594|||GFZ|gfz2021edpn|mb|4.907085435||Southeast of Loyalty Islands|earthquake|
+gfz2021edoa|2021-02-28T20:37:40.931643|-22.658522|172.432373|30.70357132|||GFZ|gfz2021edoa|Mw|5.755797284||Southeast of Loyalty Islands|earthquake|
+"""]
+        with pytest.raises(FailedDownload) as fdw:
+            data = self.get_events_df(urlread_sideeffect, db.session, "http://eventws", {},
+                                      datetime.utcnow() - timedelta(seconds=1), datetime.utcnow(),
+                                      db_bufsize=self.db_buf_size)
+        assert str(fdw.value).startswith(ERR_FETCH_FDSN)
+        assert "column(s)" in str(fdw.value)  # test it's a columns problem
+        log1 = self.log_msg()
+        # the message should be in the log in a normal routine, but here it should NOT
+        # be because we do not run get_events_df from the parent main function, where
+        # the faileddownload is logged:
+        assert ERR_FETCH_FDSN not in log1

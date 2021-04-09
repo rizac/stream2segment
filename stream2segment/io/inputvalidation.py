@@ -5,20 +5,11 @@ Input validation module
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
-# import sys
-# import re
-# import sys
-# from itertools import chain
-# import importlib
-
-from future.utils import string_types
-# from stream2segment.process import SkipSegment
-from stream2segment.io.db import database_exists, get_session
 
 
 class BadParam(Exception):
     """Exception describing a bad input parameter. The purpose of this class is twofold:
-    provide clear exception messages to the user focused on the input parameter to fix,
+    provide clear exception messages to the user with info on the input parameter to fix,
     and provide a formatting style similar to :class:`click.exceptions.BadParameter`, to
     harmonize output when invoking commands from the terminal
     """
@@ -74,11 +65,10 @@ class BadParam(Exception):
     def __str__(self):
         """String representation of this object"""
         msg_preamble = self.preamble
-        if msg_preamble:
-            msg_preamble += ' '
-
         p_name = self._param_sep.join("{0}{1}{0}".format(self._param_quote, _)
                                       for _ in self.params)
+        if msg_preamble and p_name:
+            msg_preamble += ' '
 
         err_msg = self.message
         if err_msg:
@@ -93,8 +83,16 @@ class BadParam(Exception):
 def validate_param(param_name_or_names, value, validation_func, *v_args, **v_kwargs):
     """Validate a parameter calling and returning the value of
     `validation_func(value, *v_args, **v_kwargs)`. Any exception raised from the
-    validation function is wrapped and re-raised as :class:`InvalidValue` providing
-    the given parameter name(s) in the exception message
+    validation function is wrapped and re-raised as :class:`BadParam` with the
+    given parameter name(s) in the exception message
+
+    :paraqm param_name_or_names: str or list of strings denoting the parameter name(s)
+        a list of strings denotes parameters with optional names
+    :param value: the parameter value to validate
+    :param validation_func: the validation function whose first argument must be
+        `value`
+    :param v_args: additional positional arguments to be passed to `validation_func`
+    :param v_kwargs: additional keyword arguments to be passed to `validation_func`
     """
     try:
         return validation_func(value, *v_args, **v_kwargs)
@@ -146,7 +144,7 @@ def get_param(dic, name_or_names, default=_VALUE_NOT_FOUND_):
 
 def _param_tuple(dic, name_or_names, default=_VALUE_NOT_FOUND_, pop=False):
     """private base function used by the public `get` and `pop`"""
-    names = BadParam._vectorize(name_or_names)
+    names = BadParam._vectorize(name_or_names)  # noqa
     keyval = {}  # copy all param -> value mapping here
 
     for name in names:
@@ -176,24 +174,6 @@ def _param_tuple(dic, name_or_names, default=_VALUE_NOT_FOUND_, pop=False):
     return p_name, keyval[p_name]
 
 
-##############################################################################
-# Loading config functions. These functions should validate the whole input
-# of our main routines (download, process, show) and call validate_param()
-# with the given parameters and the low level validation functions above
-##############################################################################
-
-
-def _extract_segments_selection(config):
-    """Return the dict in `config` denoting the selection of segment. Validators
-    should all call this method so that the valid parameter names are implemented in
-    one place and can be easily modified.
-
-    :param config: the config `dict` (e.g. resulting from a YAML config file used for
-        processing, or visualization)
-    """
-    return pop_param(config, ['segments_selection', 'segment_select'], {})[1]
-
-
 #####################################################################################
 # Low level validation functions.
 # IMPORTANT: By convention, these functions should start with "valid_" and
@@ -201,72 +181,19 @@ def _extract_segments_selection(config):
 ######################################################################################
 
 
-def valid_session(dburl, for_process=False, scoped=False, **engine_kwargs):
-    """Create an SQL-Alchemy session from dburl. Raises if `dburl` is
-    not a string, or any SqlAlchemy exception if the session could not be
-    created.
+def valid_between(val, min, max, include_min=True, include_max=True, pass_if_none=True):
+    if val is None:
+        if pass_if_none:
+            return val
+        raise ValueError('value is None/null')
 
-    IMPORTANT: This function is intended to be called through `validate_param`,
-    so that if the database session could not be created, a meaningful message
-    with the parameter name (usually, "dburl" from the cli) can be raised. Example:
-    ```
-    session = validate_param('dburl', <variable_name>, get_session, *args, **kwargs)
-    ```
-    will raise in case of failure an error message like:
-    "Error: invalid value for "dburl": <message>"
+    is_ok = min is None or val > min or (include_min and val >= min)
+    if not is_ok:
+        raise ValueError('%s must be %s %s' %
+                         (str(val), '>=' if include_min else '>', str(min)))
 
-    :param dburl: string denoting a database url (currently postgres and sqlite
-        supported
-    :param for_process: boolean (default: False) whether the session should be
-        used for processing, i.e. the database is supposed to exist already and
-        the `Segment` model has ObsPy method such as `Segment.stream()`
-    :param scoped: boolean (False by default) if the session must be scoped
-        session
-    :param engine_kwargs: optional keyword argument values for the
-        `create_engine` method. E.g., let's provide two engine arguments,
-        `echo` and `connect_args`:
-        ```
-        get_session(dbpath, ..., echo=True, connect_args={'connect_timeout': 10})
-        ```
-        For info see:
-        https://docs.sqlalchemy.org/en/14/core/engines.html#sqlalchemy.create_engine.params.connect_args
-    """
-    if not isinstance(dburl, string_types):
-        raise TypeError('string required, %s found' % str(type(dburl)))
-    # import in function to speed up module imports from cli:
-    # FIXME: single func!
-    # if for_process:
-    #     # important, rename otherwise conflicts with this function name:
-    #     from stream2segment.process.db import get_session as sess_func
-    # else:
-    #    # important, rename otherwise conflicts with this function name:
-    #    from stream2segment.io.db import get_session as sess_func
-
-    exists = database_exists(dburl)
-    # the only case when we don't care if the database exists is when
-    # we have sqlite and we are downloading. Thus
-    if not dburl.startswith('sqlite') or for_process:
-        if not exists:
-            dbname = dburl[dburl.rfind('/')+1:]
-            if for_process:
-                raise ValueError('Database "%s" does not exist. Provide an existing '
-                                 'database' % dbname)
-            else:
-                raise ValueError('Database "%s" needs to be created first' % dbname)
-
-    sess = get_session(dburl, scoped=scoped, **engine_kwargs)
-
-    if not for_process:
-        # Note: this creates the SCHEMA, not the database
-        from stream2segment.download.db.models import Base
-        Base.metadata.create_all(sess.get_bind())
-
-    # assert that the database exist. The only exception is when we
-
-    # Check if database exist, which should not always be done (e.g.
-    # for_processing=True). Among other methods
-    # (https://stackoverflow.com/a/3670000
-    # https://stackoverflow.com/a/59736414) this seems to do what we need
-    # (we might also not check if the tables length > 0 sometime):
-    # sess.bind.engine.table_names()
-    return sess
+    is_ok = max is None or val < max or (include_max and val <= max)
+    if not is_ok:
+        raise ValueError('%s must be %s %s' %
+                         (str(val), '<=' if include_max else '<', str(max)))
+    return val

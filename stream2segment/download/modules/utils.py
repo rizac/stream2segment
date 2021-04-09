@@ -9,17 +9,17 @@ Module implementing all functions not involving IO operations
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
 from __future__ import division
-# make the following(s) behave like python3 counterparts if running from python2.7.x
-# (http://python-future.org/imports.html#explicit-imports):
-import sys
-from builtins import zip, range
+
+from builtins import zip, range  # http://python-future.org/imports.html#explicit-imports
 
 import os
+import sys
 import re
 from datetime import datetime
 from itertools import chain
 from collections import OrderedDict
 from functools import cmp_to_key
+import logging
 
 from dateutil import parser as dateparser
 from dateutil.tz.tz import tzutc
@@ -36,14 +36,7 @@ from stream2segment.download.exc import FailedDownload
 from stream2segment.download.url import (read_async as original_read_async,
                                          responses)
 
-# # logger: do not use logging.getLogger(__name__) but point to
-# # stream2segment.download.logger: this way we preserve the logging namespace
-# # hierarchy when calling logging functions of stream2segment.download.utils
-# # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
-# from stream2segment.download import logger  # @IgnorePep8
-
-
-import logging
+# (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__)
 
 
@@ -155,7 +148,11 @@ def dbsyncdf(dataframe, session, matching_columns, autoincrement_pkey_col,
              cols_to_print_on_err=None):
     """Call `syncdf` and writes to the logger before returning the new
     Dataframe. Raises a :class:`FailedDownload` if the returned Dataframe is
-    empty (no row saved)"""
+    empty (no row saved)
+    this function should be used for bulk insert/updates of metadata (event,
+    station, channels). Segments inserts/updates use the underling
+    :class:`pdsql.DbManager`
+    """
     db_exc_logger = DbExcLogger(cols_to_print_on_err)
 
     inserted, not_inserted, updated, not_updated, dfr = \
@@ -167,10 +164,20 @@ def dbsyncdf(dataframe, session, matching_columns, autoincrement_pkey_col,
 
     table = autoincrement_pkey_col.class_
     if dfr.empty:
+        # Build a meaningful error message for the FailedDownload exception
+        err_count = len(db_exc_logger.exc_history)
+        if not err_count:
+            first_err = 'Unknown. Try to check log for details'
+        else:
+            # Take the 1st item of the Set, who cares if it's not the first inserted:
+            first_err = next(iter(db_exc_logger.exc_history))
+        if err_count > 1:
+            err_msg = ("%d errors. Check log for details, first reported error "
+                       "is: %s") % (err_count, first_err)
+        else:
+            err_msg = 'error: ' + first_err
         raise FailedDownload(formatmsg("No row saved to table '%s'" %
-                                       table.__tablename__,
-                                       "unknown error, check log for details "
-                                       "and db connection"))
+                                       table.__tablename__, err_msg))
     dblog(table, inserted, not_inserted, updated, not_updated)
     return dfr
 
@@ -189,6 +196,7 @@ class DbExcLogger(object):
         """
         self.cols_to_print_on_err = cols_to_print_on_err
         self.max_row_count = max_row_count
+        self.exc_history = set()
 
     def failed_insert(self, dataframe, exception):
         """logs a failed db insertion
@@ -210,15 +218,16 @@ class DbExcLogger(object):
         """Function to be passed to pdsql functions on error when inserting/
         updating the database. Basically, it prints to log
         """
+        try:
+            # if SQL-Alchemy exception, try to guess the orig attribute
+            # which represents the wrapped exception
+            # http://docs.sqlalchemy.org/en/latest/core/exceptions.html
+            errmsg = str(exception.orig)
+        except AttributeError:
+            # just use the string representation of exception
+            errmsg = str(exception)
+        self.exc_history.add(errmsg)
         if not dataframe.empty:
-            try:
-                # if SQL-Alchemy exception, try to guess the orig attribute
-                # which represents the wrapped exception
-                # http://docs.sqlalchemy.org/en/latest/core/exceptions.html
-                errmsg = str(exception.orig)
-            except AttributeError:
-                # just use the string representation of exception
-                errmsg = str(exception)
             len_df = len(dataframe)
             msg = formatmsg("%d database row(s) not %s" %
                             (len_df, "updated" if update else "inserted"),
@@ -288,7 +297,6 @@ def response2normalizeddf(url, raw_data, dbmodel_key):
     :param raw_data: valid FDSN data in text format. For info see:
         https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf#page=12
     """
-
     dframe = response2df(raw_data)
     oldlen, dframe = len(dframe), normalize_fdsn_dframe(dframe, dbmodel_key)
     # stations_df surely not empty:
@@ -351,15 +359,14 @@ def normalize_fdsn_dframe(dframe, query_type):
     :param dframe: the dataframe resulting from a FDSN query
     :param query_type: either 'event', 'channel', 'station'
     :return: a new dataframe, whose length is <= `len(dframe)`
-    :raise: ValueError in case of errors (e.g., mismatching column number, or
+    :raise: ValueError in case of errors, e.g., mismatching column number, or
         the returning Dataframe is empty, e.g. **all** rows have at least one
-        invalid value: in fact, note that invalid cell numbers are removed
-        (their row is removed from the returned data frame)
+        invalid value
     """
     dframe = rename_columns(dframe, query_type)
     ret = harmonize_fdsn_dframe(dframe, query_type)
     if ret.empty:
-        raise ValueError("Malformed data (invalid values, e.g., NaN's)")
+        raise ValueError("Malformed data (e.g., type mismatch, NaN)")
     return ret
 
 
@@ -387,8 +394,10 @@ def rename_columns(query_df, query_type):
         return query_df
 
     if query_type.lower() == "event" or query_type.lower() == "events":
+        model = Event
         columns = list(colnames(Event, pkey=False, fkey=False))
     elif query_type.lower() == "station" or query_type.lower() == "stations":
+        model = Station
         # these are the query_df columns for a station (level=station) query:
         # `Network|Station|Latitude|Longitude|Elevation|SiteName|StartTime|
         # EndTime`
@@ -399,6 +408,7 @@ def rename_columns(query_df, query_type):
                    Station.elevation.key, Station.site_name.key,
                    Station.start_time.key, Station.end_time.key]
     elif query_type.lower() == "channel" or query_type.lower() == "channels":
+        model = Channel
         # these are the query_df expected columns for a station (level=channel)
         # query:
         # `Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|
@@ -419,13 +429,32 @@ def rename_columns(query_df, query_type):
                          "Station or Channel class")
 
     oldcolumns = query_df.columns.tolist()
-    if len(oldcolumns) != len(columns):
-        raise ValueError(("Mismatching number of columns in '%s' query."
-                          "\nExpected:\n%s\nFound:\n%s") %
-                         (query_type.lower(), str(columns), str(oldcolumns)))
+    if len(oldcolumns) > len(columns):
+        # do not provide long messages, the exception is likely to be wrapped
+        # also do not print columns, which are often just numbers with no meaning:
+        raise ValueError("Data has %d column(s), expected: %d" %
+                         (len(oldcolumns), len(columns)))
 
-    return query_df.rename(columns={cold: cnew for cold, cnew in
-                                    zip(oldcolumns, columns)})
+    ret = query_df.rename(columns={cold: cnew for cold, cnew in
+                          zip(oldcolumns, columns)})
+
+    # before returning, add missing nullable columns. this happens when we added new
+    # columns in our models, following some new spec, but the server response is still
+    # in the old format (if missing columns are not nullable, raise). The procedure below
+    # assumes that new columns, if any, are appended at the end of the response
+    if len(oldcolumns) < len(columns):
+        missing_cols = list(colnames(model, pkey=False, fkey=False))[len(oldcolumns):]
+        missing_non_nullable_cols = set(colnames(model, pkey=False, fkey=False,
+                                                 nullable=False)) & set(missing_cols)
+        if missing_non_nullable_cols:
+            raise ValueError("Missing non-nullable column(s) in data: %s" %
+                             (", ".join(missing_non_nullable_cols)))
+        logger.warning("Adding missing nullable column(s) in data: %s" %
+                       (", ".join(missing_cols)))
+        for col in missing_cols:
+            ret[col] = None
+
+    return ret
 
 
 def harmonize_fdsn_dframe(query_df, query_type):

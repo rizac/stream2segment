@@ -29,7 +29,7 @@ def get_writer(outputfile=None, append=False, options_dict=None):
     if os.path.splitext(os.path.basename(outputfile))[1].lower() in \
             HDF_FILE_EXTENSIONS:
         return HDFWriter(outputfile, append, options_dict)
-    return CsvWriter(outputfile, append)
+    return CsvWriter(outputfile, append, options_dict)
 
 
 class BaseWriter(object):
@@ -41,10 +41,11 @@ class BaseWriter(object):
                                     'name not found (was the file created with '
                                     'this program?)')
 
-    def __init__(self, outputfile=None, append=False):
+    def __init__(self, outputfile=None, append=False, options=None):
         self.append = append
-        self.outputfile = outputfile
+        self.outputfile = os.path.abspath(outputfile) if outputfile else None
         self.outputfilehandle = None
+        self.options = {} if options is None else options
         # self._isbasewriter = self.__class__ is BaseWriter
         self._segment_id_colname = SEGMENT_ID_COLNAME
         # self._segment_id_colname could be retrieved from outputfile
@@ -120,6 +121,11 @@ class BaseWriter(object):
         finally:
             self.outputfilehandle = None
 
+    def __str__(self):
+        return "%s (output: %s)" % (self.__class__.__name__ ,
+                                    os.path.abspath(self.outputfile) if self.outputfile
+                                    else 'n/a')
+
 
 class CsvWriter(BaseWriter):
     """Class that can be used in a with statement writing each processed
@@ -129,17 +135,23 @@ class CsvWriter(BaseWriter):
     _SEGID_NOTFOUND_ERR = TypeError(str(BaseWriter._SEGID_NOTFOUND_ERR) +
                                     '. You can only append lists, not dicts')
 
-    def __init__(self, outputfile, append):
+    def __init__(self, outputfile, append, options=None):
         """Call super.__init__ (**mandatory**) and sets up class specific
         stuff
+
+        :param options: dict of optional keyword arguments to be passed
+            to the writer. When missing or None, it defaults to `{}`. See e.g.:
+            https://docs.python.org/3/library/csv.html#csv.DictWriter
+            Note that these arguments are set by default if missing: `delimiter` (","),
+            `quotechar` ('"') and `quoting` (`csv.QUOTE_MINIMAL`)
         """
         # call super as first call (mandatory):
-        super(CsvWriter, self).__init__(outputfile, append)
-        # Do not raise now if the segment id column name is None (i.e., if
-        # append is True and we did not find the column in the file) because we
-        # need to wait if dicts are appended (raise), or lists (goon)
-        self.csvwriterkwargs = dict(delimiter=',', quotechar='"',
-                                    quoting=csv.QUOTE_MINIMAL)
+        super(CsvWriter, self).__init__(outputfile, append, options)
+
+        self.options.setdefault('delimiter', ',')
+        self.options.setdefault('quotechar', '"')
+        self.options.setdefault('quoting', csv.QUOTE_MINIMAL)
+
         self.csvwriter = None
         self.csvwriterisdict = False
 
@@ -204,7 +216,7 @@ class CsvWriter(BaseWriter):
                 fieldnames.extend(viewkeys(result))
                 csvwriter = csv.DictWriter(self.outputfilehandle,
                                            fieldnames=fieldnames,
-                                           **self.csvwriterkwargs)
+                                           **self.options)
                 self.csvwriter = csvwriter
                 # write header if we need it (file does not exists, append is
                 # False, or file exist, append=True but file has no row):
@@ -212,7 +224,7 @@ class CsvWriter(BaseWriter):
                     csvwriter.writeheader()
             else:
                 csvwriter = self.csvwriter = csv.writer(self.outputfilehandle,
-                                                        **self.csvwriterkwargs)
+                                                        **self.options)
 
         if isdict:
             result[seg_id_colname] = segment_id
@@ -231,18 +243,25 @@ class HDFWriter(BaseWriter):
     segments results into a HDF file
     """
 
-    def __init__(self, outputfile, append, options_dict=None):
+    def __init__(self, outputfile, append, options=None):
         """Call super.__init__ (**mandatory**) and sets up class specific
         stuff
+
+        :param options_dict: dict of optional keyword arguments to be passed to:
+            https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.HDFStore.append.html
+            When missing or None, it defaults to `{}`. Any argument listed at the link
+            above can be passed here with the exception of the arguments `value` and
+            `append`, which are not configurable and will be overwritten (also note that
+            `format` and `key` will be set by default and do not need to be input)
         """
         # call super as first call (mandatory):
-        super(HDFWriter, self).__init__(outputfile, append)
+        super(HDFWriter, self).__init__(outputfile, append, options)
         # Raise now if the segment id column name is None (i.e., if append is
         # True and we did not find the column in the file):
         if self._segment_id_colname is None:
             raise self._SEGID_NOTFOUND_ERR
         self._dframeslist = []
-        self.options = options_dict or {}
+
         # remove 'value' from options, it must be set by the user-defined
         # Python file:
         self.options.pop('value', None)

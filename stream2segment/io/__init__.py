@@ -33,44 +33,45 @@ class Fdsnws(object):
     dataselect_queryauth_url = fdsn.url(Fdsnws.DATASEL, method=Fdsnws.QUERYAUTH)
     ```
     """
-    # equals to the string 'station', used in urls for identifying the FDSN
-    # station service:
+    # URL path string denoting a station service ('station')
     STATION = 'station'
-    # equals to the string 'dataselect', used in urls for identifying the FDSN
-    # data service:
+    # URL path string denoting a data service ('dataselect')
     DATASEL = 'dataselect'
-    # equals to the string 'event', used in urls for identifying the FDSN event
-    # service:
+    # URL path string denoting an event service ('event')
     EVENT = 'event'
-    # equals to the string 'query', used in urls for identifying the FDSN
-    # service query method:
+    # URL path string denoting a query method ('query')
     QUERY = 'query'
-    # equals to the string 'queryauth', used in urls for identifying the FDSN
-    # service query method (with authentication):
+    # URL path string denoting a query with authorization method ('queryauth')
     QUERYAUTH = 'queryauth'
-    # equals to the string 'auth', used  (by EIDA only?) in urls for querying
-    # username and password with provided token:
+    # URL path string denoting an authorization method ('auth')
     AUTH = 'auth'
-    # equals to the string 'version', used in urls for identifying the FDSN
-    # service query method:
+    # URL path string denoting a version method ('version')
     VERSION = 'version'
-    # equals to the string 'application.wadl', used in urls for identifying the
-    # FDSN service application wadl method:
+    # URL path string denoting an application.wadl method ('application.wadl')
     APPLWADL = 'application.wadl'
 
-    def __init__(self, url):
-        """Initialize a Fdsnws object from a FDSN URL
+    # all services, as frozenset (non optimal iteration speed, but faster search)
+    SERVICES = frozenset([STATION, DATASEL, EVENT])
 
-        :param url: string denoting the Fdsn web service url
-            Example of valid urls (the scheme 'https://' might be omitted
-            and will default to 'http://'. An ending '/' or '?' will be ignored
-            if present):
-            https://www.mysite.org/fdsnws/<station>/<majorversion>
-            http://www.mysite.org/fdsnws/<station>/<majorversion>/<method>
+    # all services, as frozenset (non optimal iteration speed, but faster search)
+    METHODS = frozenset([QUERY, QUERYAUTH, AUTH, VERSION, APPLWADL])
+
+    def __init__(self, url, strict_path=True):
+        """Initialize a Fdsnws object from a FDSN URL:
+
+        [site]/fdsnws/<service>/<majorversion>/
+
+        E.g.:
+
+        http://www.mysite.org/fdsnws/station/1/query
+
+        :param url: string denoting the Fdsn web service url. The scheme (e.g.,
+            'https://') might be omitted and will default to 'http://'. An ending
+            '/' or '?' will be ignored, if present
+        :param strict_path: boolean (default True) whether the URL path should start
+            with "/fdsnws". If False, paths are allowed before "/fdsnws", so
+            "http://www.mysite.org/mypath/fdsnws/station/1/query" would be valid
         """
-        # do not use urlparse as we should import from stream2segment.url for
-        # py2 compatibility but this will cause circular imports:
-
         obj = urlparse(url)
         if not obj.scheme:
             obj = urlparse('http://' + url)
@@ -81,38 +82,51 @@ class Fdsnws(object):
         self.site = "%s://%s" % (obj.scheme, obj.netloc)
 
         pth = obj.path
-        #  urlparse has already removed query char '?' and params and fragment
-        # from the path. Now check the latter:
-        reg = re.match("^(?:/.+)*/fdsnws/(?P<service>[^/]+)/"
+        # urlparse has already removed query char '?' and params and fragment
+        # from the path (which starts with '/'). Now check the path:
+        reg = re.match("^(?P<path_prefix>.*/)fdsnws/(?P<service>[^/]+)/"
                        "(?P<majorversion>[^/]+)(?P<method>.*)$",
                        pth)
+
         try:
             self.service = reg.group('service')
             self.majorversion = reg.group('majorversion')
             method = reg.group('method')
 
-            if self.service not in [self.STATION, self.DATASEL, self.EVENT]:
-                raise ValueError("Invalid <service> '%s' in '%s'" %
-                                 (self.service, pth))
+            if self.service not in self.SERVICES:
+                raise ValueError("Invalid service '%s' in '%s'" % (self.service, pth))
             try:
                 float(self.majorversion)
             except ValueError:
-                raise ValueError("Invalid <majorversion> '%s' in '%s'" %
+                raise ValueError("Invalid major version '%s' in '%s'" %
                                  (self.majorversion, pth))
             if method not in ('', '/'):
                 method = method[1:] if method[0] == '/' else method
                 method = method[:-1] if len(method) > 1 and method[-1] == '/' \
                     else method
-                if method not in ['', self.QUERY, self.QUERYAUTH, self.AUTH,
-                                  self.VERSION, self.APPLWADL]:
+                if method and method not in self.METHODS:
                     raise ValueError("Invalid method '%s' in '%s'" %
                                      (method, pth))
-        except ValueError:
+
+            # check path_prefix at end:
+            path_pre = reg.group('path_prefix')
+            if path_pre and path_pre[-1] == '/':
+                path_pre = path_pre[:-1]
+            if path_pre:
+                if strict_path:
+                    raise ValueError('Invalid "%s" before "fdsnws"' % path_pre)
+                # add a slash to path if missing, and add path to self.site:
+                if path_pre[0] != '/':
+                    path_pre = '/' + path_pre
+                self.site += path_pre
+        except Exception as exc:
+            raise ValueError("Non-standard FDSN URL: %s" % str(exc).lower())
+
+    def _find_str(self, tokens_list):
+        try:
+            return
+        except Exception as exc:
             raise
-        except Exception:
-            raise ValueError("Invalid FDSN URL '%s': it should be "
-                             "'[site]/fdsnws/<service>/<majorversion>', "
-                             "check potential typos" % str(url))
 
     def url(self, service=None, majorversion=None, method=None):
         """Build a new url from this object url. Arguments which are 'None'
@@ -137,8 +151,7 @@ class Fdsnws(object):
         return self.url('<service>', None, '<method>')
 
 
-def yaml_safe_dump(data, stream=None, default_flow_style=False,
-                   sort_keys=False, **kwds):
+def yaml_safe_dump(data, stream=None, default_flow_style=False, sort_keys=False, **kwds):
     """Call `yaml.safe_dump` with default shortcuts
 
     :param default_flow_style: boolean, tells if collections (lists/dicts) should

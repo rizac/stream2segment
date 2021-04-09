@@ -17,7 +17,8 @@ from obspy.core.stream import read
 from future.utils import integer_types
 
 from stream2segment.cli import cli
-from stream2segment.process.main import _run as process_main_run, \
+from stream2segment.process.inputvalidation import SEGMENT_SELECT_PARAM_NAMES
+from stream2segment.process.main import _run_and_write as process_main_run, \
     get_default_chunksize as o_get_default_chunksize, \
     process_segments as o_process_segments, \
     process_segments_mp as o_process_segments_mp, \
@@ -27,7 +28,7 @@ from stream2segment.resources import get_templates_fpath
 from stream2segment.io import yaml_load
 from stream2segment.process.writers import BaseWriter
 
-SEG_SEL_STRING = 'segments_selection'
+SEG_SEL_STRING = SEGMENT_SELECT_PARAM_NAMES[0]
 
 @pytest.fixture
 def yamlfile(pytestdir):
@@ -36,6 +37,15 @@ def yamlfile(pytestdir):
         return pytestdir.yamlfile(get_templates_fpath('save2fs.yaml'), **overridden_pars)
 
     return func
+
+
+class patches(object):
+    # paths container for class-level patchers used below. Hopefully
+    # will mek easier debug when refactoring/move functions
+    get_session = 'stream2segment.process.main.get_session'
+    close_session = 'stream2segment.process.main.close_session'
+    configlog4processing = 'stream2segment.process.main.configlog4processing'
+    run_process = 'stream2segment.process.main._run_and_write'
 
 
 class Test(object):
@@ -55,16 +65,9 @@ class Test(object):
         db4process.create(to_file=True)
         session = db4process.session
 
-        class patches(object):
-            # paths container for class-level patchers used below. Hopefully
-            # will mek easier debug when refactoring/move functions
-            valid_session = 'stream2segment.process.main.valid_session'
-            close_session = 'stream2segment.process.main.close_session'
-            configlog4processing = 'stream2segment.process.main.configlog4processing'
-
         # sets up the mocked functions: db session handling (using the already created
         # session) and log file handling:
-        with patch(patches.valid_session, return_value=session):
+        with patch(patches.get_session, return_value=session):
             with patch(patches.close_session, side_effect=lambda *a, **v: None):
                 with patch(patches.configlog4processing) as mock2:
 
@@ -96,7 +99,7 @@ class Test(object):
                               ({}, ['--multi-process']),
                               ({'segments_chunksize': 1}, ['--multi-process', '--num-processes', '1']),
                               ({}, ['--multi-process', '--num-processes', '1'])])
-    @mock.patch('stream2segment.process.main._run', side_effect=process_main_run)
+    @mock.patch(patches.run_process, side_effect=process_main_run)
     def test_save2file(self, mock_run, advanced_settings,
                        cmdline_opts,
                        # fixtures:
@@ -136,10 +139,9 @@ class Test(object):
         lst = mock_run.call_args_list
         assert len(lst) == 1
         args, kwargs = lst[0][0], lst[0][1]
-        # assert third argument (`ondone` callback) is None 'ondone' or is a BaseWriter (no-op)
-        # class:
-        assert args[2] is None or \
-            type(args[2]) == BaseWriter  # pylint: disable=unidiomatic-typecheck
+
+        # asssert passed outputfile is None:
+        assert args[4] is None
         # assert "Output file:  n/a" in result output:
         assert re.search('Output file:\\s+n/a', result.output)
 
@@ -172,7 +174,7 @@ class Test(object):
     @mock.patch('stream2segment.process.main.process_segments_mp',
                 side_effect=o_process_segments_mp)
     @mock.patch('stream2segment.process.main._get_chunksize_defaults')
-    @mock.patch('stream2segment.process.main._run', side_effect=process_main_run)
+    @mock.patch(patches.run_process, side_effect=process_main_run)
     def test_multiprocess_chunksize_combinations(self,
                                                  mock_run_func,
                                                  mock_get_chunksize_defaults,
@@ -271,8 +273,8 @@ class Test(object):
 
         # test that advanced settings where correctly written:
         real_advanced_settings = dict(mock_run_func.call_args[0][3].get('advanced_settings', {}))
-        multi_process = mock_run_func.call_args[0][6]
-        segments_chunksize = mock_run_func.call_args[0][7]
+        multi_process = mock_run_func.call_args[0][8]
+        segments_chunksize = mock_run_func.call_args[0][9]
         real_advanced_settings.pop('num_processes', None)  # for safety (old versions had this param)
         real_advanced_settings['multi_process'] = multi_process
         real_advanced_settings['segments_chunksize'] = segments_chunksize

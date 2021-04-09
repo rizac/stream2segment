@@ -35,7 +35,7 @@ class patches(object):
     # will mek easier debug when refactoring/move functions
     open_in_browser = 'stream2segment.download.db.inspection.main.open_in_browser'
     gettempdir = 'stream2segment.download.db.inspection.main.gettempdir'
-    valid_session = 'stream2segment.download.db.inspection.main.valid_session'
+    get_session = 'stream2segment.download.db.inspection.main.get_session'
 
 
 class Test(object):
@@ -126,7 +126,7 @@ class Test(object):
                 db.session.add(seg)
                 db.session.commit()
 
-        with patch(patches.valid_session, return_value=db.session) as mock_session:
+        with patch(patches.get_session, return_value=db.session) as mock_session:
             yield
 
 
@@ -142,7 +142,7 @@ class Test(object):
         # text output, to file
         outfile = pytestdir.newfile('.txt')
         result = runner.invoke(cli, self.CMD_PREFIX + ['--dburl', db.dburl,
-                                                       outfile])
+                                                       '-o', outfile])
 
         assert not result.exception
         content = readfile(outfile)
@@ -153,8 +153,7 @@ class Test(object):
 ------------------------  --  --------  ---------  -----  -----  -----  -------  -------  --------  -----
 www.dc1/dataselect/query   3         1          2      1      1      1        1        1         1     12
 TOTAL                      3         1          2      1      1      1        1        1         1     12""" in content
-        assert result.output.startswith("""Fetching data, please wait (this might take a while depending on the db size and connection)
-download statistics written to """)
+        assert result.output.startswith("""Fetching data, please wait""")
         assert not mock_open_in_browser.called
         assert not mock_gettempdir.called
 
@@ -198,7 +197,7 @@ TOTAL                      3         1          2      1      1      1        1 
         # html output, to file
         outfile = pytestdir.newfile('.html')
         result = runner.invoke(cli, self.CMD_PREFIX + ['--html',  '--dburl',
-                                                       db.dburl, outfile])
+                                                       db.dburl, '-o', outfile])
 
         assert not result.exception
         content = readfile(outfile)
@@ -252,8 +251,7 @@ TOTAL                      3         1          2      1      1      1        1 
             else:
                 raise Exception('station should not be there: %s' % staname)
 
-        assert result.output.startswith("""Fetching data, please wait (this might take a while depending on the db size and connection)
-download statistics written to """)
+        assert result.output.startswith("""Fetching data, please wait""")
         assert not mock_open_in_browser.called
         assert not mock_gettempdir.called
 
@@ -261,7 +259,7 @@ download statistics written to """)
         # with gaps
         result = runner.invoke(cli, self.CMD_PREFIX + ['-g', '0.15', '--html',
                                                        '--dburl', db.dburl,
-                                                       outfile])
+                                                       '--outfile', outfile])
 
         assert not result.exception
 
@@ -316,8 +314,7 @@ download statistics written to """)
             else:
                 raise Exception('station should not be there: %s' % staname)
 
-        assert result.output.startswith("""Fetching data, please wait (this might take a while depending on the db size and connection)
-download statistics written to """)
+        assert result.output.startswith("""Fetching data, please wait""")
         assert not mock_open_in_browser.called
         assert not mock_gettempdir.called
 
@@ -332,9 +329,13 @@ download statistics written to """)
         assert mock_gettempdir.called
         assert os.listdir(mytmpdir) == ['s2s_dstats.html']
 
+    @pytest.mark.parametrize('download_index', [None, -1])
     @patch(patches.open_in_browser)
     @patch(patches.gettempdir)
-    def test_dstats_no_segments(self, mock_gettempdir, mock_open_in_browser, db, pytestdir):
+    def test_dstats_no_segments(self, mock_gettempdir, mock_open_in_browser,
+                                download_index,
+                                # fixtures:
+                                db, pytestdir):
         '''test a case where save inventory is True, and that we saved inventories'''
 
         # mock  a download with only inventories, i.e. with no segments downloaded
@@ -347,8 +348,10 @@ download statistics written to """)
 
         # text output, to file
         outfile = pytestdir.newfile('.txt')
-        result = runner.invoke(cli, self.CMD_PREFIX + ['--dburl', db.dburl,
-                                                       outfile])
+        args = self.CMD_PREFIX + ['--dburl', db.dburl, '-o', outfile]
+        if download_index is not None:
+            args += [str(download_index)]
+        result = runner.invoke(cli, args)
 
         assert not result.exception
         content = readfile(outfile)
@@ -359,8 +362,7 @@ download statistics written to """)
 ------------------------  --  --------  ---------  -----  -----  -----  -------  -------  --------  -----
 www.dc1/dataselect/query   3         1          2      1      1      1        1        1         1     12
 TOTAL                      3         1          2      1      1      1        1        1         1     12""" in content
-        assert result.output.startswith("""Fetching data, please wait (this might take a while depending on the db size and connection)
-download statistics written to """)
+        assert result.output.startswith("""Fetching data, please wait""")
         assert not mock_open_in_browser.called
         assert not mock_gettempdir.called
 
@@ -380,5 +382,5 @@ No segments downloaded
 
         # run with html, test just that everything works fine
         result = runner.invoke(cli, self.CMD_PREFIX + ['--html', '--dburl',
-                                                       db.dburl, outfile])
+                                                       db.dburl, '-o', outfile])
         assert not result.exception

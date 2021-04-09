@@ -1,17 +1,19 @@
 import re
 from contextlib import contextmanager
 
-from sqlalchemy.exc import ProgrammingError, OperationalError
+from sqlalchemy.exc import ProgrammingError, OperationalError, SQLAlchemyError
 from sqlalchemy.orm.scoping import scoped_session
 from sqlalchemy.engine import create_engine
 from sqlalchemy.orm.session import sessionmaker
 
 
-def get_session(dbpath, scoped=False, **engine_args):
+def get_session(dbpath, scoped=False, check_db_existence=True, **engine_args):
     """Create an SQLAlchemy session for IO database operations
 
     :param dbpath: the path to the database, e.g. sqlite:///path_to_my_dbase.sqlite
     :param scoped: boolean (False by default) if the session must be scoped session
+    :param check_db_existence: True by default, will raise a :class:`DbNotFound` if the
+        database does not exist
     :param engine_args: optional keyword argument values for the
         `create_engine` method. E.g., let's provide two engine arguments,
         `echo` and `connect_args`:
@@ -21,7 +23,23 @@ def get_session(dbpath, scoped=False, **engine_args):
         For info see:
         https://docs.sqlalchemy.org/en/14/core/engines.html#sqlalchemy.create_engine.params.connect_args
     """
-    engine = create_engine(dbpath, **engine_args)
+    if not isinstance(dbpath, str):
+        raise TypeError('string required, %s found' % str(type(dbpath)))
+
+    try:
+        engine = create_engine(dbpath, **engine_args)
+    except (SQLAlchemyError, ValueError) as _:
+        # ValueError: 'postgresql://4:a6gfds' (cannot create port)
+        raise ValueError('Cannot create a db engine. Possible reason: '
+                         'the URL is not well formed or contains typos '
+                         '(original error: %s)' % str(_))
+
+    if check_db_existence:
+        # the only case when we don't care if the database exists is when
+        # we have sqlite and we are downloading. Thus
+        if not database_exists(engine):
+            raise DbNotFound(dbpath)
+
     session_factory = sessionmaker(bind=engine)
 
     if not scoped:
@@ -31,8 +49,43 @@ def get_session(dbpath, scoped=False, **engine_args):
     return scoped_session(session_factory)
 
 
+class DbNotFound(ValueError):
+    """DbNotFound are exception raised when the database could not be found. this
+    happens basically when either the db does not exist, or any entry (user, password,
+    host) is wrong. E.g.: this connects to an engine but might raise this exception:
+    postgresql://<user>:<password>@<host>.gfz-potsdam.de/me"
+    whereas this does not even raise this exception and fails when creating an engine:
+    wrong_dialect_and_driver://<user>:<password>@<host>.gfz-potsdam.de/me"
+    """
+    def __init__(self, dburl):
+        super().__init__(dburl)
+
+    @property
+    def dburl(self):
+        return self.args[0]
+
+    def __str__(self):
+        # Warning: if you change the message below, check also the message raised in
+        # check also stream2segment.download.db::valid_session
+        # that relies upon this:
+        return 'Database "%s" not found. Possible reason: the db does not exist or ' \
+               'wrong user/password/host supplied in the URL.' % get_dbname(self.dburl)
+
+
+def is_sqlite(dburl):
+    return isinstance(dburl, str) and dburl.lower().startswith('sqlite')
+
+
+def is_postgres(dburl):
+    return isinstance(dburl, str) and dburl.lower().startswith('postgres')
+
+
+def get_dbname(dburl):
+    return dburl[dburl.rfind('/') + 1:]
+
+
 def database_exists(url_or_engine):
-    """Return iuf the database exists. Works for Postgres, MySQL, SQLite.
+    """Return true if the database exists. Works for Postgres, MySQL, SQLite.
 
     :param url_or_engine: SQLAlchemy engine or string denoting a database URL.
     """
@@ -46,7 +99,7 @@ def database_exists(url_or_engine):
             result = engine.execute(text)
             result.close()
             return True
-        except (ProgrammingError, OperationalError):
+        except (ProgrammingError, OperationalError) as exc:
             return False
 
 
@@ -109,51 +162,6 @@ def _engine(url_or_engine):
     finally:
         if engine_needs_disposal:
             engine.dispose()
-
-
-# def get_session(dbpath, base=None, scoped=False, create_all=True, **engine_args):
-#     """
-#     Create an SQLAlchemy session for IO database operations
-#
-#     :param dbpath: the path to the database, e.g. sqlite:///path_to_my_dbase.sqlite
-#     :param base: a declarative base. If None, defaults to the default declarative base
-#         used in this package for downloading
-#     :param scoped: boolean (False by default) if the session must be scoped session
-#     :param create_all: If True (the default), this method will issue queries that
-#         first check for the existence of each individual table, and if not found
-#         will issue the CREATE statements
-#     :param engine_args: optional keyword argument values for the
-#         `create_engine` method. E.g., let's provide two engine arguments,
-#         `echo` and `connect_args`:
-#         ```
-#         get_session(dbpath, ..., echo=True, connect_args={'connect_timeout': 10})
-#         ```
-#         For info see:
-#         https://docs.sqlalchemy.org/en/14/core/engines.html#sqlalchemy.create_engine.params.connect_args
-#     """
-#     # import stuff here in case they are time consuming, to avoid
-#     # taking time to load other module stuff
-#     from sqlalchemy.orm.scoping import scoped_session
-#     from sqlalchemy.engine import create_engine
-#     from sqlalchemy.orm.session import sessionmaker
-#     from stream2segment.io.db(dot)models import Base
-#
-#     if base is None:
-#         base = Base  # default declarative base, withour obspy methods
-#
-#     # init the session:
-#     engine = create_engine(dbpath, **engine_args)
-#     if create_all:
-#         base.metadata.create_all(engine)  # @UndefinedVariable
-#
-#     if not scoped:
-#         # create a configured "Session" class
-#         session = sessionmaker(bind=engine)
-#         # create a Session
-#         return session()
-#
-#     session_factory = sessionmaker(bind=engine)
-#     return scoped_session(session_factory)
 
 
 def close_session(session, dispose_engine=False):

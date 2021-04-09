@@ -16,24 +16,10 @@ from stream2segment.resources import get_templates_fpath
 from stream2segment.io.db.models import get_classlabels
 from stream2segment.process.db.models import (get_inventory, get_stream,
                                               Event, Station, Segment,
-                                              Channel, Download, DataCenter, ClassLabelling,
-                                              Class)
+                                              Channel, Download, DataCenter,
+                                              ClassLabelling, Class)
 from stream2segment.process.main import query4process
 from stream2segment.process.log import configlog4processing as o_configlog4processing
-
-
-@pytest.fixture
-def yamlfile(pytestdir):
-    '''global fixture wrapping pytestdir.yamlfile'''
-    def func(**overridden_pars):
-        return pytestdir.yamlfile(get_templates_fpath('paramtable.yaml'), **overridden_pars)
-
-    return func
-
-
-def readcsv(filename, header=True):
-    return pd.read_csv(filename, header=None) if not header else pd.read_csv(filename)
-
 
 class Test(object):
 
@@ -57,30 +43,14 @@ class Test(object):
         class patches(object):
             # paths container for class-level patchers used below. Hopefully
             # will mek easier debug when refactoring/move functions
-            valid_session = 'stream2segment.process.main.valid_session'
-            close_session = 'stream2segment.process.main.close_session'
-            configlog4processing = 'stream2segment.process.main.configlog4processing'
+            get_session = 'stream2segment.download.db.management.get_session'
+            # close_session = 'stream2segment.process.main.close_session'
+            # configlog4processing = 'stream2segment.process.main.configlog4processing'
 
         # sets up the mocked functions: db session handling (using the already created
         # session) and log file handling:
-        with patch(patches.valid_session, return_value=session):
-            with patch(patches.close_session, side_effect=lambda *a, **v: None):
-                with patch(patches.configlog4processing) as mock2:
-
-                    def clogd(logger, logfilebasepath, verbose):
-                        # config logger as usual, but redirects to a temp file
-                        # that will be deleted by pytest, instead of polluting the program
-                        # package:
-                        o_configlog4processing(logger,
-                                               pytestdir.newfile('.log') \
-                                               if logfilebasepath else None,
-                                               verbose)
-
-                        self._logfilename = logger.handlers[0].baseFilename
-
-                    mock2.side_effect = clogd
-
-                    yield
+        with patch(patches.get_session, return_value=session):
+            yield
 
     def inlogtext(self, string):
         '''Checks that `string` is in log text.

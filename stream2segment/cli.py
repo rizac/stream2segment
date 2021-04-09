@@ -13,45 +13,20 @@ Module implementing the Command line interface (cli) to access function in the m
 # standard python imports (must be the first import)
 from __future__ import absolute_import, division, print_function
 
-# future direct imports (needs future package installed, otherwise remove):
-# (http://python-future.org/imports.html#explicit-imports)
+# (http://python-future.org/imports.html#explicit-imports):
 from builtins import (bytes, dict, int, open, str, super, input)
-
-# NOTE: do not use future aliased imports
-# (http://python-future.org/imports.html#aliased-imports), they fail with urllib
-# related  functions with multithreading (see utils.url module)
 
 import sys
 import os
 import warnings
 from collections import OrderedDict, defaultdict
+from contextlib import contextmanager
 
 import click
-
-# Some packages are imported inside the functions to avoid naming conflicts,
-# make mocking in tests easier and speed up the cli with "--help"
-# https://www.tomrochette.com/problems/2020/03/07
-# NOTE HOWEVER, this might cause potential issues in refactoring / moving modules
-
-from stream2segment.download.main import download as _download
-from stream2segment.process.main import process as _process
-from stream2segment.process.gui.main import show_gui
-from stream2segment.download.db.inspection.main import dreport, dstats
-from stream2segment.download.db import management as dbmanagement
 
 from stream2segment.resources import get_templates_fpath
 from stream2segment.io.inputvalidation import BadParam
 from stream2segment.io import yaml_load
-
-# convention: root functions are appended the "_func" suffix
-
-# from stream2segment.download.main import download as download_func
-# from stream2segment.process.main import process as process_func
-# from stream2segment.process.gui.main import show_gui as show_func
-# from stream2segment.download.db.inspection.main import (dreport as dreport_func,
-#                                                         dstats as dstats_func)
-# from stream2segment.download.db.management import (classlabels as classlabels_func,
-#                                                    drop as drop_function)
 
 
 class clickutils(object):  # noqa
@@ -66,7 +41,6 @@ class clickutils(object):  # noqa
         if not isinstance(value, str):
             raise ValueError('Please provide a string')
         if os.path.isfile(value):
-            yaml_dict = {}
             try:
                 yaml_dict = yaml_load(value)
             except Exception:
@@ -116,9 +90,9 @@ class clickutils(object):  # noqa
     @classmethod
     def yaml_load_doc(cls, filepath, varname=None, preserve_newlines=False):
         """Return the documentation from a YAML file. The returned object is
-        a the documentation (str) of the given variable name (if `varname` is set),
+        the docstring of the given variable name (if `varname` is set),
         or a dict[str, str] (defaultdict("")) of all variables found, mapped to
-        their documentation (a variable documentation is made up of all
+        their docstring (a variable documentation is made up of all
         consecutive commented lines -  with *no* leading spaces - placed immediately
         before the variable). Only top-level variables can be parsed, nested ones
         are skipped.
@@ -527,10 +501,11 @@ def download(config, dburl, eventws, starttime, endtime, network,  # noqa
     All other options, if provided, will overwrite the corresponding value in
     the config file
     """
-    _locals = dict(locals())  # MUST BE THE FIRST STATEMENT
+    _locals = dict(locals())  # <- THIS MUST BE THE FIRST STATEMENT OF THIS FUNCTION!
 
-    # REMEMBER: NO LOCAL VARIABLES OTHERWISE WE MESS UP THE CONFIG OVERRIDES
-    # ARGUMENTS
+    # import in function body to speed up the main module import:
+    from stream2segment.download.main import download as _download
+
     try:
         overrides = {k: v for k, v in _locals.items()
                      if v not in ((), {}, None) and k != 'config'}
@@ -538,14 +513,17 @@ def download(config, dburl, eventws, starttime, endtime, network,  # noqa
             warnings.simplefilter("ignore")
             ret = _download(config, log2file=True, verbose=True, **overrides)
     except BadParam as err:
-        print(err)
-        ret = 2
+        _print_badparam_and_exit(err)
     except:  # @IgnorePep8 pylint: disable=bare-except
         # do not print traceback, as we already did it by configuring loggers
-        ret = 3
-    # ret might return 0 or 1 the latter in case of QuitDownload, but tests
-    # expect a non-zero value thus we skip this feature for the moment
-    sys.exit(0 if ret <= 1 else ret)
+        ret = 3  # 1 is reserved for FailedDownload
+    sys.exit(ret)
+
+
+@contextmanager
+def _print_badparam_and_exit(bad_param_exception):
+    print(bad_param_exception, file=sys.stderr)
+    sys.exit(2)  # 1 is reserved for other stuff (e.g. FailedDownload)
 
 
 @cli.command(short_help="Process downloaded waveform data segments by "
@@ -564,8 +542,7 @@ def download(config, dburl, eventws, starttime, endtime, network,  # noqa
               type=clickutils.ExistingPath, required=True)
 @click.option("-f", "--funcname",
               help="The name of the user-defined processing function in the "
-                   "given python file. Defaults to '%s' when "
-                   "missing" % "main")  # stream2segment.process.inputvalidation.valid_default_processing_funcname()
+                   "given python file. Defaults to 'main' when missing")
 @click.option("-a", "--append", is_flag=True, default=False,
               help="Append results to the output file (this flag is ignored if "
                    "no output file is provided. The output file will be "
@@ -589,9 +566,8 @@ def download(config, dburl, eventws, starttime, endtime, network,  # noqa
                    "the number of CPUs in the system. This option is ignored "
                    "if --multi-process is not given")
 @click.argument('outfile', required=False)
-def process(dburl, config, pyfile, funcname, append, no_prompt,
-            multi_process, num_processes,
-            outfile):
+def process(dburl, config, pyfile, funcname, append, no_prompt, multi_process,
+            num_processes, outfile):
     """Process downloaded waveform data segments via a custom python file and a
     configuration file.
 
@@ -605,10 +581,11 @@ def process(dburl, config, pyfile, funcname, append, no_prompt,
     execution date and time. If no output file is provided, [OUTFILE] will be
     replaced with [pyfile])
     """
-    _locals = dict(locals())  # MUST BE THE FIRST STATEMENT
+    _locals = dict(locals()) # <- THIS MUST BE THE FIRST STATEMENT OF THIS FUNCTION!
 
-    # REMEMBER: NO LOCAL VARIABLES OTHERWISE WE MESS UP THE CONFIG OVERRIDES
-    # ARGUMENTS
+    # import in function body to speed up the main module import:
+    from stream2segment.process.main import process as _process, load_p_config
+
     try:
         if not append and outfile and os.path.isfile(outfile) \
                 and not no_prompt and \
@@ -617,22 +594,24 @@ def process(dburl, config, pyfile, funcname, append, no_prompt,
                                    os.path.dirname(os.path.abspath(outfile)))):
             ret = 1
         else:
-            # override config values for multi_process and num_processes
-            overrides = {k: v for k, v in _locals.items()
-                         if v not in ((), {}, None) and k in
-                         ('multi_process', 'num_processes')}
-            if overrides:
-                # if given, put these into 'advanced_settings' sub-dict. Note
-                # that nested dict will be merged with the values of the config
-                overrides = {'advanced_settings': overrides}
+            overrides = {}
+            if multi_process:
+                multi_process = num_processes if num_processes else True
+                # override config advanced_settings. Note that dict will be merged,
+                # so other advanced settings will not be deleted:
+                overrides = {'advanced_settings': {'multi_process': multi_process}}
+
             with warnings.catch_warnings():  # capture (ignore) warnings
                 warnings.simplefilter("ignore")
-                ret = _process(dburl, pyfile, funcname, config, outfile, log2file=True,
-                               verbose=True, append=append, **overrides)
+                _, seg_sel, m_p, chunksize, w_options = load_p_config(config, **overrides)
+                if funcname:
+                    pyfile += '::' + funcname
+                ret = _process(pyfile, dburl, seg_sel, config, outfile, append=append,
+                               writer_options=w_options, logfile=True, verbose=True,
+                               multi_process=m_p, chunksize=chunksize)
     except BadParam as err:
-        print(err)
-        ret = 2  # exit with 1 as normal python exceptions
-    except:  # @IgnorePep8 pylint: disable=bare-except
+        _print_badparam_and_exit(err)
+    except:  # noqa
         # do not print traceback, as we already did it by configuring loggers
         ret = 3
     sys.exit(ret)
@@ -651,14 +630,17 @@ def show(dburl, configfile, pyfile):
     """Show waveform plots and metadata in the browser,
     customizable with user-defined configuration and custom Plots
     """
+
+    # import in function body to speed up the main module import:
+    from stream2segment.process.gui.main import show_gui
+
     try:
         ret = 0
         with warnings.catch_warnings():  # capture (ignore) warnings
             warnings.simplefilter("ignore")
             show_gui(dburl, pyfile, configfile)
     except BadParam as err:
-        print(err)
-        ret = 2  # exit with 1 as normal python exceptions
+        _print_badparam_and_exit(err)
     except:
         ret = 3
     sys.exit(ret)
@@ -669,8 +651,8 @@ def dl():  # pylint: disable=missing-docstring
     pass
 
 
-@dl.command(short_help='Produce download summary statistics in either plain '
-                       'text or html format')
+@dl.command(short_help='Produce download statistics in either plain text or html format',
+            context_settings={'ignore_unknown_options': True})
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option('-did', '--download-id', multiple=True, type=int,
               help="Limit the download statistics to a specified set of "
@@ -688,74 +670,144 @@ def dl():  # pylint: disable=missing-docstring
                    "download info is visualized on a map, with statistics "
                    "on a per-station and data-center basis. A working internet "
                    "connection is needed to properly view the page")
-@click.argument("outfile", required=False, type=click.Path(file_okay=True,
-                                                           dir_okay=False,
-                                                           writable=True,
-                                                           readable=True))
-def stats(dburl, download_id, maxgap_threshold, html, outfile):
-    """Produce download summary statistics either in plain text or html format.
+@click.option("-o", "--outfile", required=False, type=click.Path(file_okay=True,
+                                                                 dir_okay=False,
+                                                                 writable=True,
+                                                                 readable=True),
+              help="The optional output file where the information will be saved to. "
+                   "If missing, results will be printed to screen or opened in a web "
+                   "browser, depending on the option '--html'")
+@click.argument("download_indices", required=False, nargs=-1)
+def stats(dburl, download_id, maxgap_threshold, html, outfile, download_indices):
+    """Produce download statistics either in plain text or html format.
 
-    [OUTFILE] (optional): the output file where the information will be saved
-    to. If missing, results will be printed to screen or opened in a web
-    browser (depending on the option '--html')
+    [DOWNLOAD_INDICES] (optional): The space-separated indices of the download executions
+    to inspect, where 0 indicates the first/oldest. To start counting from the end use a
+    negative index. E.g., -1 for the last/most recent execution, -2 for the next-to-last,
+    and so on. When no argument is provided, all downloads are shown. Remember not to mix
+    up the index provided here with the download id (immutable integer uniquely
+    identifying a download execution)
     """
-    # import here to improve slow click cli (at least when --help is invoked)
-    # https://www.tomrochette.com/problems/2020/03/07
+    # import in function body to speed up the main module import:
+    from stream2segment.download.db.inspection.main import stats as _stats
 
-    print('Fetching data, please wait (this might take a while depending on '
-          'the db size and connection)')
+    _print_waitmsg_while_fetching_data()
+
     try:
         with warnings.catch_warnings():  # capture (ignore) warnings
             warnings.simplefilter("ignore")
-            dstats(dburl, download_id or None, maxgap_threshold, html, outfile)
+            _stats(dburl, download_indices or None, download_id or None,
+                   maxgap_threshold, html, outfile)
         if outfile is not None:
-            print("download statistics written to '%s'" % outfile)
+            print("download statistics written to '%s'" % outfile, file=sys.stderr)
         sys.exit(0)
     except BadParam as err:
-        print(err)
-        sys.exit(1)  # exit with 1 as normal python exceptions
+        _print_badparam_and_exit(err)
 
 
-@dl.command(short_help="Return download information for inspection")
+@dl.command(short_help="Show short summary of the given download execution(s)",
+            context_settings={'ignore_unknown_options': True})
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option('-did', '--download-id', multiple=True, type=int,
               help="Limit the download statistics to a specified set of "
-                   "download ids (integers) when missing, all downloads are "
+                   "download ids (integers). when missing, all downloads are "
                    "shown")
-@click.option('-c', '--config', is_flag=True, default=None,
-              help="Returns only the config used (in YAML syntax) of the "
-                   "chosen download(s)")
-@click.option('-l', '--log', is_flag=True, default=None,
-              help="Returns only the log messages of the chosen download(s)")
-@click.argument("outfile", required=False, type=click.Path(file_okay=True,
-                                                           dir_okay=False,
-                                                           writable=True,
-                                                           readable=True))
-def report(dburl, download_id, config, log, outfile):
-    """Return download information.
+@click.argument("download_indices", required=False, nargs=-1)
+def summary(dburl, download_id, download_indices):
+    """Return a summary of the download execution
 
-    [OUTFILE] (optional): the output file where the information will be saved
-    to. If missing, results will be printed to screen or opened in a web
-    browser (depending on the option '--html')
+    [DOWNLOAD_INDICES] (optional): The space-separated indices of the download executions
+    to inspect, where 0 indicates the first/oldest. To start counting from the end use a
+    negative index. E.g., -1 for the last/most recent execution, -2 for the next-to-last,
+    and so on. When no argument is provided, all downloads are shown. Remember not to mix
+    up the index provided here with the download id (immutable integer uniquely
+    identifying a download execution)
     """
-    # import here to improve slow click cli (at least when --help is invoked)
-    # https://www.tomrochette.com/problems/2020/03/07
+    # import in function body to speed up the main module import:
+    from stream2segment.download.db.inspection.main import summary as _summary
 
-    print('Fetching data, please wait (this might take a while depending on the '
-          'db size and connection)')
+    _print_waitmsg_while_fetching_data()
+
     try:
-        # this is hacky but in case we want to restore the html
-        # argument ...
-        html = False
         with warnings.catch_warnings():  # capture (ignore) warnings
             warnings.simplefilter("ignore")
-            dreport(dburl, download_id or None, bool(config), bool(log), html, outfile)
-        if outfile is not None:
-            print("download report written to '%s'" % outfile)
+            _summary(dburl, download_indices or None, download_id or None)
         sys.exit(0)
     except BadParam as err:
-        print(err)
-        sys.exit(1)  # exit with 1 as normal python exceptions
+        _print_badparam_and_exit(err)
+
+
+@dl.command(short_help="Show the log file content of the given download execution(s)",
+            context_settings={'ignore_unknown_options': True})
+@click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
+@click.option('-did', '--download-id', multiple=True, type=int,
+              help="Limit the download statistics to a specified set of "
+                   "download ids (integers). when missing, all downloads are "
+                   "shown")
+@click.argument("download_indices", required=False, nargs=-1)
+def log(dburl, download_id, download_indices):
+    """Return the log file(s) content with detailed information of the download execution
+
+    [DOWNLOAD_INDICES] (optional): The space-separated indices of the download executions
+    to inspect, where 0 indicates the first/oldest. To start counting from the end use a
+    negative index. E.g., -1 for the last/most recent execution, -2 for the next-to-last,
+    and so on (-1 is also the default when no argument is provided). Remember not to mix
+    up the index provided here with the download id (immutable integer uniquely
+    identifying a download execution)
+    """
+    # import in function body to speed up the main module import:
+    from stream2segment.download.db.inspection.main import log as _log
+
+    _print_waitmsg_while_fetching_data()
+
+    try:
+        with warnings.catch_warnings():  # capture (ignore) warnings
+            warnings.simplefilter("ignore")
+            _log(dburl, download_indices or [-1], download_id or None, None)
+        sys.exit(0)
+    except BadParam as err:
+        _print_badparam_and_exit(err)
+
+
+@dl.command(short_help="Show the YAML config of the given download execution(s)",
+            context_settings={'ignore_unknown_options': True})
+@click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
+@click.option('-did', '--download-id', multiple=True, type=int,
+              help="Limit the download statistics to a specified set of "
+                   "download ids (integers). when missing, all downloads are "
+                   "shown")
+@click.argument("download_indices", required=False, nargs=-1)
+def config(dburl, download_id, download_indices):
+    """Return the YAML configuration file(s) used for launching the download execution
+
+    [DOWNLOAD_INDICES] (optional): The space-separated indices of the download executions
+    to inspect, where 0 indicates the first/oldest. To start counting from the end use a
+    negative index. E.g., -1 for the last/most recent execution, -2 for the next-to-last,
+    and so on (-1 is also the default when no argument is provided). Remember not to mix
+    up the index provided here with the download id (immutable integer uniquely
+    identifying a download execution). With a single passed, the configuration can
+    be piped into a YAML file and directly used in a new download.
+    """
+    # import in function body to speed up the main module import:
+    from stream2segment.download.db.inspection.main import config as _config
+
+    _print_waitmsg_while_fetching_data()
+
+    try:
+        with warnings.catch_warnings():  # capture (ignore) warnings
+            warnings.simplefilter("ignore")
+            _config(dburl, download_indices or [-1], download_id or None, None)
+        sys.exit(0)
+    except BadParam as err:
+        _print_badparam_and_exit(err)
+
+
+def _print_waitmsg_while_fetching_data(**kwargs):
+    kwargs.setdefault('flush', True)
+    kwargs.setdefault('file', sys.stderr)
+    msg = ('Fetching data, please wait (this might take a while depending on the '
+           'db size and connection, if db is remote)')
+    print(msg, **kwargs)
 
 
 @cli.group(short_help="Database management")
@@ -773,13 +825,15 @@ def drop(dburl, download_id):
     all segments, stations and channels downloaded with the given download
     execution
     """
+    # import in function body to speed up the main module import:
+    from stream2segment.download.db.management import drop
 
-    print('Fetching data, please wait (this might take a while depending on '
-          'the db size and connection)')
+    _print_waitmsg_while_fetching_data()
+
     try:
         with warnings.catch_warnings():  # capture (ignore) warnings
             warnings.simplefilter("ignore")
-            ret = dbmanagement.drop(dburl, download_id)
+            ret = drop(dburl, download_id)
         if ret is None:
             sys.exit(1)
         elif not ret:
@@ -793,8 +847,7 @@ def drop(dburl, download_id):
             print(msg)
         sys.exit(0)
     except BadParam as err:
-        print(err)
-        sys.exit(1)  # exit with 1 as normal python exceptions
+        _print_badparam_and_exit(err)
 
 
 @db.command(short_help="Add/rename/delete class labels from the database")
@@ -822,6 +875,9 @@ def classlabel(dburl, add, rename, delete, no_prompt):
     Class labels can then be used for e.g., supervised classification problems,
     or tp perform custom selection on specific segments before processing.
     """
+    # import in function body to speed up the main module import:
+    from stream2segment.download.db.management import classlabels
+
     add_arg, rename_arg, delete_arg = {}, {}, []
     try:
         if add:
@@ -843,8 +899,7 @@ def classlabel(dburl, add, rename, delete, no_prompt):
             if input(msg) != 'y':
                 sys.exit(1)
 
-        c_labels = dbmanagement.classlabels(dburl, add=add_arg, rename=rename_arg,
-                                            delete=delete_arg)
+        c_labels = classlabels(dburl, add=add_arg, rename=rename_arg, delete=delete_arg)
         print('Done. Current class labels on the database:')
         if not c_labels:
             print('None')
@@ -853,15 +908,7 @@ def classlabel(dburl, add, rename, delete, no_prompt):
                 print("%s (%s)" % (c_lbl['label'], c_lbl['description']))
         sys.exit(0)
     except BadParam as err:
-        print(err)
-        sys.exit(1)  # exit with 1 as normal python exceptions
-
-
-# Old click Group (not used anymore):
-
-# @cli.group(short_help="Program utilities")
-# def utils():  # noqa
-#     pass
+        _print_badparam_and_exit(err)
 
 
 if __name__ == '__main__':

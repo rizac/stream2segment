@@ -5,15 +5,14 @@ Segments download functions
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
-# make the following(s) behave like python3 counterparts if running from
-# python2.7.x (http://python-future.org/imports.html#explicit-imports):
+# (http://python-future.org/imports.html#explicit-imports):
 from builtins import zip, object
 # import os
 # import sys
 from datetime import timedelta
 
 from collections import OrderedDict
-# import logging
+import logging
 
 import numpy as np
 import pandas as pd
@@ -27,13 +26,7 @@ from stream2segment.download.exc import NothingToDownload
 from stream2segment.download.modules.mseedlite import MSeedError, unpack as mseedunpack
 from stream2segment.download.url import Request, get_opener, get_host
 
-# logger: do not use logging.getLogger(__name__) but point to
-# stream2segment.download.logger: this way we preserve the logging namespace
-# hierarchy when calling logging functions of stream2segment.download.utils
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
-# from stream2segment.download import logger  # @IgnorePep8
-
-import logging
 logger = logging.getLogger(__name__)
 
 

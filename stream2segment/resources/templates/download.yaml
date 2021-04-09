@@ -20,15 +20,13 @@ dburl: 'sqlite:///./db.sqlite'
 # Limit to events / data centers / station / channels on or after the specified start
 # time. Specify an ISO-formatted date or date-time string, or an integer >=0 to denote
 # the number of days before today at midnight, e.g., start=1 and end=0 means: fetch
-# events occurred yesterday.
-# Implementation details: 'start' is also a valid name for this parameter
+# events occurred yesterday
 starttime: 2006-01-01T00:00:00
 
 # Limit to events / data centers / station / channels on or before the specified end
 # time. Specify an ISO formatted date or date-time string, or an integer >=0 to denote
 # the number of days before today at midnight, e.g., start=1 and end=0 means: fetch
-# events occurred yesterday.
-# Implementation details: 'end' is also a valid name for this parameter
+# events occurred yesterday
 endtime: 2016-12-25T00:00:00
 
 
@@ -36,39 +34,33 @@ endtime: 2016-12-25T00:00:00
 # Events: https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=14
 # =======
 
-# The URL of the event catalog (event web service) or local file path of the events list.
+# The event catalog in form of URL (event web service) or local file path.
 # The events list returned by the URL or in the supplied file must be formatted as
 # specified in https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=16
 # or in isf format (http://www.isc.ac.uk/standards/isf/download/isf.pdf), although the
 # latter has limited support in this program (e.g., comments are not recognized. Use at
 # your own risk).
 # IMPORTANT: when providing a file, the file name (not the full path) will be used as
-# catalog identifier: renaming the file and downloading again on the same database
-# will result in the events and their segments being saved twice (unnecessarily).
-# Implementation details: 1. Type URLs up to and not including the first query character
-# '?' (see example in the default template). 2. You can also type one of the following
-# shortcut strings instead of URLs:
+# catalog identifier: renaming the file and downloading again on the same database will
+# result in the events and their segments being saved twice, most likely unnecessarily.
+# Implementation details: you can also type these shortcut strings instead of URLs:
 # {{ DOWNLOAD_EVENTWS_LIST }}.
 eventws: 'http://seismicportal.eu/fdsnws/event/1/query'
 
 # Limit to events with a latitude larger than or equal to the specified minimum.
 # This parameter is ignored if missing, null, or 'eventws' is given as file path
-# Implementation details: 'minlat' is also a valid name for this parameter
 minlatitude: 47.0
 
 # Limit to events with a latitude smaller than or equal to the specified maximum
 # This parameter is ignored if missing, null, or 'eventws' is given as file path
-# Implementation details: 'maxlat' is also a valid name for this parameter
 maxlatitude: 57.0
 
 # Limit to events with a longitude larger than or equal to the specified minimum
 # This parameter is ignored if missing, null, or 'eventws' is given as file path
-# Implementation details: 'minlon' is also a valid name for this parameter
 minlongitude: 4.0
 
 # Limit to events with a longitude smaller than or equal to the specified maximum
 # This parameter is ignored if missing, null, or 'eventws' is given as file path
-# Implementation details: 'maxlon' is also a valid name for this parameter
 maxlongitude: 17.0
 
 # Limit to events with depth more than the specified minimum.
@@ -81,20 +73,16 @@ maxdepth: 50
 
 # Limit to events with a magnitude larger than the specified minimum
 # This parameter is ignored if missing, null, or 'eventws' is given as file path
-# Implementation details: 'minmag' is also a valid name for this parameter
 minmagnitude: 4.0
 
 # Limit to events with a magnitude smaller than the specified maximum
 # This parameter is ignored if missing, null, or 'eventws' is given as file path
-# Implementation details: 'maxmag' is also a valid name for this parameter
 maxmagnitude: null
 
-# Additional event web search parameters. For info, see
+# Additional event web search parameters (YAML Mapping of indented "param: value" pairs):
 # https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=14
-# (parameters with support 'Optional' are not guaranteed to work). Note that the 'format'
-# parameter, if missing, will be inferred (in most cases it defaults to 'text').
-# Implementation details: The parameter is empty by default, uncomment the lines below
-# or insert new ones. Remember that this is a YAML file, pay attention to indentation. 
+# Note that parameters with support 'Optional' at the link above are not guaranteed to
+# work. The 'format' parameter will be ignored as it is automatically set by the program.
 eventws_params:
   # lat: 47.0
   # lon: 4.0
@@ -111,9 +99,8 @@ eventws_params:
 # (https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf), as well as the
 # operator '!' placed as first character to indicate logical NOT. Example: "!B*,BBB"
 # accepts all channels NOT starting with "B" OR the channel "BBB"
-# Implementation details: 'cha' or 'channels' are also valid names for the parameter. You
-# can also specify a list/array of strings in yaml format instead of comma-separated
-# strings. E.g., these are equivalent:
+# Implementation details: You can also specify a YAML sequence of strings instead of
+# comma-separated strings. E.g., these are equivalent:
 # channels: "A,B"
 # cha: [ "A" , "B" ]
 # channel:
@@ -124,16 +111,13 @@ channel:
  - 'HN?'
  - 'HL?'
  
-# Limit the search to the specified networks (see 'channel' parameter for details).
-# Implementation details: 'net' or 'networks' are also valid names for the parameter.
+# Limit the search to the specified networks (see 'channel' parameter for details)
 network: '*'
 
-# Limit the search to the specified stations (see 'channel' parameter for details).
-# Implementation details: 'sta' or 'stations' are also valid names for the parameter.
+# Limit the search to the specified stations (see 'channel' parameter for details)
 station: '*'
 
-# Limit the search to the specified locations (see 'channel' parameter for details).
-# Implementation details: 'loc' or 'locations' are also valid names for the parameter.
+# Limit the search to the specified locations (see 'channel' parameter for details)
 location: '*'
 
 # Limit the search to channels with at least the following sample rate (in Hz).
@@ -141,20 +125,19 @@ location: '*'
 # Set to 0 or negative number to ignore the sampling rate
 min_sample_rate: 60
 
-# Update segments metadata, i.e. when fetching stations and channels, save them
-# to the database overwriting already saved stations and channels, if present.
-# When false, only new stations and channels will be saved to the database.
-# On a subsequent download, you can also provide "only" as value (without quotes)
-# to update metadata only, skipping events and waveform download: in this case the only
-# parameters used will be 'dataws' (to get the station web service(s)) and 'inventory'
-# (to optionally re-download and save all station inventories).
+
+# Update segments metadata, i.e., overwrite the data of already saved stations and
+# channels, such as e.g., the channels sample rate, or the station inventories (see also
+# ‘inventory’ parameter). On a subsequent download, you can also provide "only" as value
+# (without quotes) to update metadata only, skipping events and waveform download: in
+# this case the only parameters used will be 'dataws' (to get the station web service(s))
+# and 'inventory' (to optionally re-download and save all station inventories).
 update_metadata: false
 
-# Download station inventories (xml format). When true, you can
-# control whether or not to overwrite already saved inventories with 'update_metadata'
-# (when false, update_metadata should also be false for data consistency).
+# Download station inventories (xml format). Already saved inventories will be
+# overwritten according to ‘update_metadata’
 # Implementation details: inventories will in any case be downloaded and saved on the
-# database only for stations that have saved segments with data.
+# database only for stations that have saved segments with waveform data
 inventory: true
 
 # search radius: defines the criteria for selecting stations around events. It is a dict
@@ -188,25 +171,22 @@ search_radius:
 # Data (waveform segments) https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=8
 # ========================
 
-# List of URLs for downloading waveform data (data web services). All URLs must
-# be FDSN-compliant, e.g.: https://service.iris.edu/fdsnws/dataselect/1/query
-# You can also type two special values: 1) "iris" (Incorporated Research Institutions for
-# Seismology, shortcut for the URL above) or 2) "eida" (European Integrated Data Archive,
-# shortcut for the URLs list of all EIDA data centers, or nodes). Being FDSN compliant,
-# all URLs are also used to fetch automatically the stations (and channels) necessary for
-# the waveforms download.
-# IMPORTANT: When providing two (or more) URLs, station conflicts (e.g., the same station
-# returned by both URLs) which cannot be resolved will cause the station to be discarded
-# (the user will be notified in the log file) and all its available waveforms not to be
-# downloaded. The program tries to resolve conflicts with a Routing service (for EIDA
-# URLs) or by checking if the station URL is saved on the database from a previous
-# download (thus, conflicts involving EIDA nodes have more chances to be resolved).
+# List of URLs for downloading waveform data (data web services). All URLs must be
+# FDSN-compliant (e.g.: https://service.iris.edu/fdsnws/dataselect/1/query). You can also
+# type two special values: 1) "iris" (Incorporated Research Institutions for Seismology),
+# shortcut for the URL above or 2) "eida", shortcut for several nodes - or data centers -
+# of the European Integrated Data Archive. Being FDSN compliant, all URLs are also used
+# to fetch automatically the stations and channels necessary for the waveforms download.
+# This means that when providing several URLs, station conflicts (e.g., the same station
+# code returned by more than one URL) might happen. The program tries to resolve
+# conflicts with a Routing service (for EIDA URLs) or by checking if the station URL is
+# saved on the database from a previous download. HOWEVER, PLEASE NOTE that unresolved
+# conflicts - albeit rare - will cause the station to be discarded (the user will be
+# notified in the log file) and all its available waveforms not to be downloaded
 # Implementation details: If no station /channel could be downloaded (e.g., connection
 # problems), then the requested stations and channels will be fetched from the database,
 # if non-empty (otherwise the download process will stop with an error message). The EIDA
-# routing service is configurable in `advanced_settings`. In the URLs below, If the URL \
-# scheme - basically the prefix "http://" or "https://" - is missing, 'http://' will be
-# prepended to the URL. An ending '/' or '?' will be removed from the URL, if present).
+# routing service is configurable in `advanced_settings`
 dataws:
   - 'eida'
   # - 'iris'
@@ -223,8 +203,8 @@ dataws:
 # obtained from the corresponding model. The grids allow to speed up significantly the
 # computation introducing a negligible interpolation error (roughly in the order of
 # few milliseconds and never exceeding 0.5s). Disclaimer: you can also create your own
-# grid file and put its path here. However, the procedure is not maintained anymore, it
-# might have bugs. For info type `python stream2segment/traveltimes/ttcreator.py --help`
+# grid file and put its path here. However, the procedure is not maintained anymore, use
+# at your risk. For info type `python stream2segment/traveltimes/ttcreator.py --help`
 traveltimes_model: 'ak135_ttp+'
 
 # The segment's time span (i.e., the data time window to download): specify two positive
@@ -256,8 +236,9 @@ timespan:
 restricted_data: ""
 
 # Retry already downloaded segments if the database reports that the previous attempt was
-# unsuccessful because no data could be found. A typical case is when a request of several
-# segments to a server (see `dataws`) got in response only some of them
+# unsuccessful because no data could be found. This typically happens when a single
+# request of several waveform segments to a server gets in response only some of them,
+# with no clue about the missing ones, which are then "marked" as "not found"
 retry_seg_not_found: true
 
 # Retry already downloaded segments if the database reports that the previous attempt was
@@ -296,7 +277,7 @@ advanced_settings:
  # The drawback is that some waveform data might not be downloaded because servers
  # usually limit the number of concurrent requests allowed from the same source. This
  # might be a problem in more in targeted, less "massive" downloads, where you might need
- # to lower this parameter (e.g., 1, 2) to increase "download safety", e.g.:
+ # to lower this parameter (e.g., 1, 2) to increase download efficiency over speed, e.g.:
  # a) when fetching restricted data (see `restricted_data` parameter)
  # b) when retrying to fetch data from a specific datacenter which reported many download
  #    errors suggesting to "slow down", e.g. "Service Unavailable" (code 503) or

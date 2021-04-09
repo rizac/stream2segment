@@ -19,18 +19,19 @@ from obspy.core.stream import read
 
 from stream2segment.process.db.models import (Event, WebService, Channel, Station,
                                               DataCenter, Segment, Class, Download)
+from stream2segment.process.inputvalidation import SEGMENT_SELECT_PARAM_NAMES
 from stream2segment.process.inspectimport import load_source
-from stream2segment.io.inputvalidation import valid_session
+from stream2segment.process.db import get_session
 from stream2segment.resources import get_templates_fpaths
 from stream2segment.io import yaml_load
 from stream2segment.process.db.models import get_stream as original_get_stream
 
-# from stream2segment.gui.webapp import get_session
 from stream2segment.process.gui.main import create_s2s_show_app
 from stream2segment.process.gui.webapp.mainapp import core as core_module
 from stream2segment.process.gui.webapp.mainapp import db as db_module
 
-SEG_SEL_STR = 'segments_selection'
+
+SEG_SEL_STR = SEGMENT_SELECT_PARAM_NAMES[0]
 
 
 class Test(object):
@@ -38,7 +39,7 @@ class Test(object):
 
     pymodule = load_source(pyfile)
     configdict = yaml_load(configfile)
-    segments_selection = configdict.pop('segments_selection', {})
+    segments_selection = configdict.pop(SEG_SEL_STR, {})
 
      # execute this fixture always even if not provided as argument:
     # https://docs.pytest.org/en/documentation-restructure/how-to/fixture.html#autouse-fixtures-xunit-setup-on-steroids
@@ -46,7 +47,7 @@ class Test(object):
     def init(self, request, db, data):
         # re-init a sqlite database (no-op if the db is not sqlite):
         db.create(to_file=True)
-        self.session = db._session = valid_session(db.dburl, scoped=True, for_process=True)
+        self.session = db._session = get_session(db.dburl, scoped=True)
         # hack to set a scoped session on pur db when calling db.session:
         db._session = self.session
         self.app = create_s2s_show_app(self.session, self.pymodule, self.configdict,

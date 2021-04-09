@@ -5,6 +5,7 @@ Module implementing the download info (print statistics and generate html page)
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
+from __future__ import print_function
 import json
 import os
 import sys
@@ -18,97 +19,214 @@ from future.utils import viewitems
 from jinja2 import Environment, FileSystemLoader
 from sqlalchemy import func, or_
 
-from stream2segment.download.db.models import Download, Segment, DataCenter, Station
-from stream2segment.download.modules.utils import EVENTWS_SAFE_PARAMS, DownloadStats
 from stream2segment.io import yaml_load, Fdsnws, open2writetext
 from stream2segment.io.cli import ascii_decorate
+from stream2segment.io.db import close_session
 from stream2segment.io.db.sqlconstructs import concat
-from stream2segment.io.inputvalidation import validate_param, valid_session
+from stream2segment.io.inputvalidation import validate_param, BadParam
+from stream2segment.download.db import get_session
+from stream2segment.download.db.models import Download, Segment, DataCenter, Station
+from stream2segment.download.modules.utils import EVENTWS_SAFE_PARAMS, DownloadStats
 
 
-def dreport(dburl, download_ids=None, config=True, log=True, html=False,
-            outfile=None):
-    """Create a diagnostic html page (or text string) showing the status of the
-    download. Note that html is not supported for the moment and will raise an
-    Exception. (leaving the same signatire as dstats for compatibility and
-    easing future implementations of the html page if needed)
+def summary(dburl, download_indices=None, download_ids=None, outfile=None):
+    """Show/print/return short download summary
 
-    :param config: boolean (True by default)
-    :param log: boolean (True by default)
+    :param download_indices: download indices as slice, int, List[int] or str convertible
+        to int or slice ("<start>:<stop>" or "<start>:<stop>:<step>"). None, the default
+        when missing, will consider all indices
+    :param download_ids: download ids (list of int), will be merged with
+        `download_indices`. None, the default when missing, will consider all ids
+    :param outfile: str to a local file, or any output supported, e.g. `sys.stderr`
+        When missing or None it defaults to `sys.stdout`
     """
-    _get_download_info(DReport(config, log), dburl, download_ids, html, outfile)
+    _get_download_info(DSummary(), dburl, download_indices, download_ids,
+                       False, outfile)
 
 
-def dstats(dburl, download_ids=None, maxgap_threshold=0.5, html=False,
-           outfile=None):
+def log(dburl, download_indices=None, download_ids=None, outfile=None):
+    """Show/print/return the config and/or log of the given download. If download ids
+    and download indices are both Nones, shows stats for all downloads
+
+    :param download_indices: download indices as slice, int, List[int] or str convertible
+        to int or slice ("<start>:<stop>" or "<start>:<stop>:<step>"). None, the default
+        when missing, will consider all indices
+    :param download_ids: download ids (list of int), will be merged with
+        `download_indices`. None, the default when missing, will consider all ids
+    :param outfile: str to a local file, or any output supported, e.g. `sys.stderr`
+        When missing or None it defaults to `sys.stdout`
+    """
+    _get_download_info(DLog(), dburl, download_indices, download_ids, False, outfile)
+
+
+def config(dburl, download_indices=None, download_ids=None, outfile=None):
+    """Show/print/return the config and/or log of the given download. If download ids
+    and download indices are both Nones, shows stats for all downloads
+
+    :param download_indices: download indices as slice, int, List[int] or str convertible
+        to int or slice ("<start>:<stop>" or "<start>:<stop>:<step>"). None, the default
+        when missing, will consider all indices
+    :param download_ids: download ids (list of int), will be merged with
+        `download_indices`. None, the default when missing, will consider all ids
+    :param outfile: str to a local file, or any output supported, e.g. `sys.stderr`
+        When missing or None it defaults to `sys.stdout`
+    """
+    _get_download_info(DConfig(), dburl, download_indices, download_ids, False, outfile)
+
+
+def stats(dburl, download_indices=None, download_ids=None, maxgap_threshold=0.5,
+          html=False, outfile=None):
     """Create a diagnostic html page (or text string) showing the status of the
-    download
+    download. If download ids and download indices are both Nones, shows stats for all
+    downloads
 
+    :param download_indices: download indices as slice, int, List[int] or str convertible
+        to int or slice ("<start>:<stop>" or "<start>:<stop>:<step>"). None, the default
+        when missing, will consider all indices
+    :param download_ids: download ids (list of int), will be merged with
+        `download_indices`. None, the default when missing, will consider all ids
     :param maxgap_threshold: the max gap threshold (float)
     """
-    _get_download_info(DStats(maxgap_threshold), dburl, download_ids, html,
-                       outfile)
+    _get_download_info(DStats(maxgap_threshold), dburl, download_indices, download_ids,
+                       html, outfile)
 
 
-def _get_download_info(info_generator, dburl, download_ids=None, html=False,
-                       outfile=None):
-    """Process dinfo or dstats"""
-    session = validate_param('dburl', dburl, valid_session)
-    if html:
-        openbrowser = False
-        if not outfile:
-            openbrowser = True
-            outfile = os.path.join(gettempdir(), "s2s_%s.html" %
-                                   info_generator.__class__.__name__.lower())
-        # get_dstats_html returns unicode characters in py2, str in py3,
-        # so it is safe to use open like this (cf below):
-        with open(outfile, 'w', encoding='utf8', errors='replace') as opn:
-            opn.write(info_generator.html(session, download_ids))
-        if openbrowser:
-            open_in_browser('file://' + outfile)
-        threading.Timer(1, lambda: sys.exit(0)).start()
-    else:
-        itr = info_generator.str_iter(session, download_ids)
-        if outfile is not None:
-            # itr is an iterator of strings in py2, and str in py3, so open
-            # must be input differently (see utils module):
-            with open2writetext(outfile, encoding='utf8', errors='replace') as opn:
-                for line in itr:
-                    line += '\n'
-                    opn.write(line)
+def _get_download_info(info_generator, dburl, download_indices=None, download_ids=None,
+                       html=False, outfile=None):
+    """Process dreport or dstats"""
+    # create the session by raising a BadParam (associated to the name 'dburl') in case:
+    session = validate_param('dburl', dburl, get_session)
+    try:
+        download_ids = get_download_ids(session, download_indices, download_ids)
+
+        if html:
+            openbrowser = False
+            if not outfile:
+                openbrowser = True
+                outfile = os.path.join(gettempdir(), "s2s_%s.html" %
+                                       info_generator.__class__.__name__.lower())
+            # get_dstats_html returns unicode characters in py2, str in py3,
+            # so it is safe to use open like this (cf below):
+            with open(outfile, 'w', encoding='utf8', errors='replace') as opn:
+                opn.write(info_generator.html(session, download_ids))
+            if openbrowser:
+                open_in_browser('file://' + outfile)
+            threading.Timer(1, lambda: sys.exit(0)).start()
         else:
-            for line in itr:
-                print(line)
+            itr = info_generator.str_iter(session, download_ids)
+            if outfile is not None:
+                # itr is an iterator of strings in py2, and str in py3, so open
+                # must be input differently (see utils module):
+                with open2writetext(outfile, encoding='utf8', errors='replace') as opn:
+                    for line in itr:
+                        line += '\n'
+                        opn.write(line)
+            else:
+                printed = False
+                for line in itr:
+                    printed = True
+                    print(line, file=sys.stdout if not outfile else outfile)
+                # if we are printing onn screen, show if nothing could be printed:
+                if outfile in (None, sys.stdout) and not printed:
+                    print('Nothing to show', file=sys.stderr)
+    finally:
+        close_session(session, True)
+
+
+def get_download_ids(session, download_indices=None, download_ids=None):
+    """Return a list of download ids from the given arguments, or None. Calling functions
+    must interpret None as "all ids"
+
+    :param download_indices: download indices as slice, int, List[int] or str convertible
+        to int or slice ("<start>:<stop>" or "<start>:<stop>:<step>"). None, the default
+        when missing, will consider all indices
+    :param download_ids: download ids (list of int), will be merged with
+        `download_indices`. None, the default when missing, will consider all ids
+    """
+    if not download_indices:
+        return download_ids
+
+    # now download indices is given, and will be merged into download_ids. Thus:
+    if not download_ids:
+        download_ids = []
+
+    def raise_bad_param():
+        raise BadParam("Invalid download indices", "", str(download_indices),
+                       param_quote='')
+
+    d_indices = download_indices
+    if isinstance(d_indices, str) and ':' in d_indices:
+        # parse as slice:
+        try:
+            start, stop, step = None, None, None
+            _ = str(download_indices).split(':')
+            if len(_) == 2:
+                start = None if not _[0] else int(_[0])
+                stop = None if not _[1] else int(_[1])
+            elif len(_) == 3:
+                start = None if not _[0] else int(_[0])
+                stop = None if not _[1] else int(_[1])
+                step = None if not _[2] else int(_[2])
+            else:
+                raise_bad_param()
+        except Exception as exc:  # noqa
+            raise_bad_param()
+        d_indices = slice(start, stop, step)
+
+    if not isinstance(d_indices, slice):
+        try:
+            d_indices = [int(download_indices)]
+        except (ValueError, TypeError):
+            try:
+                d_indices = [int(_) for _ in download_indices]
+            except Exception:  # noqa
+                raise_bad_param()
+
+    d_ids = [_[0] for _ in query_download_data(session, sort='asc')]
+    if isinstance(d_indices, slice):
+        download_ids.extend(_ for _ in d_ids[d_indices] if _ not in download_ids)
+    # If d_indices is list, let's pass IndexError(s), as it happens for download ids not
+    # in the db. So things are slightly more complex:
+    for i in d_indices:
+        try:
+            did = d_ids[i]
+            if did not in download_ids:
+                download_ids.append(did)
+        except IndexError:
+            pass
+
+    return download_ids or None
 
 
 class _InfoGenerator(object):
-    '''Base class for any subclasses returning Download info in text and html
-    content. Subclasses should overwrite `self.str_iter` and `self.html_template_arguments`
-    '''
+    """Base class for any subclasses returning Download info in text and html
+    content. Subclasses should overwrite `self.str_iter` and
+    `self.html_template_arguments`
+    """
 
     def str_iter(self, session, download_ids=None):
-        '''Returns an iterator yielding chunks of strings denoting the string
-        representation of this object'''
+        """Return an iterator yielding chunks of strings denoting the string
+        representation of this object"""
         pass
 
     def html(self, session, download_ids=None):
-        '''Returns a string with the html representation of this object'''
+        """Return a string with the html representation of this object"""
         args = self.html_template_arguments(session, download_ids)
         args.setdefault('title', self.__class__.__name__)
         return self.get_template().render(**args)
 
     def html_template_arguments(self, session, download_ids=None):
-        '''Subclasses should return here a dict to be passed as arguments to
+        """Subclasses should return here a dict to be passed as arguments to
         the jinja2 template`
-        '''
+        """
         return {}
 
     @classmethod
     def get_template(cls):
-        '''Returns the jinja2 template for this object
+        """Return the jinja2 template for this object
         The html file must be an existing file a file with name
         `self.__class__.__name__.lower() + ',html'
-        '''
+        """
         thisdir = os.path.dirname(__file__)
         templatespath = os.path.join(thisdir, 'templates')
         csspath = os.path.join(thisdir, 'static', 'css')
@@ -117,130 +235,144 @@ class _InfoGenerator(object):
         return env.get_template('%s.html' % cls.__name__.lower())
 
 
-class DReport(_InfoGenerator):
-    '''Class handling the generation of download reports in text format (no html supported
-    for the moment)'''
-
-    def __init__(self, config=True, log=True):
-        self.config = config
-        self.log = log
+class DSummary(_InfoGenerator):
+    """Class handling the generation of download reports in text format (no html
+    supported for the moment)
+    """
 
     def str_iter(self, session, download_ids=None):
-        '''Returns an iterator yielding chunks of strings denoting the string
-        representation of this object'''
-        return get_dreport_str_iter(session, download_ids, self.config, self.log)
+        """Returns an iterator yielding chunks of strings denoting the string
+        representation of this object
+        """
+        header = ('Download id', 'Execution time', 'Index')
+        lengths = [len(header[0]), 19, len(header[2])]
+        for i, (did, dtime) in enumerate(query_download_data(session,
+                                                             attrs=(Download.id,
+                                                                    Download.run_time),
+                                                             sort='asc')):
+            # We did not filter by download ids because we want to show the download
+            # index. Thus query all download ids with `enumerate`, and filter now:
+            if not download_ids or did in download_ids:
+                if header:
+                    yield '  '.join(_1.rjust(_2) for _1, _2 in zip(header, lengths))
+                    header = None
+                yield '  '.join([str(did).rjust(lengths[0]),
+                                dtime.replace(microsecond=0).isoformat(),
+                                str(i).rjust(lengths[2])])
 
     def html_template_arguments(self, session, download_ids=None):
-        '''Returns a dict to be passed as arguments to
-        the jinja2 template'''
+        """Returns a dict to be passed as arguments to
+        the jinja2 template"""
         raise Exception('html version not available')
-        # return get_dreport_html_template_arguments(session, download_ids, self.config, self.log)
+
+
+class DLog(_InfoGenerator):
+    """Class handling the generation of download config(s) in YAML format"""
+
+    def str_iter(self, session, download_ids=None):
+        """Returns an iterator yielding chunks of strings denoting the string
+        representation of this object"""
+        qry = query_download_data(session,
+                                  (Download.id, Download.run_time, Download.log))
+        if download_ids is not None:
+            qry = qry.filter(Download.id.in_(download_ids))
+        for dwnl_id, dwnl_time, log_text in qry:
+            yield ascii_decorate('Download id: %d (%s)' % (dwnl_id, str(dwnl_time)))
+            yield log_text or ''
+            # when the log ends with an exception, on the terminal it looks like the
+            # exception is raise, i.e. there is a program error. Provide an end tag to
+            # make the distinction clear:
+            yield "[Log file end]"
+            yield ''
+
+    def html_template_arguments(self, session, download_ids=None):
+        """Returns a dict to be passed as arguments to
+        the jinja2 template"""
+        raise Exception('html version not available')
+
+
+class DConfig(_InfoGenerator):
+    """Class handling the generation of download config(s) in YAML format"""
+
+    def str_iter(self, session, download_ids=None):
+        """Returns an iterator yielding chunks of strings denoting the string
+        representation of this object"""
+        qry = query_download_data(session,
+                                  (Download.id, Download.run_time, Download.config))
+        if download_ids is not None:
+            qry = qry.filter(Download.id.in_(download_ids))
+        for dwnl_id, dwnl_time, text in qry:
+            yield ascii_decorate('Download id: %d (%s)' % (dwnl_id, str(dwnl_time)), '#')
+            yield text or ''
+            yield ''
+
+    def html_template_arguments(self, session, download_ids=None):
+        """Returns a dict to be passed as arguments to
+        the jinja2 template"""
+        raise Exception('html version not available')
+
+
+def query_download_data(session, attrs=(Download.id,), sort=None):
+    qry = session.query(*attrs)
+    if sort == 'desc':
+        qry = qry.order_by(Download.run_time.desc())
+    elif sort == 'asc':
+        qry = qry.order_by(Download.run_time.asc())
+    return qry
 
 
 class DStats(_InfoGenerator):
-    '''Class handling the generation of download statistics in text and html format'''
+    """Class handling the generation of download statistics in text and html format"""
 
     def __init__(self, maxgap_threshold=0.5):
         self.maxgap_threshold = maxgap_threshold
 
     def str_iter(self, session, download_ids=None):
-        '''Returns an iterator yielding chunks of strings denoting the string
-        representation of this object'''
+        """Returns an iterator yielding chunks of strings denoting the string
+        representation of this object"""
         return get_dstats_str_iter(session, download_ids, self.maxgap_threshold)
 
     def html_template_arguments(self, session, download_ids=None):
-        '''Returns a dict to be passed as arguments to
-        the jinja2 template'''
-        return get_dstats_html_template_arguments(session, download_ids, self.maxgap_threshold)
-
-
-def get_dreport_str_iter(session, download_ids=None, config=True, log=True):
-    '''Returns an iterator yielding the download report (log and config) for the given
-    download_ids
-
-    :param session: an sql-alchemy session denoting a db session to a database
-    :param download_ids: (list of ints or None) if None, collect statistics from all downloads run.
-        Otherwise limit the output to the downloads whose ids are in the list
-    :param config: boolean (default: True). Whether to show the download config
-    :param log: boolean (default: True). Whether to show the download log messages
-    '''
-    data = infoquery(session, download_ids, config, log)
-    for dwnl_id, dwnl_time, configtext, logtext in data:
-        yield ''
-        yield ascii_decorate('Download id: %d (%s)' % (dwnl_id, str(dwnl_time)))
-        if config and log:
-            yield ''
-            yield 'Configuration:%s' % (' N/A' if not configtext else '')
-        if configtext:
-            yield ''
-            yield configtext
-        if config and log:
-            yield ''
-            yield 'Log messages:%s' % (' N/A' if not configtext else '')
-        if logtext:
-            yield ''
-            yield logtext
-
-
-def infoquery(session, download_ids=None, config=True, log=True):
-    '''Returns a query for getting data for inspection (show_stats=False in the
-    functions above)'''
-    # IMPORTANT: If it happens to access backref relationships (e.g. Download.segments)
-    # consider calling configure_mappers() first:
-    # configure_mappers()  # https://stackoverflow.com/questions/14921777/backref-class-attribute
-    attrs = [Download.id, Download.run_time]
-    if config:
-        attrs.append(Download.config)
-    if log:
-        attrs.append(Download.log)
-    qry = session.query(*attrs)
-    if download_ids is not None:
-        qry = qry.filter(Download.id.in_(download_ids))
-    for res in qry.order_by(Download.run_time.asc()):  # .group_by(Download.id):
-        if not config and not log:  # False
-            res = list(res) + ['', '']
-        elif not log:
-            res = list(res) + ['']
-        elif not config:
-            res = list(res)
-            res.insert(-1, '')
-        yield res
-
-
-def tojson(obj):
-    '''converts obj to json formatted string without whitespaces to minimize string size'''
-    return json.dumps(obj, separators=(',', ':'))
+        """Returns a dict to be passed as arguments to
+        the jinja2 template"""
+        return get_dstats_html_template_arguments(session, download_ids,
+                                                  self.maxgap_threshold)
 
 
 def get_dstats_str_iter(session, download_ids=None, maxgap_threshold=0.5):
-    '''Returns an iterator yielding the download statistics and information matching the
-    given parameters.
-    The returned string can be joined and printed to screen or file and is made of tables
-    showing the segment data on the db per data-center and download run, plus some download
-    information.
+    """Return an iterator yielding the download statistics and information
+    matching the given parameters.
+    The returned string can be joined and printed to screen or file and is
+    made of tables showing the segment data on the db per data-center and
+    download run, plus some download information.
 
     :param session: an sql-alchemy session denoting a db session to a database
-    :param download_ids: (list of ints or None) if None, collect statistics from all downloads run.
-        Otherwise limit the output to the downloads whose ids are in the list. In any case, in
-        case of more download runs to be considered, this function will
-        yield also the statistics aggregating all downloads in a table at the end
-    :param maxgap_threshold: (float, default 0.5).
-        Sets the threshold whereby a segment is to be
-        considered with gaps or overlaps. By default is 0.5, meaning that a segment whose
-        'maxgap_numsamples' value is > 0.5 has gaps, and a segment whose 'maxgap_numsamples'
-        value is < 0.5 has overlaps. Such segments will be marked with a special class
-        'OK Gaps Overlaps' in the table columns.
-    '''
-    # Benchmark: the bare minimum (with postgres on external server) request takes around 12
-    # sec and 14 seconds adding all necessary information. Therefore, we choose the latter
+    :param download_ids: (list of ints or None) if None, collect statistics
+        from all downloads run. Otherwise limit the output to the downloads
+        whose ids are in the list. In any case, in case of more download runs
+        to be considered, this function will yield also the statistics
+        aggregating all downloads in a table at the end
+    :param maxgap_threshold: (float, default 0.5). The threshold whereby a
+        segment is to be considered with gaps or overlaps. By default is 0.5,
+        meaning that a segment whose
+        'maxgap_numsamples' value is > 0.5 has gaps, and a segment whose
+        'maxgap_numsamples' value is < 0.5 has overlaps. Such segments will be
+        marked with a special class 'OK Gaps Overlaps' in the table columns.
+    """
+    # Benchmark: the bare minimum (with postgres on external server) request
+    # takes around 12 sec and 14 seconds adding all necessary information.
+    # Therefore, we choose the latter
     maxgap_bexpr = get_maxgap_sql_expr(maxgap_threshold)
-    data = session.query(func.count(Segment.id),
-                         Segment.download_code,
-                         Segment.datacenter_id,
-                         Segment.download_id,
-                         maxgap_bexpr)
-    data = filterquery(data, download_ids).group_by(Segment.download_id, Segment.datacenter_id,
-                                                    Segment.download_code, maxgap_bexpr)
+    qry = session.query(func.count(Segment.id),
+                        Segment.download_code,
+                        Segment.datacenter_id,
+                        Segment.download_id,
+                        maxgap_bexpr)
+
+    data = filterquery(qry, download_ids).group_by(Segment.download_id,
+                                                   Segment.datacenter_id,
+                                                   Segment.download_code,
+                                                   maxgap_bexpr)
 
     dwlids = get_downloads(session, download_ids)
     show_aggregate_stats = len(dwlids) > 1
@@ -267,7 +399,7 @@ def get_dstats_str_iter(session, download_ids=None, maxgap_threshold=0.5):
         yield ''
         yield 'Executed: %s' % str(druntime)
         yield "Event query parameters:%s" % (' N/A' if not evtparams else '')
-        if evparamlen is None and evtparams:  # calculate eventparamlen for string alignement
+        if evparamlen is None and evtparams:  # get evparamlen for str. align.
             evparamlen = max(len(_) for _ in evtparams)
         for param in sorted(evtparams):
             yield ("  %-{:d}s = %s".format(evparamlen)) % (param, str(evtparams[param]))
@@ -276,7 +408,8 @@ def get_dstats_str_iter(session, download_ids=None, maxgap_threshold=0.5):
         if statz is None:
             yield "No segments downloaded"
         else:
-            yield "Downlaoaded segments per data center url (row) and response type (column):"
+            yield ("Downlaoaded segments per data center url (row) "
+                   "and response type (column):")
             yield ""
             yield str(statz)
 
@@ -289,26 +422,28 @@ def get_dstats_str_iter(session, download_ids=None, maxgap_threshold=0.5):
 
 
 def get_dstats_html_template_arguments(session, download_ids=None, maxgap_threshold=0.5):
-    '''Returns an html page (string) yielding the download statistics and information matching the
-    given parameters.
+    """Return an html page (string) yielding the download statistics and
+    information matching the given parameters.
 
     :param session: an sql-alchemy session denoting a db session to a database
-    :param download_ids: (list of ints or None) if None, collect statistics from all downloads run.
-        Otherwise limit the output to the downloads whose ids are in the list. In any case, in
-        case of more download runs to be considered, this function will
-        yield also the statistics aggregating all downloads in a table at the end
-    :param maxgap_threshold: (float, default 0.5).
-        Sets the threshold whereby a segment is to be
-        considered with gaps or overlaps. By default is 0.5, meaning that a segment whose
-        'maxgap_numsamples' value is > 0.5 has gaps, and a segment whose 'maxgap_numsamples'
-        value is < 0.5 has overlaps. Such segments will be marked with a special class
+    :param download_ids: (list of ints or None) if None, collect statistics
+        from all downloads run. Otherwise limit the output to the downloads
+        whose ids are in the list. In any case, in case of more download runs
+        to be considered, this function will yield also the statistics
+        aggregating all downloads in a table at the end
+    :param maxgap_threshold: (float, default 0.5). The threshold whereby a
+        segment is to be considered with gaps or overlaps. By default is 0.5,
+        meaning that a segment whose 'maxgap_numsamples' value is > 0.5 has
+        gaps, and a segment whose 'maxgap_numsamples' value is < 0.5 has
+        overlaps. Such segments will be marked with a special class
         'OK Gaps Overlaps' in the table columns.
-    '''
+    """
     sta_data, codes, datacenters, downloads, networks = \
         get_dstats_html_data(session, download_ids, maxgap_threshold)
     # selected codes by default the Ok one. To know which position is
     # in codes is a little hacky:
-    selcodes = [i for i, c in enumerate(codes) if list(c) == list(DownloadStats2.resp[200])[:2]]
+    selcodes = [i for i, c in enumerate(codes)
+                if list(c) == list(DownloadStats2.resp[200])[:2]]
     # downloads are all selected by default
     seldownloads = list(downloads.keys())
     seldatacenters = list(datacenters.keys())
@@ -323,19 +458,19 @@ def get_dstats_html_template_arguments(session, download_ids=None, maxgap_thresh
                 networks=networks)
 
 
-def filterquery(query, download_ids=None):
-    '''adds a filter to the given query if download_ids is not None, and returns a new
-    query. Otherwise, if download_ids is None, it's no-op and returns query itself'''
-    if download_ids is not None:
-        query = query.filter(Segment.download_id.in_(download_ids))
-    return query
+def tojson(obj):
+    """Convert obj to json formatted string without whitespaces to minimize
+    string size
+    """
+    return json.dumps(obj, separators=(',', ':'))
 
 
 def yaml_get(yaml_content):
-    '''Returns the arguments used for the eventws query stored in the yaml,
+    """Return the arguments used for the eventws query stored in the yaml,
     or an empty dict in case of errors
 
-    :param yaml_content: yaml formatted string representing a download config'''
+    :param yaml_content: yaml formatted string representing a download config
+    """
     try:
         dic = yaml_load(StringIO(yaml_content))
         ret = {k: dic[k] for k in EVENTWS_SAFE_PARAMS if k in dic}
@@ -347,18 +482,30 @@ def yaml_get(yaml_content):
 
 
 def get_downloads(sess, download_ids=None):
-    '''Returns a dict of download ids mapped to the tuple
+    """Returns a dict of download ids mapped to the tuple
     (download_run_time, download_eventws_query_args)
     the first element is a string, the second a dict
-    '''
+    """
     query = filterquery(sess.query(Download.id, Download.run_time, Download.config),
                         download_ids).order_by(Download.run_time.asc())
     return {did: (time.isoformat(), yaml_get(cfg))
             for (did, time, cfg) in query}
 
 
+def filterquery(query, download_ids=None):
+    """Add a filter to the given query if download_ids is not None, and return
+    a new query. Otherwise, if download_ids is None, it's no-op and returns
+    query itself
+    """
+    if download_ids is not None:
+        query = query.filter(Segment.download_id.in_(download_ids))
+    return query
+
+
 def get_datacenters(sess, dc_ids=None):
-    '''returns a dict of datacenters id mapped to the network location of their url'''
+    """Return a dict of datacenters id mapped to the network location of their
+    url
+    """
     query = sess.query(DataCenter.id, DataCenter.dataselect_url)
     if dc_ids is not None:
         query = query.filter(DataCenter.id.in_(dc_ids))
@@ -373,8 +520,9 @@ def get_datacenters(sess, dc_ids=None):
 
 
 def get_maxgap_sql_expr(maxgap_threshold=0.5):
-    '''returns a sql-alchemy binary expression which matches segments with gaps/overlaps,
-    according to the given threshold'''
+    """Return a SALAlchemy binary expression which matches segments with
+    gaps/overlaps, according to the given threshold
+    """
     return or_(Segment.maxgap_numsamples < -abs(maxgap_threshold),
                Segment.maxgap_numsamples > abs(maxgap_threshold))
 
@@ -389,34 +537,39 @@ class DownloadStats2(DownloadStats):
 
 
 def get_dstats_html_data(session, download_ids=None, maxgap_threshold=0.5):
-    '''Returns the tuple
+    """Return the tuple
         sta_list, codes, datacenters, downloads, networks
 
-    where: sta_list is a list stations data and their download codes (togehter with the number
-        of segments downloaded and matching the given code)
-    codes is a list of tuples (title, legend) representing the titles and legends of all
-        download codes found
-    datacenters the output of `get_datacenters`
-    downloads is the output of `get_downloads`
-    networks is a list of strings denoting the networks found
+    where:
+    - sta_list is a list stations data and their download codes (together with
+      the number of segments downloaded and matching the given code)
+    - codes is a list of tuples (title, legend) representing the titles and
+      legends of all download codes found
+    - datacenters the output of `get_datacenters`
+    - downloads is the output of `get_downloads`
+    - networks is a list of strings denoting the networks found
 
-    The returned data is used to build the html page showing the download info / statistics.
-    All returned elements will be basically injected as json string in the html page and
-    processed inthere by the browser with a js library also injected in the html page.
+    The returned data is used to build the html page showing the download
+    info / statistics. All returned elements will be basically injected as JSON
+    string in the html page and processed therein by the browser with a js
+    library also injected in the html page.
 
     :param session: an sql-alchemy session denoting a db session to a database
-    :param download_ids: (list of ints or None) if None, collect statistics from all downloads run.
-        Otherwise limit the output to the downloads whose ids are in the list. In any case, in
-        case of more download runs to be considered, this function will
-        yield also the statistics aggregating all downloads in a table at the end
-    :param maxgap_threshold: (float, default 0.5) the threshold whereby a segment is to be
-        considered with gaps or overlaps. By default is 0.5, meaning that a segment whose
-        'maxgap_numsamples' value is > 0.5 has gaps, and a segment whose 'maxgap_numsamples'
-        value is < 0.5 has overlaps. Such segments will be marked with a special class
+    :param download_ids: (list of ints or None) if None, collect statistics
+        from all downloads run. Otherwise limit the output to the downloads
+        whose ids are in the list. In any case, in case of more download runs
+        to be considered, this function will yield also the statistics
+        aggregating all downloads in a table at the end
+    :param maxgap_threshold: (float, default 0.5) the threshold whereby a
+        segment is to be considered with gaps or overlaps. By default is 0.5,
+        meaning that a segment whose 'maxgap_numsamples' value is > 0.5 has
+        gaps, and a segment whose 'maxgap_numsamples' value is < 0.5 has
+        overlaps. Such segments will be marked with a special class
         'OK Gaps Overlaps' in the table columns.
-    '''
-    # Benchmark: the bare minimum (with postgres on external server) request takes around 12
-    # sec and 14 seconds adding all necessary information. Therefore, we choose the latter
+    """
+    # Benchmark: the bare minimum (with postgres on external server) request
+    # takes around 12 sec and 14 seconds adding all necessary information.
+    # Therefore, we choose the latter
     maxgap_bexpr = get_maxgap_sql_expr(maxgap_threshold)
     data = session.query(func.count(Segment.id),
                          Station.id,
@@ -446,7 +599,10 @@ def get_dstats_html_data(session, download_ids=None, maxgap_threshold=0.5):
         netindex = networks.get(network, -1)
         if netindex == -1:
             networks[network] = netindex = len(networks)
-        sta_list = sta_data.get(staname, [staid, round(lat, 2), round(lon, 2), dc_id, netindex,
+        sta_list = sta_data.get(staname, [staid,
+                                          round(lat, 2), round(lon, 2),
+                                          dc_id,
+                                          netindex,
                                           None])
         if sta_list[-1] is None:
             sta_list[-1] = defaultdict(lambda: defaultdict(int))
@@ -458,24 +614,18 @@ def get_dstats_html_data(session, download_ids=None, maxgap_threshold=0.5):
         codesfound.add(dwn_code)
         dcidsfound.add(dc_id)
 
-    # In the html, we want to reduce all possible data, as the file might be huge
-    # modify stas_data nested dicts, replacing codes with an incremental integer
-    # and keep a separate list that maps uses codes to titles and legends
-    # So, first sort codes and keep track of their index
-    # Then, remove dicts for two reasons:
-    # js objects converts int keys as string (it's a property of js objects), this makes:
-    # 1. unnecessary quotes chars which take up space, and
-    # 2. prevents to work with other objects, e.g., storing some int key in a js Set, makes
-    #    set.has(same_key_as_string) return false
-    # 3. We do not actually need object key search in the page, as we actully loop through elements
-    #    arrays are thus fine
-    # Thus sta_data should look like:
-    # sta_data = [sta_name, [staid, stalat, stalon, sta_dcid, sta_net_index,
+    # In the html, we want to reduce all possible data, as the file might be
+    # huge. Modify hereafter `sta_data` into a list `sta_list` of this form:
+    # sta_list = [sta_name, [staid, stalat, stalon, sta_dcid, sta_net_index,
     #                        d_id1, [code1, num_seg1 , ..., codeN, num_seg],
     #                        d_id2, [code1, num_seg1 , ..., codeN, num_seg],
     #                       ],
     #            ...,
     #            ]
+    # and keep a separate list `codes` that maps uses codes to titles and
+    # legends (also note in case of size problems: JavaScript objects keys are
+    # always strings, thus int keys will be rendered with unnecessary quotes
+    # taking up space)
     sta_list = []
     sortedcodes = DownloadStats2.sortcodes(codesfound)
     codeint = {k: i for i, k in enumerate(sortedcodes)}
@@ -484,7 +634,8 @@ def get_dstats_html_data(session, download_ids=None, maxgap_threshold=0.5):
         dwnlds = values.pop()  # remove last element
         for did, segs in viewitems(dwnlds):
             values.append(did)
-            values.append([item for code in segs for item in (codeint[code], segs[code])])
+            values.append([item for code in segs
+                           for item in (codeint[code], segs[code])])
         sta_list.append(staname)
         sta_list.append(values)
 
