@@ -11,7 +11,8 @@ from itertools import product
 
 # this can not apparently be fixed with the future package:
 # The problem is io.StringIO accepts unicodes in python2 and strings in python3:
-from stream2segment.process.inputvalidation import load_config
+# from stream2segment.process.inputvalidation import load_config
+from stream2segment.process.inputvalidation import load_p_config
 
 try:
     from cStringIO import StringIO  # python2.x pylint: disable=unused-import
@@ -310,7 +311,7 @@ def test_processing_advanced_settings_num_processes(adv_set,
         get_templates_fpaths("paramtable.yaml", "paramtable.py")
 
     config, seg_sel, multi_process, chunksize, writer_options =\
-        load_config(config=p_yaml_file,
+        load_p_config(config=p_yaml_file,
                     advanced_settings=adv_set)
     assert exp_multiprocess_value == multi_process
 
@@ -321,7 +322,7 @@ def test_processing_advanced_settings_bad_params():
     adv_set = {'multi_process': 'a'}
     # (pytest.raises problems with PyCharm, simply try .. catch the old way):
     try:
-        _ = load_config(config=p_yaml_file, advanced_settings=adv_set)
+        _ = load_p_config(config=p_yaml_file, advanced_settings=adv_set)
         assert False, "should raise"
     except BadParam as bp:
         assert 'Invalid type for "advanced_settings.multi_process"' in str(bp)
@@ -329,7 +330,7 @@ def test_processing_advanced_settings_bad_params():
     adv_set = {'multi_process': True, "segments_chunksize": 'a'}
     # (pytest.raises problems with PyCharm, simply try .. catch the old way):
     try:
-        _ = load_config(config=p_yaml_file, advanced_settings=adv_set)
+        _ = load_p_config(config=p_yaml_file, advanced_settings=adv_set)
         assert False, "should raise"
     except BadParam as bp:
         assert 'Invalid type for "advanced_settings.segments_chunksize"' in str(bp)
