@@ -7,7 +7,7 @@ def get_session(dburl, scoped=False, **engine_kwargs):
         sess = _get_session(dburl, scoped, check_db_existence=not is_sqlite(dburl),
                             **engine_kwargs)
     except DbNotFound as dbnf:
-        raise ValueError('%s, it needs to be created first' % str(dbnf))
+        raise ValueError('%s. Did you create the database first?' % str(dbnf))
 
     # Note: this creates the SCHEMA, not the database
     # the import below is in the function because slightly time consuming:
