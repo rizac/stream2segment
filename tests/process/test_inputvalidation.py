@@ -117,10 +117,13 @@ class Test(object):
 
                         yield
 
-
-def test_process_bad_types(pytestdir):
+@patch(patches.configlog4processing)
+def test_process_bad_types(mock_cfglog,
+                           # fixtures:
+                           pytestdir):
     '''bad types must be passed directly to download as click does a preliminary check'''
 
+    # Note: mock_cfglog just prevents writing log files in this program templates dir
     p_yaml_file, p_py_file = \
         get_templates_fpaths("paramtable.yaml", "paramtable.py")
 
@@ -295,6 +298,7 @@ def test_process_verbosity(mock_run_process, mock_configlog, mock_closesess, moc
     assert not out  # assert empty (avoid comparing to strings and potential py2 py3 headache)
     assert vars['logfilepath'] is None
     assert vars['numloggers'] == 0
+
 
 @pytest.mark.parametrize('adv_set, exp_multiprocess_value',
                          [({'multi_process': True, 'num_processes': 4}, 4),

@@ -584,7 +584,8 @@ def process(dburl, config, pyfile, funcname, append, no_prompt, multi_process,
     _locals = dict(locals()) # <- THIS MUST BE THE FIRST STATEMENT OF THIS FUNCTION!
 
     # import in function body to speed up the main module import:
-    from stream2segment.process.main import process as _process, load_p_config
+    from stream2segment.process.main import (process as _process, load_p_config,
+                                             validate_param, valid_pyfile)
 
     try:
         if not append and outfile and os.path.isfile(outfile) \
@@ -606,6 +607,10 @@ def process(dburl, config, pyfile, funcname, append, no_prompt, multi_process,
                 _, seg_sel, m_p, chunksize, w_options = load_p_config(config, **overrides)
                 if funcname:
                     pyfile += '::' + funcname
+                # Raise BadParam with the right param name (this will be done also in
+                # `_process`, with different param name though):
+                validate_param('pyfile', pyfile, valid_pyfile)
+                # execute now:
                 ret = _process(pyfile, dburl, seg_sel, config, outfile, append=append,
                                writer_options=w_options, logfile=True, verbose=True,
                                multi_process=m_p, chunksize=chunksize)

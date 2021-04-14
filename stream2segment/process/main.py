@@ -33,9 +33,9 @@ from stream2segment.process.db.sqlevalexpr import exprquery
 from stream2segment.io.log import logfilepath, close_logger, elapsed_time
 from stream2segment.io.cli import get_progressbar, ascii_decorate
 from stream2segment.io.inputvalidation import validate_param
-from stream2segment.process.inputvalidation import (valid_pyfunc, load_p_config,
+from stream2segment.process.inputvalidation import (load_p_config,
                                                     valid_filewritable,
-                                                    check_pyfunc_or_pyfile)
+                                                    valid_pyfile, valid_pyfunc)
 from stream2segment.process import SkipSegment
 from stream2segment.process.db import get_session
 from stream2segment.process.db.models import Segment, Station
@@ -151,27 +151,29 @@ def process(pyfunc, dburl, segments_selection=None, config=None, outfile=None,
         cfg_file = config
         config = validate_param("config", config or {}, yaml_load)
 
-    pyfunc_is_callable = callable(pyfunc)
-    pyfunc, pyfile = check_pyfunc_or_pyfile(pyfunc)
-    if multi_process and not pyfunc_is_callable:
-        # Note: if pyfile is a str (file path) then pyfunc is imported with importlib. We
-        # cannot pass pyfunc as argument because it is not pickable
-        # (FIXME: this is an old claim, write a test?),
-        # and thus we pass pyfile (the function path), delegating the child workers to
-        # (re)load pyfunc each time
-        pyfunc = pyfile
+    if callable(pyfunc):
+        pyfile = pyfunc.__name__ or 'n/a'
+        validate_param('pyfunc', pyfunc, valid_pyfunc)
+    else:
+        pyfile = pyfunc
+        pyfunc = validate_param('pyfunc', pyfile, valid_pyfile)
+        if logfile is True and not outfile:
+            idx = pyfile.rfind('::')  # remove function name, if present
+            logfile = logfilepath(pyfile if idx < 0 else pyfile[:idx])
+        if multi_process:
+            # Note: pyfunc is imported with importlib -> pyfunc is not pickable -> it
+            # will not work within each child process (CP) FIXME: write a test?
+            # To fix it, swap back pyfile/pyfunc, delegating each CP to (re)import:
+            pyfunc = pyfile
 
     if logfile is True:
-        if outfile or not pyfunc_is_callable:
-            logfile = logfilepath(outfile or pyfile)  # auto create log file
-    elif not logfile:
-        logfile = ''   # force False into empty string
+        logfile = '' if not outfile else logfilepath(outfile)  # auto create log file
 
     with _setup_logging(logfile, verbose):
         abp = os.path.abspath
         info = [
             "Input database:      %s" % secure_dburl(dburl),
-            "Processing function: %s" % pyfile,
+            "Processing function: %s" % pyfile or 'n/a',
             "Config. file:        %s" % (abp(cfg_file) if cfg_file else 'n/a'),
             "Log file:            %s" % (abp(logfile) if logfile else 'n/a'),
             "Output file:         %s" % (abp(outfile) if outfile else 'n/a')
@@ -546,7 +548,7 @@ def process_segments_mp(args):
         segment processed
     """
     seg_ids_chunk, dburl, config, func_or_pyfile, safe_exceptions_tuple = args
-    pyfunc = func_or_pyfile if callable(func_or_pyfile) else valid_pyfunc(func_or_pyfile)
+    pyfunc = func_or_pyfile if callable(func_or_pyfile) else valid_pyfile(func_or_pyfile)
     session = get_session(dburl)
     ret = []
 

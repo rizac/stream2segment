@@ -26,22 +26,6 @@ def _extract_segments_selection(config):
     return pop_param(config, SEGMENT_SELECT_PARAM_NAMES, {})[1]
 
 
-def check_pyfunc_or_pyfile(pyfunc):
-    """Check pyfunc or pyfile, returns the tuple (pyfunc, func_path)
-    where func_path has the form <module_path>::<function_name>
-    """
-    pname = 'pyfunc'
-    if not callable(pyfunc):
-        pname = 'pyfile'
-        pyfunc = validate_param(pname, pyfunc, valid_pyfunc)
-
-    return pyfunc, validate_param(pname, pyfunc, _get_func_path)
-
-
-def _get_func_path(pyfunc):
-    return inspect.getsourcefile(pyfunc) + '::' + pyfunc.__name__
-
-
 def load_p_config(config=None, **param_overrides):
     """Loads a YAML configuration file for processing, returning a tuple of 5 elements:
 
@@ -112,7 +96,7 @@ def valid_default_processing_funcname():
     return 'main'
 
 
-def valid_pyfunc(pyfile):
+def valid_pyfile(pyfile):
     """Return the Python module from the given Python file
     An optional double semicolon separates the python module path and the function
     name implemented therein. If missing the function name to search defaults to
@@ -145,4 +129,22 @@ def valid_pyfunc(pyfile):
     if funcname not in pymoduledict:
         raise Exception('Function "%s" not found in %s' %
                         (str(funcname), pyfile))
-    return pymoduledict[funcname]
+    return valid_pyfunc(pymoduledict[funcname])
+
+
+def valid_pyfunc(pyfunc):
+    """Checks if the argument is a valid processing Python function by inspecting its
+    signature"""
+    for i, (pname, pval) in enumerate(inspect.signature(pyfunc).parameters.items(), 1):
+        if i > 2:
+            # ops, more than two arguments? maybe is variable length *args **kwargs?
+            if not pval.kind in (pval.VAR_POSITIONAL, pval.VAR_KEYWORD):
+                # it is not *args or **kwargs, does it have a default?
+                if not pval.default == pval.empty:
+                    raise ValueError('Python function argument "%s" should have a '
+                                     'default, or be removed' % pname)
+    if i < 2:
+        raise ValueError('Python function should have 2 arguments '
+                         '`(segment, config)`, %d found' % i)
+
+    return pyfunc
