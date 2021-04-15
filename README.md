@@ -290,7 +290,7 @@ some required packages must unfortunately be installed in a specific order,
 we implemented a script that handles that and can be invoked exactly as `pip install`:
  
 ```
-./pipinstall [options] .
+./pipinstall <options...> .
 ```
 
 <details>
@@ -316,17 +316,17 @@ The `pipinstall` argument `.` means "install this directory" (i.e., stream2segme
 can be enhanced with extra packages. For instance, if you want to install Jupyter in order 
 to work with Stream2segment downloaded data in a notebook, then type:
 ```
-    ./pipinstall [options] ".[jupyter]"
+    ./pipinstall <options...> ".[jupyter]"
 ```
 If you want to install additional packages needed for testing (install in dev mode)
 and be able to push code and/or run tests, then type:
 ```
-    ./pipinstall [options] ".[dev]"
+    ./pipinstall <options...> ".[dev]"
 ```
 (You can also provide both: `".[dev,jupyter]"`. Quotes were necessary on some
 specific macOS with `zsh`, in other OSs or shell languages might not be needed)
 
-The `[options]` are the usual `pip install` options. The two more important are usually:
+The `<options...>` are the usual `pip install` options. The two more important are usually:
 
  `-e` This [makes the package editable](https://pip.pypa.io/en/stable/reference/pip_install/#install-editable).
   A typical advantage of an editable package is that when you run `git pull` to fetch a new
