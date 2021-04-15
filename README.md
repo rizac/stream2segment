@@ -330,7 +330,8 @@ The `<options...>` are the usual `pip install` options. The two more important a
 
  `-e` This [makes the package editable](https://pip.pypa.io/en/stable/reference/pip_install/#install-editable).
   A typical advantage of an editable package is that when you run `git pull` to fetch a new
-  version you don't need to reinstall it but the new version will be already available for use
+  version that does not need new requirements (e.g. a bugfix), you don't need to reinstall
+  it but the new version will be already available for use
  
  `-r ./requirements.txt`: install requirements with specific versions. `pip install` by
   default skips already installed requirements if they satisfy Stream2segment minimum
