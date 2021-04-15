@@ -285,6 +285,72 @@ Activate your virtual environment
      (where you cloned the repository) with your Python virtualenv activated
   - In case of errors, check the [Installation notes below](#installation-Notes)
 
+To install the package, you should run as usual `pip install`, but because
+some required packages must unfortunately be installed in a specific order,
+we implemented a script that handles that but can be invoked exactly as `pip install`:
+ 
+```
+./pipinstall [options] .
+```
+
+(see "script details" below for more information or if you want to run each
+`pip install` command separately to have more control).
+
+If you want to:
+ 
+  install Jupyter to work with Stream2segment downloaded data in a notebook, then type:
+  ```
+    ./pipinstall [options] ".[jupyter]"
+  ```
+  
+  Install the package in development mode to push code and/or run tests, then type:
+  ```
+    ./pipinstall [options] ".[dev]"
+  ```
+  
+  (You can also provide both: `".[dev,jupyter]"`. Quotes were necessary on some
+  specific macOS with `zsh`, in other OSs or shell languages might not be needed)
+
+The `[options]` are the usual `pip install` options. The two more important are usually:
+
+ `-e` This [makes the package editable](https://pip.pypa.io/en/stable/reference/pip_install/#install-editable).
+  A typical advantage of an editable package is that when you run `git pull` to fetch a new
+  version you don't need to reinstall it but the new version will be already available for use
+ 
+ `-r ./requirements.txt`: install requirements with specific versions. `pip install` by
+  default skips already installed requirements if they satisfy Stream2segment minimum
+  versions. With the `-r` option instead, requirements are installed with "tested" versions
+  (i.e., those "freezed" after successfully running tests), which should generally be safer
+  for obvious reasons. However, some versions in the requirements might not be (yet?) supported
+  in your computer, some might be in conflicts with the requirements of other packages you
+  installed in the virtualenv, if any. You can try this option and then remove it, in case
+  of problems. In any case, do not use this option if you plan to install other
+  stuff alongside stream2segemtn on the virtualenv. 
+  
+  (There is also a `./requirements.dev.txt`
+  that installs also the dev-related packages, similar to `".[dev]"`, but with specific
+  exact versions.
+
+  
+<details>
+<summary>script details</summary>
+
+`pipinstall` is simply a shorthand for several `pip install` commands, run in thse
+specific order:
+
+1. Install pre-requisites as `pip install --upgrade pip setuptools wheel`
+
+1. Install numpy first (this is an obspy requirement): either `pip install numpy` or,
+   if you want to use a requirements file, extracting (e.g. via `grep`) the specific
+   numpy version in the file (e.g. `numpy==1.15.4`), and then executing
+   `pip install numpy==1.15.4`
+
+2. Running `pip install` with *exactly the same arguments* provided to the script. E.g.
+   `pipinstall -e .` executes `pip install -e .` 
+
+</details>
+  
+<!--
 Installation first installs all *requirements* (i.e., required external Python
 packages) and then this package, and can be performed in a single command in two ways:
 
@@ -309,46 +375,15 @@ packages) and then this package, and can be performed in a single command in two
     "freezed" after successfully running tests, and it's therefore generally safer in order
     to avoid problems with Stream2segment.
 
-<details>
-
-<summary>scripts details</summary>
-
-The scripts above are a shorthand for the following commands, which you can always run by
-yourself to have more control on what is happening:
-
-1. Install numpy first (this is an obspy requirement): open the file `requirements.txt`
-   and search for the line starting with "numpy". Copy it and pip-install numpy. For
-   instance, supposing that the line is `numpy==1.15.4`, then execute on the terminal:
-   `pip install numpy==1.15.4`
-
-2. Install via requirements file:
-    ```
-    pip install -r ./requirements.txt
-    ```
-    Alternatively, if you want to run tests (recommended to check that everything works
-    on your system):
-    ```
-    pip install -r ./requirements.dev.txt
-    ```
-
-3. Install the current package
-   ```
-   pip install -e .
-   ```
-
-   (The `-e` options installs this package as editable, meaning that after making a
-   change - e.g. a `git pull` to fetch a new version - you don't need to reinstall it but
-   the new version will be already available for use)
-
-</details>
 
 ##### Install Jupyter (optional)
 
 If you wish to use the program within Jupyter notebooks, jupyter is not included
 in the dependencies. Thus
 ```
-pip install jupyter==1.0.0
+pip install jupyter>=1.0.0
 ```
+-->
 
 **The program is now installed. To double check the program functionalities,
 we suggest to run tests (see below) and report the problem in case of failure.

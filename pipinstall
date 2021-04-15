@@ -1,0 +1,37 @@
+#!/bin/bash
+
+# get the requirement file. Check for -r, and get next argument:
+reqfile=''
+for ((i=1; i<=$#; i++))
+do
+  var="${!i}"
+  j=$((i+1))
+  nextvar="${!j}"
+  if [ "$var" = "-r" ]; then
+    reqfile="$nextvar"
+    break
+  fi
+done
+
+# get numpy version according to the requirements file provided, if any:
+numpy="numpy"
+if [ "$reqfile" != "" ]; then
+  if [ ! -f "$reqfile" ]; then
+    echo "Requirement file does not exist"
+    exit 1
+  else
+    numpy=`grep numpy "$reqfile"`
+    echo "Using requirements file, installing $numpy"
+  fi
+else
+  echo "Requirements file not found, installing most recent numpy"
+fi
+
+# Upgrade pre-requisites (e.g. pip), then install numpy, then forward args to pip install:
+pip install --upgrade pip setuptools wheel && pip install "$numpy" && pip install "$@"
+
+# Exits the shell with no status, i.e. by default that of the last command executed:
+exit
+
+# thisdir="$( dirname "${BASH_SOURCE[0]}" )"  #  https://stackoverflow.com/a/246128
+# echo "Installing this package (maybe redundant)"

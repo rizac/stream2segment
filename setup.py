@@ -111,7 +111,7 @@ setup(
                       'futures==3.1.1',
                       'psycopg2>=2.7.3.1',
                       'psutil>=5.3.1',
-                      'SQLAlchemy>=1.1.14',
+                      'SQLAlchemy>=1.1.14,<1.4',
                       'click>=6.7'
                       ],
 
@@ -121,12 +121,13 @@ setup(
     # $ pip install -e .[dev,test]
     extras_require={
         # use latest versions. Without boundaries
-        'test': ['pep8>=1.7.0',
-                 'pylint>=1.7.2',
-                 'pytest>=3.2.2',
-                 'mock>=2.0.0',  # from py3.4+, builtin library
-                 'pytest-cov>=2.5.1',
-                 'pytest-mock>=1.6.2'],
+        'dev': ['pep8>=1.7.0',
+                'pylint>=1.7.2',
+                'pytest>=3.2.2',
+                'mock>=2.0.0',  # from py3.4+, builtin library
+                'pytest-cov>=2.5.1',
+                'pytest-mock>=1.6.2'],
+        'jupyter': ['jupyter>=1.0.0']
     },
 
     # If there are data files included in your packages that need to be
