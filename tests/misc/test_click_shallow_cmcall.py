@@ -178,14 +178,24 @@ def test_click_process(mock_process):
     lst[2] = dic2comparabletuple(lst[2])  # convert segm. selection to a comparable tuple
     assert lst == [pyfile, yaml_load(d_conffile)['dburl'], segsel, conffile, 'c']
     assert result.exit_code == 0
-    
-    # test funcname supplied via cli:
+
+    # test funcname supplied via cli. Wring (non existing) function:
     mock_process.reset_mock()
-    result = runner.invoke(cli, ['process', '--funcname', 'wat?', '-d', d_conffile ,
+    result = runner.invoke(cli, ['process', '--funcname', 'wat?', '-d', d_conffile,
+                                 '-c', conffile, '-p', pyfile, 'c'])
+    assert not mock_process.call_args_list
+    assert 'Invalid value for "pyfile"' in result.output
+    assert '"wat?"' in result.output
+    assert result.exit_code != 0
+
+    # test funcname supplied via cli. Provide a function in paramtabl.py that has the
+    # expected signature:
+    mock_process.reset_mock()
+    result = runner.invoke(cli, ['process', '--funcname', 'signal_noise_spectra', '-d', d_conffile ,
                                  '-c', conffile, '-p', pyfile, 'c'])
     lst = list(mock_process.call_args_list[0][0])
     lst[2] = dic2comparabletuple(lst[2])  # convert segm. selection to a comparable tuple
-    assert lst == [pyfile + '::wat?', yaml_load(d_conffile)['dburl'], segsel, conffile, 'c']
+    assert lst == [pyfile + '::signal_noise_spectra', yaml_load(d_conffile)['dburl'], segsel, conffile, 'c']
     assert result.exit_code == 0
 
     # test an error in params: -dburl instead of --dburl:

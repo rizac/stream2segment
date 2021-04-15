@@ -287,29 +287,44 @@ Activate your virtual environment
 
 To install the package, you should run as usual `pip install`, but because
 some required packages must unfortunately be installed in a specific order,
-we implemented a script that handles that but can be invoked exactly as `pip install`:
+we implemented a script that handles that and can be invoked exactly as `pip install`:
  
 ```
 ./pipinstall [options] .
 ```
 
-(see "script details" below for more information or if you want to run each
-`pip install` command separately to have more control).
+<details>
+<summary>script details (if you want to run each
+`pip install` command separately to have more control)</summary>
 
-If you want to:
- 
-  install Jupyter to work with Stream2segment downloaded data in a notebook, then type:
-  ```
+`pipinstall` is simply a shorthand for several `pip install` commands, run in these
+specific order:
+
+1. Install pre-requisites as `pip install --upgrade pip setuptools wheel`
+
+1. Install numpy first (this is an obspy requirement): either `pip install numpy` or,
+   if you want to use a requirements file, extracting (e.g. via `grep`) the specific
+   numpy version in the file (e.g. `numpy==1.15.4`), and then executing
+   `pip install numpy==1.15.4`
+
+2. Running `pip install` with *exactly the same arguments* provided to the script. E.g.
+   `pipinstall -e .` executes `pip install -e .` 
+
+</details>
+
+The `pipinstall` argument `.` means "install this directory" (i.e., stream2segment) and
+can be enhanced with extra packages. For instance, if you want to install Jupyter in order 
+to work with Stream2segment downloaded data in a notebook, then type:
+```
     ./pipinstall [options] ".[jupyter]"
-  ```
-  
-  Install the package in development mode to push code and/or run tests, then type:
-  ```
+```
+If you want to install additional packages needed for testing (install in dev mode)
+and be able to push code and/or run tests, then type:
+```
     ./pipinstall [options] ".[dev]"
-  ```
-  
-  (You can also provide both: `".[dev,jupyter]"`. Quotes were necessary on some
-  specific macOS with `zsh`, in other OSs or shell languages might not be needed)
+```
+(You can also provide both: `".[dev,jupyter]"`. Quotes were necessary on some
+specific macOS with `zsh`, in other OSs or shell languages might not be needed)
 
 The `[options]` are the usual `pip install` options. The two more important are usually:
 
@@ -331,24 +346,6 @@ The `[options]` are the usual `pip install` options. The two more important are 
   that installs also the dev-related packages, similar to `".[dev]"`, but with specific
   exact versions.
 
-  
-<details>
-<summary>script details</summary>
-
-`pipinstall` is simply a shorthand for several `pip install` commands, run in thse
-specific order:
-
-1. Install pre-requisites as `pip install --upgrade pip setuptools wheel`
-
-1. Install numpy first (this is an obspy requirement): either `pip install numpy` or,
-   if you want to use a requirements file, extracting (e.g. via `grep`) the specific
-   numpy version in the file (e.g. `numpy==1.15.4`), and then executing
-   `pip install numpy==1.15.4`
-
-2. Running `pip install` with *exactly the same arguments* provided to the script. E.g.
-   `pipinstall -e .` executes `pip install -e .` 
-
-</details>
   
 <!--
 Installation first installs all *requirements* (i.e., required external Python
