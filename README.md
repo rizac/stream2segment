@@ -509,9 +509,12 @@ to common problems you might have and that we collected from several Ubuntu inst
   ```
 	pip install -e .
 	pip freeze > ./requirements.tmp
-	pip install -e .[dev,test]
+	pip install -e ".[dev]"
 	pip freeze > ./requirements.dev.tmp
   ```
+  (you could also do it with jupyter). Remember to comment the line of stream2segment
+  from each requirements (as it should be installed as argument of pip:
+  `pip install <options> .`, and not inside the requirements file).
   Run tests (see above) with warnings on: fix what might go wrong, and eventually you can
   replace the old `requirements.txt` and `requirements.dev.txt` with the `.tmp` file
   created. 
