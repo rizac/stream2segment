@@ -405,9 +405,9 @@ class Test(object):
         else:
             import re
             assert 'Invalid value for "dburl":' in result.output
-            assert re.search(' database ".*" does not exist, it needs to be created first',
-                             result.output)
-            assert 'needs to be created first' in result.output
+            assert re.search('database ".*" not found\\. Possible reason\\: ', result.output)
+            assert re.search('\\. Did you create the database first\\?', result.output)
+            assert 'Did you create the database first?' in result.output
             assert result.exit_code != 0
 
 

@@ -68,8 +68,8 @@ class DbNotFound(ValueError):
         # Warning: if you change the message below, check also the message raised in
         # check also stream2segment.download.db::valid_session
         # that relies upon this:
-        return 'Database "%s" not found. Possible reason: the db does not exist or ' \
-               'wrong user/password/host supplied in the URL.' % get_dbname(self.dburl)
+        return 'Database "%s" not found. Possible reason: wrong user/password/host ' \
+               'in the URL, or the db does not exist' % get_dbname(self.dburl)
 
 
 def is_sqlite(dburl):
