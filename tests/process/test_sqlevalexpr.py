@@ -13,7 +13,7 @@ from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.sql.functions import func
 from sqlalchemy.orm.attributes import QueryableAttribute
 
-from stream2segment.process.db.sqlevalexpr import exprquery, binexpr, Inspector
+from stream2segment.process.db.sqlevalexpr import exprquery, binexpr
 from stream2segment.process.db.models import ClassLabelling, Class, Segment, Station, Channel,\
     Event, DataCenter, Download, WebService
 # from stream2segment.gui.webapp.mainapp.core import get_metadata
