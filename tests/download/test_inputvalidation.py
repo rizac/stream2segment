@@ -183,6 +183,15 @@ class Test(object):
         # assert we did not write to the db, cause the error threw before setting up db:
         assert db.session.query(Download).count() == dcount
 
+        # test also when we change the yaml:
+        result = run_cli_download(starttime='2006-03-14')
+        assert result.exit_code == 0
+        dcount += 1
+        run_download_kwargs = self.mock_run_download.call_args_list[-1][1]
+        assert run_download_kwargs['starttime'] == datetime(2006, 3, 14)
+        # assert we did not write to the db, cause the error threw before setting up db:
+        assert db.session.query(Download).count() == dcount
+
     def test_download_bad_values_searchradius(self,
                                               # fixtures:
                                               db, run_cli_download):
@@ -405,7 +414,7 @@ class Test(object):
         else:
             import re
             assert 'Invalid value for "dburl":' in result.output
-            assert re.search('database ".*" not acessible\\. Possible reason\\: ', result.output)
+            assert re.search('database ".*" not accessible\\. Possible reason\\: ', result.output)
             assert re.search('\\. Did you create the database first\\?', result.output)
             assert 'Did you create the database first?' in result.output
             assert result.exit_code != 0
