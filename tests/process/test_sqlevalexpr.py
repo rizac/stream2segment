@@ -385,56 +385,56 @@ class Test(object):
                              "segments.arrival_time != :arrival_time_4")
 
 
-    def test_inspect(self, db):
-        # attach a fake method to Segment where the type is unknown:
-        defval = 'a'
-        Segment._fake_method = \
-            hybrid_property(lambda self: defval,
-                            expr=lambda cls: func.substr(cls.download_code, 1, 1))
-
-        insp = Inspector(Segment)
-        attnames = list(insp.attnames(Inspector.PKEY))
-        assert attnames == ['id']
-        attnames = list(insp.attnames(Inspector.FKEY, sort=True))
-        assert 'event_id' in attnames and 'id' not in attnames \
-            and 'classes' not in attnames and '_fake_method' not in attnames
-        attnames2 = list(insp.attnames(Inspector.FKEY, sort=False))
-        # sort=False MIGHT return the same attributes order as sorted=True
-        # thus perform a check only if they differ:
-        if attnames != attnames:
-            assert sorted(attnames) == sorted(attnames2)
-        attnames = list(insp.attnames(Inspector.QATT))
-        assert '_fake_method' in attnames and not 'id' in attnames and \
-            not 'event_id' in attnames
-        attnames = list(insp.attnames(Inspector.REL, sort=True))
-        assert 'classes' in attnames and 'id' not in attnames \
-            and 'event_id' not in attnames and '_fake_method' not in attnames
-        attnames2 = list(insp.attnames(Inspector.REL, sort=False))
-        # sort=False MIGHT return the same attributes order as sorted=True
-        # thus perform a check only if they differ:
-        if attnames != attnames:
-            assert sorted(attnames) == sorted(attnames2)
-        
-        attnames = insp.attnames(deep=True)
-        for attname in attnames:
-            attval = insp.attval(attname)
-            assert isinstance(attval, QueryableAttribute)
-            if attname == '_fake_method':
-                assert insp.atttype(attname) is None
-            else:
-                assert insp.atttype(attname) is not None
-
-        seg = db.session.query(Segment).first()
-        insp = Inspector(seg)
-        attnames = insp.attnames(deep=True)
-        for attname in attnames:
-            val = insp.attval(attname)
-            if attname == '_fake_method':
-                assert val == defval
-            if attname.startswith('classes.'):
-                assert isinstance(val, list)
-            else:
-                assert not isinstance(val, (dict, list, set))
+    # def test_inspect(self, db):
+    #     # attach a fake method to Segment where the type is unknown:
+    #     defval = 'a'
+    #     Segment._fake_method = \
+    #         hybrid_property(lambda self: defval,
+    #                         expr=lambda cls: func.substr(cls.download_code, 1, 1))
+    #
+    #     insp = Inspector(Segment)
+    #     attnames = list(insp.attnames(Inspector.PKEY))
+    #     assert attnames == ['id']
+    #     attnames = list(insp.attnames(Inspector.FKEY, sort=True))
+    #     assert 'event_id' in attnames and 'id' not in attnames \
+    #         and 'classes' not in attnames and '_fake_method' not in attnames
+    #     attnames2 = list(insp.attnames(Inspector.FKEY, sort=False))
+    #     # sort=False MIGHT return the same attributes order as sorted=True
+    #     # thus perform a check only if they differ:
+    #     if attnames != attnames:
+    #         assert sorted(attnames) == sorted(attnames2)
+    #     attnames = list(insp.attnames(Inspector.QATT))
+    #     assert '_fake_method' in attnames and not 'id' in attnames and \
+    #         not 'event_id' in attnames
+    #     attnames = list(insp.attnames(Inspector.REL, sort=True))
+    #     assert 'classes' in attnames and 'id' not in attnames \
+    #         and 'event_id' not in attnames and '_fake_method' not in attnames
+    #     attnames2 = list(insp.attnames(Inspector.REL, sort=False))
+    #     # sort=False MIGHT return the same attributes order as sorted=True
+    #     # thus perform a check only if they differ:
+    #     if attnames != attnames:
+    #         assert sorted(attnames) == sorted(attnames2)
+    #
+    #     attnames = insp.attnames(deep=True)
+    #     for attname in attnames:
+    #         attval = insp.attval(attname)
+    #         assert isinstance(attval, QueryableAttribute)
+    #         if attname == '_fake_method':
+    #             assert insp.atttype(attname) is None
+    #         else:
+    #             assert insp.atttype(attname) is not None
+    #
+    #     seg = db.session.query(Segment).first()
+    #     insp = Inspector(seg)
+    #     attnames = insp.attnames(deep=True)
+    #     for attname in attnames:
+    #         val = insp.attval(attname)
+    #         if attname == '_fake_method':
+    #             assert val == defval
+    #         if attname.startswith('classes.'):
+    #             assert isinstance(val, list)
+    #         else:
+    #             assert not isinstance(val, (dict, list, set))
 
     def test_selection_classes(self, db):
         expr1 = exprquery(db.session.query(Segment), {'classes.label': 'asd'})

@@ -11,11 +11,14 @@ Created on 16 Apr 2020
 from sqlalchemy import func
 
 # from flask import g
-from stream2segment.process.db.models import (Segment, Class, Station, Download,
-                                              ClassLabelling)
-from stream2segment.process.db.sqlevalexpr import exprquery, Inspector
+# from sqlalchemy.orm import defer, load_only, lazyload
+
 from stream2segment.io.db import secure_dburl
 from stream2segment.io.db.models import get_classlabels
+from stream2segment.io.db.inspection import attnames, get_related_models
+from stream2segment.process.db.models import (Segment, Class, Station, Download,
+                                              ClassLabelling, Event, Channel)
+from stream2segment.process.db.sqlevalexpr import exprquery, get_pytype, get_sqltype
 
 # import atexit
 
@@ -159,25 +162,64 @@ def get_metadata(segment_id=None):
     (str, datetime,...), in the latter, it is the value of `segment` for that
     column
     """
-    excluded_colnames = set([Station.inventory_xml, Segment.data, Download.log,
-                             Download.config, Download.errors, Download.warnings,
-                             Download.program_version, Class.description])
+    related_models = get_related_models(Segment)
 
     segment = None
     if segment_id is not None:
         # exclude all classes attributes (returned in get_classes):
-        excluded_colnames |= {Class.id, Class.label}
+        related_models.pop('classes')
         segment = get_segment(segment_id)
         if not segment:
             return []
 
-    insp = Inspector(segment or Segment)
-    attfilter = Inspector.PKEY | Inspector.QATT | Inspector.REL | Inspector.COL
-    attnames = insp.attnames(attfilter, sort=True, deep=True,
-                             exclude=excluded_colnames)
-    if segment_id is not None:
-        # return a list of (attribute name, attribute value)
-        return [(_, insp.attval(_)) for _ in attnames]
-    # return a list of (attribute name, str(attribute type))
-    return [(_, getattr(insp.atttype(_), "__name__"))
-            for _ in attnames if insp.atttype(_) is not None]
+    anames = _attnames(Segment, lambda attr: attr != Segment.data.key)
+
+    # map every related model to a function that will show only some of their attributes:
+    filter_funcs = {
+        'event': lambda attr: True,
+        'station': lambda attr: attr != Station.inventory_xml.key,
+        'channel': lambda attr: True,
+        'datacenter': lambda attr: attr in {'id', 'dataselect_url'},
+        'download': lambda attr: attr in {'id', 'run_time'},
+        'classes': lambda attr: attr in {'id', 'label', 'description'},
+    }
+
+    if segment:
+        # we have an instance, it is for showing data on the GUI. So:
+        anames = [(_, getattr(segment, _)) for _ in anames]
+        for relation_name, related_model in related_models.items():
+            related_model_attrs = _attnames(related_model,
+                                            filter_funcs.get(relation_name, None))
+            # obj will load all related model attributes (except those that are deferred
+            # by desing, e.g. download.log. Any kind other optimization is premature)
+            # Note that there is always a 1-1 related object, as we removed 'classes'
+            obj = getattr(segment, relation_name)
+            anames.extend((relation_name + '.' + a, getattr(obj, a))
+                          for a in related_model_attrs)
+    else:
+        # we have a model (instance class), it is for selecting data on the GUI. So:
+        anames = [(_, _get_pytype(Segment, _)) for _ in anames]
+        for relation_name, related_model in related_models.items():
+            related_model_attrs = _attnames(related_model,
+                                            filter_funcs.get(relation_name, None))
+            anames.extend((relation_name + '.' + a, _get_pytype(related_model, a))
+                          for a in related_model_attrs)
+        # remove None's (unknown type, no selection possible):
+        anames = [_ for _ in anames if _[1] is not None]
+
+    return anames
+
+
+def _attnames(model, filter_func=None):
+    """Return a  list of attributes defined on the model with optional filter function
+    `func(att_name): -> bool`
+    """
+    # return non foreign key columns or queryable attributes only:
+    att_itr = attnames(model, fkey=False, qatt=True, rel=False)
+    return [_ for _ in att_itr if filter_func is None or filter_func(_)]
+
+
+def _get_pytype(model, attrname):
+    sqltype = get_sqltype(getattr(model, attrname))
+    pytype = None if sqltype is None else get_pytype(sqltype)
+    return None if pytype is None else str(pytype.__name__)

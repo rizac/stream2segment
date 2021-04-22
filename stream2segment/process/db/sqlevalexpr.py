@@ -18,10 +18,10 @@ from future.utils import viewitems
 
 import numpy as np
 from sqlalchemy import asc, and_, desc, inspect
-from sqlalchemy.orm.attributes import QueryableAttribute
-from sqlalchemy.exc import NoInspectionAvailable
-from sqlalchemy.orm.collections import InstrumentedList, InstrumentedSet,\
-    InstrumentedDict
+# from sqlalchemy.orm.attributes import QueryableAttribute
+# from sqlalchemy.exc import NoInspectionAvailable
+# from sqlalchemy.orm.collections import InstrumentedList, InstrumentedSet,\
+#     InstrumentedDict
 
 
 def exprquery(sa_query, conditions, orderby=None):
@@ -40,9 +40,10 @@ def exprquery(sa_query, conditions, orderby=None):
 
     ```
     Then columns (and relationships, if any) are extracted from `conditions`,
-    which is a dict of string keys representing columns or relationships
-    relative to the **reference model**, and mapped to a string expression.
-    E.g.:
+    which is a `dict[str, str]` where keys are any queryable attribute of the
+    **reference model** (columns, hybrid properties, relationships), and the
+    mapped values are string expressions that will be converted to their SQL
+    counterparts. E.g.:
     ```
     {
         'id' : '<6',
@@ -217,7 +218,7 @@ def _get_rel_and_column(model, colname, relations=None):
 def get_rel_refmodel(relationship):
     """Return the relationship's reference table model
 
-    :param relationship: the InstrumentedAttribute retlative to a relationship.
+    :param relationship: the InstrumentedAttribute relative to a relationship.
         Example. Given a model `model`, and a relationship e.g.
         `r_name=inspect(model).relationships.keys()[i],
         then `relationship=getattr(model, r_name)`
@@ -400,257 +401,3 @@ def get_pytype(sqltype):
         return sqltype.python_type
     except NotImplementedError:
         return None
-
-
-class Inspector(object):
-    """Class for inspecting a ORM model (Python class) or an instance (Python
-    object) reflecting a database row.
-    Usage:
-    ```
-    insp = Inspector(model_or_instance)
-
-    # get attribute names matching criteria:
-    attnames = insp.attnames(insp.PKEY | insp.COL, ...)
-
-    # get types
-    atttypes = [insp.atttype(_) for _ in attnames]
-
-    # get att. values:
-    attvalues = [insp.attval(_) for _ in attnames]
-    ```
-    """
-
-    PKEY = 1
-    FKEY = 2
-    COL = 4
-    QATT = 8
-    REL = 16
-
-    def __init__(self, model_or_instance):
-        """Initialize the current object with a model or instance argument"""
-        self.mapper = self._model = None
-        self.pknames, self.fknames, self.colnames, self.relnames, self.qanames = \
-            set(), set(), set(), set(), set()
-        self.attrs = {}
-
-        if not model_or_instance:
-            return
-
-        try:
-            mapper = inspect(model_or_instance)
-        except NoInspectionAvailable:
-            return
-
-        if mapper is model_or_instance:
-            # this happens when the object has anything to inspect, e.g., an
-            # AppenderQuery object resulting from some relationship configured
-            # in some particular way
-            return
-
-        # if model_or_instance is an instance, reload Mapper on the model:
-        _real_model = model_or_instance
-        self.instance = None
-        if mapper.mapper.class_ == model_or_instance.__class__:
-            self.instance = model_or_instance
-            _real_model = model_or_instance.__class__
-            mapper = inspect(_real_model)
-
-        self.model = _real_model
-        self.mapper = mapper
-        # To be clear, when writing
-        # class Table:
-        #     id = Column(...)
-        #
-        # you might expect that Table.id is a Column object. It is indeed an
-        # InstrumentedAttribute (subclass of QueryableAttribute). To get the
-        # column we should do ` mapper(Table).columns` which returns a
-        # dict-like object of names mapped to Column object. Also, a ORM model
-        # might have relationships or simple hybrid properties. All these
-        # things seem to be instance of QueryableAttribute. So:
-        qanames = self.qanames = \
-            set(_ for _ in dir(_real_model)
-                if _[:2] != '__' and
-                isinstance(getattr(_real_model, _), QueryableAttribute))
-
-        self.attrs = {_: getattr(_real_model, _) for _ in qanames}
-        # we will remove keys from qanames leaving only queryable attributes
-        # not belonging to any other class (that's why we associated it to
-        # self.qanames)
-
-        _mapped_table = self._get_mapped_table(mapper)
-        # now, get Foreign Keys Columns
-        fk_columns = set(f.parent for f in _mapped_table.foreign_keys)
-        # and the pkeys Columns:
-        pk_columns = set(_mapped_table.primary_key.columns)
-
-        pknames, fknames, colnames = self.pknames, self.fknames, self.colnames
-        try:
-            for pkeycol in pk_columns:
-                qanames.remove(pkeycol.key)
-                pknames.add(pkeycol.key)
-            for fkeycol in fk_columns:
-                qanames.remove(fkeycol.key)
-                fknames.add(fkeycol.key)
-            for col in mapper.columns:
-                if col not in fk_columns and col not in pk_columns:
-                    qanames.remove(col.key)
-                    colnames.add(col.key)
-        except KeyError as kerr:
-            raise ValueError('Attribute to "%s" not defined in the ORM class'
-                             % str(kerr))
-
-        relnames = self.relnames
-        for rel in self.mapper.relationships:
-            qanames.remove(rel.key)
-            relnames.add(rel.key)
-
-    @staticmethod
-    def _get_mapped_table(mapper):
-        """Return the mapped table from the given SQLAlchemy mapper
-        Note that there is a twin method in 'pdsql' module
-        (FIXME: merge in future releases)
-        """
-        # http://docs.sqlalchemy.org/en/latest/orm/mapping_api.html#sqlalchemy.orm.mapper.Mapper.mapped_table
-        # Note that from v 1.3+, we need to use .persist_selectable:
-        try:
-            table = mapper.persist_selectable
-        except AttributeError:
-            table = mapper.mapped_table
-        return table
-
-    def _exclude_set(self, exclude):
-        if not isinstance(exclude, set):
-            exclude = set(exclude or [])
-        if exclude:
-            for key, val in self.attrs.items():
-                if val in exclude:
-                    exclude.remove(val)
-                    exclude.add(key)
-        return exclude
-
-    def attnames(self, flags=None, sort=True, deep=False, exclude=None):
-        """Yield a set of strings identifying the attributes of the model
-        or instance passed in the constructor
-
-        :param flags: one or more of :class:`Inspector.PKEY`,
-            :class:`Inspector.FKEY`, :class:`Inspector.QATT`,
-            :class:`Inspector.REL`: concatenate those values
-            with the "|" operator for more options, where:
-
-            - :class:`Inspector.PKEY`: return the attribute names denoting SQL
-                primary keys
-            - :class:`Inspector.FKEY`: return the attribute names denoting SQL
-                foreign keys
-            - :class:`Inspector.COL`: return the attribute names denoting any
-              SQL column on the database (excluding primary keys and foreign
-              keys).
-            - :class:`Inspector.QATT`: return the attribute names denoting any
-              queryable attribute. i.e.,custom queryable attributes NOT mapped
-              to any database column (e.g. hybrid properties)
-            - :class:`Inspector.REL`: return the attribute names denoting any
-              relationship defined at the Python level on the given model
-
-        :param sort: boolean (default True), yield the strings sorted. Sorting
-            is done within each category defined in `flags` (thus first primary
-            keys sorted alphabetically, then foreign keys sorted alphabetically,
-            and so on)
-
-        :param deep: boolean (default False): whether to return the attributes
-            of all mapped relationships. Ignored if :class:`Inspector.REL` is
-            not in `flags`. If True, the for each attribute defining a
-            relationship will not be yielded, but all the relation's model
-            attributes instead (using the same `flags` passed here, except that
-            further relationships will not be expanded further). The attributes
-            will be yielded with the relationship model name plus a 'dot' plus
-            the model attribute name to avoid potential duplicates.
-            E.g.: 'parent.id', 'parent.name', and so on
-
-        :param exclude: a list of strings or model attributes to be excluded,
-            i.e. not yielded. If `deep=True`, the list can include related
-            models attributes (with simple strings there is no way to identify
-            the nested attribute to be excluded)
-        """
-        ret = []
-        exclude = self._exclude_set(exclude)
-        if flags is None:
-            flags = self.PKEY | self.FKEY | self.REL | self.QATT | self.COL
-
-        if flags & self.PKEY:
-            ret.extend(self._matchingnames(self.pknames, sort, exclude))
-
-        if flags & self.FKEY:
-            ret.extend(self._matchingnames(self.fknames, sort, exclude))
-
-        if flags & self.COL:
-            ret.extend(self._matchingnames(self.colnames, sort, exclude))
-
-        if flags & self.QATT:
-            ret.extend(self._matchingnames(self.qanames, sort, exclude))
-
-        if flags & self.REL:
-            for _ in self._matchingnames(self.relnames, sort, exclude):
-                if deep:
-                    inspector = Inspector(self.relatedmodel(_))
-                    for __ in inspector.attnames(flags - self.REL, sort, False, exclude):
-                        ret.append('%s.%s' % (_, __))
-                else:
-                    ret.append(_)
-
-        return ret
-
-    @staticmethod
-    def _matchingnames(names, sort, exclude):
-        for name in sorted(names) if sort else names:
-            if name not in exclude:
-                yield name
-
-    def relatedmodel(self, relname):
-        """Return the model class related to the given relation name,
-        as returned from `self.attnames`"""
-        return get_rel_refmodel(self.mapper.relationships[relname])
-
-    def atttype(self, attname):
-        """Return the Python type corresponding to the SQL type of the
-        given attribut name, as returned from `self.attnames`. Returns None
-        if no type can be found"""
-        if attname in self.relnames:
-            return object
-        model = self.model
-        relnames, aname = self._splitatt(attname)
-        for relname in relnames:
-            model = Inspector(model).relatedmodel(relname)
-        try:
-            return get_pytype(get_sqltype(getattr(model, aname)))
-        except Exception as _:
-            return None
-
-    def attval(self, attname):
-        """Return the value corresponding to the given attribute name, as
-        returned from `self.attnames`. The value is an `InstrumentedAttribute`
-        if this object was initialized with a model class, or the value of the
-        given attribute (int, float etcetera) if this object was initialized
-        with an instance object
-        """
-        relnames, aname = self._splitatt(attname)
-        if self.instance is not None:
-            obj = self.instance
-            for relname in relnames:
-                obj = getattr(obj, relname)
-        else:
-            obj = self.model
-            for relname in relnames:
-                obj = self.relatedmodel(relname)
-        try:
-            return getattr(obj, aname)
-        except AttributeError:
-            if self.instance is not None:
-                if isinstance(obj, (InstrumentedList, InstrumentedSet)):
-                    ret = [getattr(subobj, aname) for subobj in obj]
-                    return ret if isinstance(obj, InstrumentedList) else set(ret)
-                if isinstance(obj, InstrumentedDict):
-                    return obj[aname]
-            raise
-
-    def _splitatt(self, attname):
-        atts = attname.split('.')
-        return (atts[:-1], atts[-1]) if len(atts) > 1 else ([], attname)

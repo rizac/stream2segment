@@ -21,8 +21,9 @@ from stream2segment.download.modules.stations import compress
 from stream2segment.process.db.models import Event, WebService, Channel, Station, \
     DataCenter, Segment, Class, Download, ClassLabelling
 from stream2segment.io.db.models import withdata
-from stream2segment.io.db.pdsql import harmonize_rows, colnames, _harmonize_columns,\
+from stream2segment.io.db.pdsql import harmonize_rows, _harmonize_columns,\
     harmonize_columns
+from stream2segment.io.db.inspection import colnames
 from stream2segment.process.db.models import get_inventory_from_bytes
 from stream2segment.process.db.sqlevalexpr import exprquery
 

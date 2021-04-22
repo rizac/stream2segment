@@ -30,7 +30,8 @@ import pandas as pd
 import psutil
 
 from stream2segment.io.db.pdsql import harmonize_columns, \
-    harmonize_rows, colnames, syncdf
+    harmonize_rows, syncdf
+from stream2segment.io.db.inspection import colnames
 from stream2segment.download.db.models import Event, Station, Channel
 from stream2segment.download.exc import FailedDownload
 from stream2segment.download.url import (read_async as original_read_async,

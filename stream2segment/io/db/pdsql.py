@@ -48,13 +48,15 @@ from pandas.core.common import isnull
 
 # Sql-alchemy:
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.inspection import inspect
 from sqlalchemy.sql.expression import func, bindparam
 from sqlalchemy.types import Integer, Float, Boolean, DateTime, Date  # , TIMESTAMP
+
+from stream2segment.io.db.inspection import colnames
 
 # future package implements a iterkeys which checks if the attribute iterkeys
 # is defined on a dict. This looks inefficient. Moreover it lacks a listkeys
 # function. Let's implement both here:
+
 try:
     dict.iteritems
 except AttributeError:
@@ -107,57 +109,6 @@ def _get_dtype(sqltype):
     if isinstance(sqltype, Boolean):
         return bool
     return object
-
-
-def colnames(table, pkey=None, fkey=None, nullable=None):
-    """Returns an iterator returning the attributes names (as string) reflecting
-    database columns with the given properties specified as argument.
-
-    :param table: an ORM model class (python class)
-    :param pkey: boolean or None. If None, filter on primary keys is off.
-        If True, only primary key columns are yielded, if False, only
-        non-primary key columns are yielded
-    :param fkey: boolean or None. If None, filter on foreign keys is off.
-        If True, only foreign key columns are yielded, if False, only
-        non-foreign key columns are yielded
-    :param nullable: boolean or None. If None, filter on nullable columns is off.
-        If True, only columns where nullable=True are yielded, if False,
-        only columns where nullable=False are yielded
-    """
-    mapper = inspect(table)
-    # http://docs.sqlalchemy.org/en/latest/orm/mapping_api.html
-    #   #sqlalchemy.orm.mapper.Mapper.mapped_table
-    table = _get_mapped_table(mapper)
-    fkeys_cols = set((fk.parent for fk in table.foreign_keys)) \
-        if fkey in (True, False) else set([])
-    for att_name, column in mapper.columns.items():
-        # the dict-like above is keyed based on the attribute name defined in
-        # the mapping, not necessarily the key attribute of the Column itself
-        # (column). See
-        # http://docs.sqlalchemy.org/en/latest/orm/mapping_api.html
-        #   #sqlalchemy.orm.mapper.Mapper.columns
-        # Note also: mapper.columns.items() returns a list, if performances are
-        # a concern, we should iterate over the underlying mapper.columns._data
-        # (but is cumbersome)
-        if (pkey is None or pkey == column.primary_key) and \
-                (fkey is None or (column in fkeys_cols) == fkey) and \
-                (nullable is None or nullable == column.nullable):
-            yield att_name
-
-
-def _get_mapped_table(mapper):
-    """Return the mapped table from the given SQLAlchemy mapper
-    Note that there is a twin method in Inspector class ('sqlevalexpr' module)
-    (FIXME: merge in future releases)
-    """
-    # http://docs.sqlalchemy.org/en/latest/orm/mapping_api.html
-    #   #sqlalchemy.orm.mapper.Mapper.mapped_table
-    # Note that from v 1.3+, we need to use .persist_selectable:
-    try:
-        table = mapper.persist_selectable
-    except AttributeError:
-        table = mapper.mapped_table
-    return table
 
 
 def shared_colnames(table, dataframe, pkey=None, fkey=None, nullable=None):
