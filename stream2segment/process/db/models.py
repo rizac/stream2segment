@@ -28,8 +28,14 @@ from obspy.core.inventory.inventory import read_inventory
 from stream2segment.io.db.sqlconstructs import missing_data_ratio, missing_data_sec, \
     duration_sec, deg2km, concat, substr
 from stream2segment.process.db.sqlevalexpr import exprquery
-from stream2segment.process import SkipSegment
 from stream2segment.io.db import models
+
+
+class SkipSegment(Exception):
+    """Stream2segment exception indicating a segment processing error that should
+    resume to the next segment without interrupting the whole routine
+    """
+    pass  # (we can also pass an exception in the __init__, superclass converts it)
 
 
 Base = declarative_base(cls=models.Base)

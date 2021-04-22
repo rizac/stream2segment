@@ -143,7 +143,7 @@ def exprquery(sa_query, conditions, orderby=None):
         (descending). In the first case, the order is "asc" by default. See
         note [*] below for auto-added joins from orderby columns.
 
-    :return: a new sel-alchemy query including the given conditions and ordering
+    :return: a new SQLalchemy query including the given conditions and ordering
 
     [*] Note on auto-added joins: if any given `condition` or `orderby` key
         refers to relationships defined on the reference model class, then
