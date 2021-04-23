@@ -38,7 +38,7 @@ def classlabels(dburl, *, add, rename, delete):
         configure_classlabels(session, add=add, rename=rename, delete=delete)
         return get_classlabels(session, Class)
     finally:
-        close_session(session, True)
+        close_session(session)
 
 def configure_classlabels(session, *, add, rename, delete, commit=True):
     """Configure the class labels of the database related to the database
@@ -132,4 +132,4 @@ def drop(dburl, download_ids, confirm=True):
                 ret[did] = exc
         return ret
     finally:
-        close_session(session, True)
+        close_session(session)

@@ -197,7 +197,7 @@ def _run_and_write(pyfunc, dburl, segments_selection=None, config=None, outfile=
     session = validate_param("dburl", dburl, get_session)
     writer = get_writer(outfile, append, writer_options)
     seg_ids = fetch_segments_ids(session, segments_selection, writer)
-    close_session(session, True)
+    close_session(session)
 
     written = 0
 
@@ -213,9 +213,9 @@ def _run_and_write(pyfunc, dburl, segments_selection=None, config=None, outfile=
                 written, len(seg_ids))
 
 
-def s2smap(pyfunc, dburl, segments_selection=None, config=None,
-           logfile='', verbose=False, multi_process=False, chunksize=None,
-           skip_exceptions=None):
+def imap(pyfunc, dburl, segments_selection=None, config=None,
+         logfile='', verbose=False, multi_process=False, chunksize=None,
+         skip_exceptions=None):
     """Return an iterator that applies the function `pyfunc` to every segment
     found on the database at the URL `dburl`, processing only segments matching
     the given selection (`segments_selection`), yielding the results in the form
@@ -263,7 +263,7 @@ def s2smap(pyfunc, dburl, segments_selection=None, config=None,
     """
     session = validate_param('dburl', dburl, get_session)
     segment_ids = fetch_segments_ids(session, segments_selection)
-    close_session(session, True)
+    close_session(session)
     with _setup_logging(logfile, verbose):
         yield from run_and_yield(dburl, segment_ids, pyfunc, config, verbose,
                                  multi_process, chunksize, skip_exceptions)
@@ -562,7 +562,7 @@ def process_segments_mp(args):
                 ret.append((output, is_ok, segment.id))
             return ret
         finally:
-            close_session(session, True)
+            close_session(session)
 
 
 def process_segments(session, seg_ids_chunk, config, pyfunc, safe_exceptions_tuple):

@@ -130,7 +130,7 @@ def _get_download_info(info_generator, dburl, download_indices=None, download_id
                 if outfile in (None, sys.stdout) and not printed:
                     print('Nothing to show', file=sys.stderr)
     finally:
-        close_session(session, True)
+        close_session(session)
 
 
 def get_download_ids(session, download_indices=None, download_ids=None):

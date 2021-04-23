@@ -145,12 +145,12 @@ def download(config, log2file=True, verbose=False, **param_overrides):
         raise
     finally:
         if session is not None:
-            close_session(session)  # help gc?
+            close_session(session, False)  # help gc (note: no engine disposal)
             # write log to db if default handlers are provided:
             if db_streamer is not None and download_id is not None:
                 # remove file if no exceptions occurred (close the handler, too):
                 db_streamer.finalize(session, download_id, removefile=noexc_occurred)
-            close_session(session, True)  # engine disposal
+            close_session(session)
         close_logger(logger)
 
     return ret

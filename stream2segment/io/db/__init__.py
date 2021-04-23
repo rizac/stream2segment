@@ -164,14 +164,16 @@ def _engine(url_or_engine):
             engine.dispose()
 
 
-def close_session(session, dispose_engine=False):
+def close_session(session, dispose_engine=True):
     """Close the SQLAlchemy session
     https://docs.sqlalchemy.org/en/13/orm/session_basics.html#closing
-    and optionally disposes the underline engine
+    and the underline engine accessible via `session.get_bind()`
     https://docs.sqlalchemy.org/en/14/core/connections.html?highlight=dispose#engine-disposal
-    This method wraps any exception and skips them, if any, returning False.
-    Useful for unit testing and mock
+    unless `dispose_engine` is False (default: True).
 
+    :param session: a SQLAlchemy session
+    :param dispose_engine: boolean (default True when missing) close also the
+        underlying engine
     :return: True if all required operation(s) where performed with no exceptions,
         False otherwise
     """

@@ -1,7 +1,7 @@
 from stream2segment.io.db import close_session
 from stream2segment.process.db.models import Segment
 from stream2segment.process.db.sqlevalexpr import exprquery
-from stream2segment.process.main import process, s2smap, SkipSegment
+from stream2segment.process.main import process, imap, SkipSegment
 from stream2segment.process.db import get_session
 
 
@@ -43,4 +43,4 @@ def get_segments(dburl, conditions, orderby=None):
         yield from exprquery(sess.query(Segment), conditions, orderby)
     finally:
         if close_sess:
-            close_session(sess, dispose_engine=True)
+            close_session(sess)

@@ -10,7 +10,7 @@ from builtins import object  # pylint: disable=redefined-builtin
 from mock import patch
 import pytest
 
-from stream2segment.process.main import s2smap
+from stream2segment.process.main import imap
 from stream2segment.process import SkipSegment
 
 
@@ -68,7 +68,7 @@ class Test(object):
                               ({}, ['--multi-process']),
                               ({'segments_chunksize': 1}, ['--multi-process', '--num-processes', '1']),
                               ({}, ['--multi-process', '--num-processes', '1'])])
-    def test_s2smap(self, advanced_settings,
+    def test_imap(self, advanced_settings,
                     cmdline_opts,
                     # fixtures:
                     pytestdir, db4process, capsys):
@@ -89,7 +89,7 @@ class Test(object):
             assert config == 'abc'
             return segment.id
 
-        for res, id in s2smap(func, db4process.dburl, seg_sel, 'abc'):
+        for res, id in imap(func, db4process.dburl, seg_sel, 'abc'):
             assert res == id
             assert id > 3
             pass
@@ -99,7 +99,7 @@ class Test(object):
             raise SkipSegment('a-6')
 
         count = 0
-        for res, id in s2smap(func, db4process.dburl, seg_sel, cfg):
+        for res, id in imap(func, db4process.dburl, seg_sel, cfg):
             # assert res == ret
             # assert id > 3
             count += 1
@@ -111,7 +111,7 @@ class Test(object):
 
         count = 0
         with pytest.raises(ValueError):
-            for res, id in s2smap(func, db4process.dburl, seg_sel, cfg):
+            for res, id in imap(func, db4process.dburl, seg_sel, cfg):
                 count += 1
                 pass
         assert count == 0
@@ -121,7 +121,7 @@ class Test(object):
             raise ValueError('a-6')
 
         count = 0
-        for res, id in s2smap(func, db4process.dburl, seg_sel, cfg,
+        for res, id in imap(func, db4process.dburl, seg_sel, cfg,
                               skip_exceptions=[ValueError]):
             count += 1
             pass

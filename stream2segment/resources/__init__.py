@@ -4,13 +4,14 @@ from os.path import abspath, dirname, join, splitext
 PATH = abspath(dirname(__file__))
 
 
-def get_resource_abspath(filename):
-    """Return the resource file with given filename inside the package
-    `resource` directory
+def get_resource_abspath(*paths):
+    """Return the resource file as the concatenation of this module path (resource
+    directory) and any members of `*paths`.
+    Same as `os.path.join(resource_directory, *paths)`
 
-    :param filename: a filename relative to the resource directory
+    :param paths:filename(s) relative to the resource directory
     """
-    return join(PATH, filename)
+    return join(PATH, *paths)
 
 
 def get_ttable_fpath(basename):
