@@ -519,6 +519,23 @@ to common problems you might have and that we collected from several Ubuntu inst
   replace the old `requirements.txt` and `requirements.dev.txt` with the `.tmp` file
   created. 
 
+- Updating wiki:
+  Requirements:
+   - 'jupyter installed'.
+   - A clone of the repo 'stream2segment.wiki' on the same directory of stream2segment.
+  
+  Then:
+   - Edit the notebooks in stream2segment/resources/templates and create their merkdown:
+   - Some new notebook? Check they are run in tests:
+     "tests/misc/test_notebook"
+   - Create md (markdown) versions for the wiki:
+      ```bash
+       F='the-segment-object';jupyter nbconvert --to markdown ./stream2segment/resources/templates/$F.ipynb && mv ./stream2segment/resources/templates/$F.md ../stream2segment.wiki
+      ```
+      (repeat for every notebook)
+   - `cd ../stream2segment.wiki`, check 'Home.md' (where the TOC
+       is. Here you can add/rearrange the TOC, e.g. if you added
+       new notebooks), and then `git commit`, `push` as usual
 <!--
 ## Misc:
 
