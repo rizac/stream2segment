@@ -152,7 +152,7 @@ class Station(Base, models.Station):
 
 
     def inventory(self, reload=False):
-        """Return the inventory from self (a segment class)"""
+        """Return the inventory as ObsPy Response object"""
         # inventory is lazy loaded. The output of the loading process
         # (or the Exception raised, if any) is stored in the self._inventory
         # attribute. When querying the inventory a further time, the stored value
@@ -324,31 +324,36 @@ class Segment(Base, models.Segment):
         self.edit_classes('del', *ids_or_labels, **kwargs)
 
     def set_classes(self, *ids_or_labels, **kwargs):
-        """Set segment classes, replacing old ones, if any
+        """Add a class labelling to this segment. Old class labellings are removed
+        beforehand
 
         :param ids_or_labels: list of int (denoting class ids) or str (denoting
             class label)
-        :param kwargs: py2 compatible keyword arguments (PEP 3102): currently
-            supported is 'annotator' (str, default: None) and 'auto_commit'
-            (bool, default: True). If `annotator` is not None, the class
-            assignment is saved as hand labelled
+        :param kwargs: Optional keyword arguments. currently supported are:
+            'annotator' (str, default: None). A None annotator should mean that
+                the label assignment is the result of a classifier prediction and not
+                human inspection. For this reason, providing an annotator (not None) will
+                set the `hand_labelled` property of the Class labelling to True.
+            'auto_commit' (bool, default: True).
         """
         self.edit_classes('set', *ids_or_labels, **kwargs)
 
     def add_classes(self, *ids_or_labels, **kwargs):
-        """Add segment classes, keeping old ones, if any
+        """Add a class labelling to this segment. Old class labellings are not removed
 
         :param ids_or_labels: list of int (denoting class ids) or str (denoting
             class label)
-        :param kwargs: py2 compatible keyword arguments (PEP 3102): currently
-            supported is 'annotator' (str, default: None) and 'auto_commit'
-            (bool, default: True). If `annotator` is not None, the class
-            assignment is saved as hand labelled
+        :param kwargs: Optional keyword arguments. currently supported are:
+            'annotator' (str, default: None). A None annotator should mean that
+                the label assignment is the result of a classifier prediction and not
+                human inspection. For this reason, providing an annotator (not None) will
+                set the `hand_labelled` property of the Class labelling to True.
+            'auto_commit' (bool, default: True).
         """
         self.edit_classes('add', *ids_or_labels, **kwargs)
 
     def edit_classes(self, mode, *ids_or_labels, **kwargs):
-        """ Edit segment classes
+        """Edit segment classes
 
         :param mode: either 'add' 'set' or 'del'
         :param ids_or_labels: list of int (denoting class ids) or str (denoting
@@ -506,9 +511,11 @@ class Segment(Base, models.Segment):
                     else_=sel)
 
     def inventory(self, reload=False):
+        """Return the inventory of this segment Station as ObsPy Response object"""
         return self.station.inventory(reload)
 
     def dbsession(self):
+        """Return the database session to which this object is attached"""
         return object_session(self)
 
     def siblings(self, parent=None, conditions=None, colname=None):
