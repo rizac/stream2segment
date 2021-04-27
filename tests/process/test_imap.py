@@ -89,9 +89,9 @@ class Test(object):
             assert config == 'abc'
             return segment.id
 
-        for res, id in imap(func, db4process.dburl, seg_sel, 'abc'):
-            assert res == id
-            assert id > 3
+        for res in imap(func, db4process.dburl, seg_sel, 'abc'):
+            # assert res == id
+            assert res > 3
             pass
 
         def func(segment, config):
@@ -99,7 +99,7 @@ class Test(object):
             raise SkipSegment('a-6')
 
         count = 0
-        for res, id in imap(func, db4process.dburl, seg_sel, cfg):
+        for res in imap(func, db4process.dburl, seg_sel, cfg):
             # assert res == ret
             # assert id > 3
             count += 1
@@ -111,7 +111,7 @@ class Test(object):
 
         count = 0
         with pytest.raises(ValueError):
-            for res, id in imap(func, db4process.dburl, seg_sel, cfg):
+            for res in imap(func, db4process.dburl, seg_sel, cfg):
                 count += 1
                 pass
         assert count == 0
@@ -121,7 +121,7 @@ class Test(object):
             raise ValueError('a-6')
 
         count = 0
-        for res, id in imap(func, db4process.dburl, seg_sel, cfg,
+        for res in imap(func, db4process.dburl, seg_sel, cfg,
                               skip_exceptions=[ValueError]):
             count += 1
             pass

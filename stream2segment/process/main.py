@@ -218,12 +218,7 @@ def imap(pyfunc, dburl, segments_selection=None, config=None,
          skip_exceptions=None):
     """Return an iterator that applies the function `pyfunc` to every segment
     found on the database at the URL `dburl`, processing only segments matching
-    the given selection (`segments_selection`), yielding the results in the form
-    of the tuple:
-    ```
-        (output:Any, segment_id:int)
-    ```
-    (where output is the return value of `pyfunc`)
+    the given criteria (`segments_selection`). Yields the the output of `pyfunc`
 
     :param pyfunc: a Python function with signature (= accepting arguments):
         `(segment:Segment, config:dict)`. The first argument is the segment
@@ -265,8 +260,10 @@ def imap(pyfunc, dburl, segments_selection=None, config=None,
     segment_ids = fetch_segments_ids(session, segments_selection)
     close_session(session)
     with _setup_logging(logfile, verbose):
-        yield from run_and_yield(dburl, segment_ids, pyfunc, config, verbose,
-                                 multi_process, chunksize, skip_exceptions)
+        for result, seg_id in run_and_yield(dburl, segment_ids, pyfunc, config, verbose,
+                                            multi_process, chunksize, skip_exceptions):
+            yield result
+
 
 @contextmanager
 def _setup_logging(logfile, verbose):
