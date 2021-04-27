@@ -48,11 +48,22 @@ def get_segments(dburl, conditions, orderby=None):
             close_session(sess)
 
 
-# 2nd element falsy: no doc (hidden)
+# ======================================================================================
+# Docstring help for the Segment object as lists of (name, description) tuples to
+# preserve desired order (for older python version compatibility).
+# Any attribute or method of :class:`stream2segment.process.db.models.Segment` should be
+# here below. Otherwise, the function raises (to check, you can always run
+# `test_segment_help` in `tests/misc/test_notebook.py`).
+# Attributes/methods that are supposed to be HIDDEN SHOULD be coupled with a FALSY
+# description.
+# Descriptions should be in plain text with optionally partial markdown support
+# (*, **, ` and \n that you can use to force newlines and is converted to '<br>' in html)
+# ======================================================================================
+
 _SEGMENT_ATTRS = [  # as formatting can use *, **, `, nothing else
     ["id", "int: segment (unique) db id"],
-    ["has_data", "boolean: if the segment has waveform data saved (at least one "
-                 "byte of data). Useful, often necessary, in segment selection: "
+    ["has_data", "bool: if the segment has waveform data saved (at least one "
+                 "byte of data). Often necessary in segment selection: "
                  "e.g., to skip processing segments with no data, then:\n"
                  "has_data: 'true'"],
     ["event_distance_deg", "float: distance between the segment station and the "
@@ -81,17 +92,11 @@ _SEGMENT_ATTRS = [  # as formatting can use *, **, `, nothing else
                            "missing_data_ratio: '< 0.1'"],
     ["sample_rate", "float: waveform sample rate. It might differ from the "
                     "segment channel sample_rate"],
-    ["download_code", "int: the segment download status. For advanced users. "
-                      "Useful in segment selection. E.g., to process segments "
-                      "with non malformed waveform data (readable as miniSEED):\n"
-                      "has_data: 'true'\n"
-                      "download_code: '!=-2'\n"
-                      "(for details on all download codes, see Table 2 in "
-                      "https://doi.org/10.1785/0220180314)"],
     ["maxgap_numsamples", "float: maximum gap/overlap (G/O) found in the waveform, "
-                          "in number of points.\n"
-                          "If 0: segment has no G/O >=1: segment has Gaps"
-                          "<=-1: segment has Overlaps.\n"
+                          "in number of points. If\n"
+                          "0: segment has no G/O\n"
+                          ">=1: segment has gaps\n"
+                          "<=-1: segment has overlaps.\n"
                           "Values in (-1, 1) are difficult to interpret: a rule "
                           "of thumb is to consider no G/O if values are within "
                           "-0.5 and 0.5. Useful in segment selection: e.g., to "
@@ -105,11 +110,18 @@ _SEGMENT_ATTRS = [  # as formatting can use *, **, `, nothing else
                      "it reads the value stored in the waveform data. The "
                      "drawback is that this value is null for segments with no "
                      "waveform data"],
-    ["has_class", "boolean: tells if the segment has (at least one) class label "
+    ["has_class", "bool: tells if the segment has (at least one) class label "
                   "assigned"],
     ["data", "bytes: the waveform (raw) data. Used by `segment.stream()`"],
     ["queryauth", "bool: if the segment download required authentication "
                   "(data is restricted)"],
+    ["download_code", "int: the segment download status. For advanced users. "
+                      "Useful in segment selection. E.g., to process segments "
+                      "with non malformed waveform data (readable as miniSEED):\n"
+                      "has_data: 'true'\n"
+                      "download_code: '!=-2'\n"
+                      "(for details on all download codes, see Table 2 in "
+                      "https://doi.org/10.1785/0220180314)"],
     # ["event", "object (attributes below)"],
     ["event.id", "int"],
     ["event.event_id", "str: the id returned by the web service or catalog"],
@@ -199,27 +211,30 @@ _SEGMENT_METHODS = [
 
 
 def get_segment_help(format='html', maxwidth=70, **print_kwargs):
-    """
+    """Return the :class:`Segment` help (attributes and methods) as string
+
     :param format: Not supported yet, only html allopwed
     """
     import re, inspect
-    # queryable attributes (no relationships):
+
+    # Get queryable attributes (no relationships):
     qatts = list(attnames(Segment, qatt=True, rel=False, fkey=False))
     # add relationships:
     for relname, relmodel in get_related_models(Segment).items():
         qatts.extend('%s.%s' % (relname, _)
                      for _ in attnames(relmodel, qatt=True, rel=False, fkey=False))
+
     # check that all documentable attributes are considered and we did not forget any
     # (might happen when adding new hybrid props or methods):
     all_documented_attrs = set(_[0] for _ in _SEGMENT_ATTRS) | \
-                           set(attnames(Segment, fkey=True))
+        set(attnames(Segment, fkey=True))
     undocumented_attrs = set(qatts) - all_documented_attrs
     assert not undocumented_attrs, "Missing doc for attribute(s): %s" % undocumented_attrs
 
-    # get segment methods:
+    # Get segment methods:
     meths = []
     for meth in list(attnames(Segment, qatt=False, rel=False)):
-        if meth[:1] == '_':  # or meth == 'metadata':
+        if meth[:1] == '_':
             continue
         func = getattr(Segment, meth)
         if not callable(func):
@@ -233,10 +248,11 @@ def get_segment_help(format='html', maxwidth=70, **print_kwargs):
     # attrs:
     table += [('**Selectable attributes**', '**Type and optional description**')]
     table += _SEGMENT_ATTRS
-    # methods:
+    # methods (some work more, add signature to the method name):
     table += [('**Methods**', '**Description**')]
     for meth, doc in _SEGMENT_METHODS:
         if doc:
+            # create
             func = getattr(Segment, meth)
             meth += '(' + str(inspect.signature(func))[7:]  # remove "(self, "
             table.append((meth, doc))
@@ -244,7 +260,7 @@ def get_segment_help(format='html', maxwidth=70, **print_kwargs):
     format = format or ''
 
     lines = []
-    # print if html (easier) and return:
+    # one format supported for the moment (html):
     if format.lower() in ('html', 'htm'):
         code_re = re.compile('`(.*?)`')
         br_re = re.compile('\n')
