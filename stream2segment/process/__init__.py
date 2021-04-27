@@ -202,7 +202,7 @@ def print_segment_help(format='html', maxwidth=70, **print_kwargs):
     """
     :param format: Not supported yet, only html allopwed
     """
-    import textwrap, inspect, re
+    import re, inspect
     # queryable attributes (no relationships):
     qatts = list(attnames(Segment, qatt=True, rel=False, fkey=False))
     # add relationships:
@@ -229,14 +229,17 @@ def print_segment_help(format='html', maxwidth=70, **print_kwargs):
     undocumented_attrs = set(meths) - all_documented_meths
     assert not undocumented_attrs, "Missing doc for method(s): %s" % undocumented_attrs
 
-    title = 'The Segment object (attributes and methods)'
     table = []
     # attrs:
     table += [('**Selectable attributes**', '**Type and optional description**')]
     table += _SEGMENT_ATTRS
     # methods:
     table += [('**Methods**', '**Description**')]
-    table += _SEGMENT_METHODS
+    for meth, doc in _SEGMENT_METHODS:
+        if doc:
+            func = getattr(Segment, meth)
+            meth += '(' + str(inspect.signature(func))[7:]  # remove "(self, "
+            table.append((meth, doc))
 
     format = format or ''
 
@@ -247,20 +250,26 @@ def print_segment_help(format='html', maxwidth=70, **print_kwargs):
         br_re = re.compile('\n')
         b_re = re.compile(r'\*\*(.*?)\*\*')
         i_re = re.compile(r'\*(.*?)\*')
+
+        def convert(string):
+            string = code_re.sub('<code>\\1</code>', string)
+            string = b_re.sub('<b>\\1</b>', string)
+            string = i_re.sub('<i>\\1</i>', string)
+            string = br_re.sub('<br/>', string)
+            return string
+
         if maxwidth and maxwidth > 0:
             lines.append('<table style="max-width:%dem;>' % maxwidth)
         else:
             lines.append('<table>')
-        lines.append('<tr><th colspan="2">%s</th></tr>' % title)
         for attname, attval in table:
             if not attval:
                 continue
-            attname = '<span style="white-space: nowrap">{0}</span>'.format(attname)
+            attname = '<span style="white-space: nowrap">{0}</span>'.\
+                format(convert(attname))
             # replace markdown with html:
-            attval = code_re.sub('<code>\\1</code>', attval)
-            attval = b_re.sub('<b>\\1</b>', attval)
-            attval = i_re.sub('<i>\\1</i>', attval)
-            attval = br_re.sub('<br/>', attval)
+            attval = convert(attval)
+            # notebook prints everything right aligned. So let's force left align:
             style = ' style="text-align:left"'
             lines.append('<tr {0}><td>{1}</td><td {0}>{2}</td></tr>'.format(style,
                                                                             attname,

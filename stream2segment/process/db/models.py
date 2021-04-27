@@ -302,6 +302,9 @@ class Segment(Base, models.Segment):
         <root>/<e_id>/<net>/<sta>/<loc>/<cha>.D/<net>.<sta>.<loc>.<cha>.<y>.<d>
         For info see:
         https://www.seiscomp3.org/doc/applications/slarchive/SDS.html
+
+        :param root: Optional (defaults to '.' when missing). The root path of this
+            segment file (first argument of `os.path.join`)
         """
         # year > N > S > L > C.D > segments > N.S.L.C.year.day.event_id.mseed
         seg_dtime = self.request_start  # note that start_time might be None
@@ -511,7 +514,13 @@ class Segment(Base, models.Segment):
                     else_=sel)
 
     def inventory(self, reload=False):
-        """Return the inventory of this segment Station as ObsPy Response object"""
+        """Return the inventory of this segment Station as ObsPy Response object
+
+        :param reload: bool. Optional (default: False). Force reloading the Response
+            object from the downloaded waveform data (bytes sequence). In most cases
+            you can ignore this parameter as a Response object is usually never modified
+            but used as read-only object
+        """
         return self.station.inventory(reload)
 
     def dbsession(self):
@@ -534,7 +543,14 @@ class Segment(Base, models.Segment):
         return sblngs
 
     def stream(self, reload=False):
-        """Return the stream from self (a segment class)"""
+        """Return the stream from self (a segment class)
+
+        :param reload: bool. Optional (default: False). Force reloading the Stream object
+            from the downloaded waveform data (bytes sequence), discarding any
+            modification (e.g. if the response was removed from the Stream, return the
+            unprocessed Stream in count units). Reloading a Stream might be more time
+            consuming
+        """
         # stream is lazy loaded. The output of the loading process
         # (or the Exception raised, if any) is stored in the self._stream attribute.
         # When querying the stream a further time, the stored value is returned,

@@ -1,4 +1,12 @@
+from stream2segment.process import print_segment_help
 from stream2segment.resources import get_resource_abspath
+
+def test_segment_help():
+    """This test check that we did not add any new method or attribute to the Segment
+    object without considering it in the doc (either make it hidden or visible)
+    """
+    print_segment_help()
+
 
 def test_notebook(data):
     import os
