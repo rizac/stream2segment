@@ -1,3 +1,12 @@
+try:
+    import nbformat
+    from nbconvert.preprocessors import ExecutePreprocessor
+except ImportError:
+    import pytest
+    pytest.mark.skip("Jupyter not installed, not testing notebooks correctness")
+
+
+import os
 from stream2segment.process import print_segment_help
 from stream2segment.resources import get_resource_abspath
 
@@ -9,9 +18,7 @@ def test_segment_help():
 
 
 def test_notebook(data):
-    import os
-    import nbformat
-    from nbconvert.preprocessors import ExecutePreprocessor
+
     # cwd = os.getcwd()
     for fle_ in [ 'jupyter.example.ipynb', 'the-segment-object.ipynb']:
         fle = get_resource_abspath('templates', fle_)

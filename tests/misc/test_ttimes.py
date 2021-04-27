@@ -17,9 +17,8 @@ from click.testing import CliRunner
 from stream2segment.traveltimes.ttcreator import _filepath, StepIterator,\
     min_traveltime, ttcreate
 
-pytestmark = pytest.mark.skip("TRAVEL-TIMES CREATION NOT SUPPORTED AS OF 2021."
-                              "IT WILL PROBABLY BE M OVED TO A SEPARATE "
-                              "PACKAGE")
+pytestmark = pytest.mark.skip("Travel times creation not supported as of 2021. "
+                              "The module could be moved into a separate package")
 
 @pytest.fixture(scope='module')
 def ttdata(data):
