@@ -198,7 +198,7 @@ _SEGMENT_METHODS = [
 ]
 
 
-def print_segment_help(format='html', maxwidth=70, **print_kwargs):
+def get_segment_help(format='html', maxwidth=70, **print_kwargs):
     """
     :param format: Not supported yet, only html allopwed
     """
@@ -279,11 +279,3 @@ def print_segment_help(format='html', maxwidth=70, **print_kwargs):
         raise ValueError('format "%s" not supported' % format)
 
     return '\n'.join(lines)
-
-
-if __name__ == "__main__":
-    from io import StringIO
-    s = StringIO()
-    print_segment_help(file=s)
-    val = s.getvalue()
-    asd = 9
