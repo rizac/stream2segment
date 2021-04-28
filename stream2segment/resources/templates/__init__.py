@@ -303,25 +303,22 @@ PROCESS_YAML_MAIN = """
 # Stream2segment config file to tune the processing/visualization subroutine
 # ==========================================================================
 #
-# This editable template defines the configuration parameters which will
-# be accessible in the associated processing / visualization Python file.
-#
-# You are free to implement here anything you need: there are no mandatory parameters but
-# we strongly suggest to keep '{0}' and 'sn_windows', which add also special 
-# features to the GUI.
+# Everything implemented here will be accessible in the argument `config` of any 
+# processing / plot function implemented in the associated Python file, but please note 
+# that some parameters (e.g. '{0}', 'sn_windows' and 'advanced_settings')
+# are also used outside those function to tune the whole routine (see details below).
+# Once edited, this file can be passed as -c argument to the `s2s process` command 
+# on the terminal
 """.format(SEGSEL_PARAMNAME)
 
 
 PROCESS_YAML_SEGMENTSELECT = """
-The parameter '{0}' defines which segments to be processed or visualized.
-# PLEASE USE THIS PARAMETER. If missing, all segments will be loaded, including segment
-# with no (or malformed) waveform data: this is in practically always useless and slows
-# down considerably the processing or visualization routine. For details, see:
-# {1}
+Define which segments to be processed or visualized. For details, see:
+# {0}
 # (scroll to the top of the page for the full list of selectable attributes)
-#
-# """.format(SEGSEL_PARAMNAME, _THE_SEGMENT_OBJECT_SEGSEL) + """
-# """
+# THIS PARAMETER SHOULD BE ALWAYS PROVIDED: if missing or empty, all segments will be 
+# loaded, including segment with missing or malformed waveform data. This is rarely what
+# you might want and slows down considerably the processing or visualization routine""".format(_THE_SEGMENT_OBJECT_SEGSEL)
 
 PROCESS_YAML_SNWINDOWS = """
 Settings for computing the 'signal' and 'noise' time windows on a segment waveform.
