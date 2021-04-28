@@ -317,10 +317,10 @@ The parameter '{0}' defines which segments to be processed or visualized.
 # PLEASE USE THIS PARAMETER. If missing, all segments will be loaded, including segment
 # with no (or malformed) waveform data: this is in practically always useless and slows
 # down considerably the processing or visualization routine. For details, see:
-# {0}
+# {1}
 # (scroll to the top of the page for the full list of selectable attributes)
 #
-# """.format(_THE_SEGMENT_OBJECT_SEGSEL) + """
+# """.format(SEGSEL_PARAMNAME, _THE_SEGMENT_OBJECT_SEGSEL) + """
 # """
 
 PROCESS_YAML_SNWINDOWS = """

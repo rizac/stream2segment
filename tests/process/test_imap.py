@@ -5,11 +5,13 @@ Created on Feb 14, 2017
 '''
 from __future__ import print_function, division
 
+import os
 from builtins import object  # pylint: disable=redefined-builtin
 
 from mock import patch
 import pytest
 
+from stream2segment.io.inputvalidation import BadParam
 from stream2segment.process.main import imap
 from stream2segment.process import SkipSegment
 
@@ -127,3 +129,19 @@ class Test(object):
             pass
         assert count == 0
 
+
+def test_imap_wrong_sqlite(# fixtures:
+                           pytestdir):
+    '''test a non existing sqlite checking that we have the right error
+    '''
+
+    # first test, provide a fake dburl that does not exist:
+    with pytest.raises(BadParam) as bparam:
+        fname = pytestdir.newfile('.sqlite', create=False)
+        assert not os.path.isfile(fname)  # for safety
+        dburl = 'sqlite:///' + fname
+        assert not os.path.isfile(dburl[10:])
+        for res in imap(lambda *a, **v: 0, dburl, {}, 'abc'):
+            pass
+
+    assert 'dburl' in str(bparam.value)

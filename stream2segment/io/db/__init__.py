@@ -1,4 +1,5 @@
 import re
+import os
 from contextlib import contextmanager
 
 from sqlalchemy.exc import ProgrammingError, OperationalError, SQLAlchemyError
@@ -35,8 +36,8 @@ def get_session(dbpath, scoped=False, check_db_existence=True, **engine_args):
                          '(original error: %s)' % str(_))
 
     if check_db_existence:
-        # the only case when we don't care if the database exists is when
-        # we have sqlite and we are downloading. Thus
+        # (the only case when we don't care if the database exists is when
+        #  we have sqlite and we are downloading)
         if not database_exists(engine):
             raise DbNotFound(dbpath)
 
@@ -68,8 +69,8 @@ class DbNotFound(ValueError):
         # Warning: if you change the message below, check also the message raised in
         # check also stream2segment.download.db::valid_session
         # that relies upon this:
-        return 'Database "%s" not accessible. Possible reason: wrong user/password/host ' \
-               'in the URL, or the db does not exist' % get_dbname(self.dburl)
+        return 'Database not accessible. Possible reason: wrong user/password/host ' \
+               'in the URL, or the db does not exist'
 
 
 def is_sqlite(dburl):
@@ -89,10 +90,16 @@ def database_exists(url_or_engine):
 
     :param url_or_engine: SQLAlchemy engine or string denoting a database URL.
     """
-    # Check if database exist, works for mysql, postgres, sqlite.
-    # Info here: https://stackoverflow.com/a/3670000
-    # (We could use the package sqlalchemy-utils, but we decided
-    # not to import it to avoid overhead for just one function)
+    # We adopt a quick and dirt solution from https://stackoverflow.com/a/3670000
+    # slightly modified because although they claimed it does, it doesn't work for sqlite
+    # (a db is created if it does not exist). For a more sophisticated solution, see:
+    # https://sqlalchemy-utils.readthedocs.io/en/latest/_modules/sqlalchemy_utils/functions/database.html#database_exists
+
+    # Is it sqlite?
+    url_ = get_url(url_or_engine)
+    if is_sqlite(url_):
+        return os.path.isfile(_extract_file_path(url_))
+
     text = 'SELECT 1'
     with _engine(url_or_engine) as engine:
         try:
@@ -103,51 +110,16 @@ def database_exists(url_or_engine):
             return False
 
 
-# def create_database(url_or_engine, encoding='utf8', template='template1'):
-#     """Issue the appropriate CREATE DATABASE statement. Supported backends:
-#     postgres and sqlite( in this latter case is no-op, i.e. it does nothing
-#     as Sqlite creates a database automatically)
-#
-#     :param url_or_engine: SQLAlchemy engine or string denoting a database URL.
-#     :param encoding: The encoding to create the database as. Default: 'utf8'
-#     :param template: str, default='template1'
-#         The name of the template from which to create the new database. At the
-#         moment only supported by PostgreSQL driver.
-#
-#     To create a database, you can pass a simple URL that would have
-#     been passed to ``create_engine``. ::
-#
-#         create_database('postgresql://postgres@localhost/name')
-#
-#     You may also pass the url from an existing engine. ::
-#
-#         create_database(engine)
-#     """
-#     with _engine(url_or_engine) as engine:
-#         url = str(engine.url)
-#         if url.startswith('postgres'):
-#             if '/' not in url:
-#                 raise ValueError('Wrong or Missing database name')
-#             url_base, dbname = url[:url.rfind('/')], url[:url.rfind('/') + 1:]
-#             if '"' in dbname:
-#                 raise ValueError('" not allowed in dbname')
-#
-#             conn = engine.connect()
-#             # https://stackoverflow.com/a/8977109
-#             conn.execute("commit")
-#             if not template:
-#                 raise ValueError('No template provided template')
-#             if '"' in template:
-#                 raise ValueError('Invalid template name %s' % template)
-#             # in postgres, single quote are used to denote strings,
-#             # double quote are used to delimit an identifier
-#             text = "CREATE DATABASE \"{0}\" ENCODING '{1}' TEMPLATE \"{2}\"".format(
-#                 dbname,
-#                 encoding,
-#                 template
-#             )
-#             conn.execute(text)
-#             conn.close()
+def _extract_file_path(sqlite_url):
+    return os.path.abspath(sqlite_url[10:])  # remove sqlite:///
+
+
+def get_url(url_or_engine):
+    """Return the URL from the given argument (if already url, return the argument)
+    """
+    if isinstance(url_or_engine, str):
+        return url_or_engine
+    return str(url_or_engine.url)
 
 
 @contextmanager

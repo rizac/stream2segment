@@ -311,12 +311,12 @@ def init(outdir):
     """
     helpdict = OrderedDict([
         ("download.yaml",
-         "Download configuration file (option -c of 's2s download')"),
+         "Download configuration settings (option -c of 's2s download')"),
         ("paramtable.py",
-         "Processing python file for creating a parametric table (HDF, CSV). "
+         "Processing module for creating a parametric table (HDF, CSV). "
          "Option -p of 's2s process' and 's2s show'"),
         ("paramtable.yaml",
-         "Processing configuration used in the associated Python file. "
+         "Processing configuration settings used in the associated module. "
          "Option -c of 's2s process' and 's2s show'"),
         # ("save2fs.py",
         #  "Processing python file for saving waveform to filesystem. "
@@ -324,14 +324,11 @@ def init(outdir):
         # ("save2fs.yaml",
         #  "Processing configuration used in the associated Python file. "
         #  "Option -c of 's2s process' and 's2s show'"),
-        ("jupyter.example.ipynb",
-         "Jupyter notebook illustrating how to "
-         "access downloaded data and run custom code. "
-         "Run 'jupyter notebook jupyter.example.ipynb' for details "
+        ("Using-Stream2segment-in-your-Python-code.ipynb",
+         "Jupyter notebook illustrating how to work with downloaded data "
          "(requires the installation of jupyter)"),
-        ("jupyter.example.db",
-         "Test database with few downloaded segments. Used in the "
-         "associated jupyter notebook")
+        ("example.db.sqlite",
+         "Example database used in the associated notebook")
     ])
     # import here to improve slow click cli (at least when --help is invoked)
     # https://www.tomrochette.com/problems/2020/03/07

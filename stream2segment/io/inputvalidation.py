@@ -100,7 +100,12 @@ def validate_param(param_name_or_names, value, validation_func, *v_args, **v_kwa
         preamble = BadParam.P_INVALID
         if isinstance(exc, TypeError):  # change type. FIXME: replace?
             preamble = preamble.replace('Invalid value', 'Invalid type')
-        raise BadParam(preamble, param_name_or_names, message=exc, param_sep=" / ")
+        # raise from None in order to simply say that `exc` was handled and is no longer
+        # of interest. Otherwise if you raise an exception inside an except block and it
+        # isn't handled, tracebacks for both exceptions will be shown separated by the
+        # message "During handling of the above exception, another exception occurred"
+        raise BadParam(preamble, param_name_or_names, message=exc, param_sep=" / ") \
+            from None
 
 
 # to make None a passable argument to the next function
