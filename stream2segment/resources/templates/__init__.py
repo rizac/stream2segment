@@ -288,12 +288,11 @@ PROCESS_YAML_MAIN = """
 # Stream2segment config file to tune the processing/visualization subroutine
 # ==========================================================================
 #
-# Everything implemented here will be accessible in the argument `config` of any 
+# If this file is passed as -c argument to the `s2s process` command on the terminal,
+# everything implemented here will be accessible in the argument `config` of any 
 # processing / plot function implemented in the associated Python file, but please note 
 # that some parameters (e.g. '{0}', 'sn_windows' and 'advanced_settings')
 # are also used outside those function to tune the whole routine (see details below).
-# Once edited, this file can be passed as -c argument to the `s2s process` command 
-# on the terminal
 """.format(SEGSEL_PARAMNAME)
 
 

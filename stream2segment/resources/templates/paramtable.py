@@ -509,7 +509,10 @@ if __name__ == "__main__":
     # ------------------------------------
     config = yaml_load('enter_your_processing_config_filepath_here')
     dburl = yaml_load('enter_the_path_of_the_download_config_used_here')['dburl']
-    # segments to process (modify according to your needs):
+    # segments to process (modify according to your needs). The variable
+    # can also be a numeric list/numpy array of integers denoting the ID of
+    # the segments to process. You can also read the selection from file or extract it
+    # from the config above, if implemented therein
     segments_selection = {
         'has_data': 'true',
         'maxgap_numsamples': '[-0.5, 0.5]',
