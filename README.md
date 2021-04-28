@@ -520,6 +520,7 @@ to common problems you might have and that we collected from several Ubuntu inst
   created. 
 
 - Updating wiki:
+  
   Requirements:
    - 'jupyter installed'.
    - A clone of the repo 'stream2segment.wiki' on the same parent directory of the
