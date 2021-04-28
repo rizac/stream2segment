@@ -528,11 +528,11 @@ to common problems you might have and that we collected from several Ubuntu inst
    - Edit the notebooks in stream2segment/resources/templates and create their merkdown:
    - Some new notebook? Check they are run in tests:
      "tests/misc/test_notebook"
-   - Create md (markdown) versions for the wiki:
+   - Create md (markdown) versions for the wiki (`F` is the filename with no extension):
       ```bash
-       F='the-segment-object';jupyter nbconvert --to markdown ./stream2segment/resources/templates/$F.ipynb && mv ./stream2segment/resources/templates/$F.md ../stream2segment.wiki
+       F='The-Segment-object';jupyter nbconvert --to markdown ./stream2segment/resources/templates/$F.ipynb && mv ./stream2segment/resources/templates/$F.md ../stream2segment.wiki
       ```
-      (repeat for every notebook)
+      (repeat for every notebook file, e.g. `Using-Stream2segment-in-your-Python-code`)
    - `cd ../stream2segment.wiki`, check 'Home.md' (where the TOC
        is. Here you can add/rearrange the TOC, e.g. if you added
        new notebooks), and then `git commit`, `push` as usual
