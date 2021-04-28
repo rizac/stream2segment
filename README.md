@@ -533,7 +533,7 @@ to common problems you might have and that we collected from several Ubuntu inst
    - Create .md (markdown) versions of the notebook for the wiki. From the
      stream2segment repository as `cwd` (`F` is the filename without the 'ipnyb' extension):
       ```bash
-       F='The-Segment-object';jupyter nbconvert --to markdown ./stream2segment/resources/templates/$F.ipynb && mv ./stream2segment/resources/templates/$F.md ../stream2segment.wiki
+      F='Using-Stream2segment-in-your-Python-code';jupyter nbconvert --to markdown ./stream2segment/resources/templates/$F.ipynb --output-dir ../stream2segment.wiki 
       ```
       (repeat for every notebook file, e.g. `Using-Stream2segment-in-your-Python-code`)
    - `cd ../stream2segment.wiki`: 
