@@ -17,7 +17,20 @@ from stream2segment.download.modules.utils import EVENTWS_MAPPING
 from stream2segment.process.main import _get_chunksize_defaults
 from stream2segment.process.writers import SEGMENT_ID_COLNAME, HDF_DEFAULT_CHUNKSIZE
 from stream2segment.process.inputvalidation import SEGMENT_SELECT_PARAM_NAMES
+
 SEGSEL_PARAMNAME = SEGMENT_SELECT_PARAM_NAMES[0]
+
+
+_USING_S2S_IN_YOUR_PYTHON_CODE = 'https://github.com/rizac/stream2segment/wiki/using-stream2segment-in-your-python-code'
+
+
+_THE_SEGMENT_OBJECT = 'https://github.com/rizac/stream2segment/wiki/the-segment-object'
+
+
+_THE_SEGMENT_OBJECT_ATTRS_AND_METHS = _THE_SEGMENT_OBJECT + '#attributes-and-methods'
+
+
+_THE_SEGMENT_OBJECT_SEGSEL = _THE_SEGMENT_OBJECT + '#segments-selection'
 
 
 PROCESS_PY_BANDPASSFUNC = """
@@ -51,8 +64,11 @@ the segment stream afterwards with `segment.stream(reload=True)`.
 
 PROCESS_PY_MAINFUNC = """
 Main processing function. The user should implement here the processing for any
-given selected segment. Useful links for functions, libraries and utilities:
+given selected segment. Useful links:
 
+- Online tutorial (also available as Notebook locally with the command `s2s init`,
+  useful for testing):
+  {0}
 - `stream2segment.process.funclib.traces` (small processing library implemented in
    this program, most of its functions are imported here by default)
 - `ObpPy <https://docs.obspy.org/packages/index.html>`_
@@ -67,27 +83,28 @@ segment. Raise them to programmatically skip a segment, e.g.:
 if segment.sample_rate < 60: 
     raise SkipSegment("segment sample rate too low")`
 ```
-
-Handling exceptions at any point of the processing is non trivial: some have to
-be skipped to save precious time, some must not be ignored and should interrupt 
-the routine to fix bugs preventing output mistakes.
+Handling exceptions at any point of a time consuming processing is non trivial:
+some have to be skipped to save precious time, some must not be ignored and should
+interrupt the routine to fix critical errors.
 Therefore, we recommend to try to run your code on a smaller and possibly 
 heterogeneous dataset first: change temporarily the segment selection in the
 configuration file, and then analyze any exception raised, if you want to ignore 
-the exception (e.g., it's not due to a bug in your code), then you can wrap only 
-the part of code affected in a “try ... catch" statement, and raise a `SkipSegment`.
-Also, please spend some time on the configuration file segment selection: you might
+the exception, then you can wrap only  the part of code affected in a 
+"try ... catch" statement, and raise a `SkipSegment`.
+Also, please spend some time on refining the selection of segments: you might
 find that your code runs smoothly and faster by simply skipping certain segments in 
 the first place.
 
-:param: segment (Python object): An object representing a waveform data to be
-    processed, reflecting the relative database table row. See above for a detailed
-    list of attributes and methods
+:param: segment: the object describing a downloaded waveform segment and its metadata,
+    with a full set of useful attributes and methods detailed here:
+    {1}
 
-:param: config (Python dict): a dictionary reflecting what has been implemented in
-    the configuration file. You can write there whatever you want (in yaml format,
-    e.g. "propertyname: 6.7" ) and it will be accessible as usual via
-    `config['propertyname']`
+:param: config: a dictionary representing the configuration parameters
+    accessible globally by all processed segments. The purpose of the `config`
+    is to encourage decoupling of code and configuration for better and more 
+    maintainable code, avoiding, e.g., many similar processing functions differing 
+    by few hard-coded parameters (this is one of the reasons why the config is
+    given as separate YAML file to be passed to the `s2s process` command)
 
 :return: If the processing routine calling this function needs not to generate a
     file output, the returned value of this function, if given, will be ignored.
@@ -123,7 +140,7 @@ the first place.
      Returning None or nothing is also valid: in this case the segment will be
      silently skipped.
 
-     A column named '{0}' with the segment database id (an integer uniquely
+     A column named '{2}' with the segment database id (an integer uniquely
      identifying the segment) will be automatically added to the dict / Series, or
      to each row of the DataFrame, before writing it to file.
 
@@ -135,16 +152,7 @@ the first place.
      https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.read_hdf.html
      https://pandas.pydata.org/pandas-docs/stable/user_guide/io.html#io-hdf5
 
-""".format(SEGMENT_ID_COLNAME)
-
-
-_THE_SEGMENT_OBJECT_URL = 'https://github.com/rizac/stream2segment/wiki/the-segment-object'
-
-
-_THE_SEGMENT_OBJECT_ATTRS_AND_METHS = _THE_SEGMENT_OBJECT_URL + '#attributes-and-methods'
-
-
-_THE_SEGMENT_OBJECT_SEGSEL = _THE_SEGMENT_OBJECT_URL + '#segments-selection'
+""".format(_USING_S2S_IN_YOUR_PYTHON_CODE, _THE_SEGMENT_OBJECT, SEGMENT_ID_COLNAME)
 
 
 PROCESS_PY_MAIN = """
@@ -185,15 +193,9 @@ Visualization (web GUI)
 When visualizing, Stream2segment will open a web page where the user can browse 
 and visualize the data. When the `show` command is invoked with no argument, the page
 will only show all database segments and their raw trace. Otherwise, Stream2segment 
-will read the passed config and module, fetching all segments (according to the 
-'%(seg_sel)s' parameter in the config) and searching for all module functions with 
-signature:
-```
-def function_name(segment, config)
-```
-and decorated with either "@gui.preprocess" or "@gui.plot".
-In the former case, the function will be recognized as pre-process function, in all 
-other cases, the functions will be recognized as plot functions (details below).
+will read the passed config and module, showing only selected segments (parameter 
+'%(seg_sel)s' in the config) and searching for all module functions decorated with
+either "@gui.preprocess" (pre-process function) or "@gui.plot" (plot functions).
 IMPORTANT: any Exception raised  anywhere by any function will be caught and its message
 displayed on the plot.
 
@@ -208,6 +210,8 @@ def applybandpass(segment, config)
 will be associated to a check-box in the GUI. By clicking the check-box,
 all plots of the page will be re-calculated with the output of this function,
 which **must thus return an ObsPy Stream or Trace object**.
+All details on the segment object can be found here:
+%(url)s
 
 Plot functions
 --------------
@@ -216,14 +220,15 @@ The functions decorated with "@gui.plot", e.g.:
 ```
 @gui.plot
 def cumulative(segment, config)
-...
 ```
 will be associated to (i.e., its output will be displayed in) the plot below 
-the main plot. You can also call @gui.plot with arguments, e.g.:
+the main plot. All details on the segment object can be found here:
+%(url)s
+
+You can also call @gui.plot with arguments, e.g.:
 ```
 @gui.plot(position='r', xaxis={'type': 'log'}, yaxis={'type': 'log'})
 def spectra(segment, config)
-...
 ```
 The 'position' argument controls where the plot will be placed in the GUI ('b' means 
 bottom, the default, 'r' means next to the main plot, on its right) and the other two,
@@ -257,28 +262,7 @@ successive equally spaced points (x values) in any of these forms:
 - a dict of any of the above types, where the keys (string) will denote each sequence
   name to be displayed on the plot legend (and will override the 'label' argument, if
   provided)
-
-
-Functions arguments
-===================
-
-As described above, all functions needed for processing and visualization must have the
-same signature, i.e. they accept the same arguments `(segment, config)` (in this order).
-
-`segment` is the object describing a downloaded waveform segment. It is a normal Python 
-object with several useful attributes and methods. All details can be found here:
-%(url)s
-
-`config` is the dictionary representing the configuration parameters accessible globally
-by all processed segments, which can be implemented in the associated YAML file (see
-details therein)
-
-The purpose of the `config` is to encourage decoupling of code and configuration for
-better and more maintainable code: you should avoid many similar Python modules differing 
-by few hard-coded parameters. Try instead to implement a single Python module
-with the program functionality, and put those parameters in different config YAML
-files to run the same module in different scenarios.
-""" % {'seg_sel': SEGSEL_PARAMNAME, 'url': _THE_SEGMENT_OBJECT_ATTRS_AND_METHS}
+""" % {'seg_sel': SEGSEL_PARAMNAME, 'url': _THE_SEGMENT_OBJECT}
 
 YAML_WARN = """
 NOTE: **this file is written in YAML syntax**, which uses Python-style indentation to
