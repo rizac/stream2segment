@@ -160,7 +160,6 @@ in a web Graphical User Interface (GUI). Edit this file and pass its path
 
 `s2s show -p <module_path> -c <config_path>`     (data visualization / web GUI)
 
-You can always type `s2s process --help` or `s2s show --help` for details
 (`<config_path>` is the path of the associated a configuration file in YAML 
 format). You can also separate visualization and process routines in two different
 Python modules, as long as in each single file the requirements described below 
@@ -174,28 +173,29 @@ When processing, Stream2segment will search for a function called "main", e.g.:
 ```
 def main(segment, config)
 ```
-and execute the function on each selected segment (according to the 
-'%(seg_sel)s' parameter in the config). See the function docstring of this 
-module for implementation details.
+and execute the function on each selected segment (according to the '%(seg_sel)s' 
+parameter in the config). If you only need to run this module for processing (no
+visualization), you can skip the remainder of this introduction and go to the function
+documentation for implementation details.
 
 
 Visualization (web GUI)
 =======================
 
 When visualizing, Stream2segment will open a web page where the user can browse 
-and visualize the data. Contrarily to the processing, the `show` command can be
-invoked with no argument: this will show by default all database segments, 
-their metadata and a plot of their raw waveform (main plot).
-When `show` is invoked with module and config files, Stream2segment will fetch
-all segments (according to the '%(seg_sel)s' parameter in the config) and 
-search for all module functions with signature:
+and visualize the data. When the `show` command is invoked with no argument, the page
+will only show all database segments and their raw trace. Otherwise, Stream2segment 
+will read the passed config and module, fetching all segments (according to the 
+'%(seg_sel)s' parameter in the config) and searching for all module functions with 
+signature:
 ```
 def function_name(segment, config)
 ```
-and decorated with either "@gui.preprocess" or "@gui.plot". In the former case,
-the function will be recognized as pre-process function, in all other cases, the
-functions will be recognized as plot functions. Note that any Exception raised 
-anywhere by any function will be caught and its message displayed on the plot.
+and decorated with either "@gui.preprocess" or "@gui.plot".
+In the former case, the function will be recognized as pre-process function, in all 
+other cases, the functions will be recognized as plot functions (details below).
+IMPORTANT: any Exception raised  anywhere by any function will be caught and its message
+displayed on the plot.
 
 Pre-process function
 --------------------
@@ -263,32 +263,21 @@ Functions arguments
 ===================
 
 As described above, all functions needed for processing and visualization must have the
-same signature, i.e. they accepts the same arguments `(segment, config)` (in this order).
+same signature, i.e. they accept the same arguments `(segment, config)` (in this order).
 
-config (dict)
--------------
+`segment` is the object describing a downloaded waveform segment. It is a normal Python 
+object with several useful attributes and methods. All details can be found here:
+%(url)s
 
-This is the dictionary representing the chosen configuration file, in YAML format.
-Any property defined in the file, e.g.:
-```
-outfile: '/home/mydir/root'
-mythreshold: 5.67
-```
-will be accessible via `config['outfile']`, `config['mythreshold']`.
+`config` is the dictionary representing the configuration parameters accessible globally
+by all processed segments, which can be implemented in the associated YAML file (see
+details therein)
 
 The purpose of the `config` is to encourage decoupling of code and configuration for
-better and more maintainable code: try to avoid many similar Python modules differing 
+better and more maintainable code: you should avoid many similar Python modules differing 
 by few hard-coded parameters. Try instead to implement a single Python module
 with the program functionality, and put those parameters in different config YAML
 files to run the same module in different scenarios.
-
-segment (object)
-----------------
-
-Technically it's like an 'SqlAlchemy` ORM instance but for the user it is enough to
-consider and treat it as a normal Python object with several attributes and methods.
-All details can be found here:
-%(url)s
 """ % {'seg_sel': SEGSEL_PARAMNAME, 'url': _THE_SEGMENT_OBJECT_ATTRS_AND_METHS}
 
 YAML_WARN = """
