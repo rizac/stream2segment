@@ -1,5 +1,4 @@
 from stream2segment.io.db import close_session
-from stream2segment.io.db.inspection import attnames, get_related_models
 from stream2segment.process.db.models import Segment
 from stream2segment.process.db.sqlevalexpr import exprquery
 from stream2segment.process.main import process, imap, SkipSegment
@@ -216,6 +215,7 @@ def get_segment_help(format='html', maxwidth=70, **print_kwargs):
     :param format: Not supported yet, only html allopwed
     """
     import re, inspect
+    from stream2segment.io.db.inspection import attnames, get_related_models
 
     # Get queryable attributes (no relationships):
     qatts = list(attnames(Segment, qatt=True, rel=False, fkey=False))
