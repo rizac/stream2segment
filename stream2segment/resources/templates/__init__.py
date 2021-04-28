@@ -274,7 +274,7 @@ the segment stream afterwards with `segment.stream(reload=True)`.
 
 
 YAML_WARN = """
-NOTE: **this file is written in YAML syntax**, which uses Python-style indentation to
+NOTE: This file is written in YAML syntax, which uses Python-style indentation to
 # indicate nesting, keep it in mind when editing. You can also use a more compact format
 # that uses [] for lists and {} for maps/objects. For info see:
 # http://docs.ansible.com/ansible/latest/YAMLSyntax.html
@@ -284,14 +284,14 @@ PROCESS_YAML_MAIN = """
 =======================================================================
 # Stream2segment config file to tune the processing/visualization routine
 # =======================================================================
-#
+
 # {0}
 #
 # If this file is passed as -c argument to the `s2s process` command on the terminal,
 # everything implemented here will be accessible in the argument `config` of any 
 # processing / plot function implemented in the associated Python file, but please note 
 # that some parameters (e.g. '{1}', 'sn_windows' and 'advanced_settings')
-# are also used outside those functions to tune the whole routine (see details below).
+# are also used outside those functions to tune the whole routine (see details below)
 """.format(YAML_WARN.strip(), SEGSEL_PARAMNAME)
 
 

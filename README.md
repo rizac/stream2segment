@@ -522,20 +522,23 @@ to common problems you might have and that we collected from several Ubuntu inst
 - Updating wiki:
   Requirements:
    - 'jupyter installed'.
-   - A clone of the repo 'stream2segment.wiki' on the same directory of stream2segment.
+   - A clone of the repo 'stream2segment.wiki' on the same parent directory of the
+     stream2segment repo.
   
   Then:
-   - Edit the notebooks in stream2segment/resources/templates and create their merkdown:
-   - Some new notebook? Check they are run in tests:
-     "tests/misc/test_notebook"
-   - Create md (markdown) versions for the wiki (`F` is the filename with no extension):
+   - Edit the notebooks in stream2segment/resources/templates:
+   - Some new notebook? First choose a meaningful file name, as it will be
+     the title of the wiki page (hyphens will be replaced with spaces in the titles).
+     Then check that the notebook is tested, i.e. run in "tests/misc/test_notebook"
+   - Create .md (markdown) versions of the notebook for the wiki. From the
+     stream2segment repository as `cwd` (`F` is the filename without the 'ipnyb' extension):
       ```bash
        F='The-Segment-object';jupyter nbconvert --to markdown ./stream2segment/resources/templates/$F.ipynb && mv ./stream2segment/resources/templates/$F.md ../stream2segment.wiki
       ```
       (repeat for every notebook file, e.g. `Using-Stream2segment-in-your-Python-code`)
-   - `cd ../stream2segment.wiki`, check 'Home.md' (where the TOC
-       is. Here you can add/rearrange the TOC, e.g. if you added
-       new notebooks), and then `git commit`, `push` as usual
+   - `cd ../stream2segment.wiki`: 
+      - Some new notebook? add it in the TOC of 'Home.md' if needed, and `git add`
+      - Eventually, `git commit`, `push` as usual. Check online. Done
 <!--
 ## Misc:
 
