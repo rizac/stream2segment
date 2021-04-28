@@ -281,20 +281,22 @@ NOTE: **this file is written in YAML syntax**, which uses Python-style indentati
 """
 
 PROCESS_YAML_MAIN = """
-==========================================================================
-# Stream2segment config file to tune the processing/visualization subroutine
-# ==========================================================================
+=======================================================================
+# Stream2segment config file to tune the processing/visualization routine
+# =======================================================================
+#
+# {0}
 #
 # If this file is passed as -c argument to the `s2s process` command on the terminal,
 # everything implemented here will be accessible in the argument `config` of any 
 # processing / plot function implemented in the associated Python file, but please note 
-# that some parameters (e.g. '{0}', 'sn_windows' and 'advanced_settings')
+# that some parameters (e.g. '{1}', 'sn_windows' and 'advanced_settings')
 # are also used outside those functions to tune the whole routine (see details below).
-""".format(SEGSEL_PARAMNAME)
+""".format(YAML_WARN.strip(), SEGSEL_PARAMNAME)
 
 
 PROCESS_YAML_SEGMENTSELECT = """
-Define which segments to be processed or visualized. For details, see:
+Define which segments to process or visualize. For details, see:
 # {0}
 # (scroll to the top of the page for the full list of selectable attributes)
 # THIS PARAMETER SHOULD BE ALWAYS PROVIDED: if missing or empty, all segments will be 

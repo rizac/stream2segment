@@ -1,7 +1,5 @@
 # {{ PROCESS_YAML_MAIN }}
 
-# {{ YAML_WARN }}
-
 # {{ PROCESS_YAML_SEGMENTSELECT }}
 segments_selection:
   has_data: 'true'
