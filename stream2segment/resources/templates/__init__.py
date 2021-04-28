@@ -33,128 +33,6 @@ _THE_SEGMENT_OBJECT_ATTRS_AND_METHS = _THE_SEGMENT_OBJECT + '#attributes-and-met
 _THE_SEGMENT_OBJECT_SEGSEL = _THE_SEGMENT_OBJECT + '#segments-selection'
 
 
-PROCESS_PY_BANDPASSFUNC = """
-Apply a pre-process on the given segment waveform by filtering the signal and
-removing the instrumental response. 
-
-This function is used for processing (see `main` function) and visualization
-(see the `@gui.preprocess` decorator and its documentation above)
-
-The steps performed are:
-1. Sets the max frequency to 0.9 of the Nyquist frequency (sampling rate /2)
-   (slightly less than Nyquist seems to avoid artifacts)
-2. Offset removal (subtract the mean from the signal)
-3. Tapering
-4. Pad data with zeros at the END in order to accommodate the filter transient
-5. Apply bandpass filter, where the lower frequency is magnitude dependent
-6. Remove padded elements
-7. Remove the instrumental response
-
-IMPORTANT: This function modifies the segment stream in-place: further calls to 
-`segment.stream()` will return the pre-processed stream. During visualization, this
-is not an issue because Stream2segment always caches a copy of the raw trace.
-During processing (see `main` function) you need to be more careful: if needed, you
-can store the raw stream beforehand (`raw_trace=segment.stream().copy()`) or reload
-the segment stream afterwards with `segment.stream(reload=True)`.
-
-:return: a Trace object (a Stream is also valid value for functions decorated with
-    `@gui.preprocess`)
-"""
-
-
-PROCESS_PY_MAINFUNC = """
-Main processing function. The user should implement here the processing for any
-given selected segment. Useful links:
-
-- Online tutorial (also available as Notebook locally with the command `s2s init`,
-  useful for testing):
-  {0}
-- `stream2segment.process.funclib.traces` (small processing library implemented in
-   this program, most of its functions are imported here by default)
-- `ObpPy <https://docs.obspy.org/packages/index.html>`_
-- `ObsPy Stream <https://docs.obspy.org/packages/autogen/obspy.core.stream.Stream.html>_`
-- `ObsPy Trace <https://docs.obspy.org/packages/autogen/obspy.core.trace.Trace.html>_`
-
-IMPORTANT: any exception raised here or from any sub-function will interrupt the
-whole processing routine with one special case: `stream2segment.process.SkipSegment`
-exceptions will be logged to file and the execution will resume from the next 
-segment. Raise them to programmatically skip a segment, e.g.:
-```
-if segment.sample_rate < 60: 
-    raise SkipSegment("segment sample rate too low")`
-```
-Handling exceptions at any point of a time consuming processing is non trivial:
-some have to be skipped to save precious time, some must not be ignored and should
-interrupt the routine to fix critical errors.
-Therefore, we recommend to try to run your code on a smaller and possibly 
-heterogeneous dataset first: change temporarily the segment selection in the
-configuration file, and then analyze any exception raised, if you want to ignore 
-the exception, then you can wrap only  the part of code affected in a 
-"try ... catch" statement, and raise a `SkipSegment`.
-Also, please spend some time on refining the selection of segments: you might
-find that your code runs smoothly and faster by simply skipping certain segments in 
-the first place.
-
-:param: segment: the object describing a downloaded waveform segment and its metadata,
-    with a full set of useful attributes and methods detailed here:
-    {1}
-
-:param: config: a dictionary representing the configuration parameters
-    accessible globally by all processed segments. The purpose of the `config`
-    is to encourage decoupling of code and configuration for better and more 
-    maintainable code, avoiding, e.g., many similar processing functions differing 
-    by few hard-coded parameters (this is one of the reasons why the config is
-    given as separate YAML file to be passed to the `s2s process` command)
-
-:return: If the processing routine calling this function needs not to generate a
-    file output, the returned value of this function, if given, will be ignored.
-    Otherwise:
-
-    * For CSV output, this function must return an iterable that will be written
-      as a row of the resulting file (e.g. list, tuple, numpy array, dict. You must
-      always return the same type of object, e.g. not lists or dicts conditionally).
-
-      Returning None or nothing is also valid: in this case the segment will be
-      silently skipped
-
-      The CSV file will have a row header only if `dict`s are returned (the dict
-      keys will be the CSV header columns). For Python version < 3.6, if you want
-      to preserve in the CSV the order of the dict keys as the were inserted, use
-      `OrderedDict`.
-
-      A column with the segment database id (an integer uniquely identifying the
-      segment) will be automatically inserted as first element of the iterable, 
-      before writing it to file.
-
-      SUPPORTED TYPES as elements of the returned iterable: any Python object, but
-      we suggest to use only strings or numbers: any other object will be converted
-      to string via `str(object)`: if this is not what you want, convert it to the
-      numeric or string representation of your choice. E.g., for Python `datetime`s
-      you might want to set `datetime.isoformat()` (string), for ObsPy `UTCDateTime`s
-      `float(utcdatetime)` (numeric)
-
-   * For HDF output, this function must return a dict, pandas Series or pandas
-     DataFrame that will be written as a row of the resulting file (or rows, in case
-     of DataFrame).
-
-     Returning None or nothing is also valid: in this case the segment will be
-     silently skipped.
-
-     A column named '{2}' with the segment database id (an integer uniquely
-     identifying the segment) will be automatically added to the dict / Series, or
-     to each row of the DataFrame, before writing it to file.
-
-     SUPPORTED TYPES as elements of the returned dict/Series/DataFrame: all types 
-     supported by pandas: 
-     https://pandas.pydata.org/pandas-docs/stable/getting_started/basics.html#dtypes
-
-     For info on hdf and the pandas library (included in the package), see:
-     https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.read_hdf.html
-     https://pandas.pydata.org/pandas-docs/stable/user_guide/io.html#io-hdf5
-
-""".format(_USING_S2S_IN_YOUR_PYTHON_CODE, _THE_SEGMENT_OBJECT, SEGMENT_ID_COLNAME)
-
-
 PROCESS_PY_MAIN = """
 ==========================================================
 Stream2segment processing+visualization module: User guide
@@ -169,15 +47,15 @@ In the first case (data processing), edit this file and then, on the terminal:
   (see section `if __name__ == "__main__"` at the end of the module)
 
 - Run it within the `process` command: 
- `s2s process -p <this_file> -c <config_path>`
+ `s2s process -p <this_file_path> -c <config_file_path>`
 
-In the second case (data visualization), edit this file and then, to open the graphical
-user interface in your web browser, type on the terminal:
+In the second case (data visualization), edit this file and then, to open the
+graphical user interface (GUI) in your web browser, type on the terminal:
 
- `s2s show -p <this_file> -c <config_path>`     (data visualization / web GUI)
+ `s2s show -p <this_file_path> -c <config_file_path>`
 
-(`<config_path>` is the path of the associated a configuration file in YAML 
-format).
+(`<config_file_path>` is the path of the associated a configuration file in YAML 
+format. Optional with the `show` command).
 
 You can also separate visualization and process routines in two different
 Python modules, as long as in each single file the requirements described below 
@@ -274,6 +152,129 @@ successive equally spaced points (x values) in any of these forms:
   name to be displayed on the plot legend (and will override the 'label' argument, if
   provided)
 """ % {'seg_sel': SEGSEL_PARAMNAME, 'url': _THE_SEGMENT_OBJECT}
+
+
+PROCESS_PY_MAINFUNC = """
+Main processing function. The user should implement here the processing for any
+given selected segment. Useful links:
+
+- Online tutorial (also available as Notebook locally with the command `s2s init`,
+  useful for testing):
+  {0}
+- `stream2segment.process.funclib.traces` (small processing library implemented in
+   this program, most of its functions are imported here by default)
+- `ObpPy <https://docs.obspy.org/packages/index.html>`_
+- `ObsPy Stream <https://docs.obspy.org/packages/autogen/obspy.core.stream.Stream.html>_`
+- `ObsPy Trace <https://docs.obspy.org/packages/autogen/obspy.core.trace.Trace.html>_`
+
+IMPORTANT: any exception raised here or from any sub-function will interrupt the
+whole processing routine with one special case: `stream2segment.process.SkipSegment`
+exceptions will be logged to file and the execution will resume from the next 
+segment. Raise them to programmatically skip a segment, e.g.:
+```
+if segment.sample_rate < 60: 
+    raise SkipSegment("segment sample rate too low")`
+```
+Handling exceptions at any point of a time consuming processing is non trivial:
+some have to be skipped to save precious time, some must not be ignored and should
+interrupt the routine to fix critical errors.
+Therefore, we recommend to try to run your code on a smaller and possibly 
+heterogeneous dataset first: change temporarily the segment selection in the
+configuration file, and then analyze any exception raised, if you want to ignore 
+the exception, then you can wrap only  the part of code affected in a 
+"try ... catch" statement, and raise a `SkipSegment`.
+Also, please spend some time on refining the selection of segments: you might
+find that your code runs smoothly and faster by simply skipping certain segments in 
+the first place.
+
+:param: segment: the object describing a downloaded waveform segment and its metadata,
+    with a full set of useful attributes and methods detailed here:
+    {1}
+
+:param: config: a dictionary representing the configuration parameters
+    accessible globally by all processed segments. The purpose of the `config`
+    is to encourage decoupling of code and configuration for better and more 
+    maintainable code, avoiding, e.g., many similar processing functions differing 
+    by few hard-coded parameters (this is one of the reasons why the config is
+    given as separate YAML file to be passed to the `s2s process` command)
+
+:return: If the processing routine calling this function needs not to generate a
+    file output, the returned value of this function, if given, will be ignored.
+    Otherwise:
+
+    * For CSV output, this function must return an iterable that will be written
+      as a row of the resulting file (e.g. list, tuple, numpy array, dict. You must
+      always return the same type of object, e.g. not lists or dicts conditionally).
+
+      Returning None or nothing is also valid: in this case the segment will be
+      silently skipped
+
+      The CSV file will have a row header only if `dict`s are returned (the dict
+      keys will be the CSV header columns). For Python version < 3.6, if you want
+      to preserve in the CSV the order of the dict keys as the were inserted, use
+      `OrderedDict`.
+
+      A column with the segment database id (an integer uniquely identifying the
+      segment) will be automatically inserted as first element of the iterable, 
+      before writing it to file.
+
+      SUPPORTED TYPES as elements of the returned iterable: any Python object, but
+      we suggest to use only strings or numbers: any other object will be converted
+      to string via `str(object)`: if this is not what you want, convert it to the
+      numeric or string representation of your choice. E.g., for Python `datetime`s
+      you might want to set `datetime.isoformat()` (string), for ObsPy `UTCDateTime`s
+      `float(utcdatetime)` (numeric)
+
+   * For HDF output, this function must return a dict, pandas Series or pandas
+     DataFrame that will be written as a row of the resulting file (or rows, in case
+     of DataFrame).
+
+     Returning None or nothing is also valid: in this case the segment will be
+     silently skipped.
+
+     A column named '{2}' with the segment database id (an integer uniquely
+     identifying the segment) will be automatically added to the dict / Series, or
+     to each row of the DataFrame, before writing it to file.
+
+     SUPPORTED TYPES as elements of the returned dict/Series/DataFrame: all types 
+     supported by pandas: 
+     https://pandas.pydata.org/pandas-docs/stable/getting_started/basics.html#dtypes
+
+     For info on hdf and the pandas library (included in the package), see:
+     https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.read_hdf.html
+     https://pandas.pydata.org/pandas-docs/stable/user_guide/io.html#io-hdf5
+
+""".format(_USING_S2S_IN_YOUR_PYTHON_CODE, _THE_SEGMENT_OBJECT, SEGMENT_ID_COLNAME)
+
+
+PROCESS_PY_BANDPASSFUNC = """
+Apply a pre-process on the given segment waveform by filtering the signal and
+removing the instrumental response. 
+
+This function is used for processing (see `main` function) and visualization
+(see the `@gui.preprocess` decorator and its documentation above)
+
+The steps performed are:
+1. Sets the max frequency to 0.9 of the Nyquist frequency (sampling rate /2)
+   (slightly less than Nyquist seems to avoid artifacts)
+2. Offset removal (subtract the mean from the signal)
+3. Tapering
+4. Pad data with zeros at the END in order to accommodate the filter transient
+5. Apply bandpass filter, where the lower frequency is magnitude dependent
+6. Remove padded elements
+7. Remove the instrumental response
+
+IMPORTANT: This function modifies the segment stream in-place: further calls to 
+`segment.stream()` will return the pre-processed stream. During visualization, this
+is not an issue because Stream2segment always caches a copy of the raw trace.
+During processing (see `main` function) you need to be more careful: if needed, you
+can store the raw stream beforehand (`raw_trace=segment.stream().copy()`) or reload
+the segment stream afterwards with `segment.stream(reload=True)`.
+
+:return: a Trace object (a Stream is also valid value for functions decorated with
+    `@gui.preprocess`)
+"""
+
 
 YAML_WARN = """
 NOTE: **this file is written in YAML syntax**, which uses Python-style indentation to

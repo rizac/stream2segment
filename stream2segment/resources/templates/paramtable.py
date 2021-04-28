@@ -505,22 +505,35 @@ if __name__ == "__main__":
                      'Please open the file and edit the code in the script '
                      'section at the end of the module ')
 
-    # Example code TO BE EDITED before run:
+    # Example code TO BE EDITED before run
+    # ------------------------------------
     config = yaml_load('enter_your_processing_config_filepath_here')
     dburl = yaml_load('enter_the_path_of_the_download_config_used_here')['dburl']
-    segments_selection = {  # modify according to your needs
+    # segments to process (modify according to your needs):
+    segments_selection = {
         'has_data': 'true',
         'maxgap_numsamples': '[-0.5, 0.5]',
         'event_distance_deg': '[70, 80]'
     }
+    # output file
     outfile = 'enter_your_csv_or_hdf_path_here'
-    writer_options = {}  # csv or hdf options. Type help(process) on terminal or notebook
-    multiprocess = True  # use sub-processes to speed up the routine
+    # provide a log file path to track all skipped segment (SkipSegment exceptions).
+    # Here we input the boolean True, which automatically creates a log file in the
+    # same directory 'outfile' above. To skip logging, provide an empty string
+    logfile = True
+    # show progressbar on the terminal and additional info
+    verbose = True
+    # overwrite existing outfile, if present. If True and outfile exists, already
+    # processed segments will be skipped
+    append = False
+    # csv or hdf options. Type help(process) on terminal or notebook for details
+    writer_options = {}
+    # use sub-processes to speed up the routine
+    multiprocess = True
 
     from stream2segment.process import imap, process
 
     # run imap or process here. Example with process:
     process(main, dburl, segments_selection=segments_selection, config=config,
-            outfile=outfile, append=False, writer_options=writer_options, logfile=True,
-            verbose=True,
-            multi_process=multiprocess, chunksize=None)
+            outfile=outfile, append=False, writer_options=writer_options,
+            logfile=logfile, verbose=verbose, multi_process=multiprocess, chunksize=None)
