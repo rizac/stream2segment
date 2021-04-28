@@ -34,11 +34,8 @@ _THE_SEGMENT_OBJECT_SEGSEL = _THE_SEGMENT_OBJECT + '#segments-selection'
 
 
 PROCESS_PY_MAIN = """
-==========================================================
-Stream2segment processing+visualization module: User guide
-==========================================================
-
-The module implements the necessary code to process and visualize downloaded data.
+A processing+visualization module implements the necessary code to process and
+visualize downloaded data.
 
 In the first case (data processing), edit this file and then, on the terminal:
 
@@ -279,8 +276,8 @@ the segment stream afterwards with `segment.stream(reload=True)`.
 YAML_WARN = """
 NOTE: **this file is written in YAML syntax**, which uses Python-style indentation to
 # indicate nesting, keep it in mind when editing. You can also use a more compact format
-# that uses [] for lists and {} for maps/objects.
-# For info see http://docs.ansible.com/ansible/latest/YAMLSyntax.html
+# that uses [] for lists and {} for maps/objects. For info see:
+# http://docs.ansible.com/ansible/latest/YAMLSyntax.html
 """
 
 PROCESS_YAML_MAIN = """
@@ -292,7 +289,7 @@ PROCESS_YAML_MAIN = """
 # everything implemented here will be accessible in the argument `config` of any 
 # processing / plot function implemented in the associated Python file, but please note 
 # that some parameters (e.g. '{0}', 'sn_windows' and 'advanced_settings')
-# are also used outside those function to tune the whole routine (see details below).
+# are also used outside those functions to tune the whole routine (see details below).
 """.format(SEGSEL_PARAMNAME)
 
 

@@ -1,6 +1,8 @@
 """
-Stream2segment processing+visualization module generating a segment-based parametric
-table.
+=========================================================================
+Stream2segment processing+visualization module generating a segment-based
+parametric table.
+=========================================================================
 
 {{ PROCESS_PY_MAIN }}
 """
@@ -497,8 +499,8 @@ def synth_wa(segment, config):
 
 
 if __name__ == "__main__":
-    # execute the code below only if run as a script
-    # (i.e., typing on the terminal: python <this_file>.py)
+    # execute the code below only if this module is run as a script
+    # (python <this_file_path>)
 
     # Remove the following line and edit the remaining code
     raise ValueError('The module is not implemented to be run as script. '
