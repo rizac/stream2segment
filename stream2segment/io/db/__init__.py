@@ -152,7 +152,6 @@ def close_session(session, dispose_engine=True):
     ret = True
     try:
         session.close()
-        # close_all_sessions()
     except Exception:
         ret = False
     if dispose_engine:
