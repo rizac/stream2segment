@@ -19,165 +19,6 @@ from stream2segment.process.writers import SEGMENT_ID_COLNAME, HDF_DEFAULT_CHUNK
 from stream2segment.process.inputvalidation import SEGMENT_SELECT_PARAM_NAMES
 SEGSEL_PARAMNAME = SEGMENT_SELECT_PARAM_NAMES[0]
 
-# REMEMBER:this list does not comprise ALL attributes  (look at _SEGMENT_ATTRS_REMOVED
-# below)
-
-
-_SEGMENT_ATTRS = """
-===================================== ===================================================
-Segment attribute                     Python type and (optional) description
-===================================== ===================================================
-segment.id                            int: segment (unique) db id
-segment.has_data                      boolean: if the segment has waveform data saved (at
-                                      least one byte of data). Useful (often *mandatory*)
-                                      in segment selection: e.g., to skip processing
-                                      segments with no data, then:
-                                      has_data: 'true'
-segment.event_distance_deg            float: distance between the segment station and
-                                      the event, in degrees
-segment.event_distance_km             float: distance between the segment station and the
-                                      event, in km, assuming a perfectly spherical earth
-                                      with a radius of 6371 km
-segment.start_time                    datetime.datetime: waveform start time
-segment.arrival_time                  datetime.datetime: waveform arrival time (value
-                                      between 'start_time' and 'end_time')
-segment.end_time                      datetime.datetime: waveform end time
-segment.request_start                 datetime.datetime: waveform requested start time
-segment.request_end                   datetime.datetime: waveform requested end time
-segment.duration_sec                  float: waveform data duration, in seconds
-segment.missing_data_sec              float: number of seconds of missing data, as ratio
-                                      of the requested time window. It might also be 
-                                      negative (more data received than requested). 
-                                      Useful in segment selection: e.g., if we requested 
-                                      5 minutes of data and we want to process segments 
-                                      with at least 4 minutes of  downloaded data, then:
-                                      missing_data_sec: '< 60'
-segment.missing_data_ratio            float: portion of missing data, as ratio of the 
-                                      requested time window. It might also be negative
-                                      (more data received than requested). Useful in 
-                                      segment selection: e.g., to process segments whose
-                                      time window is at least 90% of the requested one: 
-                                      missing_data_ratio: '< 0.1'
-segment.sample_rate                   float: waveform sample rate. It might differ from 
-                                      the segment channel sample_rate
-segment.download_code                 int: the segment download status. For advanced
-                                      users. Useful in segment selection. E.g., to
-                                      process segments with non malformed waveform data:
-                                      has_data: 'true'
-                                      download_code: '!=-2'
-                                      (for details on all download codes, see Table 2 in 
-                                      https://doi.org/10.1785/0220180314)
-segment.maxgap_numsamples             float: maximum gap/overlap (G/O) found in the 
-                                      waveform, in number of points. If
-                                         0: segment has no G/O
-                                       >=1: segment has Gaps
-                                      <=-1: segment has Overlaps. 
-                                      Values in (-1, 1) are difficult to interpret: a 
-                                      rule of thumb is to consider no G/O if values are 
-                                      within -0.5 and 0.5. Useful in segment selection: 
-                                      e.g., to process segments with no gaps/overlaps:
-                                      maxgap_numsamples: '(-0.5, 0.5)'
-segment.seed_id                       str: the seed identifier in the typical format
-                                      [Network].[Station].[Location].[Channel]. For 
-                                      segments with waveform data, `data_seed_id` (see 
-                                      below) might be faster to fetch.
-segment.data_seed_id                  str: same as 'segment.seed_id', but faster to get 
-                                      because it reads the value stored in the waveform 
-                                      data. The drawback is that this value is null for 
-                                      segments with no waveform data
-segment.has_class                     boolean: tells if the segment has (at least one)
-                                      class label assigned
-segment.data                          bytes: the waveform (raw) data. Used by
-                                      `segment.stream()`
-------------------------------------- ------------------------------------------------
-segment.event                         object (attributes below)
-segment.event.id                      int
-segment.event.event_id                str: the id returned by the web service or catalog
-segment.event.time                    datetime.datetime
-segment.event.latitude                float
-segment.event.longitude               float
-segment.event.depth_km                float
-segment.event.author                  str
-segment.event.catalog                 str
-segment.event.contributor             str
-segment.event.contributor_id          str
-segment.event.mag_type                str
-segment.event.magnitude               float
-segment.event.mag_author              str
-segment.event.event_location_name     str
-------------------------------------- ------------------------------------------------
-segment.channel                       object (attributes below)
-segment.channel.id                    int
-segment.channel.location              str
-segment.channel.channel               str
-segment.channel.depth                 float
-segment.channel.azimuth               float
-segment.channel.dip                   float
-segment.channel.sensor_description    str
-segment.channel.scale                 float
-segment.channel.scale_freq            float
-segment.channel.scale_units           str
-segment.channel.sample_rate           float
-segment.channel.band_code             str: the first letter of channel.channel
-segment.channel.instrument_code       str: the second letter of channel.channel
-segment.channel.orientation_code      str: the third letter of channel.channel
-segment.channel.station               object: same as segment.station (see below)
-------------------------------------- ------------------------------------------------
-segment.station                       object (attributes below)
-segment.station.id                    int
-segment.station.network               str: the station's network code, e.g. 'AZ'
-segment.station.station               str: the station code, e.g. 'NHZR'
-segment.station.netsta_code           str: the network + station code, concatenated with
-                                      the dot, e.g.: 'AZ.NHZR'
-segment.station.latitude              float
-segment.station.longitude             float
-segment.station.elevation             float
-segment.station.site_name             str
-segment.station.start_time            datetime.datetime
-segment.station.end_time              datetime.datetime
-segment.station.has_inventory         boolean: tells if the segment's station inventory 
-                                      has data saved (at least one byte of data).
-                                      Useful in segment selection. E.g., to process only 
-                                      segments with inventory downloaded:
-                                      station.has_inventory: 'true'
-segment.station.datacenter            object (same as segment.datacenter, see below)
-------------------------------------- ------------------------------------------------
-segment.datacenter                    object (attributes below)
-segment.datacenter.id                 int
-segment.datacenter.station_url        str
-segment.datacenter.dataselect_url     str
-segment.datacenter.organization_name  str
-------------------------------------- ------------------------------------------------
-segment.download                      object (attributes below): the download execution
-segment.download.id                   int
-segment.download.run_time             datetime.datetime
-------------------------------------- ------------------------------------------------
-segment.classes.id                    int: the id(s) of the class labels assigned to the 
-                                      segment
-segment.classes.label                 int: the unique name(s) of the class labels 
-                                      assigned to the segment
-segment.classes.description           int: the description(s) of the class labels 
-                                      assigned to the segment
-===================================== ================================================
-""".strip()
-
-# the variable below IS NOT USED ANYWHERE, it just collects the attributes removed from
-# _SEGMENT_ATTRS. Add them back in _SEGMENT_ATTRS (in the right place) at your choice:
-_SEGMENT_ATTRS_REMOVED = """
-segment.station.inventory_xml         bytes. The station inventory (raw) data. You don't
-                                      generally need to access this attribute which is 
-                                      also time-consuming to fetch. Used by 
-                                      `segment.inventory()`
-segment.download.log                  str: The log text of the segment's download 
-                                      execution. You don't generally need to access this
-                                      attribute which is also time-consuming to fetch.
-                                      Useful for advanced debugging / inspection
-segment.download.warnings             int
-segment.download.errors               int
-segment.download.config               str
-segment.download.program_version      str
-"""
-
 
 PROCESS_PY_BANDPASSFUNC = """
 Apply a pre-process on the given segment waveform by filtering the signal and
@@ -295,6 +136,16 @@ the first place.
      https://pandas.pydata.org/pandas-docs/stable/user_guide/io.html#io-hdf5
 
 """.format(SEGMENT_ID_COLNAME)
+
+
+_THE_SEGMENT_OBJECT_URL = 'https://github.com/rizac/stream2segment/wiki/the-segment-object'
+
+
+_THE_SEGMENT_OBJECT_ATTRS_AND_METHS = _THE_SEGMENT_OBJECT_URL + '#attributes-and-methods'
+
+
+_THE_SEGMENT_OBJECT_SEGSEL = _THE_SEGMENT_OBJECT_URL + '#segments-selection'
+
 
 PROCESS_PY_MAIN = """
 ==========================================================
@@ -435,98 +286,10 @@ segment (object)
 ----------------
 
 Technically it's like an 'SqlAlchemy` ORM instance but for the user it is enough to
-consider and treat it as a normal Python object. It features special methods and
-several attributes returning Python "scalars" (float, int, str, bool, datetime, bytes).
-Each attribute can be considered as segment metadata: it reflects a segment column
-(or an associated database table via a foreign key) and returns the relative value.
-
-### segment methods: ###
-
-* segment.stream(reload=False): the `obspy.Stream` object representing the waveform data
-  associated to the segment. Please remember that many ObsPy functions modify the
-  stream in-place:
-  ```
-      stream_remresp = segment.stream().remove_response(segment.inventory())
-      # any call to segment.stream() returns from now on `stream_remresp`
-  ```
-  For any case where you do not want to modify `segment.stream()`, copy the stream
-  (or its traces) first, e.g.:
-  ```
-      stream_raw = segment.stream()
-      stream_remresp = stream_raw.copy().remove_response(segment.inventory())
-      # any call to segment.stream() will still return `stream_raw`
-  ```
-  You can also pass a boolean value (False by default when missing) to `stream` to force
-  reloading it from the database (this is less performant as it resets the cached value):
-  ```
-      stream_remresp = segment.stream().remove_response(segment.inventory())
-      stream_reloaded = segment.stream(True)
-      # any call to segment.stream() returns from now on `stream_reloaded`
-  ```
-  (In visualization functions, i.e. those decorated with '@gui', any modification
-  to the segment stream will NOT affect the segment's stream in other functions)
-
-  For info see https://docs.obspy.org/packages/autogen/obspy.core.stream.Stream.copy.html
-
-* segment.inventory(reload=False): the `obspy.core.inventory.inventory.Inventory`.
-  This object is useful e.g., for removing the instrumental response from
-  `segment.stream()`: note that it will be available only if the inventories in xml
-  format were downloaded (by default, they are). As for `stream`, you can also pass
-  a boolean value (False by default when missing) to `inventory` to force reloading it
-  from the database.
-
-* segment.siblings(parent=None, condition): returns an iterable of siblings of this
-  segment. `parent` can be any of the following:
-  - missing or None: returns all segments of the same recorded event, on the
-    other channel components / orientations
-  - 'stationname': returns all segments of the same station, identified by the tuple of
-    the codes (newtwork, station)
-  - 'networkname': returns all segments of the same network (network code)
-  - 'datacenter', 'event', 'station', 'channel': returns all segments of the same
-    datacenter, event, station or channel, all identified by the associated database id.
-  `condition` is a dict of expression to filter the returned element. the argument
-  `config['%(seg_sel)s']` can be passed here to return only siblings selected for
-  processing. NOTE: Use with care when providing a `parent` argument, as the amount of
-  segments might be huge (up to hundreds of thousands of segments). The amount of
-  returned segments is increasing (non linearly) according to the following order of the
-  `parent` argument: 'channel', 'station', 'stationname', 'networkname', 'event' and
-  'datacenter'
-
-* segment.del_classes(*labels): Deletes the given classes of the segment. The argument is
-  a comma-separated list of class labels (string). See configuration file for setting up
-  the desired classes. E.g.:
-  `segment.del_classes('class1')`
-  `segment.del_classes('class1', 'class2', 'class3')`
-
-* segment.set_classes(*labels, annotator=None): Sets the given classes on the segment,
-  deleting first all segment classes, if any. The argument is a comma-separated list of
-  class labels (string). See configuration file for setting up the desired classes.
-  `annotator` is a keyword argument (optional): if given (not None) denotes the user name
-  that annotates the class. E.g.:
-  `segment.set_classes('class1')`
-  `segment.set_classes('class1', 'class2', annotator='Jim')`
-
-* segment.add_classes(*labels, annotator=None): Same as `segment.set_classes` but does
-  not delete segment classes first. If a label is already assigned to the segment, it is
-  not added again (regardless of whether the 'annotator' changed or not)
-
-* segment.sds_path(root='.'): Returns the segment's file path in a seiscomp data
-  structure (SDS) format:
-     <root>/<event_id>/<net>/<sta>/<loc>/<cha>.D/<net>.<sta>.<loc>.<cha>.<year>.<day>
-  See https://www.seiscomp3.org/doc/applications/slarchive/SDS.html for details.
-  Example: to save the segment's waveform as miniSEED you can type (explicitly
-  adding the file extension '.mseed' to the output path):
-  `segment.stream().write(segment.sds_path() + '.mseed', format='MSEED')`
-
-* segment.dbsession(): (for advanced users) the database session for custom IO operations
-  with the database.
-  WARNING: this is for users experienced with SQLAlchemy library. If you want to use it
-  you probably want to import stream2segment in custom code. See the github documentation
-  in case
-
-### segment attributes ###
-
-""" % {'seg_sel': SEGSEL_PARAMNAME} + _SEGMENT_ATTRS
+consider and treat it as a normal Python object with several attributes and methods.
+All details can be found here:
+%(url)s
+""" % {'seg_sel': SEGSEL_PARAMNAME, 'url': _THE_SEGMENT_OBJECT_ATTRS_AND_METHS}
 
 YAML_WARN = """
 NOTE: **this file is written in YAML syntax**, which uses Python-style indentation to
@@ -548,55 +311,16 @@ PROCESS_YAML_MAIN = """
 # features to the GUI.
 """.format(SEGSEL_PARAMNAME)
 
-# yamelise _SEGMENT_ATTRS (first line not commented, see below)
-_SEGMENT_ATTRS_YAML = "\n# ".join(s[8:] for s in _SEGMENT_ATTRS.splitlines())
-
 
 PROCESS_YAML_SEGMENTSELECT = """
 The parameter '{0}' defines which segments to be processed or visualized.
 # PLEASE USE THIS PARAMETER. If missing, all segments will be loaded, including segment
 # with no (or malformed) waveform data: this is in practically always useless and slows
-# down considerably the processing or visualization routine. The selection is made via
-# the list-like argument:
+# down considerably the processing or visualization routine. For details, see:
+# {0}
+# (scroll to the top of the page for the full list of selectable attributes)
 #
-# {0}:
-#   <att>: "<expression>"
-#   <att>: "<expression>"
-#   ...
-#
-# where each <att> is a segment attribute and <expression> is a simplified SQL-select
-# string expression. Example:
-#
-# 1. To select and work on segments with downloaded data (at least one byte of data):
-# {0}:
-#   has_data: "true"
-#
-# 2. To select and work on segments of stations activated in 2017 only:
-# {0}:
-#   station.start_time: "[2017-01-01, 2018-01-01T00:00:00)"
-# (brackets denote intervals. Square brackets include end-points, round brackets exclude
-# endpoints)
-#
-# 3. To select segments from specified ids, e.g. 1, 4, 342, 67 (e.g., ids which raised
-# errors during a previous run and whose id where logged might need inspection in the GUI):
-# {0}:
-#   id: "1 4 342 67"
-#
-# 4. To select segments whose event magnitude is greater than 4.2:
-# {0}:
-#   event.magnitude: ">4.2"
-# (the same way work the operators: =, >=, <=, <, !=)
-#
-# 5. To select segments with a particular channel sensor description:
-# {0}:
-#   channel.sensor_description: "'GURALP CMG-40T-30S'"
-# (note: for attributes with str values and spaces, we need to quote twice, as otherwise
-# "GURALP CMG-40T-30S" would match 'GURALP' and 'CMG-40T-30S', but not the whole string.
-# See attribute types below)
-#
-# The list of segment attribute names and types is:
-#
-# """.format(SEGSEL_PARAMNAME) + _SEGMENT_ATTRS_YAML + """
+# """.format(_THE_SEGMENT_OBJECT_SEGSEL) + """
 # """
 
 PROCESS_YAML_SNWINDOWS = """

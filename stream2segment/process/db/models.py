@@ -299,7 +299,7 @@ class Segment(Base, models.Segment):
         where to store the given segment or any data associated with it.
         The returned path has no extension (to be supplied by the user)
         and has the following format (e_id=event id, y=year, d=day of year):
-        <root>/<e_id>/<net>/<sta>/<loc>/<cha>.D/<net>.<sta>.<loc>.<cha>.<y>.<d>
+        [root]/[e_id]/[net]/[sta]/[loc]/[cha].D/[net].[sta].[loc].[cha].[y].[d]
         For info see:
         https://www.seiscomp3.org/doc/applications/slarchive/SDS.html
 
@@ -514,7 +514,7 @@ class Segment(Base, models.Segment):
                     else_=sel)
 
     def inventory(self, reload=False):
-        """Return the inventory of this segment Station as ObsPy Response object
+        """Return the inventory of the segment Station as ObsPy Response object
 
         :param reload: bool. Optional (default: False). Force reloading the Response
             object from the downloaded waveform data (bytes sequence). In most cases
@@ -535,7 +535,7 @@ class Segment(Base, models.Segment):
         :parent: a string identifying the parent whereby perform a selection
         :conditions: a dict of strings mapped to string expressions to be
             evaluated, and select a subset of siblings. None (the defaults) means:
-            empty dict (no additional slection condition)
+            empty dict (no additional selection condition)
         """
         sblngs = self.get_siblings(parent, colname=colname)  # returns a Segment object
         if conditions:
@@ -543,13 +543,11 @@ class Segment(Base, models.Segment):
         return sblngs
 
     def stream(self, reload=False):
-        """Return the stream from self (a segment class)
+        """Return the ObsPy Stream object representing the segment waveform data
 
         :param reload: bool. Optional (default: False). Force reloading the Stream object
             from the downloaded waveform data (bytes sequence), discarding any
-            modification (e.g. if the response was removed from the Stream, return the
-            unprocessed Stream in count units). Reloading a Stream might be more time
-            consuming
+            in-place modification
         """
         # stream is lazy loaded. The output of the loading process
         # (or the Exception raised, if any) is stored in the self._stream attribute.
