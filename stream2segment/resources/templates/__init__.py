@@ -160,16 +160,26 @@ PROCESS_PY_MAIN = """
 Stream2segment processing+visualization module: User guide
 ==========================================================
 
-The module implements the necessary code to process and visualize downloaded data
-in a web Graphical User Interface (GUI). Edit this file and pass its path 
-`<module_path>` to the following commands from the terminal:
+The module implements the necessary code to process and visualize downloaded data.
 
-`s2s process -p <module_path> -c <config_path>`  (data processing)
+In the first case (data processing), edit this file and then, on the terminal:
 
-`s2s show -p <module_path> -c <config_path>`     (data visualization / web GUI)
+- Run it as a script:
+  `python <this_file_path>`
+  (see section `if __name__ == "__main__"` at the end of the module)
+
+- Run it within the `process` command: 
+ `s2s process -p <this_file> -c <config_path>`
+
+In the second case (data visualization), edit this file and then, to open the graphical
+user interface in your web browser, type on the terminal:
+
+ `s2s show -p <this_file> -c <config_path>`     (data visualization / web GUI)
 
 (`<config_path>` is the path of the associated a configuration file in YAML 
-format). You can also separate visualization and process routines in two different
+format).
+
+You can also separate visualization and process routines in two different
 Python modules, as long as in each single file the requirements described below 
 are provided.
 
@@ -177,14 +187,15 @@ are provided.
 Processing
 ==========
 
-When processing, Stream2segment will search for a function called "main", e.g.:
+When processing, Stream2segment will search for a so-called "processing function", i.e.
+a function called "main":
 ```
 def main(segment, config)
 ```
 and execute the function on each selected segment (according to the '%(seg_sel)s' 
 parameter in the config). If you only need to run this module for processing (no
-visualization), you can skip the remainder of this introduction and go to the function
-documentation for implementation details.
+visualization), you can skip the remainder of this introduction and go to the
+processing function documentation.
 
 
 Visualization (web GUI)

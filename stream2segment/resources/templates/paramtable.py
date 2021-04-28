@@ -495,3 +495,32 @@ def synth_wa(segment, config):
     assert1trace(stream)  # raise and return if stream has more than one trace
     return synth_wood_anderson(segment, config, stream[0])
 
+
+if __name__ == "__main__":
+    # execute the code below only if run as a script
+    # (i.e., typing on the terminal: python <this_file>.py)
+
+    # Remove the following line and edit the remaining code
+    raise ValueError('The module is not implemented to be run as script. '
+                     'Please open the file and edit the code in the script '
+                     'section at the end of the module ')
+
+    # Example code TO BE EDITED before run:
+    config = yaml_load('enter_your_processing_config_filepath_here')
+    dburl = yaml_load('enter_the_path_of_the_download_config_used_here')['dburl']
+    segments_selection = {  # modify according to your needs
+        'has_data': 'true',
+        'maxgap_numsamples': '[-0.5, 0.5]',
+        'event_distance_deg': '[70, 80]'
+    }
+    outfile = 'enter_your_csv_or_hdf_path_here'
+    writer_options = {}  # csv or hdf options. Type help(process) on terminal or notebook
+    multiprocess = True  # use sub-processes to speed up the routine
+
+    from stream2segment.process import imap, process
+
+    # run imap or process here. Example with process:
+    process(main, dburl, segments_selection=segments_selection, config=config,
+            outfile=outfile, append=False, writer_options=writer_options, logfile=True,
+            verbose=True,
+            multi_process=multiprocess, chunksize=None)
