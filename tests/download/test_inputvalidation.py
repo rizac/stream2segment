@@ -414,7 +414,7 @@ class Test(object):
         else:
             import re
             assert 'Invalid value for "dburl":' in result.output
-            assert re.search('database ".*" not accessible\\. Possible reason\\: ', result.output)
+            assert re.search('database not accessible\\. Possible reason\\: ', result.output)
             assert re.search('\\. Did you create the database first\\?', result.output)
             assert 'Did you create the database first?' in result.output
             assert result.exit_code != 0
