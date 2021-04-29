@@ -293,8 +293,8 @@ def test_click_template(mock_main_init, mock_input, pytestdir):
 
     expected_files = ['download.yaml', 'paramtable.py', 'paramtable.yaml',
                       # 'save2fs.py', 'save2fs.yaml',  # <- NOT ANYMORE
-                      'jupyter.example.ipynb',
-                      'jupyter.example.db']
+                      'Using-Stream2segment-in-your-Python-code.ipynb',
+                      'example.db.sqlite']
     non_python_files = [_ for _ in expected_files if os.path.splitext(_)[1]
                         not in ('.py', '.yaml')]
 
