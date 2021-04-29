@@ -160,9 +160,11 @@ given selected segment. Useful links:
   {0}
 - `stream2segment.process.funclib.traces` (small processing library implemented in
    this program, most of its functions are imported here by default)
-- `ObpPy <https://docs.obspy.org/packages/index.html>`_
-- `ObsPy Stream <https://docs.obspy.org/packages/autogen/obspy.core.stream.Stream.html>_`
-- `ObsPy Trace <https://docs.obspy.org/packages/autogen/obspy.core.trace.Trace.html>_`
+- ObsPy Stream, Trace UTCDateTime objects (the latter is the object
+  returned by all Trace and Stream datetime-based methods):
+  https://docs.obspy.org/packages/autogen/obspy.core.stream.Stream.html
+  https://docs.obspy.org/packages/autogen/obspy.core.trace.Trace.html
+  https://docs.obspy.org/packages/autogen/obspy.core.utcdatetime.UTCDateTime.html
 
 IMPORTANT: any exception raised here or from any sub-function will interrupt the
 whole processing routine with one special case: `stream2segment.process.SkipSegment`
@@ -287,7 +289,7 @@ PROCESS_YAML_MAIN = """
 
 # {0}
 #
-# If this file is passed as -c argument to the `s2s process` command on the terminal,
+# If this file is passed as -c argument to the `s2s process` or `s2s show` command,
 # everything implemented here will be accessible in the argument `config` of any 
 # processing / plot function implemented in the associated Python file, but please note 
 # that some parameters (e.g. '{1}', 'sn_windows' and 'advanced_settings')
