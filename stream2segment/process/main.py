@@ -103,12 +103,15 @@ def process(pyfunc, dburl, segments_selection=None, config=None, outfile=None,
         file. If True, process unprocessed segments only (checking the segment
         id), and append to the given file, without replacing existing data.
     :param writer_options: dict of options for the writer. When None or missing, it
-        defaults to the empty dict (no options). If the output is CSV, it is a dict of
-        the keyword arguments (kwargs) to be passed to the csv writer:
-        https://docs.python.org/3/library/csv.html#csv.DictWriter
-        Note that some arguments are set by default if missing: `delimiter` (","),
-        `quotechar` ('"') and `quoting` (`csv.QUOTE_MINIMAL`).
-        If the output is HDF, it is a dict of the kwargs of the `append` function:
+        defaults to the empty dict (no options). As option you can pass any kwyword
+        argument of the functions linked below.
+        For CSV output:
+        https://docs.python.org/3/library/csv.html#csv.writer     (any CSV)
+        https://docs.python.org/3/library/csv.html#csv.DictWriter (CSV with header, e.g.
+        your processing function returns dicts). Note that some arguments are ignored
+        ('f', 'fieldnames', 'csvfile') and other set by default if missing:
+        `delimiter` (","), `quotechar` ('"') and `quoting` (`csv.QUOTE_MINIMAL`).
+        For HDF output:
         https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.HDFStore.append.html
         with the exception of the arguments `value` and `append`, which are not
         configurable and will be overwritten (also note that `format` and `key`
@@ -117,8 +120,10 @@ def process(pyfunc, dburl, segments_selection=None, config=None, outfile=None,
         {
             'chunksize': 1200,
             'min_itemsize': {
-                'col1': 10
-                'col2': 20
+                'network': 2
+                'station': 5
+                'location': 2
+                'channel: 3
             }
         }
         ```

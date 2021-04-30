@@ -338,18 +338,24 @@ advanced_settings:
   # segments to be processed is > {1:d}, otherwise N/{2:d}). If multi_process is on, the
   # chunk size also defines how many segments will be loaded in each Python sub-process.
   segments_chunksize: null
-  # Optional arguments for the output writer. Ignored for CSV output, for HDF output see:
+  # Optional arguments for the output writer. For HDF output see:
   # https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.HDFStore.append.html
   # (the parameters 'append' and 'value' will be ignored, if given here)
+  # For the CSV format (with or without header), see:
+  # https://docs.python.org/3/library/csv.html#csv.writer
+  # For CSV with header (e.g. your processing function returns dicts):
+  # https://docs.python.org/3/library/csv.html#csv.DictWriter
+  # (the parameters 'f', 'fieldnames' and 'csvfile' will be ignored, if given here)   
   writer_options:
-    chunksize: {0:d}
-    # hdf needs a fixed length for all columns: for variable-length string columns,
-    # you need to tell in advance how many bytes to allocate with 'min_itemsize'.
-    # E.g., if you have two string columns 'col1' and 'col2' and you assume to store
-    # at most 10 ASCII characters in 'col1' and 20 in 'col2', then:
+    # This parameter is empty by default. Here below some examples (commented) for HDF:
+    # chunksize: {0:d}
+    # hdf needs a fixed length for all columns: if you write string columns
+    # you need to tell in advance their (max) length with 'min_itemsize', e.g:
     # min_itemsize:
-    #   col1: 10
-    #   col2: 20
+    #   network: 2
+    #   station: 5
+    #   location: 2
+    #   channel: 3
 """.format(HDF_DEFAULT_CHUNKSIZE, *_get_chunksize_defaults())
 
 DOWNLOAD_EVENTWS_LIST = '\n'.join('%s"%s": %s' % ('# ' if i > 0 else '', str(k), str(v))
