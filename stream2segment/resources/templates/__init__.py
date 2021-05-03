@@ -347,10 +347,10 @@ advanced_settings:
   # https://docs.python.org/3/library/csv.html#csv.DictWriter
   # (the parameters 'f', 'fieldnames' and 'csvfile' will be ignored, if given here)   
   writer_options:
-    # This parameter is empty by default. Here below some examples (commented) for HDF:
+    # # This parameter is empty by default. Here below some examples (commented) for HDF:
     # chunksize: {0:d}
-    # hdf needs a fixed length for all columns: if you write string columns
-    # you need to tell in advance their (max) length with 'min_itemsize', e.g:
+    # # hdf needs a fixed length for all columns: if you write string columns
+    # # you need to tell in advance the size allocated with 'min_itemsize', e.g:
     # min_itemsize:
     #   network: 2
     #   station: 5

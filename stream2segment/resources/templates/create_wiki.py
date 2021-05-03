@@ -1,3 +1,8 @@
+"""Script module generating wiki pages from current Jupyter notebook
+
+WARNING: This script module not used. The generation fo the wiki pages is issued by
+means of normal commands on the terminal (see the "Updating wiki" section in the README).
+"""
 from os.path import isdir
 
 from stream2segment.resources import get_resource_abspath
