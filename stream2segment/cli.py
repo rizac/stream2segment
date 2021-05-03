@@ -562,9 +562,15 @@ def _print_badparam_and_exit(bad_param_exception):
               help="The number of sub-processes. If missing, it is set as the "
                    "the number of CPUs in the system. This option is ignored "
                    "if --multi-process is not given")
+@click.option("--logfile", default=None,
+              help="The path of the log file to record processing information such as "
+                   "skipped segments errors. When missing, it is set as the output file "
+                   "path suffixed with a timestamp to avoid conflicts and extension "
+                   "'.log' (if no output file is given, the Python file is used as base "
+                   "path). Provide 'skip' (with no quotes) to disable logging")
 @click.argument('outfile', required=False)
 def process(dburl, config, pyfile, funcname, append, no_prompt, multi_process,
-            num_processes, outfile):
+            num_processes, logfile, outfile):
     """Process downloaded waveform data segments via a custom python file and a
     configuration file.
 
@@ -607,9 +613,14 @@ def process(dburl, config, pyfile, funcname, append, no_prompt, multi_process,
                 # Raise BadParam with the right param name (this will be done also in
                 # `_process`, with different param name though):
                 validate_param('pyfile', pyfile, valid_pyfile)
+                # convert logfile argument:
+                if logfile is None:
+                    logfile = True
+                elif logfile == 'skip':
+                    logfile = False
                 # execute now:
                 ret = _process(pyfile, dburl, seg_sel, config, outfile, append=append,
-                               writer_options=w_options, logfile=True, verbose=True,
+                               writer_options=w_options, logfile=logfile, verbose=True,
                                multi_process=m_p, chunksize=chunksize)
     except BadParam as err:
         _print_badparam_and_exit(err)
