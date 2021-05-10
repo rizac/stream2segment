@@ -21,7 +21,7 @@ from stream2segment.download.db.models import DataCenter
 from stream2segment.download.modules.stationsearch import \
     locations2degrees as s2sloc2deg, get_magdep_search_radius
 from stream2segment.download.modules.datacenters import EidaValidator
-from stream2segment.download.modules.utils import (s2scodes, DownloadStats, to_fdsn_arg,
+from stream2segment.download.modules.utils import (s2scodes, DownloadStats,
                                                    HTTPCodesCounter, logwarn_dataframe,
                                                    strconvert, strptime)
 
@@ -661,16 +661,16 @@ http:wrong
 #     (any, "!H*, H*")          this raises (it's a paradox)
 
 
-def test_to_fdsn_arg():
-
-    val = ['A', 'B']
-    assert to_fdsn_arg(val) == 'A,B'
-
-    val = ['!A', 'B']
-    assert to_fdsn_arg(val) == 'B'
-
-    val = ['!A', 'B  ']
-    assert to_fdsn_arg(val) == 'B  '
+# def test_to_fdsn_arg():
+#
+#     val = ['A', 'B']
+#     assert to_fdsn_arg(val) == 'A,B'
+#
+#     val = ['!A', 'B']
+#     assert to_fdsn_arg(val) == 'B'
+#
+#     val = ['!A', 'B  ']
+#     assert to_fdsn_arg(val) == 'B  '
 
 
 

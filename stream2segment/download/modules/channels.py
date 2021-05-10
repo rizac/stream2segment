@@ -20,8 +20,8 @@ from stream2segment.io.db.pdsql import dbquery2df, shared_colnames, mergeupdate
 from stream2segment.download.db.models import DataCenter, Station, Channel
 from stream2segment.download.url import Request  # this handles py2+3 compatibility
 from stream2segment.download.modules.utils import (read_async, response2normalizeddf,
-                                                   dbsyncdf, to_fdsn_arg,
-                                                   formatmsg, logwarn_dataframe, strconvert)
+                                                   dbsyncdf, formatmsg,
+                                                   logwarn_dataframe, strconvert)
 from stream2segment.download.exc import FailedDownload
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
@@ -79,11 +79,11 @@ def get_channels_df(session, datacenters_df, eidavalidator, net, sta, loc, cha,
         # if some datacenter does not return station, warn with INFO
         dc_df_fromdb = datacenters_df.loc[datacenters_df[DataCenter.id.key].\
             isin(url_failed_dc_ids)]
-        logger.info(formatmsg("Fetching stations from database for %d (of %d) "
-                              "data-center(s)", "download errors occurred"),
+        logger.info(formatmsg("Trying to fetch stations from database for %d of %d "
+                              "data center(s)", "download errors occurred"),
                     len(dc_df_fromdb), len(datacenters_df))
-        logger.info(dc_df_fromdb[DataCenter.dataselect_url.key].
-                    to_string(index=False))
+        logger.warning(dc_df_fromdb[DataCenter.dataselect_url.key].
+                       to_string(index=False))
         db_cha_df = get_channels_df_from_db(session, dc_df_fromdb, net, sta,
                                             loc, cha, starttime, endtime,
                                             min_sample_rate)
@@ -159,8 +159,10 @@ def get_post_data(net, sta, loc, cha, starttime=None, endtime=None):
     args = []
     for i, lst in enumerate([net, sta, loc, cha]):
         parsearg = '*'
-        if lst:
-            parsearg = to_fdsn_arg(lst)
+        # parse arguments if given, and not all negations (in the latter case, just
+        # provide * = accept all. We will filter out later, on the returned response)
+        if lst and not all(v[0:1] == '!' for v in lst):
+            parsearg = ",".join(v for v in lst if v[0:1] != '!')
             if i == 3 and not parsearg:  # loc: empty has to be input as '--'
                 parsearg = '--'
         args.append(parsearg)

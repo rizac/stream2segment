@@ -500,19 +500,6 @@ class s2scodes(object):  # pylint: disable=too-few-public-methods, invalid-name
     restricted_data = (204, 401, 403, 404)
 
 
-def to_fdsn_arg(iterable):
-    """Convert an iterable of strings denotings networks, stations, locations
-    or channels into a valid string argument for an FDSN query. This method
-    basically joins all element of `iterable` with a comma after removing all
-    elements starting with '!' (used in this application to denote logical not,
-    and not FDSN standard).
-
-    :param iterable: an iterable of strings. This function does not check if
-        any string element is invalid for the query (e.g., it contains spaces)
-    """
-    return ",".join(v for v in iterable if v[0:1] != '!')
-
-
 def get_s2s_responses():
     """Create a default response dict which maps http responses (int-like
     objects) to the tuple ('title', 'legend',  sort_value)

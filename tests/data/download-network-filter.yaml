@@ -1,0 +1,317 @@
+# ==========================================================
+# stream2segment config file to tune the download subroutine
+# ==========================================================
+
+# NOTE: **this file is written in YAML syntax**, which uses Python-style indentation to
+# indicate nesting, keep it in mind when editing. You can also use a more compact format
+# that uses [] for lists and {} for maps/objects.
+# For info see http://docs.ansible.com/ansible/latest/YAMLSyntax.html
+
+
+# Database URL where to save data (currently supported are SQLite and Postgres).
+# We suggest sqlite for small to medium data sizes or enough system RAM (as a rule of
+# thumb: less than a million segments, and/or more than 8GB of RAM) and postgres
+# otherwise (note that with postgres, the database must have been created beforehand).
+# If sqlite, just write the path to your local file prefixed with 'sqlite:///' (e.g.,
+# 'sqlite:////home/myfolder/db.sqlite'): non-absolute paths will be relative to the
+# config file path.
+# If non-sqlite, the syntax is: dialect+driver://username:password@host:port/database
+# E.g.: postgresql://smith:Hw_6,@mymachine.example.org/mydb
+# (for info see: http://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls)
+dburl: ''  # will be filled in tests
+
+# Limit to events / data centers / station / channels on or after the specified start
+# time. Specify an ISO-formatted date or date-time string, or an integer >=0 to denote
+# the number of days before today at midnight, e.g., start=1 and end=0 means: fetch
+# events occurred yesterday
+starttime: 2000-01-01T00:00:00
+
+# Limit to events / data centers / station / channels on or before the specified end
+# time. Specify an ISO formatted date or date-time string, or an integer >=0 to denote
+# the number of days before today at midnight, e.g., start=1 and end=0 means: fetch
+# events occurred yesterday
+endtime: 2020-12-31T23:59:59
+
+
+# =======
+# Events: https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=14
+# =======
+
+# The event catalog in form of URL (event web service) or local file path.
+# The events list returned by the URL or in the supplied file must be formatted as
+# specified in https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=16
+# or in isf format (http://www.isc.ac.uk/standards/isf/download/isf.pdf), although the
+# latter has limited support in this program (e.g., comments are not recognized. Use at
+# your own risk).
+# IMPORTANT: when providing a file, the file name (not the full path) will be used as
+# catalog identifier: renaming the file and downloading again on the same database will
+# result in the events and their segments being saved twice, most likely unnecessarily.
+# Implementation details: you can also type these shortcut strings instead of URLs:
+# "emsc": http://www.seismicportal.eu/fdsnws/event/1/query
+# "isc": http://www.isc.ac.uk/fdsnws/event/1/query
+# "iris": http://service.iris.edu/fdsnws/event/1/query
+# "ncedc": http://service.ncedc.org/fdsnws/event/1/query
+# "scedc": http://service.scedc.caltech.edu/fdsnws/event/1/query
+# "usgs": http://earthquake.usgs.gov/fdsnws/event/1/query.
+#eventws: 'http://seismicportal.eu/fdsnws/event/1/query'
+eventws: "isc"
+
+# Limit to events with a latitude larger than or equal to the specified minimum.
+# This parameter is ignored if missing, null, or 'eventws' is given as file path
+minlatitude: 40.0
+
+# Limit to events with a latitude smaller than or equal to the specified maximum
+# This parameter is ignored if missing, null, or 'eventws' is given as file path
+maxlatitude: 55.0
+
+# Limit to events with a longitude larger than or equal to the specified minimum
+# This parameter is ignored if missing, null, or 'eventws' is given as file path
+minlongitude: -6.0
+
+# Limit to events with a longitude smaller than or equal to the specified maximum
+# This parameter is ignored if missing, null, or 'eventws' is given as file path
+maxlongitude: 19.0
+
+# Limit to events with depth more than the specified minimum.
+# This parameter is ignored if missing, null, or 'eventws' is given as file path
+mindepth: 0
+
+# Limit to events with depth less than the specified maximum
+# This parameter is ignored if missing, null, or 'eventws' is given as file path
+maxdepth: 50
+
+# Limit to events with a magnitude larger than the specified minimum
+# This parameter is ignored if missing, null, or 'eventws' is given as file path
+minmagnitude: 3.5
+
+# Limit to events with a magnitude smaller than the specified maximum
+# This parameter is ignored if missing, null, or 'eventws' is given as file path
+maxmagnitude: null
+
+# Additional event web search parameters (YAML Mapping of indented "param: value" pairs):
+# https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=14
+# Note that parameters with support 'Optional' at the link above are not guaranteed to
+# work. The 'format' parameter will be ignored as it is automatically set by the program.
+eventws_params:
+  # lat: 47.0
+  # lon: 4.0
+  # minradius: 17.0
+  # maxradius: 21.0
+
+
+# ====================
+# Stations / Channels: https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=10
+# ====================
+
+# Limit the search to the specified channels (if missing, defaults to '*', i.e.: accept
+# all channels). Wildcards '?' and '*' are recognized
+# (https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf), as well as the
+# operator '!' placed as first character to indicate logical NOT. Example: "!B*,BBB"
+# accepts all channels NOT starting with "B" OR the channel "BBB"
+# Implementation details: You can also specify a YAML sequence of strings instead of
+# comma-separated strings. E.g., these are equivalent:
+# channels: "A,B"
+# cha: [ "A" , "B" ]
+# channel:
+#  - "A"
+#  - "B"
+channel:
+ - "HH?"
+ - 'HN?'
+ - 'HL?'
+ - 'HG?'
+ - 'EH?'  
+ 
+# Limit the search to the specified networks (see 'channel' parameter for details)
+network: '!YX,!X5,!6G,!TT,!C4,!SS,!6A,!4A,!3H,!XJ,!OT,!YW,!VD,!4C,!MT,!YP,!TV,!XG,!BA,!ZZ,!XO,!LC,!LSC,!CL,!8A,!S,!RF,!LX'
+
+# Limit the search to the specified stations (see 'channel' parameter for details)
+station: '!PEP3,!T0814,!MORC'
+
+# Limit the search to the specified locations (see 'channel' parameter for details)
+location: '*'
+
+# Limit the search to channels with at least the following sample rate (in Hz).
+# The relative segments will most likely (but not always) match the channel sample rate.
+# Set to 0 or negative number to ignore the sampling rate
+min_sample_rate: 60
+
+
+# Update segments metadata, i.e., overwrite the data of already saved stations and
+# channels, such as e.g., the channels sample rate, or the station inventories (see also
+# ‘inventory’ parameter). On a subsequent download, you can also provide "only" as value
+# (without quotes) to update metadata only, skipping events and waveform download: in
+# this case the only parameters used will be 'dataws' (to get the station web service(s))
+# and 'inventory' (to optionally re-download and save all station inventories).
+update_metadata: false
+
+# Download station inventories (xml format). Already saved inventories will be
+# overwritten according to ‘update_metadata’
+# Implementation details: inventories will in any case be downloaded and saved on the
+# database only for stations that have saved segments with waveform data
+inventory: true
+
+# search radius: defines the criteria for selecting stations around events. It is a dict
+# which can have either:
+# 1) two arguments ('min', 'max'), to select stations within 'min' and 'max' deggrees
+# (endpoints included) from each event location (type min=0 for a circular search area)
+# 2) four arguments, to select stations within a circular area whose radius is dependent
+# on the event magnitude:
+#
+#                   |
+#     maxmag_radius +                oooooooooooo
+#                   |              o
+#                   |            o
+#                   |          o
+#     minmag_radius + oooooooo
+#                   |
+#                   ---------+-------+------------
+#                         minmag   maxmag
+# If minmag = maxmag = M, `maxmag_radius` will be used for events with magnitude >= M,
+# `minmag_radius` otherwise
+search_radius:
+ #minmag: 3.5 # min magnitude
+ #maxmag: 5.5 # max magnitude
+ #minmag_radius: 3.5 # search radius for min mag (deg)
+ #maxmag_radius: 3.5 # search radius for max mag (deg)
+ min: 0  # min radius (deg)
+ max: 3.5  # max radius (deg)
+
+
+# ========================
+# Data (waveform segments) https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=8
+# ========================
+
+# List of URLs for downloading waveform data (data web services). All URLs must be
+# FDSN-compliant (e.g.: https://service.iris.edu/fdsnws/dataselect/1/query). You can also
+# type two special values: 1) "iris" (Incorporated Research Institutions for Seismology),
+# shortcut for the URL above or 2) "eida", shortcut for several nodes - or data centers -
+# of the European Integrated Data Archive. Being FDSN compliant, all URLs are also used
+# to fetch automatically the stations and channels necessary for the waveforms download.
+# This means that when providing several URLs, station conflicts (e.g., the same station
+# code returned by more than one URL) might happen. The program tries to resolve
+# conflicts with a Routing service (for EIDA URLs) or by checking if the station URL is
+# saved on the database from a previous download. HOWEVER, PLEASE NOTE that unresolved
+# conflicts - albeit rare - will cause the station to be discarded (the user will be
+# notified in the log file) and all its available waveforms not to be downloaded
+# Implementation details: If no station /channel could be downloaded (e.g., connection
+# problems), then the requested stations and channels will be fetched from the database,
+# if non-empty (otherwise the download process will stop with an error message). The EIDA
+# routing service is configurable in `advanced_settings`
+dataws:
+  - 'eida'
+  - 'iris'
+
+# The model to asses the travel time of a wave from the event location to a station
+# location, which will be used to get the segment arrival time (travel time +
+# event time) and eventually the segment time window to download (see also `timespan`).
+# Type one of the 4 built-in models:
+#   ak135_ttp+: ak135 model for all ttp+ phases (P wave arrivals)
+#   ak135_tts+: ak135 model for all tts+ phases (S wave arrivals)
+#   iasp91_ttp+: iasp91 model for all ttp+ phases (P wave arrivals)
+#   iasp91_tts+: iasp91 model for all tts+ phases (S wave arrivals)
+# Implementation details: the models above are grids of pre-computed travel times
+# obtained from the corresponding model. The grids allow to speed up significantly the
+# computation introducing a negligible interpolation error (roughly in the order of
+# few milliseconds and never exceeding 0.5s). Disclaimer: you can also create your own
+# grid file and put its path here. However, the procedure is not maintained anymore, use
+# at your risk. For info type `python stream2segment/traveltimes/ttcreator.py --help`
+traveltimes_model: 'ak135_ttp+'
+
+# The segment's time span (i.e., the data time window to download): specify two positive
+# floats denoting the minutes to account for before and after the calculated arrival
+# time. Note that 3.5 means 3 minutes 30 seconds, and that each segment window will be
+# eventually rounded to the nearest second.
+# Implementation details: the rounding is necessary to avoid floating point errors when
+# checking for segments to re-download because of a changed window.
+timespan:
+ - 1.0 # start of the waveform segment, in minutes *before* the calculated arrival time.
+ - 3.0 # end of the waveform segment, in minutes *after* the calculated arrival time
+
+# Credentials to download restricted data. When null, missing or "", only open waveforms
+# will be downloaded. When provided, it can be either a list of two strings (username and
+# password), or, for EIDA node(s), a string denoting the path of a token file (to get a
+# token, see https://geofon.gfz-potsdam.de/waveform/archive/auth/auth-overview.php)
+# IMPORTANT: You SHOULD NOT perform massive, time-consuming downloads when fetching
+# restricted data: first, it makes no sense: credentials are valid only for the
+# organization emitting them (thus there must be only one item in `dataws`) and second,
+# credentials might have an expiration time (e.g., roughly few hours for EIDA tokens).
+# Thus, try narrowing the search: e.g., shorter time bounds, network(s) or station(s) of
+# interest only. Have a look also at `max_concurrent_downloads` in `advanced_settings` as
+# in this case you might want to improve download efficiency over execution speed.
+# Implementation details: restricted segments previously downloaded with no credentials
+# (thus, with no waveform data) will be always re-downloaded ignoring all 'retry'
+# settings. If you need to provide username and password, remember indentation in YAML
+# (see parameter `timespan`). If you provide a token with a non-absolute path, its path
+# will be relative to the config file path
+restricted_data: ""
+
+# Retry already downloaded segments if the database reports that the previous attempt was
+# unsuccessful because no data could be found. This typically happens when a single
+# request of several waveform segments to a server gets in response only some of them,
+# with no clue about the missing ones, which are then "marked" as "not found"
+retry_seg_not_found: true
+
+# Retry already downloaded segments if the database reports that the previous attempt was
+# unsuccessful because of a general URL error (e.g., no internet connection, timeout, ...)
+retry_url_err: true
+
+# Retry already downloaded segments if the database reports that the previous attempt was
+# unsuccessful because the waveform data was malformed, i.e. is not readable as MiniSeed
+retry_mseed_err: false
+
+# Retry already downloaded segments if the database reports that the previous attempt was
+# unsuccessful because of a client (i.e., stream2segment) request error
+retry_client_err: true
+
+# Retry already downloaded segments if the database reports that the previous attempt was
+# unsuccessful because of a server (see `dataws`) response error
+retry_server_err: true
+
+# Retry already downloaded segments if the database reports that the previous attempt was
+# unsuccessful because received data was completely outside the requested time window
+# (see 'timespan' for details)
+retry_timespan_err: true
+
+
+# =====================================
+# Advanced settings (for experts only) 
+# =====================================
+
+advanced_settings:
+ # Routing service used to fetch the EIDA nodes and relative network/stations
+ routing_service_url: "http://www.orfeus-eu.org/eidaws/routing/1/query"
+ # Maximum number of concurrent / simultaneous downloads allowed. The default (null) sets
+ # it automatically depending on the number of CPUs (usually >= 4), whereas 1 disables
+ # concurrency and downloads all data in series, i.e., sequentially. We recommend to
+ # leave this parameter to null because it improves significantly the execution speed.
+ # The drawback is that some waveform data might not be downloaded because servers
+ # usually limit the number of concurrent requests allowed from the same source. This
+ # might be a problem in more in targeted, less "massive" downloads, where you might need
+ # to lower this parameter (e.g., 1, 2) to increase download efficiency over speed, e.g.:
+ # a) when fetching restricted data (see `restricted_data` parameter)
+ # b) when retrying to fetch data from a specific datacenter which reported many download
+ #    errors suggesting to "slow down", e.g. "Service Unavailable" (code 503) or
+ #    "Too Many Requests" (code 429). You can inspect errors in the summary table printed
+ #    after all segments are downloaded, or via the command `s2s dl report`
+ max_concurrent_downloads: null
+ # Max time to wait (in seconds) for a single request while downloading events
+ e_timeout: 120
+ # Max time to wait (in seconds) for a single request while downloading stations+channel
+ # metadata
+ s_timeout: 3
+ # Max time to wait (in seconds) for a single request while downloading an inventory in
+ # XML format
+ i_timeout: 60
+ # Max time to wait (in seconds) for a single request while downloading waveform data
+ w_timeout: 30
+ # Size (in bytes) of each block of data requested when downloading. It applies to any
+ # kind of data (event, waveform or station metadata). If 0, it will be converted to -1.
+ # If negative, all data will be always read in a single call and one block.
+ download_blocksize: 1048576  # = 1024*1024
+ # The buffer size used when writing (inserting or updating) database data, in number of
+ # segments. Increasing this number speeds up the download (we experienced performance
+ # degradation when it's below the range [30, 50]) but increases the memory consumption.
+ # Consider also that a single database error while writing a segment will unfortunately
+ # affect all buffer segments, which must all be discarded
+ db_buf_size: 100
