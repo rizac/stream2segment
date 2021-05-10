@@ -265,7 +265,7 @@ ZU * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
                                      False, None, None, -1, self.db_buf_size)
         assert 'urlerror_wat' in self.log_msg()
         assert "Unable to fetch stations" in self.log_msg()
-        assert "Fetching stations from database for 2 (of 2) data-center(s)" in self.log_msg()
+        assert "Fetching stations from database for 2 (of 2) data center(s)" in self.log_msg()
         # Test that the exception message is correct
         # note that this message is in the log if we run the method from the main
         # function (which is not the case here):
@@ -338,7 +338,7 @@ level=channel
 
         # Note above that min sample rate = 100 and a starttime proivded should return 3 channels:
         assert len(cha_df2) == 3
-        assert "Fetching stations from database for 2 (of 2) data-center(s)" in self.log_msg()
+        assert "Fetching stations from database for 2 (of 2) data center(s)" in self.log_msg()
 
         # now test again with a socket timeout
         cha_df2 = self.get_channels_df(socket.timeout(), db.session,
@@ -347,7 +347,7 @@ level=channel
                                        net, sta, loc, cha, None, None, 100,
                                        False, None, None, -1, self.db_buf_size)
         assert 'timeout' in self.log_msg()
-        assert "Fetching stations from database for 2 (of 2) data-center(s)" in self.log_msg()
+        assert "Fetching stations from database for 2 (of 2) data center(s)" in self.log_msg()
 
         # now mixed case:
 

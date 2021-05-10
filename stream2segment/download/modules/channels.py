@@ -79,7 +79,7 @@ def get_channels_df(session, datacenters_df, eidavalidator, net, sta, loc, cha,
         # if some datacenter does not return station, warn with INFO
         dc_df_fromdb = datacenters_df.loc[datacenters_df[DataCenter.id.key].\
             isin(url_failed_dc_ids)]
-        logger.info(formatmsg("Trying to fetch stations from database for %d of %d "
+        logger.info(formatmsg("Fetching stations from database for %d (of %d) "
                               "data center(s)", "download errors occurred"),
                     len(dc_df_fromdb), len(datacenters_df))
         logger.warning(dc_df_fromdb[DataCenter.dataselect_url.key].
