@@ -72,6 +72,11 @@ def test_real_run_old_buggy_network_filter(mock_get_post_data,
     part) is mocked and raises NothingToDownload (we just want to test stations and
     network)
     """
+    if db.is_potgres:
+        # THIS TEST IS JUST ENOUGH WITH ONE DB (USE SQLITE BECAUSE POSTGRES MIGHT NOT BE
+        # SETUP FOR TESTS)
+        return
+
     db.create(to_file=False)
 
     ws = WebService(name='isc', type='event', url='http://www.isc.ac.uk/fdsnws/event/1/query')
@@ -135,6 +140,11 @@ def test_real_run(mock_get_events_df, mock_merge_event_stations, mock_config4dow
     The download of segments and inventories (the time consuming part) is mocked
     and raises NothingToDownload (we just want to test stations and netowrk)
     """
+    if db.is_potgres:
+        # THIS TEST IS JUST ENOUGH WITH ONE DB (USE SQLITE BECAUSE POSTGRES MIGHT NOT BE
+        # SETUP FOR TESTS)
+        return
+
     db.create(to_file=False)
 
     ws = WebService(name='isc', type='event', url='http://www.isc.ac.uk/fdsnws/event/1/query')
