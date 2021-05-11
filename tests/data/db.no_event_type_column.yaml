@@ -1,6 +1,6 @@
 dburl: sqlite:///db.no_event_type_column.sqlite
-starttime: '2021-02-01'
-endtime: '2021-03-01'
+starttime: '2021-05-01'
+endtime: '2021-05-02'
 eventws: http://geofon.gfz-potsdam.de/fdsnws/event/1/query
 minlatitude: null
 maxlatitude: null
@@ -8,8 +8,8 @@ minlongitude: null
 maxlongitude: null
 mindepth: null
 maxdepth: null
-minmagnitude: null
-maxmagnitude: null
+minmagnitude: 5.7
+maxmagnitude: null  # 5.81
 eventws_params: null
 channel:
 - BHZ
@@ -39,7 +39,7 @@ retry_timespan_err: true
 advanced_settings:
   routing_service_url: http://www.orfeus-eu.org/eidaws/routing/1/query
   max_concurrent_downloads: null
-  e_timeout: 120
+  e_timeout: 5
   s_timeout: 120
   i_timeout: 60
   w_timeout: 30

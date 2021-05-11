@@ -331,7 +331,7 @@ def _run(session, download_id, eventws, starttime, endtime, dataws,
         raise
     finally:
         if inventory:
-            # frees memory. Although maybe unecessary, let's do our best to
+            # frees memory. Although maybe unnecessary, let's do our best to
             # free stuff cause the next one might be memory consuming:
             # https://stackoverflow.com/a/30022294/3526777
             session.expunge_all()
