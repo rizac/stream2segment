@@ -94,11 +94,13 @@ eventws_params:
 # Stations / Channels: https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=10
 # ====================
 
-# Limit the search to the specified channels (if missing, defaults to '*', i.e.: accept
-# all channels). Wildcards '?' and '*' are recognized
-# (https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf), as well as the
-# operator '!' placed as first character to indicate logical NOT. Example: "!B*,BBB"
-# accepts all channels NOT starting with "B" OR the channel "BBB"
+# Limit the search to the specified channels (if missing, defaults to '*', i.e. fetch all
+# channels). For info see https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf.
+# You can also filter out specific channels by placing the special character "!" in front
+# of them. This is a non standard FDSN syntax implemented in this program only, and thus
+# will be applied after the list of channels is obtained. Consequently, pay attention to
+# inconsistencies such as "!B*,BBB" that will first fetch all channels "BBB" and then
+# remove (!B*) all channels starting with "B", causing no channel to be selected.
 # Implementation details: You can also specify a YAML sequence of strings instead of
 # comma-separated strings. E.g., these are equivalent:
 # channels: "A,B"
