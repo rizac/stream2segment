@@ -99,7 +99,7 @@ eventws_params:
 # You can also filter out specific channels by placing the special character "!" in front
 # of them. This is a non standard FDSN syntax implemented in this program only, and thus
 # will be applied after the list of channels is obtained. Consequently, pay attention to
-# inconsistencies such as "!B*,BBB" that will first fetch all channels "BBB" and then
+# inconsistencies such as "!B*,BHZ" that will first fetch all channels "BHZ" and then
 # remove ("!") all channels starting with "B" ("B*"), causing no channel to be selected.
 # Implementation details: You can also specify a YAML sequence of strings instead of
 # comma-separated strings. E.g., these are equivalent:
