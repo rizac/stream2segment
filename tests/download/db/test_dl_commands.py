@@ -169,6 +169,9 @@ class Test(object):
                 # assert re.search(expected_re0, output)
                 assert re.search(expected_re1, output)
 
+        # test providing download id and not download indices:
+        result = runner.invoke(cli, CMD_PREFIX + ['--dburl', db.dburl, '-did', 1])
+        assert not result.exception
 
     def test_log(self, db):
         CMD_PREFIX = self.CMD_PREFIX_LOG

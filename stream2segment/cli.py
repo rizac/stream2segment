@@ -755,8 +755,7 @@ def summary(dburl, download_id, download_indices):
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option('-did', '--download-id', multiple=True, type=int,
               help="Limit the download statistics to a specified set of "
-                   "download ids (integers). when missing, all downloads are "
-                   "shown")
+                   "download ids (integers)")
 @click.argument("download_indices", required=False, nargs=-1)
 def log(dburl, download_id, download_indices):
     """Return the log file(s) content with detailed information of the download execution
@@ -764,9 +763,9 @@ def log(dburl, download_id, download_indices):
     [DOWNLOAD_INDICES] (optional): The space-separated indices of the download executions
     to inspect, where 0 indicates the first/oldest. To start counting from the end use a
     negative index. E.g., -1 for the last/most recent execution, -2 for the next-to-last,
-    and so on (-1 is also the default when no argument is provided). Remember not to mix
-    up the index provided here with the download id (immutable integer uniquely
-    identifying a download execution)
+    and so on (-1 is also the default when no download id or index is provided).
+    Remember not to mix up the index provided here with the download id (immutable
+    integer uniquely identifying a download execution)
     """
     # import in function body to speed up the main module import:
     from stream2segment.download.db.inspection.main import log as _log
@@ -776,7 +775,9 @@ def log(dburl, download_id, download_indices):
     try:
         with warnings.catch_warnings():  # capture (ignore) warnings
             warnings.simplefilter("ignore")
-            _log(dburl, download_indices or [-1], download_id or None, None)
+            if not download_id and not download_indices:
+                download_indices = [-1]
+            _log(dburl, download_indices or None, download_id or None, None)
         sys.exit(0)
     except BadParam as err:
         _print_badparam_and_exit(err)
@@ -787,8 +788,7 @@ def log(dburl, download_id, download_indices):
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option('-did', '--download-id', multiple=True, type=int,
               help="Limit the download statistics to a specified set of "
-                   "download ids (integers). when missing, all downloads are "
-                   "shown")
+                   "download ids (integers)")
 @click.argument("download_indices", required=False, nargs=-1)
 def config(dburl, download_id, download_indices):
     """Return the YAML configuration file(s) used for launching the download execution
@@ -796,10 +796,10 @@ def config(dburl, download_id, download_indices):
     [DOWNLOAD_INDICES] (optional): The space-separated indices of the download executions
     to inspect, where 0 indicates the first/oldest. To start counting from the end use a
     negative index. E.g., -1 for the last/most recent execution, -2 for the next-to-last,
-    and so on (-1 is also the default when no argument is provided). Remember not to mix
-    up the index provided here with the download id (immutable integer uniquely
-    identifying a download execution). With a single passed, the configuration can
-    be piped into a YAML file and directly used in a new download.
+    and so on (-1 is also the default when no download id or index is provided).
+    Remember not to mix up the index provided here with the download id (immutable
+    integer uniquely identifying a download execution). With a single passed, the
+    configuration can be piped into a YAML file and directly used in a new download.
     """
     # import in function body to speed up the main module import:
     from stream2segment.download.db.inspection.main import config as _config
@@ -809,7 +809,9 @@ def config(dburl, download_id, download_indices):
     try:
         with warnings.catch_warnings():  # capture (ignore) warnings
             warnings.simplefilter("ignore")
-            _config(dburl, download_indices or [-1], download_id or None, None)
+            if not download_id and not download_indices:
+                download_indices = [-1]
+            _config(dburl, download_indices or None, download_id or None, None)
         sys.exit(0)
     except BadParam as err:
         _print_badparam_and_exit(err)

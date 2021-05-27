@@ -147,8 +147,7 @@ def get_download_ids(session, download_indices=None, download_ids=None):
         return download_ids
 
     # now download indices is given, and will be merged into download_ids. Thus:
-    if not download_ids:
-        download_ids = []
+    download_ids = [] if not download_ids else list(download_ids)
 
     def raise_bad_param():
         raise BadParam("Invalid download indices", "", str(download_indices),

@@ -40,6 +40,7 @@ def classlabels(dburl, *, add, rename, delete):
     finally:
         close_session(session)
 
+
 def configure_classlabels(session, *, add, rename, delete, commit=True):
     """Configure the class labels of the database related to the database
     of the given session. Lower level function than `classlabels`, accepts
