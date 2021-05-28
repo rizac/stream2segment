@@ -378,6 +378,7 @@ class NewmarkBeta(ResponseSpectrum, _NewmarkBeta):
     """
     pass
 
+
 # define a global variable for use with the function below:
 # note that isinstance(c, type) returns if v is a class but works for new-style classes
 # which as of end 2017 is not anymore a restriction
@@ -386,7 +387,8 @@ _rs = {c.lower(): v for c, v in globals().items() if isinstance(v, type) and
 
 
 def respspec(method, acc_trace, periods, damping=0.05):
-    """Evaluate the response spectrum within a single function
+    """Evaluate the response spectrum within a single function. Example:
+    `rsp = respspec('NigamJennings', trace, periods)`
 
     :param method: a string denoting the method. Currently supported are:
         `NewmarkBeta` and `NigamJennings` (`method` is case-insensitive so you can input
@@ -398,7 +400,6 @@ def respspec(method, acc_trace, periods, damping=0.05):
         ```
             acc_trace = trace.remove_response(..., output="ACC", ...)
         ```
-    :param time_step: the sampling period (delta t) of `acceleration`
     :param periods: (numpy.ndarray) Spectral periods (s) for calculation
     :param damping: float (default=0.05) Fractional coefficient of damping
 
