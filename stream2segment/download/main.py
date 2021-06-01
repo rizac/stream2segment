@@ -40,7 +40,8 @@ from stream2segment.download.modules.stations import (save_inventories,
 logger = logging.getLogger(__name__[:__name__.rfind('.')])
 
 
-def download(config, log2file=True, verbose=False, **param_overrides):
+def download(config, log2file=True, verbose=False, print_config_only=False,
+             **param_overrides):
     """Start an event-based download routine, fetching segment data and
     metadata from FDSN web services and saving it in an SQL database
 
@@ -61,6 +62,10 @@ def download(config, log2file=True, verbose=False, **param_overrides):
         showing the estimated remaining time for each sub task. This option is
         set to True when this function is invoked from the command line
         interface (`cli.py`)
+    :param print_config_only: boolean (default False). Set to True to test
+        the configuration only (no download): merge input and overridden parameters,
+        validate them, print the final configuration in YAML syntax on the screen,
+        and then simply return skipping the download routine
     :param param_overrides: additional parameter(s) for the YAML `config`. The
         value of existing config parameters will be overwritten, e.g. if
         `config` is {'a': 1} and `param_overrides` is `a=2`, the result is
@@ -94,9 +99,21 @@ def download(config, log2file=True, verbose=False, **param_overrides):
     db_streamer = None  # handler logging to db upon successful completion
     download_id = None
     try:
+        # Download a YAML dict for printing to the screen and saving to the db (No need
+        # to validate parameters again)
         real_yaml_dict = load_config_for_download(config, False, **param_overrides)
-        if verbose:
+        # Still, some parameters should be printed/saved as validated. E.g. starttime
+        # and endtime might be integers. In case, they need to be saved as date times
+        # otherwise the config depends on when it is launched
+        for keys in [['starttime', 'start'], ['endtime', 'end']]:
+            key = [k for k in keys if k in real_yaml_dict][0]
+            real_yaml_dict[key] = d_kwargs[keys[0]]
+
+        if verbose or print_config_only:
             print("%s\n" % _pretty_printed_str(real_yaml_dict))
+
+        if print_config_only:
+            return
 
         # configure logger and handlers:
         if log2file is True:
@@ -169,8 +186,9 @@ def _pretty_printed_str(yaml_dict):
                    pop_param(tmp_cfg, ('endtime', 'end'))]
     tmp_cfg_post = [pop_param(tmp_cfg, 'advanced_settings', {})]
     return "\n".join(_.strip() for _ in [
-        "Input parameters",
-        "----------------",
+        "####################"
+        "# Input parameters #",
+        "####################",
         yaml_safe_dump(dict(tmp_cfg_pre)),
         yaml_safe_dump(tmp_cfg),
         yaml_safe_dump(dict(tmp_cfg_post)),

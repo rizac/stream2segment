@@ -209,10 +209,10 @@ dataws:
 # at your risk. For info type `python stream2segment/traveltimes/ttcreator.py --help`
 traveltimes_model: 'ak135_ttp+'
 
-# The segment's time span (i.e., the data time window to download): specify two positive
+# The segment's time span (i.e., the data time window to download): specify two
 # floats denoting the minutes to account for before and after the calculated arrival
-# time. Note that 3.5 means 3 minutes 30 seconds, and that each segment window will be
-# eventually rounded to the nearest second.
+# time (negative numbers are allowed). Note that 3.5 means 3 minutes 30 seconds, and
+# that each segment window will be eventually rounded to the nearest second.
 # Implementation details: the rounding is necessary to avoid floating point errors when
 # checking for segments to re-download because of a changed window.
 timespan:
