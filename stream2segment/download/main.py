@@ -186,7 +186,7 @@ def _pretty_printed_str(yaml_dict):
                    pop_param(tmp_cfg, ('endtime', 'end'))]
     tmp_cfg_post = [pop_param(tmp_cfg, 'advanced_settings', {})]
     return "\n".join(_.strip() for _ in [
-        "####################"
+        "####################",
         "# Input parameters #",
         "####################",
         yaml_safe_dump(dict(tmp_cfg_pre)),
