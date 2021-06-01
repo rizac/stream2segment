@@ -113,7 +113,7 @@ def download(config, log2file=True, verbose=False, print_config_only=False,
             print("%s\n" % _pretty_printed_str(real_yaml_dict))
 
         if print_config_only:
-            return
+            return ret
 
         # configure logger and handlers:
         if log2file is True:
