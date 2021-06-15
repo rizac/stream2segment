@@ -442,7 +442,7 @@ def convert2plot(funcres):
                 for trace in obj:
                     plt.addtrace(trace, label)
             else:
-                raise ValueError("Cannot create plot from %s (length=%d): " %
+                raise ValueError("Cannot create plot from %s: " %
                                  str(type(obj)))
     return plt
 
