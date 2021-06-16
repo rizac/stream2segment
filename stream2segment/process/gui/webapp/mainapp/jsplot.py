@@ -138,8 +138,11 @@ class Plot(object):
                 # return its ISO representation. Libraries as Plotly handle
                 # this avoiding browser timezone conversions
                 x0 = isoformat(x0)  # pylint: disable=invalid-name
-            # replaces nan's with zeros and infinity with numbers
-            y = np.nan_to_num(y)  # pylint: disable=invalid-name
+            # Handle non finite numbers (NFN), i.e. NaNs and +-INF. We could use:
+            # y = np.nan_to_num(y)
+            # but we want to convert NFNs with None, so we need to do:
+            y = np.where(~np.isfinite(y), None, y)
+            # (if y had NFN's, it now has dtype `object` but it's not a problem)
             data.append([x0.item() if hasattr(x0, 'item') else x0,
                          dx.item() if hasattr(dx, 'item') else dx,
                          y.tolist(), label or ''])
