@@ -280,8 +280,8 @@ def downsample(array, npts):
     offset = array.size % chunk_size
     arr_slice = array[:array.size-offset] if offset > 0 else array
     arr_reshape = arr_slice.reshape((int((array.size-offset)/chunk_size), chunk_size))
-    array_min = arr_reshape.min(axis=1)
-    array_max = arr_reshape.max(axis=1)
+    array_min = np.nanmin(arr_reshape, axis=1)
+    array_max = np.nanmax(arr_reshape, axis=1)
 
     # now 'interleave' min and max:
     # http://stackoverflow.com/questions/5347065/interweaving-two-numpy-arrays
@@ -295,7 +295,7 @@ def downsample(array, npts):
     # (if offset=modulo is not zero)
     if offset > 0:
         arr_slice = array[array.size-offset:]
-        downsamples[-2] = arr_slice.min()
-        downsamples[-1] = arr_slice.max()
+        downsamples[-2] = np.nanmin(arr_slice)
+        downsamples[-1] = np.nanmax(arr_slice)
 
     return downsamples
