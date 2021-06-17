@@ -218,8 +218,8 @@ class WebService(Base):
     # (no 'station' or 'dataselect')
 
     # id = Column(Integer, primary_key=True, autoincrement=True)  # noqa
-    name = Column(String)  # e.g. event. See comment above
-    type = Column(String)
+    name = Column(String)
+    type = Column(String)  # e.g. event. See comment above
     url = Column(String, nullable=False)  # if you change attr, see BELOW!
 
     # segments = relationship("Segment", backref="data_centers")
