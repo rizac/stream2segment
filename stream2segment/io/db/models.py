@@ -200,6 +200,10 @@ class Event(Base):  # pylint: disable=too-few-public-methods
     event_type = Column(String)
 
     @declared_attr
+    def webservice(cls):
+        return relationship("WebService", backref=backref("events", lazy="dynamic"))
+
+    @declared_attr
     def __table_args__(cls):  # noqa  # https://stackoverflow.com/a/43993950
         return UniqueConstraint('webservice_id', 'event_id',
                                 name='ws_eventid_uc'),  # <- tuple
@@ -207,10 +211,15 @@ class Event(Base):  # pylint: disable=too-few-public-methods
 
 class WebService(Base):
     """Model representing a web service (e.g., event web service)"""
+    # NOTE: This class currently implements an FDSN event web service only.
+    # The name was left general in case in the future we want to merge
+    # DataCenter with this model. This is also why the intention of the
+    # 'type' column below, which currently has only 'event' implemented
+    # (no 'station' or 'dataselect')
 
     # id = Column(Integer, primary_key=True, autoincrement=True)  # noqa
-    name = Column(String)  # optional
-    type = Column(String)  # e.g.: event, station, dataselect
+    name = Column(String)  # e.g. event. See comment above
+    type = Column(String)
     url = Column(String, nullable=False)  # if you change attr, see BELOW!
 
     # segments = relationship("Segment", backref="data_centers")

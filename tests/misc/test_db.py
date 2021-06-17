@@ -242,6 +242,7 @@ class Test(object):
         assert object_session(e) is db.session
         db.session.commit()
         assert e.latitude == float(val)
+        assert e.webservice is ws
 
         # create a datacenter WITHOUT the two fields stations and dataselect
         dc = DataCenter()
