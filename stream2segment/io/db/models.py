@@ -199,6 +199,10 @@ class Event(Base):  # pylint: disable=too-few-public-methods
     event_location_name = Column(String)
     event_type = Column(String)
 
+    @hybrid_property
+    def url(self):
+        return self.webservice.url + '?eventid=%s' % str(self.event_id)
+
     @declared_attr
     def webservice(cls):
         return relationship("WebService", backref=backref("events", lazy="dynamic"))
@@ -236,7 +240,7 @@ class DataCenter(Base):
     # id = Column(Integer, primary_key=True, autoincrement=True)  # noqa
     station_url = Column(String, nullable=False)
     dataselect_url = Column(String, nullable=False)
-    organization_name = Column(String)
+    organization_name = Column(String)  # e.g. EIDA (I guess?)
 
     @declared_attr
     def __table_args__(cls):  # noqa  # https://stackoverflow.com/a/43993950
@@ -287,6 +291,12 @@ class Station(Base):
     start_time = Column(DateTime, nullable=False)
     end_time = Column(DateTime)
     inventory_xml = Column(LargeBinary)
+
+    @hybrid_property
+    def url(self):
+        qry_str = 'net=%s&sta=%s&start=%s' % \
+                  (self.network, self.station, self.start_time.isoformat('T'))
+        return self.datacenter.station_url + '?%s' % qry_str
 
     @hybrid_property
     def has_inventory(self):
@@ -372,6 +382,15 @@ class Segment(Base):
     request_end = Column(DateTime, nullable=False)
     queryauth = Column(Boolean, nullable=False,
                        server_default="0")  # note: null fails in sqlite!
+
+    @hybrid_property
+    def url(self):
+        net, sta = self.station.network, self.station.station
+        loc, cha = self.channel.location, self.channel.channel
+        qry_str = 'net=%s&sta=%s&loc=%s&cha=%s&start=%s&end=%s' % \
+                  (net, sta, loc, cha, self.request_start.isoformat('T'),
+                   self.request_end.isoformat('T'))
+        return self.datacenter.dataselect_url + '?%s' % qry_str
 
     @hybrid_property
     def has_data(self):

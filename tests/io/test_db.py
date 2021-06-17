@@ -12,7 +12,7 @@ import pytest
 import numpy as np
 import pandas as pd
 from sqlalchemy.orm import load_only
-from sqlalchemy.exc import IntegrityError, DataError
+from sqlalchemy.exc import IntegrityError, DataError, SQLAlchemyError
 from sqlalchemy.orm.exc import FlushError
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm.session import object_session
@@ -126,6 +126,70 @@ class Test(object):
 
         db.session.query(WebService).delete()
         assert not db.session.query(WebService).all()
+
+    def test_urls(self, db):
+
+            # Add dopwnload:
+            db.session.add(Download())
+            db.session.commit()
+            dwl = db.session.query(Download).one()
+            # Add web service (REAL ONE):
+            ws = WebService(url='http://www.isc.ac.uk/fdsnws/event/1/query')
+            db.session.add(ws)
+            db.session.commit()
+            evt = Event(event_id='1435226', webservice_id=ws.id, time=datetime.utcnow(),
+                      latitude=34.67, longitude=23.9711, magnitude=4, depth_km=29)
+            db.session.add(evt)
+            db.session.commit()
+            assert evt.webservice is ws
+            # Note: the URL below should work (try in your browser in case):
+            assert evt.url == 'http://www.isc.ac.uk/fdsnws/event/1/query?eventid=1435226'
+            # Add datacenter:
+            # ops the line below raises because we did not specify the dataselect url
+            # (we import from stream2segment.io, the event listener that adds
+            # automatically the missing url is in download.db package.
+            # FIXME: move it maybe to io?):
+            with pytest.raises(SQLAlchemyError):
+                dc = DataCenter(station_url='http://geofon.gfz-potsdam.de/')
+                db.session.add(dc)
+                db.session.commit()
+            db.session.rollback()
+            # now add it properly:
+            dc = DataCenter(
+                station_url='http://geofon.gfz-potsdam.de/fdsnws/station/1/query',
+                dataselect_url='http://geofon.gfz-potsdam.de/fdsnws/dataselect/1/query')
+            db.session.add(dc)
+            db.session.commit()
+            # Add station:
+            start_time = datetime(2006, 11, 21)
+            # now test auto id (this staion exists):
+            sta = Station(network='CX', datacenter_id=dc.id,
+                          station='HMBCX', latitude='-20.27822',
+                          longitude='-69.88791', start_time=start_time)
+            db.session.add(sta)
+            db.session.commit()
+            # Note: the URL below should work (try in your browser in case):
+            assert sta.url == ('http://geofon.gfz-potsdam.de/fdsnws/station/1/query?'
+                               'net=CX&sta=HMBCX&start=2006-11-21T00:00:00')
+            # Add Channel:
+            cha = Channel(location='', channel='HLE', station_id=sta.id,
+                          sample_rate=100)
+            db.session.add(cha)
+            db.session.commit()
+            # Add segment:
+            start, end = datetime(2020, 6, 3, 16, 9, 55), datetime(2020, 6, 3, 16, 11, 55)
+            atime = datetime(2020, 6, 3, 16, 10, 1, 466642)
+            seg = Segment(channel_id=cha.id, request_start=start, request_end=end,
+                          download_id=dwl.id, datacenter_id = dc.id, event_id=evt.id,
+                          data=b'', event_distance_deg=2.85527805792742,
+                          arrival_time=atime)
+            # Note: we need to add the segment to the session to make relationship work
+            # (relationships are used by URLs bulders):
+            db.session.add(seg)
+            db.session.commit()
+            assert seg.url == ('http://geofon.gfz-potsdam.de/fdsnws/dataselect/1/query?'
+                               'net=CX&sta=HMBCX&loc=&cha=HLE&start=2020-06-03T16:09:55'
+                               '&end=2020-06-03T16:11:55')
 
     def test_sqlalchemy(self, db):
 
