@@ -144,20 +144,9 @@ class Test(object):
             assert evt.webservice is ws
             # Note: the URL below should work (try in your browser in case):
             assert evt.url == 'http://www.isc.ac.uk/fdsnws/event/1/query?eventid=1435226'
-            # Add datacenter:
-            # ops the line below raises because we did not specify the dataselect url
-            # (we import from stream2segment.io, the event listener that adds
-            # automatically the missing url is in download.db package.
-            # FIXME: move it maybe to io?):
-            with pytest.raises(SQLAlchemyError):
-                dc = DataCenter(station_url='http://geofon.gfz-potsdam.de/')
-                db.session.add(dc)
-                db.session.commit()
-            db.session.rollback()
             # now add it properly:
             dc = DataCenter(
-                station_url='http://geofon.gfz-potsdam.de/fdsnws/station/1/query',
-                dataselect_url='http://geofon.gfz-potsdam.de/fdsnws/dataselect/1/query')
+                station_url='http://geofon.gfz-potsdam.de/fdsnws/station/1')
             db.session.add(dc)
             db.session.commit()
             # Add station:
@@ -313,7 +302,14 @@ class Test(object):
         with pytest.raises(IntegrityError):
             db.session.add(dc)
             db.session.flush()
+        db.session.rollback()
 
+        # Another error, incomplete FDSN URL
+        # (missing 'fdsnws/<station_dataselect>/<major_version>' part):
+        with pytest.raises(SQLAlchemyError):
+            dc = DataCenter(station_url='http://geofon.gfz-potsdam.de/')
+            db.session.add(dc)
+            db.session.commit()
         db.session.rollback()
 
         # now add it properly:
