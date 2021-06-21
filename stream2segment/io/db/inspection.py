@@ -165,9 +165,18 @@ def attnames(model_or_instance, pkey=None, fkey=None, col=None, qatt=None, rel=N
     for attname in dir(model_or_instance):
         if attname[:2] == '__':
             continue
-        if qatt is not None and \
-                isinstance(getattr(model, attname), QueryableAttribute) != qatt:
-            continue
+        # if qatt is not None and \
+        #         isinstance(getattr(model, attname), QueryableAttribute) != qatt:
+        #     continue
+        if qatt is not None:
+            try:
+                if isinstance(getattr(model, attname), QueryableAttribute) != qatt:
+                    continue
+            except Exception:  # noqa
+                # this might happen if the attribute is defined at the instance
+                # level (not class) and refers to relationships not setup on the
+                # instance. Simply skip it, it is not a queryable attribute:
+                continue
         if pkey is not None and (attname in pkeys) != pkey:
             continue
         if fkey is not None and (attname in fkeys) != fkey:
