@@ -261,10 +261,10 @@ def imap(pyfunc, dburl, segments_selection=None, config=None,
         be loaded from the database. Increasing this number speeds up the load but also
         increases memory consumption. None (the default) means: set size automatically
     """
-    session = validate_param('dburl', dburl, get_session)
-    segment_ids = fetch_segments_ids(session, segments_selection)
-    close_session(session)
     with _setup_logging(logfile, verbose):
+        session = validate_param('dburl', dburl, get_session)
+        segment_ids = fetch_segments_ids(session, segments_selection)
+        close_session(session)
         for result, seg_id in run_and_yield(dburl, segment_ids, pyfunc, config, verbose,
                                             multi_process, chunksize, skip_exceptions):
             yield result
