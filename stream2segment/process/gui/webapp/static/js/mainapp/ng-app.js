@@ -442,6 +442,13 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 				}else{
 					layout.xaxis.autorange = true;
 				}
+			}else{
+			    // custom plot: checkif we have only one trace, and if it has a name
+			    // in this case, set showlegend: true because plotly does not show
+			    // legend by default
+			    if (data.length == 1 && data[0].name){
+                    layout.showlegend = true;
+			    }
 			}
 			plotStuff.push({div: div, data: data, layout:layout, index:i});
 		}
