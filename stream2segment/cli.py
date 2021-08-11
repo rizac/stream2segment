@@ -676,9 +676,9 @@ def dl():  # pylint: disable=missing-docstring
             context_settings={'ignore_unknown_options': True})
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option('-did', '--download-id', multiple=True, type=int,
-              help="Limit the download statistics to a specified set of "
-                   "download ids (integers). when missing, all downloads are "
-                   "shown")
+              help="The unique id (integer) of the download execution(s) to select, "
+                   "which can be supplied instead of or together with the list of "
+                   "download indices")
 @click.option('-g', '--maxgap-threshold', type=float, default=0.5,
               help="Optional: set the threshold (in number of samples) "
                    "to identify segments with gaps/overlaps. Defaults to 0.5, "
@@ -704,10 +704,9 @@ def stats(dburl, download_id, maxgap_threshold, html, outfile, download_indices)
 
     [DOWNLOAD_INDICES] (optional): The space-separated indices of the download executions
     to inspect, where 0 indicates the first/oldest. To start counting from the end use a
-    negative index. E.g., -1 for the last/most recent execution, -2 for the next-to-last,
-    and so on. When no argument is provided, all downloads are shown. Remember not to mix
-    up the index provided here with the download id (immutable integer uniquely
-    identifying a download execution)
+    negative index, e.g., -1 for the last execution, -2 for the next-to-last.
+    When no download index or id is provided, all download executions will be shown by
+    default
     """
     # import in function body to speed up the main module import:
     from stream2segment.download.db.inspection.main import stats as _stats
@@ -730,19 +729,18 @@ def stats(dburl, download_id, maxgap_threshold, html, outfile, download_indices)
             context_settings={'ignore_unknown_options': True})
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option('-did', '--download-id', multiple=True, type=int,
-              help="Limit the download statistics to a specified set of "
-                   "download ids (integers). when missing, all downloads are "
-                   "shown")
+              help="The unique id (integer) of the download execution(s) to select, "
+                   "which can be supplied instead of or together with the list of "
+                   "download indices")
 @click.argument("download_indices", required=False, nargs=-1)
 def summary(dburl, download_id, download_indices):
     """Return a summary of the download execution
 
     [DOWNLOAD_INDICES] (optional): The space-separated indices of the download executions
     to inspect, where 0 indicates the first/oldest. To start counting from the end use a
-    negative index. E.g., -1 for the last/most recent execution, -2 for the next-to-last,
-    and so on. When no argument is provided, all downloads are shown. Remember not to mix
-    up the index provided here with the download id (immutable integer uniquely
-    identifying a download execution)
+    negative index, e.g., -1 for the last execution, -2 for the next-to-last.
+    When no download index or id is provided, all download executions will be shown by
+    default
     """
     # import in function body to speed up the main module import:
     from stream2segment.download.db.inspection.main import summary as _summary
@@ -762,18 +760,18 @@ def summary(dburl, download_id, download_indices):
             context_settings={'ignore_unknown_options': True})
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option('-did', '--download-id', multiple=True, type=int,
-              help="Limit the download statistics to a specified set of "
-                   "download ids (integers)")
+              help="The unique id (integer) of the download execution(s) to select, "
+                   "which can be supplied instead of or together with the list of "
+                   "download indices")
 @click.argument("download_indices", required=False, nargs=-1)
 def log(dburl, download_id, download_indices):
     """Return the log file(s) content with detailed information of the download execution
 
     [DOWNLOAD_INDICES] (optional): The space-separated indices of the download executions
     to inspect, where 0 indicates the first/oldest. To start counting from the end use a
-    negative index. E.g., -1 for the last/most recent execution, -2 for the next-to-last,
-    and so on (-1 is also the default when no download id or index is provided).
-    Remember not to mix up the index provided here with the download id (immutable
-    integer uniquely identifying a download execution)
+    negative index, e.g., -1 for the last execution, -2 for the next-to-last.
+    When no download index or id is provided, the last download execution (index -1) will
+    be shown by default
     """
     # import in function body to speed up the main module import:
     from stream2segment.download.db.inspection.main import log as _log
@@ -795,19 +793,20 @@ def log(dburl, download_id, download_indices):
             context_settings={'ignore_unknown_options': True})
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option('-did', '--download-id', multiple=True, type=int,
-              help="Limit the download statistics to a specified set of "
-                   "download ids (integers)")
+              help="The unique id (integer) of the download execution(s) to select, "
+                   "which can be supplied instead of or together with the list of "
+                   "download indices")
 @click.argument("download_indices", required=False, nargs=-1)
 def config(dburl, download_id, download_indices):
-    """Return the YAML configuration file(s) used for launching the download execution
+    """Return the YAML configuration(s) used in previous download execution(s)
 
     [DOWNLOAD_INDICES] (optional): The space-separated indices of the download executions
     to inspect, where 0 indicates the first/oldest. To start counting from the end use a
-    negative index. E.g., -1 for the last/most recent execution, -2 for the next-to-last,
-    and so on (-1 is also the default when no download id or index is provided).
-    Remember not to mix up the index provided here with the download id (immutable
-    integer uniquely identifying a download execution). With a single passed, the
-    configuration can be piped into a YAML file and directly used in a new download.
+    negative index, e.g., -1 for the last execution, -2 for the next-to-last.
+    When no download index or id is provided, the last download execution (index -1) will
+    be shown by default.
+    With a single download execution to inspect, the output of this command can be piped
+    into a YAML file and directly used in a new download
     """
     # import in function body to speed up the main module import:
     from stream2segment.download.db.inspection.main import config as _config

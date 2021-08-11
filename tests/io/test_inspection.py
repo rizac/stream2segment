@@ -34,6 +34,8 @@ def test_attnames():
     assert len(set([_ for e in qatts for _ in e]) & set(attnames)) == 0
 
     attnames = list(insp.attnames(Segment))
+    # assert url is in attnames:
+    assert 'url' in attnames
     # assert we have stream and inventory:
     assert len(set(['stream', 'inventory']) & set(attnames)) == 2
     # assert we also have other expected attributes:

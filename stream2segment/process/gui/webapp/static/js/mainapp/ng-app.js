@@ -389,7 +389,8 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 			if (!layout.xaxis.type && isTimeSeries){
 				layout.xaxis.type = 'date';
 			}
-			if (i==0){ // spectra windows
+			if (i==0){  // default plot
+			    // Add background shaded areas and arrival time:
 				// https://plot.ly/javascript/shapes/#vertical-and-horizontal-lines-positioned-relative-to-the-axes
 				layout.shapes = $scope.segData.snWindows.map(function(elm, idx){
 					return {
@@ -442,9 +443,9 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 				}else{
 					layout.xaxis.autorange = true;
 				}
-			}else{
-			    // custom plot: checkif we have only one trace, and if it has a name
-			    // in this case, set showlegend: true because plotly does not show
+			}else{ // custom plots (i != 0)
+			    // check if we have only one trace, and if it has a name set and non-empty.
+			    // In this case, the user wants a legend but set `showlegend: true` because plotly does not show
 			    // legend by default
 			    if (data.length == 1 && data[0].name){
                     layout.showlegend = true;

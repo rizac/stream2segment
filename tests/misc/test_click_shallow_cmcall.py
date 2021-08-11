@@ -462,7 +462,7 @@ def test_click_dreport(mocked_func_path):
         assert result.exit_code == 0
 
         is_summary_command = prefix[-1] == 'summary'
-        default_when_missing = None if is_summary_command else [-1]
+        default_when_missing = None # if is_summary_command else [-1]
 
         # do a little test with variable length download ids
         result = runner.invoke(cli, prefix + ['-d', 'dburl', '-did', 1, '-did', 2])
@@ -497,6 +497,9 @@ def test_click_dreport(mocked_func_path):
         assert lst == ['dburl', ('-2', 'b'), (1, 2), None]
         assert result.exit_code == 0
         # mock_da.reset_mock()
+
+        # Now try with no args and check the defaults:
+        default_when_missing = None if is_summary_command else [-1]
 
         result = runner.invoke(cli, prefix + ['-d', 'dburl'])
         lst = list(mock_da.call_args_list[-1][0])
