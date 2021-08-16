@@ -25,13 +25,13 @@ def colnames(model_or_instance, pkey=None, fkey=None, nullable=None):
         are yielded. If False, only names of columns where nullable=False are yielded.
         If None, the filter is off (yield all)
     """
-    mapper = get_mapper(model_or_instance)
+
     # http://docs.sqlalchemy.org/en/latest/orm/mapping_api.html
-    #   #sqlalchemy.orm.mapper.Mapper.mapped_table
-    table = _get_mapped_table(mapper)
-    fkeys_cols = set(get_fk_columns(table)) if fkey in (True, False) else set([])
-    pkey_cols = set(get_pk_columns(table)) if pkey in (True, False) else set([])
-    for att_name, column in mapper.columns.items():
+    table = get_table(model_or_instance)
+    fkeys_cols = set(fk_colnames(table)) if fkey in (True, False) else set()
+    pkey_cols = set(pk_colnames(table)) if pkey in (True, False) else set()
+
+    for att_name, column in get_mapper(model_or_instance).columns.items():
         # the dict-like above is keyed based on the attribute name defined in
         # the mapping, not necessarily the key attribute of the Column itself
         # (column). See
@@ -46,19 +46,19 @@ def colnames(model_or_instance, pkey=None, fkey=None, nullable=None):
             yield att_name
 
 
-def _get_mapped_table(mapper):
-    """Return the mapped table from the given SQLAlchemy mapper
-
-    :param mapper: A :class:`sqlalchemy.orm.Mapper` object, see e.g. `get_mapper`
-    """
-    # http://docs.sqlalchemy.org/en/latest/orm/mapping_api.html
-    #   #sqlalchemy.orm.mapper.Mapper.mapped_table
-    # Note that from v 1.3+, we need to use .persist_selectable:
-    try:
-        table = mapper.persist_selectable
-    except AttributeError:
-        table = mapper.mapped_table
-    return table
+# def _get_mapped_table(mapper):
+#     """Return the mapped table from the given SQLAlchemy mapper
+#
+#     :param mapper: A :class:`sqlalchemy.orm.Mapper` object, see e.g. `get_mapper`
+#     """
+#     # http://docs.sqlalchemy.org/en/latest/orm/mapping_api.html
+#     #   #sqlalchemy.orm.mapper.Mapper.mapped_table
+#     # Note that from v 1.3+, we need to use .persist_selectable:
+#     try:
+#         table = mapper.persist_selectable
+#     except AttributeError:
+#         table = mapper.mapped_table
+#     return table
 
 
 def get_mapper(model_or_instance):
@@ -90,7 +90,8 @@ def is_model(model_or_instance):
 
 
 def get_table(model_or_instance):
-    """Return the table instance from tjhe given model or instance
+    """Return the :class:`sqlalchemy.sql.schema.Table` instance
+    associated to the given ORM model or instance
 
     :param model_or_instance: an ORM model (Python class representing a db table), i.e.
         a :class:`sqlalchemy.ext.declarative.api.DeclarativeMeta`, or an instance of
@@ -99,28 +100,48 @@ def get_table(model_or_instance):
     return model_or_instance.__table__
 
 
-def get_fk_columns(mapped_table):
-    """Yields the column objects referred to in the Foreign keys of `mapped_table`
+def fk_colnames(table):
+    """Yield the column names denoting Foreign keys.
+
+    :param table: a :class:`sqlalchemy.sql.schema.Table` instance. See also `get_table`
     """
     # mapped_table.foreign_keys: set of Foreign Keys (fk). Each fk has a `parent` attr
     # (the foreign key Column on `mapped_table`) and a `column` attr
     # (the referred column on some another table). Return a dict of `parant` name mapped
     # to `column`:
-    return {f.parent.key: f.column for f in mapped_table.foreign_keys}
-    # for f in mapped_table.foreign_keys:
-    #     yield f.parent
+    for f in table.foreign_keys:
+        yield f.parent.key
+    # return {f.parent.key: f.column for f in mapped_table.foreign_keys}
 
 
-def get_pk_columns(mapped_table):
-    """Return a dict of column objects denoting the primary key(s) of `mapped_table`
+def pk_colnames(table):
+    """Yields the column names denoting Primary keys
+
+    :param table: a :class:`sqlalchemy.sql.schema.Table` instance. See also `get_table`
     """
-    cols = mapped_table.primary_key.columns
-    return {cname: cols[cname] for cname in cols.keys()}
+    yield from table.primary_key.columns.keys()
+    # cols = mapped_table.primary_key.columns
+    # return {cname: cols[cname] for cname in cols.keys()}
 
 
-def attnames(model_or_instance, pkey=None, fkey=None, col=None, qatt=None, rel=None):
-    """Yield all attribute names of the given ORM model or instance, matching all the
-    criteria (logical and) given as argument
+def attnames(model_or_instance, pkey=None, fkey=None, col=None, qatt=None):
+    """Yield all attribute names of the given ORM model (or instance) that can be
+    inspected and match the criteria given as argument. Inspected attributes are
+    those returned by the SQLAlchekmy `inspect()` function, i.e.
+    :class:`sqlalchemy.orm.InspectionAttr`s such as :class:`.QueryableAttribute`s (which
+    includes table columns) hybrid properties, and so on.
+
+    Note that some attributes might match different arguments: an attribute denoting
+    a primary key (`pkey=True`) is also an attribute denoting a database table column
+    (`col=True`), thus  `pkey=True, col=False` is inconsistent and yields no item.
+
+    Regardless of the filer given as arguments, the yielded model attributes are
+    only those inheriting from :class:`.InspectionAttr`, e.g.
+    :class:`.QueryableAttribute` (e.g., table columns, hybrid properties with associated
+    expression), as well as extension types such as
+    :class:`.hybrid_property`, :class:`.hybrid_method` and :class:`.AssociationProxy`.
+    Normal Python methods, attributes and properties defined on the class are not
+    included (for that, a normal `dir(model_or_instance)` is the way to go)
 
     :param model_or_instance: an ORM model (Python class representing a db table), i.e.
         a :class:`sqlalchemy.ext.declarative.api.DeclarativeMeta`, or an instance of
@@ -132,35 +153,32 @@ def attnames(model_or_instance, pkey=None, fkey=None, col=None, qatt=None, rel=N
         columns are yielded. If False, only names of non-foreign key columns are yielded.
         If None, the filter is off (yield all)
     :param col: boolean or None. If True, only names of attributes denoting table columns
-        are yielded. If False, only names not associated to table columns are yielded.
-        If None, the filter is off (yield all)
+        are yielded (i.e., columns defined on the database). If False, only names not
+        associated to table columns are yielded. If None, the filter is off (yield all)
     :param qatt: bool or None. If True, only names of attributes which are
         :class:`sqlalchemy.orm.attributes.QueryableAttribute` are yielded. If False, only
         non queryable attributes are yielded. If None, the filter is off (yield all).
-        Queryable attributes are those denoting e.g. a table column, or an hybrid
-        property, or everything that can be used for a db query (e.g. SELECT statement),
-        whereas a non queryable attribute is any other normal Python attribute (e.g.
-        normal property, or method) defined on the class
-    :param rel: bool or None.If True, only names of attributes denoting a SQLAlchemy
-        relationship are yielded. If False, only non-relationship attributes are yielded.
-        If None, the filter is off (yield all). For info see:
-        https://docs.sqlalchemy.org/en/latest/orm/basic_relationships.html
+        Queryable attributes are those that can be used for a db query (e.g. SELECT
+        statement) such as a table column, or an hybrid property/method with associated
+        expression, whereas a non queryable attribute is any other
+        :class:`sqlalchemy.orm.InspectionAttr` (e.g., hybrid property with no associated
+        expression)
     """
-    # build filter sets:
-    pkeys = None if pkey is None else set(colnames(model_or_instance, pkey=True))
-    fkeys = None if fkey is None else set(colnames(model_or_instance, fkey=True))
-    cols = None if col is None else set(colnames(model_or_instance))
-    rels = None if rel is None else set(get_related_models(model_or_instance))
+    matching_cols = None
+    if fkey in (True, False) or pkey in (True, False) or col in (True, False):
+        matching_cols = set(colnames(model_or_instance, pkey, fkey))
+
+    mapper = get_mapper(model_or_instance)
 
     # get model if we passed an instance:
     model = model_or_instance
     if not is_model(model_or_instance):
         model = model_or_instance.__class__
 
-    # yield matching queryable attributes:
-    for attname in dir(model_or_instance):
-        if attname[:2] == '__':
+    for attname in mapper.all_orm_descriptors.keys():
+        if matching_cols is not None and attname not in matching_cols:
             continue
+
         if qatt is not None:
             try:
                 is_qatt = isinstance(getattr(model, attname), QueryableAttribute)
@@ -171,15 +189,69 @@ def attnames(model_or_instance, pkey=None, fkey=None, col=None, qatt=None, rel=N
                 is_qatt = False
             if is_qatt != qatt:
                 continue
-        if pkey is not None and (attname in pkeys) != pkey:
-            continue
-        if fkey is not None and (attname in fkeys) != fkey:
-            continue
-        if col is not None and (attname in cols) != col:
-            continue
-        if rel is not None and (attname in rels) != rel:
-            continue
+
         yield attname
+
+    # # get all names of Queryable attributes (including mapped columns),
+    # # hybrid properties and hybrid methods:
+    # mapper = get_mapper(model_or_instance)
+    #
+    # table = get_table(model_or_instance)
+    # fkeys_cols = set(fk_colnames(table)) if fkey in (True, False) else set()
+    # pkey_cols = set(pk_colnames(table)) if pkey in (True, False) else set()
+    # rel_cols = set(rel_colnames(mapper)) if rel in (True, False) else set()
+    # cols =
+    #
+    # # http://docs.sqlalchemy.org/en/latest/orm/mapping_api.html
+    # #   #sqlalchemy.orm.mapper.Mapper.mapped_table
+    # table = _get_mapped_table(mapper)
+    # fkeys_cols = set(get_fk_columns(table)) if fkey in (True, False) else set([])
+    # pkey_cols = set(get_pk_columns(table)) if pkey in (True, False) else set([])
+    #
+    # # build filter sets:
+    # pkeys = None if pkey is None else set(colnames(model_or_instance, pkey=True))
+    # fkeys = None if fkey is None else set(colnames(model_or_instance, fkey=True))
+    # cols = None if col is None else set(colnames(model_or_instance))
+    # rels = None if rel is None else set(get_related_models(model_or_instance))
+    #
+    # # get model if we passed an instance:
+    # model = model_or_instance
+    # if not is_model(model_or_instance):
+    #     model = model_or_instance.__class__
+    #
+    # # yield matching queryable attributes:
+    # for attname in dir(model_or_instance):
+    #     if attname[:2] == '__':
+    #         continue
+    #     if qatt is not None:
+    #         try:
+    #             is_qatt = isinstance(getattr(model, attname), QueryableAttribute)
+    #         except Exception:  # noqa
+    #             # this might happen if the attribute is defined at the instance
+    #             # level (not class) and refers to relationships not setup on the
+    #             # instance. Simply skip it, it is not a queryable attribute:
+    #             is_qatt = False
+    #         if is_qatt != qatt:
+    #             continue
+    #     if pkey is not None and (attname in pkeys) != pkey:
+    #         continue
+    #     if fkey is not None and (attname in fkeys) != fkey:
+    #         continue
+    #     if col is not None and (attname in cols) != col:
+    #         continue
+    #     if rel is not None and (attname in rels) != rel:
+    #         continue
+    #     yield attname
+
+
+def rel_colnames(mapper):
+    """Yield the column names denoting a relationship to some other model
+
+    :param mapper: a mapper from a given ORM model or instance. See also `get_mapper`
+    """
+    yield from mapper.relationships.keys()
+    # cols = mapped_table.primary_key.columns
+    # return {cname: cols[cname] for cname in cols.keys()}
 
 
 def get_related_models(model_or_instance):
@@ -191,4 +263,4 @@ def get_related_models(model_or_instance):
     """
     mapper = get_mapper(model_or_instance)
     relationships = mapper.relationships
-    return {_: relationships[_].mapper.class_ for _ in relationships.keys()}
+    return {_: relationships[_].mapper.class_ for _ in rel_colnames(mapper)}

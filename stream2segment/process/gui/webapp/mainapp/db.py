@@ -211,8 +211,8 @@ def get_metadata(segment_id=None):
 
 
 def _attnames(model, filter_func=None):
-    """Return a  list of attributes defined on the model with optional filter function
-    `func(att_name): -> bool`
+    """Return a  list of (queriable) attributes defined on the model with optional
+    filter function `func(att_name): -> bool`
     """
     # return non foreign key columns or queryable attributes only:
     att_itr = attnames(model, fkey=False, qatt=True, rel=False)

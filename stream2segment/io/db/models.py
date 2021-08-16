@@ -199,7 +199,7 @@ class Event(Base):  # pylint: disable=too-few-public-methods
     event_location_name = Column(String)
     event_type = Column(String)
 
-    @hybrid_property
+    @property
     def url(self):
         return self.webservice.url + '?eventid=%s' % str(self.event_id)
 
@@ -292,7 +292,7 @@ class Station(Base):
     end_time = Column(DateTime)
     inventory_xml = Column(LargeBinary)
 
-    @hybrid_property
+    @property
     def url(self):
         qry_str = 'net=%s&sta=%s&start=%s' % \
                   (self.network, self.station, self.start_time.isoformat('T'))
@@ -383,8 +383,12 @@ class Segment(Base):
     queryauth = Column(Boolean, nullable=False,
                        server_default="0")  # note: null fails in sqlite!
 
-    @hybrid_property
+    @property
     def url(self):
+        """Return the full URL that can be used to (re)download the Segment
+        waveform data in miniSEED format (For details, see GET request here:
+        https://www.fdsn.org/webservices/fdsnws-dataselect-1.1.pdf)
+        """
         net, sta = self.station.network, self.station.station
         loc, cha = self.channel.location, self.channel.channel
         qry_str = 'net=%s&sta=%s&loc=%s&cha=%s&start=%s&end=%s' % \

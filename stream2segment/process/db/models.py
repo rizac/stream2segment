@@ -523,6 +523,7 @@ class Segment(Base, models.Segment):
         """
         return self.station.inventory(reload)
 
+    @property
     def dbsession(self):
         """Return the database session to which this object is attached"""
         return object_session(self)

@@ -19,7 +19,6 @@ def test_attnames():
     #     hybrid_property(lambda self: defval,
     #                     expr=lambda cls: func.substr(cls.download_code, 1, 1))
 
-
     # queryable attributes keyed by their argument name:
     qatts = {'pkey': ['id'], 'fkey': ['event_id'],
              'col': ['data', 'event_id', 'id'],
@@ -28,16 +27,15 @@ def test_attnames():
 
     # test normal methods/properties are returned only when all arguments are False
     attnames = list(insp.attnames(Segment, **{_: False for _ in qatts}))
-    # assert we have stream and inventory:
-    assert len(set(['stream', 'inventory']) & set(attnames)) == 2
-    # assert we do not have other expected attributes:
-    assert len(set([_ for e in qatts for _ in e]) & set(attnames)) == 0
+    assert not attnames
+    # # assert we have stream and inventory:
+    # assert len(set(['stream', 'inventory']) & set(attnames)) == 2
+    # # assert we do not have other expected attributes:
+    # assert len(set([_ for e in qatts for _ in e]) & set(attnames)) == 0
 
     attnames = list(insp.attnames(Segment))
-    # assert url is in attnames:
-    assert 'url' in attnames
-    # assert we have stream and inventory:
-    assert len(set(['stream', 'inventory']) & set(attnames)) == 2
+    # assert we do NOT have stream and inventory:
+    assert len(set(['stream', 'inventory', 'url']) & set(attnames)) == 0
     # assert we also have other expected attributes:
     for k in qatts:
         assert len(set(qatts[k]) & set(attnames)) == len(qatts[k])
@@ -55,4 +53,3 @@ def test_attnames():
                     assert not attnames
                 else:
                     assert len(expected_attnames & set(attnames)) == len(expected_attnames)
-
