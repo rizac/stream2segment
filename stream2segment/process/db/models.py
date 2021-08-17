@@ -19,7 +19,7 @@ from sqlalchemy import event
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.ext.hybrid import hybrid_property
-from sqlalchemy.orm import relationship, backref
+from sqlalchemy.orm import relationship, backref, load_only
 from sqlalchemy.orm.session import object_session
 from sqlalchemy.sql.expression import text, case, select
 from obspy.core.stream import _read  # noqa
@@ -318,106 +318,91 @@ class Segment(Base, models.Segment):
                             str(eid), str(year), net, sta, loc, cha + ".D",
                             '.'.join((net, sta, loc, cha, str(year), day)))
 
-    def del_classes(self, *ids_or_labels, **kwargs):
-        """Delete segment classes
+    def del_classlabel(self, *class_ids_or_labels, commit=True):
+        """Delete class labels previously associated to this segment
 
-        :param ids_or_labels: list of int (denoting class ids) or str (denoting
-            class label)
+        :param class_ids_or_labels: variable length argument denoting the ids
+            (int) or unique labels (str) of the class labels to be removed from this
+            segment. When NO ids or labels are provided, ALL class labels
+            associated to this segment will be deleted. E.g.: `segment.del_classes()`
+
+        :param commit: boolean (default: True) for advanced user denoting if changes
+            should be persisted (saved) to the backend database (db).
+            Set to False if you plan to perform some other db operation but remember
+            to call eventually `segment.dbsession.commit()` to save the changes to the
+            db
+
+        :raise: :class:`sqlalchemy.exc.SQLAlchemy` if a commit error occurs.
+            For info see:
+            https://docs.sqlalchemy.org/en/latest/orm/session_basics.html
         """
-        self.edit_classes('del', *ids_or_labels, **kwargs)
-
-    def set_classes(self, *ids_or_labels, **kwargs):
-        """Add a class labelling to this segment. Old class labellings are removed
-        beforehand
-
-        :param ids_or_labels: list of int (denoting class ids) or str (denoting
-            class label)
-        :param kwargs: Optional keyword arguments. currently supported are:
-            'annotator' (str, default: None). A None annotator should mean that
-                the label assignment is the result of a classifier prediction and not
-                human inspection. For this reason, providing an annotator (not None) will
-                set the `hand_labelled` property of the Class labelling to True.
-            'auto_commit' (bool, default: True).
-        """
-        self.edit_classes('set', *ids_or_labels, **kwargs)
-
-    def add_classes(self, *ids_or_labels, **kwargs):
-        """Add a class labelling to this segment. Old class labellings are not removed
-
-        :param ids_or_labels: list of int (denoting class ids) or str (denoting
-            class label)
-        :param kwargs: Optional keyword arguments. currently supported are:
-            'annotator' (str, default: None). A None annotator should mean that
-                the label assignment is the result of a classifier prediction and not
-                human inspection. For this reason, providing an annotator (not None) will
-                set the `hand_labelled` property of the Class labelling to True.
-            'auto_commit' (bool, default: True).
-        """
-        self.edit_classes('add', *ids_or_labels, **kwargs)
-
-    def edit_classes(self, mode, *ids_or_labels, **kwargs):
-        """Edit segment classes
-
-        :param mode: either 'add' 'set' or 'del'
-        :param ids_or_labels: list of int (denoting class ids) or str (denoting
-            class label)
-        :param kwargs: py2 compatible keyword arguments (PEP 3102): currently
-            supported is 'annotator' (str, default: None) and 'auto_commit'
-            (bool, default: True). If `annotator` is not None, the class
-            assignment is saved as hand labelled
-        """
-        auto_commit = kwargs.get('auto_commit', True)
-        annotator = kwargs.get('annotator', None)
-        sess = object_session(self)
         needs_commit = False
-        ids = set(ids_or_labels)
-        labels = set(_ for _ in ids if type(_) in (bytes, str))
-        ids -= labels
-        if mode == 'set':
-            self.classes[:] = []
+        if not class_ids_or_labels:
+            self.classes = []
+            needs_commit = True
         else:
-            classes = list(self.classes)
-
-        if mode == 'del':
-            for cla in classes:
-                if cla.id in ids or cla.label in labels:
+            for cla in self.classes.options(load_only(Class.id, Class.label)):
+                if cla.id in class_ids_or_labels or cla.label in class_ids_or_labels:
                     self.classes.remove(cla)
                     needs_commit = True
-            ids = labels = set()  # do not add anything
-        elif mode == 'add':
-            for cla in classes:
-                if cla.id in ids:
-                    # already set, remove it and don't add it again:
-                    ids.remove(cla.id)
-                if cla.label in labels:
-                    # already set, remove it and don't add it again:
-                    labels.remove(cla.label)
-        elif mode != 'set':
-            raise TypeError("`mode` argument needs to be in "
-                            "('add', 'del', 'set'), '%s' supplied" % str(mode))
 
-        if ids or labels:
-            # filter on ids, or None:
-            flt1 = None if not ids else Class.id.in_(ids)
-            # filter on labels, or None:
-            flt2 = None if not labels else Class.label.in_(labels)
-            flt = flt1 if flt2 is None else flt2 if flt1 is None else \
-                (flt1 | flt2)
-            classids2add = [_[0] for _ in sess.query(Class.id).filter(flt)]
-            if classids2add:
-                needs_commit = True
-                sess.add_all((ClassLabelling(class_id=cid,
-                                             segment_id=self.id,
-                                             annotator=annotator,
-                                             is_hand_labelled=annotator is not None)
-                              for cid in classids2add))
+        if needs_commit and commit:
+            object_session(self).commit()
 
-        if needs_commit and auto_commit:
-            try:
-                sess.commit()
-            except SQLAlchemyError as _:
-                sess.rollback()
-                raise
+    def add_classlabel(self, *class_ids_or_labels, commit=True, annotator=None):
+        """Add class label(s) to this segment. Old class labellings are not removed
+
+        :param class_ids_or_labels: list of int (denoting class ids) or str (denoting
+            class label). Classes already assigned to this segment will be
+            removed, as well as class ids ot labels not matching any database class
+            (unless `safety_check` is False)
+        :param commit: boolean (default: True) for advanced user denoting if changes
+            should be persisted (saved) to the backend database (db).
+            Set to False if you plan to perform some other db operation but remember
+            to call eventually `segment.dbsession.commit()` to save the changes to the
+            db
+        :param annotator: (str, default: None). The annotator assigning the labelling.
+            A None annotator should mean that the label assignment is the result of a
+            classifier prediction and not human inspection: providing an annotator
+            (not None) will set the `is_hand_labelled` property of the Class labelling
+            to True
+
+        :raise: :class:`sqlalchemy.exc.SQLAlchemy` if a commit error occurs or,
+            if `safety_check` is False, if any id ir label is incorrect.
+            For info see:
+            https://docs.sqlalchemy.org/en/latest/orm/session_basics.html
+        """
+        if not class_ids_or_labels:
+            return
+
+        ids = set(_ for _ in class_ids_or_labels if isinstance(_, int))
+        lbls = set(class_ids_or_labels) - ids
+
+        cids = []
+        already_assigned_classids = None
+        sess = object_session(self)
+        for cla in sess.query(Class).options(load_only(Class.label, Class.id)):
+            # iterate through all classes. Is the provided class in ids_or_labels?
+            if cla.id in ids or cla.label in lbls:
+                # then add the new class labellings, but check the mapping is not
+                # already set:
+                if already_assigned_classids is None:  # lazy created
+                    already_assigned_classids = \
+                        set(c.id for c in self.classes.options(load_only(Class.id)))
+                if cla.id not in already_assigned_classids:  # assign if not set:
+                    cids.append(cla.id)
+
+        if not cids:
+            return
+
+        sess.add_all((ClassLabelling(class_id=cid,
+                                     segment_id=self.id,
+                                     annotator=annotator,
+                                     is_hand_labelled=annotator is not None)
+                      for cid in cids))
+
+        if commit:
+            object_session(self).commit()
 
     def get_siblings(self, parent=None, colname=None):
         """Return an SQL-Alchemy query yielding all siblings of this segment
@@ -576,7 +561,7 @@ class Segment(Base, models.Segment):
     channel = relationship("Channel", backref=backref("segments",
                                                       lazy="dynamic"))
     # (station relationship is implemented in superclass, as it's needed for download)
-    classes = relationship("Class",  # lazy='dynamic', viewonly=True,
+    classes = relationship("Class",  lazy='dynamic',  # viewonly=True,
                            # `secondary` must be table name in metadata:
                            secondary="class_labellings",
                            backref=backref("segments", lazy="dynamic"))

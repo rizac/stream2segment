@@ -1069,25 +1069,28 @@ class Test(object):
 
         # add a class
         seg = db.session.query(Segment).first()
-        seg.add_classes('class1')
+        seg.add_classlabel('class1')
         assert len(db.session.query(ClassLabelling).all()) == 1
         assert db.session.query(ClassLabelling).first().segment_id == seg.id
         assert db.session.query(ClassLabelling).first().class_id == 1
         # add again:
-        seg.add_classes(1, 'class1')
+        seg.add_classlabel(1, 'class1')
         assert len(db.session.query(ClassLabelling).all()) == 1
         assert db.session.query(ClassLabelling).first().segment_id == seg.id
         assert db.session.query(ClassLabelling).first().class_id == 1
-        # set a class
-        seg.set_classes(2)
+        # delete all classes:
+        seg.del_classlabel()
+        assert len(db.session.query(ClassLabelling).all()) == 0
+        # add a class
+        seg.add_classlabel(2, 'unknown_label', -123)
         assert len(db.session.query(ClassLabelling).all()) == 1
         assert db.session.query(ClassLabelling).first().segment_id == seg.id
         assert db.session.query(ClassLabelling).first().class_id == 2
         # delete a class
-        seg.del_classes(2)
+        seg.del_classlabel(2)
         assert len(db.session.query(ClassLabelling).all()) == 0
         # add two classes
-        seg.set_classes(2, 'class2', 'class1')
+        seg.add_classlabel(2, 'class2', 'class1')
         assert len(db.session.query(ClassLabelling).all()) == 2
         clbls = db.session.query(ClassLabelling).all()
         assert len(clbls) == 2

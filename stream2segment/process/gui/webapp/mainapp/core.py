@@ -224,7 +224,7 @@ def set_class_id(seg_id, class_id, value):
     segment = get_segment(seg_id)
     annotator = 'web app labeller'  # FIXME: use a session or computer username?
     if value:
-        segment.add_classes(class_id, annotator=annotator)
+        segment.add_classlabel(class_id, annotator=annotator)
     else:
         segment.del_classes(class_id)
     return {}
