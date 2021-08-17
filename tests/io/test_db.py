@@ -1088,6 +1088,8 @@ class Test(object):
         assert db.session.query(ClassLabelling).first().class_id == 2
         # delete a class
         seg.del_classlabel(2)
+        # delete again:
+        seg.del_classlabel(2)
         assert len(db.session.query(ClassLabelling).all()) == 0
         # add two classes
         seg.add_classlabel(2, 'class2', 'class1')
