@@ -419,42 +419,48 @@ class Segment(Base, models.Segment):
 
         return needs_commit
 
-    def get_siblings(self, parent=None, colname=None):
-        """Return an SQL-Alchemy query yielding all siblings of this segment
-        according to `parent`.
+    def siblings(self, parent=None, include_self=False):
+        """Return an SQL-Alchemy query (basically, an iterable of Segments)
+        yielding all its siblings according to `parent` (and optionally this
+        segment too, if `include_me` is True).
+
+        For huge collections, consider loading only the desired attributes,
+        e.g.,given a Segment instance `seg`:
+        ```
+        from stream2segment.process import Segment
+        from sqlalchemy.orm import load_only
+        for seg in seg.siblings('event').options(load_only(Segment.id))):
+            seg_id = seg.id
+            ...
+        ```
 
         :param parent: str or None (default: None). Any of the following:
-            - `None`: return all db segments of the same recorded event, on the
-               other channel components / orientations
-            - `stationname`: return all db segments of the same station, where
-               a station is the tuple (newtwork code, station code)
-            - `networkname`: return all db segments of the same network code.
-            - `datacenter`, `event`, `station`, `channel`: return all db
-               segments from the associated foreign key (a station in this case
-               is the tuple (newtwork code, station code, start_time). If
-               `colname` is missing/None, providing any of these arguments is
-               equivalent to access the `segments` attribute on the referenced
-               Object: `segment.query_siblings('station').all()` equals to
-               `segment.station.segments.all()`
 
-        :param colname: str or None (default:None). If None, yield Segment
-            objects. Otherwise yield only the given Segment attributes, as one
-            element tuple (e.g. 'id' will yield `(id1,), (id2,), ... `). In the
-            latter case no Segment is stored in the session's identity_map,
-            meaning that a (sort-of) cache mechanism will not be used, but also
-            that less memory will be consumed (session.expunge_all() will clear
-            the cache in case)
+            - `None`: return all db segments of the same recorded event, on the
+               other channel orientations (e.g., if this segment is the recorded
+               event on a channel vertical component "Z", return the segments of
+               the two horizontal components, "N" and "E". For details see
+               "Orientation code" here:
+               http://www.fdsn.org/pdf/SEEDManual_V2.4_Appendix-A.pdf)
+
+            - `networkname`: return all db segments of the same network (using the
+               network code as identifier)
+
+            - `stationname`: return all db segments of the same station, where
+               a station is uniquely identified by the tuple:
+               (newtwork code, station code)
+
+            - `station`, `channel`, `datacenter`, `event`: return all db
+               segments from the associated foreign key. Note: a station in this
+               case is uniquely identified by the tuple:
+               (network code, station code, start_time)
+
+        :param include_self: boolean (default: False). Whether to include this
+            segment among the yielded siblings
         """
-        # FIXME: Currently this method might be improved. The colname attribute
-        # does not give huge benefits (one element tuples are hard to digest)
-        # we might improved it by returning always Segments (which is what most
-        # users want), loading first all ids in memory efficient numpy array,
-        # and then querying ny id and yielding each Segment. Then, every N
-        # yields, expunge_all() and at the end re-add the current segment to
-        # the session)
+
         session = object_session(self)
-        qry = session.query(Segment if colname is None
-                            else getattr(Segment, colname))
+        qry = session.query(Segment)
 
         if parent is None:
             qry = qry.join(Segment.channel).\
@@ -479,7 +485,10 @@ class Segment(Base, models.Segment):
                                  getattr(self, parent + '_id'))
             except AttributeError:
                 raise TypeError("invalid 'parent' argument '%s'" % parent)
-        return qry.filter(Segment.id != self.id)
+
+        if not include_self:
+            qry = qry.filter(Segment.id != self.id)
+        return qry
 
     @hybrid_property
     def seed_id(self):
@@ -528,27 +537,12 @@ class Segment(Base, models.Segment):
         """Return the database session to which this object is attached"""
         return object_session(self)
 
-    def siblings(self, parent=None, conditions=None, colname=None):
-        """Return a SQLAlchemy query yielding the siblings of this segments
-        according to `parent`. Refer to the method Segment.get_siblings in
-        :module:`models.py`.
-
-        :parent: a string identifying the parent whereby perform a selection
-        :conditions: a dict of strings mapped to string expressions to be
-            evaluated, and select a subset of siblings. None (the defaults) means:
-            empty dict (no additional selection condition)
-        """
-        sblngs = self.get_siblings(parent, colname=colname)  # returns a Segment object
-        if conditions:
-            sblngs = exprquery(sblngs, conditions, orderby=None)
-        return sblngs
-
     def stream(self, reload=False):
         """Return the ObsPy Stream object representing the segment waveform data
 
-        :param reload: bool. Optional (default: False). Force reloading the Stream object
-            from the downloaded waveform data (bytes sequence), discarding any
-            in-place modification
+        :param reload: bool. Optional (default: False). Force reloading the Stream
+            object from the downloaded waveform data (bytes sequence), discarding
+            any in-place modification
         """
         # stream is lazy loaded. The output of the loading process
         # (or the Exception raised, if any) is stored in the self._stream attribute.

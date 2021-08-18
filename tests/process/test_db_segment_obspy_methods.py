@@ -173,6 +173,10 @@ class Test(object):
             # other components
             assert len(segs) == 0
 
+            segs = segment.siblings(include_self=True).all()  # include the segment
+            assert len(segs) == 1
+
+
         # NOW TEST OTHER ORIENTATION PROPERLY. WE NEED TO ADD WELL FORMED SEGMENTS WITH CHANNELS
         # WHOSE ORIENTATION CAN BE DERIVED:
         staid = session.query(Station.id).first()[0]

@@ -17,9 +17,12 @@ import contextlib
 import yaml
 from obspy import Stream, Trace
 from obspy.core.utcdatetime import UTCDateTime
+from sqlalchemy.orm import load_only
 
-import stream2segment.download.db.inspection.main
+# import stream2segment.download.db.inspection.main
 from stream2segment.process import gui
+from stream2segment.process.db.models import Segment
+# from stream2segment.process.db.sqlevalexpr import exprquery
 from stream2segment.process.inspectimport import iterfuncs
 from stream2segment.process.funclib.traces import sn_split
 from stream2segment.io import yaml_safe_dump, StringIO  # <- io.StringIO py2 compatible
@@ -312,8 +315,9 @@ def get_plots(seg_id, plot_indices, preprocessed, all_components):
     plots = [get_plot(segment, preprocessed, i) for i in plot_indices]
     if all_components and (0 in plot_indices):
         plot = plots[plot_indices.index(0)]
-        for _ in segment.siblings(None, get_select_conditions(), 'id'):
-            segment = get_segment(_[0])  # _[0] = segment id
+        qry = segment.siblings(include_self=False).options(load_only(Segment.id))
+        for _seg in qry:
+            segment = get_segment(_seg.id)
             plt = get_plot(segment, preprocessed, 0)
             if plt.warnings:
                 plot.warnings += list(plt.warnings)
