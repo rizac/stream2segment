@@ -5,6 +5,7 @@ Created on Jul 15, 2016
 '''
 from builtins import str
 from datetime import datetime
+import re
 
 import pytest
 from sqlalchemy.exc import IntegrityError, ProgrammingError
@@ -442,23 +443,6 @@ class Test(object):
         expr3 = exprquery(db.session.query(Segment), {'classlabels_count': '> 0'})
         # expr4 = exprquery(db.session.query(Segment), {'has_class': 'asd'})
 
-        def _(string):
-            """define a function that normalizes the "SELECT ..." expression compared
-            below and makes them independent from the column(s) order
-            """
-            # find string (...) between: 'SELECT (...) FROM'
-            SEL_STR = 'SELECT '
-            lidx = string.find(SEL_STR) + len(SEL_STR)
-            ridx = string.find('FROM ')
-            # now sort all tokens (separated by ', '). Note that I might have typed
-            # whitespaces, so strip each token
-            between = sorted(_.strip() for _ in string[lidx: ridx].split(', '))
-            h = string[:lidx] + ', '.join(between) + string[ridx:]
-            # merge multi-spaces (including newlines) into a single whitespace:
-            import re
-            return re.sub("\\s+", " ", h)
-
-        import re
         exprs = [str(expr1), str(expr2), str(expr3)]
         for i in range(len(exprs)):
             exprs[i] = exprs[i].strip()
@@ -505,52 +489,3 @@ class Test(object):
                                 "WHERE (SELECT count(class_labellings.id) AS count_1 "
                                 "FROM class_labellings "
                                 "WHERE class_labellings.segment_id = segments.id) > ?")
-
-#             assert _(str(expr4)) == _("""SELECT segments.id AS segments_id, segments.event_id AS segments_event_id, segments.channel_id AS segments_channel_id, segments.datacenter_id AS segments_datacenter_id, segments.data_seed_id AS segments_data_seed_id, segments.event_distance_deg AS segments_event_distance_deg, segments.data AS segments_data, segments.download_code AS segments_download_code, segments.start_time AS segments_start_time, segments.arrival_time AS segments_arrival_time, segments.end_time AS segments_end_time, segments.sample_rate AS segments_sample_rate, segments.maxgap_numsamples AS segments_maxgap_numsamples, segments.download_id AS segments_download_id, segments.request_start AS segments_request_start, segments.request_end AS segments_request_end, segments.queryauth AS segments_queryauth
-# FROM segments
-# WHERE (EXISTS (SELECT 1
-# FROM class_labellings, classes
-# WHERE segments.id = class_labellings.segment_id AND classes.id = class_labellings.class_id)) = 1""")
-
-
-#         if db.is_postgres:
-#             assert _(str(expr1)) == _("""SELECT segments.id AS segments_id, segments.event_id AS segments_event_id, segments.channel_id AS segments_channel_id, segments.datacenter_id AS segments_datacenter_id, segments.data_seed_id AS segments_data_seed_id, segments.event_distance_deg AS segments_event_distance_deg, segments.data AS segments_data, segments.download_code AS segments_download_code, segments.start_time AS segments_start_time, segments.arrival_time AS segments_arrival_time, segments.end_time AS segments_end_time, segments.sample_rate AS segments_sample_rate, segments.maxgap_numsamples AS segments_maxgap_numsamples, segments.download_id AS segments_download_id, segments.request_start AS segments_request_start, segments.request_end AS segments_request_end, segments.queryauth AS segments_queryauth
-# FROM segments JOIN class_labellings AS class_labellings_1 ON segments.id = class_labellings_1.segment_id JOIN classes ON classes.id = class_labellings_1.class_id
-# WHERE classes.label = %(label_1)s""")
-#
-#             assert _(str(expr2)) == _("""SELECT segments.id AS segments_id, segments.event_id AS segments_event_id, segments.channel_id AS segments_channel_id, segments.datacenter_id AS segments_datacenter_id, segments.data_seed_id AS segments_data_seed_id, segments.event_distance_deg AS segments_event_distance_deg, segments.data AS segments_data, segments.download_code AS segments_download_code, segments.start_time AS segments_start_time, segments.arrival_time AS segments_arrival_time, segments.end_time AS segments_end_time, segments.sample_rate AS segments_sample_rate, segments.maxgap_numsamples AS segments_maxgap_numsamples, segments.download_id AS segments_download_id, segments.request_start AS segments_request_start, segments.request_end AS segments_request_end, segments.queryauth AS segments_queryauth
-# FROM segments JOIN class_labellings AS class_labellings_1 ON segments.id = class_labellings_1.segment_id JOIN classes ON classes.id = class_labellings_1.class_id
-# WHERE classes.label IN (%(label_1)s, %(label_2)s)""")
-#
-#             assert _(str(expr3)) == _("""SELECT segments.id AS segments_id, segments.event_id AS segments_event_id, segments.channel_id AS segments_channel_id, segments.datacenter_id AS segments_datacenter_id, segments.data_seed_id AS segments_data_seed_id, segments.event_distance_deg AS segments_event_distance_deg, segments.data AS segments_data, segments.download_code AS segments_download_code, segments.start_time AS segments_start_time, segments.arrival_time AS segments_arrival_time, segments.end_time AS segments_end_time, segments.sample_rate AS segments_sample_rate, segments.maxgap_numsamples AS segments_maxgap_numsamples, segments.download_id AS segments_download_id, segments.request_start AS segments_request_start, segments.request_end AS segments_request_end, segments.queryauth AS segments_queryauth
-# FROM segments
-# WHERE (EXISTS (SELECT 1
-# FROM class_labellings, classes
-# WHERE segments.id = class_labellings.segment_id AND classes.id = class_labellings.class_id)) = true""")
-#
-# #             assert _(str(expr4)) == _("""SELECT segments.id AS segments_id, segments.event_id AS segments_event_id, segments.channel_id AS segments_channel_id, segments.datacenter_id AS segments_datacenter_id, segments.data_seed_id AS segments_data_seed_id, segments.event_distance_deg AS segments_event_distance_deg, segments.data AS segments_data, segments.download_code AS segments_download_code, segments.start_time AS segments_start_time, segments.arrival_time AS segments_arrival_time, segments.end_time AS segments_end_time, segments.sample_rate AS segments_sample_rate, segments.maxgap_numsamples AS segments_maxgap_numsamples, segments.download_id AS segments_download_id, segments.request_start AS segments_request_start, segments.request_end AS segments_request_end, segments.queryauth AS segments_queryauth
-# # FROM segments
-# # WHERE (EXISTS (SELECT 1
-# # FROM class_labellings, classes
-# # WHERE segments.id = class_labellings.segment_id AND classes.id = class_labellings.class_id)) = true""")
-#
-#         else:
-#             assert _(str(expr1)) == _("""SELECT segments.id AS segments_id, segments.event_id AS segments_event_id, segments.channel_id AS segments_channel_id, segments.datacenter_id AS segments_datacenter_id, segments.data_seed_id AS segments_data_seed_id, segments.event_distance_deg AS segments_event_distance_deg, segments.data AS segments_data, segments.download_code AS segments_download_code, segments.start_time AS segments_start_time, segments.arrival_time AS segments_arrival_time, segments.end_time AS segments_end_time, segments.sample_rate AS segments_sample_rate, segments.maxgap_numsamples AS segments_maxgap_numsamples, segments.download_id AS segments_download_id, segments.request_start AS segments_request_start, segments.request_end AS segments_request_end, segments.queryauth AS segments_queryauth
-# FROM segments JOIN class_labellings AS class_labellings_1 ON segments.id = class_labellings_1.segment_id JOIN classes ON classes.id = class_labellings_1.class_id
-# WHERE classes.label = ?""")
-#
-#             assert _(str(expr2)) == _("""SELECT segments.id AS segments_id, segments.event_id AS segments_event_id, segments.channel_id AS segments_channel_id, segments.datacenter_id AS segments_datacenter_id, segments.data_seed_id AS segments_data_seed_id, segments.event_distance_deg AS segments_event_distance_deg, segments.data AS segments_data, segments.download_code AS segments_download_code, segments.start_time AS segments_start_time, segments.arrival_time AS segments_arrival_time, segments.end_time AS segments_end_time, segments.sample_rate AS segments_sample_rate, segments.maxgap_numsamples AS segments_maxgap_numsamples, segments.download_id AS segments_download_id, segments.request_start AS segments_request_start, segments.request_end AS segments_request_end, segments.queryauth AS segments_queryauth
-# FROM segments JOIN class_labellings AS class_labellings_1 ON segments.id = class_labellings_1.segment_id JOIN classes ON classes.id = class_labellings_1.class_id
-# WHERE classes.label IN (?, ?)""")
-#
-#             assert _(str(expr3)) == _("""SELECT segments.id AS segments_id, segments.event_id AS segments_event_id, segments.channel_id AS segments_channel_id, segments.datacenter_id AS segments_datacenter_id, segments.data_seed_id AS segments_data_seed_id, segments.event_distance_deg AS segments_event_distance_deg, segments.data AS segments_data, segments.download_code AS segments_download_code, segments.start_time AS segments_start_time, segments.arrival_time AS segments_arrival_time, segments.end_time AS segments_end_time, segments.sample_rate AS segments_sample_rate, segments.maxgap_numsamples AS segments_maxgap_numsamples, segments.download_id AS segments_download_id, segments.request_start AS segments_request_start, segments.request_end AS segments_request_end, segments.queryauth AS segments_queryauth
-# FROM segments
-# WHERE (SELECT count(class_labellings.id) AS count_1
-# FROM class_labellings
-# WHERE class_labellings.segment_id = segments.id) > ?""")
-#
-# #             assert _(str(expr4)) == _("""SELECT segments.id AS segments_id, segments.event_id AS segments_event_id, segments.channel_id AS segments_channel_id, segments.datacenter_id AS segments_datacenter_id, segments.data_seed_id AS segments_data_seed_id, segments.event_distance_deg AS segments_event_distance_deg, segments.data AS segments_data, segments.download_code AS segments_download_code, segments.start_time AS segments_start_time, segments.arrival_time AS segments_arrival_time, segments.end_time AS segments_end_time, segments.sample_rate AS segments_sample_rate, segments.maxgap_numsamples AS segments_maxgap_numsamples, segments.download_id AS segments_download_id, segments.request_start AS segments_request_start, segments.request_end AS segments_request_end, segments.queryauth AS segments_queryauth
-# # FROM segments
-# # WHERE (EXISTS (SELECT 1
-# # FROM class_labellings, classes
-# # WHERE segments.id = class_labellings.segment_id AND classes.id = class_labellings.class_id)) = 1""")
