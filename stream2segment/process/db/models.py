@@ -21,7 +21,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import relationship, backref, load_only
 from sqlalchemy.orm.session import object_session
-from sqlalchemy.sql.expression import text, case, select, or_
+from sqlalchemy.sql.expression import text, case, select, or_, func
 from obspy.core.stream import _read  # noqa
 from obspy.core.inventory.inventory import read_inventory
 
@@ -287,12 +287,15 @@ class Segment(Base, models.Segment):
                                   cls.request_start, cls.request_end)
 
     @hybrid_property
-    def has_class(self):
-        return len(self.classes) > 0
+    def classlabels_count(self):
+        return self.classes.count() > 0  # len(self.classes) > 0
 
-    @has_class.expression
-    def has_class(cls):  # pylint:disable=no-self-argument
-        return cls.classes.any()
+    @classlabels_count.expression
+    def classlabels_count(cls):  # pylint:disable=no-self-argument
+        # return cls.classes.any()
+        return select([func.count(ClassLabelling.id)]).\
+            where(ClassLabelling.segment_id == cls.id).\
+            label('classlabels_count')
 
     def sds_path(self, root='.'):
         """Return a string representing the seiscomp data structure (sds) path
@@ -379,8 +382,7 @@ class Segment(Base, models.Segment):
             labels associated to this segment should be removed first, before
             adding new class labels
 
-        :raise: :class:`sqlalchemy.exc.SQLAlchemy` if a commit error occurs or,
-            if `safety_check` is False, if any id ir label is incorrect.
+        :raise: :class:`sqlalchemy.exc.SQLAlchemy` if a commit error occurs.
             For info see:
             https://docs.sqlalchemy.org/en/latest/orm/session_basics.html
         """
@@ -420,9 +422,8 @@ class Segment(Base, models.Segment):
         return needs_commit
 
     def siblings(self, parent=None, include_self=False):
-        """Return an SQL-Alchemy query (basically, an iterable of Segments)
-        yielding all its siblings according to `parent` (and optionally this
-        segment too, if `include_me` is True).
+        """Return an iterable of all Segment objects which are siblings of this
+        segment according to `parent`.
 
         For huge collections, consider loading only the desired attributes,
         e.g.,given a Segment instance `seg`:
@@ -433,6 +434,10 @@ class Segment(Base, models.Segment):
             seg_id = seg.id
             ...
         ```
+
+        The returned iterable is technically a SQLAlchemy Query object that can
+        be customized by advanced users (as in the example above). For further
+        details, see https://docs.sqlalchemy.org/en/14/orm/tutorial.html#querying
 
         :param parent: str or None (default: None). Any of the following:
 
@@ -542,7 +547,7 @@ class Segment(Base, models.Segment):
 
         :param reload: bool. Optional (default: False). Force reloading the Stream
             object from the downloaded waveform data (bytes sequence), discarding
-            any in-place modification
+            any ObsPy in-place operation that might have modified the Stream
         """
         # stream is lazy loaded. The output of the loading process
         # (or the Exception raised, if any) is stored in the self._stream attribute.

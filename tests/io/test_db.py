@@ -538,9 +538,9 @@ class Test(object):
         db.session.add_all(labelings)
         db.session.commit()
 
-        assert not seg.classes
-        assert len(seg__1.classes) == 2
-        assert len(seg__2.classes) == 1
+        assert not seg.classes.all()
+        assert len(seg__1.classes.all()) == 2
+        assert len(seg__2.classes.all()) == 1
 
         # test on update and on delete:
         old_labellings = sorted([labelings[0].class_id, labelings[1].class_id])
@@ -697,26 +697,24 @@ class Test(object):
 
         # NOTe however that join returns dupes:
         qry1 = sorted([x[0] for x in db.session.query(Segment.id).join(Segment.classes).
-                       filter(Segment.has_class).all()])
-        qry2 = sorted([x[0] for x in db.session.query(Segment.id).filter(Segment.has_class).all()])
+                       filter(Segment.classlabels_count > 0).all()])
+        qry2 = sorted([x[0] for x in db.session.query(Segment.id).filter(Segment.classlabels_count > 0).all()])
         assert len(qry1) ==3
         assert len(qry2) == 2
         # we should do like this
         qry1b = sorted([x[0] for x in db.session.query(Segment.id).join(Segment.classes).
-                        filter(Segment.has_class).distinct().all()])
+                        filter(Segment.classlabels_count > 0).distinct().all()])
         assert len(qry1b) == 2
         assert qry1b == qry2
         # test the opposite
         qry1d = \
             sorted([x[0] for x in db.session.query(Segment.id).
-                    filter(~Segment.has_class).all()])  # pylint: disable=invalid-unary-operand-type
-        qry1e = sorted([x[0] for x in db.session.query(Segment.id).
-                        filter(Segment.has_class == False).all()])
-        assert len(qry1d) == len(qry1e) == db.session.query(Segment).count() - len(qry1b)
+                    filter(Segment.classlabels_count == 0).all()])  # pylint: disable=invalid-unary-operand-type
+        assert len(qry1d) == db.session.query(Segment).count() - len(qry1b)
 
-        assert all(q.has_class for q in db.session.query(Segment).filter(Segment.has_class))
-        assert all(not q.has_class for q in db.session.query(Segment).
-                   filter(~Segment.has_class))  # pylint: disable=invalid-unary-operand-type
+        assert all(q.classlabels_count > 0 for q in db.session.query(Segment).filter(Segment.classlabels_count > 0))
+        assert all(q.classlabels_count == 0 for q in db.session.query(Segment).
+                   filter(Segment.classlabels_count == 0))  # pylint: disable=invalid-unary-operand-type
 
         # Test exprquery with classes (have a look above at the db classes):
         a = exprquery(db.session.query(Segment.id), {"classes.id": '56'})
@@ -1273,19 +1271,14 @@ class Test(object):
         assert len(db.session.identity_map) > 0
 
         def getsiblings(seg, parent=None):
-            var1 = seg.get_siblings(parent=parent).all()
-            var1 = sorted(var1, key=lambda obj: obj.id)
-            var2 = seg.get_siblings(parent=parent, colname='id').all()
-            var2 = sorted(var2, key=lambda obj: obj[0])
-            assert len(var1) == len(var2)
-            assert all(a.id == b[0] for (a, b) in zip(var1, var2))
-#             if parent is None:
-#                 s1 = sorted(getsiblings(seg, parent='orientation'), key=lambda obj: obj.id)
-#                 s2 = sorted(getsiblings(seg, parent='component'), key=lambda obj: obj.id)
-#                 assert all(a.id == b.id for (a, b) in zip(var1, s1))
-#                 assert all(a.id == b.id for (a, b) in zip(var1, s2))
-#                 assert len(s1) == len(s2) == len(var1)
-            return var1
+            return seg.siblings(parent=parent).all()
+            # var1 = seg.get_siblings(parent=parent).all()
+            # var1 = sorted(var1, key=lambda obj: obj.id)
+            # var2 = seg.get_siblings(parent=parent, colname='id').all()
+            # var2 = sorted(var2, key=lambda obj: obj[0])
+            # assert len(var1) == len(var2)
+            # assert all(a.id == b[0] for (a, b) in zip(var1, var2))
+            # return var1
 
         total = db.session.query(Segment).count()
         assert total == 9
