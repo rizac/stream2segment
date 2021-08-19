@@ -31,7 +31,7 @@ def colnames(model_or_instance, pkey=None, fkey=None, nullable=None):
     fkeys_cols = set(fk_colnames(table)) if fkey in (True, False) else set()
     pkey_cols = set(pk_colnames(table)) if pkey in (True, False) else set()
 
-    for att_name, column in get_mapper(model_or_instance).columns.items():
+    for att_name, column in _columns(get_mapper(model_or_instance)).items():
         # the dict-like above is keyed based on the attribute name defined in
         # the mapping, not necessarily the key attribute of the Column itself
         # (column). See
@@ -46,19 +46,9 @@ def colnames(model_or_instance, pkey=None, fkey=None, nullable=None):
             yield att_name
 
 
-# def _get_mapped_table(mapper):
-#     """Return the mapped table from the given SQLAlchemy mapper
-#
-#     :param mapper: A :class:`sqlalchemy.orm.Mapper` object, see e.g. `get_mapper`
-#     """
-#     # http://docs.sqlalchemy.org/en/latest/orm/mapping_api.html
-#     #   #sqlalchemy.orm.mapper.Mapper.mapped_table
-#     # Note that from v 1.3+, we need to use .persist_selectable:
-#     try:
-#         table = mapper.persist_selectable
-#     except AttributeError:
-#         table = mapper.mapped_table
-#     return table
+def _columns(mapper):
+    """The dict of columns from a given mapper"""
+    return mapper.columns
 
 
 def get_mapper(model_or_instance):
@@ -124,12 +114,13 @@ def pk_colnames(table):
     # return {cname: cols[cname] for cname in cols.keys()}
 
 
-def attnames(model_or_instance, pkey=None, fkey=None, col=None, qatt=None):
+def attnames(model_or_instance, pkey=None, fkey=None, col=None, rel=None, qatt=None):
     """Yield all attribute names of the given ORM model (or instance) that can be
     inspected and match the criteria given as argument. Inspected attributes are
-    those returned by the SQLAlchekmy `inspect()` function, i.e.
-    :class:`sqlalchemy.orm.InspectionAttr`s such as :class:`.QueryableAttribute`s (which
-    includes table columns) hybrid properties, and so on.
+    those returned by the SQLAlchemy :func:`inspect(model_class).all_orm_descriptors`,
+    e.g. :class:`QueryableAttribute`s (which includes table columns), relationships,
+    hybrid properties, and so on (technically, all yielded attributes are subclasses of
+    :class:`sqlalchemy.orm.InspectionAttr`)
 
     Note that some attributes might match different arguments: an attribute denoting
     a primary key (`pkey=True`) is also an attribute denoting a database table column
@@ -164,11 +155,15 @@ def attnames(model_or_instance, pkey=None, fkey=None, col=None, qatt=None):
         :class:`sqlalchemy.orm.InspectionAttr` (e.g., hybrid property with no associated
         expression)
     """
-    matching_cols = None
-    if fkey in (True, False) or pkey in (True, False) or col in (True, False):
-        matching_cols = set(colnames(model_or_instance, pkey, fkey))
+
+    table = get_table(model_or_instance)
+    pkey_cols = set(pk_colnames(table)) if pkey in (True, False) else None
+    fkey_cols = set(fk_colnames(table)) if fkey in (True, False) else None
 
     mapper = get_mapper(model_or_instance)
+
+    all_cols = set(_columns(mapper).keys()) if col in (True, False) else None
+    rel_cols = set(_relationships(mapper).keys()) if rel in (True, False) else None
 
     # get model if we passed an instance:
     model = model_or_instance
@@ -176,7 +171,16 @@ def attnames(model_or_instance, pkey=None, fkey=None, col=None, qatt=None):
         model = model_or_instance.__class__
 
     for attname in mapper.all_orm_descriptors.keys():
-        if matching_cols is not None and attname not in matching_cols:
+        if pkey_cols is not None and attname in pkey_cols != pkey:
+            continue
+
+        if fkey_cols is not None and attname in fkey_cols != fkey:
+            continue
+
+        if all_cols is not None and attname in all_cols != col:
+            continue
+
+        if rel_cols is not None and attname in rel_cols != rel:
             continue
 
         if qatt is not None:
@@ -191,57 +195,6 @@ def attnames(model_or_instance, pkey=None, fkey=None, col=None, qatt=None):
                 continue
 
         yield attname
-
-    # # get all names of Queryable attributes (including mapped columns),
-    # # hybrid properties and hybrid methods:
-    # mapper = get_mapper(model_or_instance)
-    #
-    # table = get_table(model_or_instance)
-    # fkeys_cols = set(fk_colnames(table)) if fkey in (True, False) else set()
-    # pkey_cols = set(pk_colnames(table)) if pkey in (True, False) else set()
-    # rel_cols = set(rel_colnames(mapper)) if rel in (True, False) else set()
-    # cols =
-    #
-    # # http://docs.sqlalchemy.org/en/latest/orm/mapping_api.html
-    # #   #sqlalchemy.orm.mapper.Mapper.mapped_table
-    # table = _get_mapped_table(mapper)
-    # fkeys_cols = set(get_fk_columns(table)) if fkey in (True, False) else set([])
-    # pkey_cols = set(get_pk_columns(table)) if pkey in (True, False) else set([])
-    #
-    # # build filter sets:
-    # pkeys = None if pkey is None else set(colnames(model_or_instance, pkey=True))
-    # fkeys = None if fkey is None else set(colnames(model_or_instance, fkey=True))
-    # cols = None if col is None else set(colnames(model_or_instance))
-    # rels = None if rel is None else set(get_related_models(model_or_instance))
-    #
-    # # get model if we passed an instance:
-    # model = model_or_instance
-    # if not is_model(model_or_instance):
-    #     model = model_or_instance.__class__
-    #
-    # # yield matching queryable attributes:
-    # for attname in dir(model_or_instance):
-    #     if attname[:2] == '__':
-    #         continue
-    #     if qatt is not None:
-    #         try:
-    #             is_qatt = isinstance(getattr(model, attname), QueryableAttribute)
-    #         except Exception:  # noqa
-    #             # this might happen if the attribute is defined at the instance
-    #             # level (not class) and refers to relationships not setup on the
-    #             # instance. Simply skip it, it is not a queryable attribute:
-    #             is_qatt = False
-    #         if is_qatt != qatt:
-    #             continue
-    #     if pkey is not None and (attname in pkeys) != pkey:
-    #         continue
-    #     if fkey is not None and (attname in fkeys) != fkey:
-    #         continue
-    #     if col is not None and (attname in cols) != col:
-    #         continue
-    #     if rel is not None and (attname in rels) != rel:
-    #         continue
-    #     yield attname
 
 
 def rel_colnames(mapper):
@@ -262,5 +215,10 @@ def get_related_models(model_or_instance):
     https://docs.sqlalchemy.org/en/latest/orm/basic_relationships.html
     """
     mapper = get_mapper(model_or_instance)
-    relationships = mapper.relationships
-    return {_: relationships[_].mapper.class_ for _ in rel_colnames(mapper)}
+    relationships = _relationships(mapper)
+    return {name: val.mapper.class_ for name, val in relationships.items()}
+
+
+def _relationships(mapper):
+    """The dict of relationships from a given mapper"""
+    return mapper.relationships

@@ -116,8 +116,8 @@ def get_segment_help(format='html', maxwidth=70, **print_kwargs):
                          "it reads the value stored in the waveform data. The "
                          "drawback is that this value is null for segments with no "
                          "waveform data"],
-        ["has_class", "bool: tells if the segment has (at least one) class label "
-                      "assigned"],
+        ["classlabels_count", "int: the number of class labels assigned "
+                              "to this segment"],
         ["data", "bytes: the waveform (raw) data. Used by `segment.stream()`"],
         ["queryauth", "bool: if the segment download required authentication "
                       "(data is restricted)"],

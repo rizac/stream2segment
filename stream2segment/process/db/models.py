@@ -288,7 +288,7 @@ class Segment(Base, models.Segment):
 
     @hybrid_property
     def classlabels_count(self):
-        return self.classes.count() > 0  # len(self.classes) > 0
+        return self.classes.count()  # len(self.classes) > 0
 
     @classlabels_count.expression
     def classlabels_count(cls):  # pylint:disable=no-self-argument
@@ -402,8 +402,10 @@ class Segment(Base, models.Segment):
 
             # we need to 1. Convert labels to id and 2. Assure that any passed id or
             # label actually exist (and skip non-existing id or labels)
-            qry = qry.filter((Class.label.in_(labels2add) if labels2add else False) |
-                             (Class.id.in_(ids2add) if ids2add else False))
+            # PS: Use or_ instead of | because the latter does not work if the first
+            # statement is bool
+            qry = qry.filter(or_((Class.label.in_(labels2add) if labels2add else False),
+                             (Class.id.in_(ids2add) if ids2add else False)))
 
             ids2add = set(c.id for c in qry.options(load_only(Class.id))) - my_cls_ids
 

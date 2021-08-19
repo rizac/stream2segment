@@ -290,10 +290,10 @@ class Test(object):
             # number here (17):
             seg = db.session.query(Segment).first()
             b = db_module.get_metadata(1)
-            # just test it does not raise FIXME: better tests maybe?
-            # b = get_metadata(db.session, seg.id)
-            assert sum("class" in _[0] for _ in b) == 1  # has_class (see below)
-            assert any(_[0] == 'has_class' for _ in b)
+            # Check we do not have relationships. E.g.:
+            assert sum("station" == _[0] for _ in b) == 0
+            assert sum("class" in _[0] for _ in b) == 1  # just classlabels_count (see below)
+            assert any(_[0] == 'classlabels_count' for _ in b)
             assert any(_[0] == '_fake_method' and _[1] == 'a' for _ in b)
             
             delattr(Segment, "_fake_method")
@@ -368,7 +368,7 @@ class Test(object):
             self.session.add(c)
             self.session.commit()
             cid = c.id
-            assert len(segment.classes) == 0
+            assert segment.classlabels_count == 0
 
             resp = app.post("/set_class_id", data=json.dumps({'segment_id':segid, 'class_id':cid,
                                                                'value':True}),
@@ -379,18 +379,18 @@ class Test(object):
             self.session.remove()
             segment = self.session.query(Segment).filter(Segment.id == segid).first()
             # check the segment has classes:
-            assert len(segment.classes) == 1
+            assert segment.classlabels_count == 1
             assert segment.classes[0].id == cid
 
             # toggle value (now False):
             resp = app.post("/set_class_id", data=json.dumps({'segment_id':segid, 'class_id':cid,
-                                                               'value':False}),
+                                                               'value': False}),
                                    headers={'Content-Type': 'application/json'})
             # need to remove the session and query again from a new one (WHY?):
             self.session.remove()
             segment = self.session.query(Segment).filter(Segment.id == segid).first()
             # check the segment has no classes:
-            assert len(segment.classes) == 0
+            assert segment.classlabels_count == 0
             assert resp.status_code == 200
 
 
@@ -548,7 +548,6 @@ class Test(object):
             # [title, data, warnings, is_timeserie]
             assert all("Station inventory (xml) error" in p[2] for p in plots)
 
-
     @pytest.mark.parametrize('calculate_sn_spectra', [True, False])
     @patch('stream2segment.process.gui.webapp.mainapp.views.core.get_segment_id')
     def test_change_config(self,
@@ -556,7 +555,7 @@ class Test(object):
                            calculate_sn_spectra,
                            # fixtures:
                            db):
-        '''test a change in the config from within the GUI'''
+        """test a change in the config from within the GUI"""
         plot_indices = [0]
         index_of_sn_spectra = None
         if calculate_sn_spectra:
@@ -645,15 +644,29 @@ class Test(object):
                     x0a, dxa, ya, labela = plot1data[lineseriesindex]
                     x0b, dxb, yb, labelb = plot2data[lineseriesindex]
                     assert x0a == x0b
-                    # the number of points should be equal also for frequencies, as it
-                    # depends on the time resolution, which is always the same:
-                    assert len(ya) == len(yb)
+                    # Consider that plotindices is either 0 or 2
+                    # 0: time series plot
+                    # 2: Spectra
                     if plotindex != index_of_sn_spectra:
                         assert dxa == dxb
+                        assert len(ya) == len(yb)
                         assert np.allclose(ya, yb)
                     else:
-                        # the delta frequency changes if we move the arrival time shif, so
-                        # this might be due to a change in pts of the original time series
-                        # too hard to test, skip this:
-                        # assert dxa == dxb
-                        assert not np.allclose(ya, yb)
+                        # spectra are not assured to have the same number of points
+                        # because ya and yb are the result of the same segment
+                        # but different arrival time shifts (which in turn affects the
+                        # spectra length) and also the downsampling (for plot
+                        # visualization) applies only after a certain density of points.
+
+                        # So, as rule of thumb, we can just check that the two spectra
+                        # are somehow similar. First take first N points for both:
+                        _minlen = min(len(ya), len(yb))
+                        ya, yb = np.array(ya[:_minlen]), np.array(yb[:_minlen])
+
+                        # Then, check that the mean and median abs
+                        # difference of the arrays is below 0.1 (10% difference)
+                        # (they are around 0.04 ~= 4%, so 0.1 should be a roughly good
+                        # value to check, whilst avoiding false positives):
+                        diffs = np.abs(ya - yb) / np.abs(yb)
+                        assert np.nanmedian(diffs) < 0.1
+                        assert np.nanmean(diffs) < 0.1

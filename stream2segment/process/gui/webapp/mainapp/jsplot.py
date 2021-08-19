@@ -260,20 +260,26 @@ def isoformat(utctime):
     return ret + 'Z' if ret[-1] != 'Z' else ret
 
 
-def downsample(array, npts):
+def downsample(array, npts, min_pts_per_bin=10):
     """Downsample array for visualization, returning a new array with at most
-    most 2*(npts+1) points binning the old array and with each point denoting
+    2*(npts+1) points binning the old array and with each point denoting
     the min and max of each bin.
-    If the points in each bin is not at least 10, return the array as it is
+
+    :param array: numpy array of values (y axis)
+    :param npts: the new array length (number of bins)
+    :param min_pts_per_bin: downsample only if each bin has at least this number of
+        points: this prevents what has been observed visually (especially with non
+        time series, e.g. ffts): when each bin is not sufficiently "dense" (e.g.,
+        the array is not huge), downsampling might not only be an over optimization,
+        but even wrong, as the rendered plot might have too few points and does not show
+        all slopes correctly.
     """
     # For a discussion on this method, see:
     # http://numpy-discussion.10968.n7.nabble.com/reduce-array-by-computing-min-max-every-n-samples-td6919.html
 
     # compute each chunk size:
     chunk_size = int(array.size / npts)
-    if chunk_size <= 10:
-        # given npts (usually arounf 1000) let's downsample if
-        # we have more than 10,000 pts. If not, just return:
+    if chunk_size < min_pts_per_bin:
         return array
 
     # compute minima and maxima:

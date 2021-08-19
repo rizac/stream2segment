@@ -229,7 +229,7 @@ def set_class_id(seg_id, class_id, value):
     if value:
         segment.add_classlabel(class_id, annotator=annotator)
     else:
-        segment.del_classes(class_id)
+        segment.del_classlabel(class_id)
     return {}
 
 
@@ -315,9 +315,9 @@ def get_plots(seg_id, plot_indices, preprocessed, all_components):
     plots = [get_plot(segment, preprocessed, i) for i in plot_indices]
     if all_components and (0 in plot_indices):
         plot = plots[plot_indices.index(0)]
-        qry = segment.siblings(include_self=False).options(load_only(Segment.id))
-        for _seg in qry:
-            segment = get_segment(_seg.id)
+        qry = segment.siblings(include_self=False)  # .options(load_only(Segment.id))
+        for segment in qry:
+            # segment = get_segment(_seg.id)
             plt = get_plot(segment, preprocessed, 0)
             if plt.warnings:
                 plot.warnings += list(plt.warnings)
