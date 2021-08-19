@@ -90,17 +90,36 @@ configure and modify. These files are:
    ```bash
    s2s download -c <config_file> ...
    ```
- - Two modules (Python files) with relative configurations (YAML files)
-   to be passed to the processing routine:
-   ```bash
-   s2s process -c <config_file> -p <processing_module> ...
-   ``` 
-   or the visualization routine:
-   ```bash
-   s2s show -c <config_file> -p <processing_module> ...
-   ``` 
- - A Jupyter notebook tutorial with examples, for user who prefer 
-   this approach when working with downloaded data
+   
+ - A Jupyter notebook tutorial with examples, for user who prefer this approach 
+   instead of the processing module described below, in order to work with
+   downloaded data
+
+ - A Python module `paramtable.py` with relative configuration in YAML syntax.
+   The module is a working example showing how to create a parametric table of data
+   from the downloaded waveforms and metadata, but can be renamed or modified
+   for all user needs. It can then be either: 
+   
+   - executed as script:
+     ```bash
+     python <processing_module>
+     ```
+     (see section `if __name__ == "__main__"` in the module)
+   
+   - executed via the stream2segment processing routine:
+     ```bash
+     s2s process -c <config_file> -p <processing_module> ...
+     ```
+     (type `s2s process --help` for details)
+     
+   - used as module to define custom plots to be visualized in the user browser
+     as graphical user interface (GUI) of the downloaded waveforms:
+     ```bash
+     s2s show -c <config_file> -p <processing_module> ...
+     ```
+     (`s2s show` can be run also without a custom module and config as arguments.
+     Type `s2s show --help` for details)
+    
 
 ## Installation
 
@@ -497,13 +516,15 @@ to common problems you might have and that we collected from several Ubuntu inst
 
 ## Developer(s) notes:
 
-- Although PEP8 recommends 79 character length, the program used initially a 100
+Although PEP8 recommends 79 character length, the program used initially a 100
   characters max line width, which is being reverted to 79 (you might see mixed
   lengths in the modules). It seems that [among new features planned for Python 4 there is
   an increment to 89.5 characters](https://charlesleifer.com/blog/new-features-planned-for-python-4-0/).
   If true, we might stick to that in the future
   
-- In the absence of Continuous Integration in place, from times to times, it is necessary
+### Updating dependencies
+
+In the absence of Continuous Integration in place, from times to times, it is necessary
   to update the dependencies, to make `pip install` more likely to work (at least for
   some time). The procedure is:
   ```
@@ -519,37 +540,65 @@ to common problems you might have and that we collected from several Ubuntu inst
   replace the old `requirements.txt` and `requirements.dev.txt` with the `.tmp` file
   created. 
 
-- Updating wiki:
+### Updating wiki
   
-  The wiki is the documentation of this project accessible on the 'wki' tab on the
-  GitHub page. It is composed of markdown (.md) files (one file per page), some written
-  manually and some generated from the notebooks (.ipynb) of this project via the
-  `jupyter nbconvert` command on the terminal: currently, the files
-  'The-Segment-object' and 'Using-Stream2segment-in-your-Python-code'. 
-  Consider implementing a script (see the draft 'resources/templates/create_wiki.py') if 
-  the amount of pages increases considerably.
-  
-  To update the wiki (update existing notebooks or add new one):
-  
-  Requirements:
+  Requirements (to be done once):
    - `jupyter` installed.
-   - A clone of the repo 'stream2segment.wiki' on the same parent directory of the
-     stream2segment repo.
+   - The git repository `stream2segment.wiki` which you can clone from the 
+     stream2segment/wiki URL on the GitHub page. The repository must
+     be cloned next to (on the same parent directory of) the
+     stream2segment repository
+     
+  The wiki is simply a git project composed of Markdown (.md) files, where
+  `Home.md` implements the landing page of the wiki on the browser, and thus
+usually hosts the table of contents with links to other markdown files `.md` 
+  in the directory. Currently, two of those `.md` files are generated from the 
+  notebooks `.ipynb` inside stream2segment:
   
-  Then:
-   - Edit the notebooks in stream2segment/resources/templates:
-   - Some new notebook? *First choose a meaningful file name, as it will be
-     the title of the wiki page* (hyphens will be replaced with spaces in the titles).
-     Then check that the notebook is tested, i.e. run in "tests/misc/test_notebook"
-   - Create .md (markdown) versions of the notebook for the wiki. From the
-     stream2segment repository as `cwd` (`F` is the filename without the 'ipnyb' extension):
-      ```bash
-      F='Using-Stream2segment-in-your-Python-code';jupyter nbconvert --to markdown ./stream2segment/resources/templates/$F.ipynb --output-dir ../stream2segment.wiki 
-      ```
-      (repeat for every notebook file, e.g. `The-Segment-object`)
-   - `cd ../stream2segment.wiki`: 
-      - Some new notebook? add it in the TOC of 'Home.md' if needed, and `git add`
-      - Eventually, `git commit`, `push` as usual. Check online. Done
+  - ./resources/templates/
+    - Using-Stream2segment-in-your-Python-code.ipynb
+    - The-Segment-object.ipynb
+  
+#### To update one of those existing notebooks
+
+1. Edit the notebook in stream2segment/resources/templates:
+  `jupyter notebook stream2segment/resources/templates`
+  Execute the whole notebook to update it, then `git push` as usual
+   
+2. Create `.md` versions of the notebook for the wiki. From the stream2segment 
+   repository as `cwd`:
+   ```bash
+    F='Using-Stream2segment-in-your-Python-code';jupyter nbconvert --to markdown ./stream2segment/resources/templates/$F.ipynb --output-dir ../stream2segment.wiki 
+   ```
+   (repeat for every notebook file, e.g. `The-Segment-object`. Note only the file name,
+   no file extension needed)
+   
+3. Commit and push to the stream2segment.wiki repo:
+   `cd ../stream2segment.wiki`, then as usual `git commit` and `git push`. One line command:
+   `(cd ../stream2segment.wiki && git commit -am 'updating wiki' && git push)`
+    
+#### To add a new notebook
+  
+  Create the notebook (`jupyter notebook stream2segment/resources/templates`) 
+  **and choose a meaningful file name, as it will be
+  the title of the wiki page** (hyphens will be replaced with spaces in the titles).
+  Once the notebook is created and executed:
+     
+  a) (optional) If you want to include the notebook also as example in the `s2s init` command,
+     look at `stream2segment/cli.py`  
+  
+  b) Make the notebook being executed during tests (see examples in `tests/misc/test_notebook.py`)
+     and run tests to check everything works.
+  
+  c) Make the notebook visible in the wiki, either by referencing it in `Home.md`,
+     or linking its full URL in some other notebook (see example 
+     in `Using-stream2segment-in-you-Python-code.ipynb`): you might then need to update
+     also the notebook referencing it, see points 2-3 above under
+     `To update one of those existing notebooks`)
+
+  d) Create the markdown file and commit to the wiki (see points 2-3 above under
+     `To update one of those existing notebooks`)
+
 <!--
 ## Misc:
 
