@@ -80,10 +80,8 @@ is never downloaded per se, Stream2segment helps the whole workflow with:
 A detailed documentation is available online in the
 **[github wiki page](https://github.com/rizac/stream2segment/wiki)**, but
 you can also simply start the program via the command `init` ( 
-`s2s init --help` for details) which creates several examples files.
-These files contain roughly the same online documentation in form 
-of comments to code and parameters that you can immediately start to
-configure and modify, and are: 
+`s2s init --help` for details) which creates several highly documented
+examples files that you can immediately start to configure and modify: 
 
  - A download configuration file (in YAML syntax with all parameters documented)
    to start the download routine:
