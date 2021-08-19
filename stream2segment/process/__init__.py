@@ -214,8 +214,7 @@ def get_segment_help(format='html', maxwidth=70, **print_kwargs):
     # below will simply be shown next):
     _MAIN_ATTS = ('stream', 'inventory', 'url', 'sds_path', 'dbsession')
     # Before looping through the Segment class, define what to skip:
-    skip_attrs = set(attnames(Segment)) | set(get_related_models(Segment).keys()) | \
-        {'metadata'}  # reserved att names
+    skip_attrs = set(attnames(Segment)) | {'metadata'}  # <- reserved att names
     signatures = {}
     # Now loop:
     for aname in chain(_MAIN_ATTS, dir(Segment)):
