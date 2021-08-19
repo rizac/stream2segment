@@ -171,16 +171,16 @@ def attnames(model_or_instance, pkey=None, fkey=None, col=None, rel=None, qatt=N
         model = model_or_instance.__class__
 
     for attname in mapper.all_orm_descriptors.keys():
-        if pkey_cols is not None and attname in pkey_cols != pkey:
+        if pkey_cols is not None and (attname in pkey_cols) != pkey:
             continue
 
-        if fkey_cols is not None and attname in fkey_cols != fkey:
+        if fkey_cols is not None and (attname in fkey_cols) != fkey:
             continue
 
-        if all_cols is not None and attname in all_cols != col:
+        if all_cols is not None and (attname in all_cols) != col:
             continue
 
-        if rel_cols is not None and attname in rel_cols != rel:
+        if rel_cols is not None and (attname in rel_cols) != rel:
             continue
 
         if qatt is not None:
