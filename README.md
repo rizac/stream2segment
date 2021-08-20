@@ -91,9 +91,10 @@ examples files that you can immediately start to configure and modify:
    s2s download -c <config_file> ...
    ```
    
-   > **Note** the program supports SQLite and Postgres as backend databases.
-     For massive downloads (as a rule of thumb: &ge; 1 million segments) we 
-     suggest to use Postgres, and we **strongly** suggest running the program 
+   > **Note** the path of the database used (where to store downlaoded segments)
+     must be input in the config file. The supported database types are SQLite 
+     and Postgres: for massive downloads (as a rule of thumb: &ge; 1 million segments)
+     we suggest to use Postgres. In any case, we **strongly** suggest running the program 
      on computers with at least **16GB** of RAM
 
  2 A Jupyter notebook tutorial with examples, for user who prefer this approach 
