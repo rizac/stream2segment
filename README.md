@@ -1,16 +1,12 @@
 # <img align="left" height="30" src="https://www.gfz-potsdam.de/fileadmin/gfz/medien_kommunikation/Infothek/Mediathek/Bilder/GFZ/GFZ_Logo/GFZ-Logo_eng_RGB.svg"> Stream2segment <img align="right" height="50" src="https://www.gfz-potsdam.de/fileadmin/gfz/GFZ_Wortmarke_SVG_klein_en_edit.svg">
 
-A Python project to download, process and visualize event-based seismic waveform 
-segments, specifically designed to manage big volumes of data.
+A Python library and command line application to download, process and visualize 
+event-based seismic waveform  segments, specifically designed to manage big 
+volumes of data.
 
 The key aspects with respect to widely-used similar applications is the use of
 a Relational database management system (RDBMS) to store downloaded data and 
-metadata. **Note** the program supports SQLite and Postgres RDBMS. For massive 
-  downloads (as a rule of thumb: &ge; 1 million segments) we suggest to 
-  use Postgres, and we **strongly** suggest to run the program on computers with at 
-  least **16GB** of RAM.
-  
-The main advantages of this approach are: 
+metadata. The main advantages of this approach are: 
 
 * **Storage efficiency**: no huge amount of files, no complex, virtually 
   unusable directory structures. Moreover, a database prevents data and metatada 
@@ -27,9 +23,9 @@ The main advantages of this approach are:
 * **A powerful segments selection** made even easier by means of a simplified
   syntax: map any attribute described above to a selection expression
   (e.g. `segment.event.magnitude: "[4, 5)"`) and with few lines you can compose 
-  complex database queries such as e.g., "get all downloaded segments within a 
-  given magnitude range, with no gaps, enough data (related to the requested 
-  data), from broadband channels only and a given specific network"
+  complex database queries such as e.g., *"get all downloaded segments within a 
+  given magnitude range, with well-formed data and no gaps, 
+  from broadband channels only and a given specific network"*
 
 <!--
 Each download is highly customizable with several parameters for any step required
@@ -79,9 +75,14 @@ is never downloaded per se, Stream2segment helps the whole workflow with:
 
 ## Usage
 
-Stream2segment is a command line application (at least for the download
+Stream2segment is a Python program and command line application (at least for the download
 part) available after install via the command `s2s` on the terminal
 (type `s2s --help` to show all subcommands).
+
+> **Note** the program supports SQLite and Postgres as backend databases.
+  For massive downloads (as a rule of thumb: &ge; 1 million segments) we 
+  suggest to use Postgres, and we **strongly** suggest running the program 
+  on computers with at least **16GB** of RAM
 
 A detailed documentation is available online in the
 **[github wiki page](https://github.com/rizac/stream2segment/wiki)**, but
