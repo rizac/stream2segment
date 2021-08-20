@@ -80,7 +80,7 @@ is never downloaded per se, Stream2segment helps the whole workflow with:
 ## Usage
 
 Stream2segment is a command line application (at least for the download
-part) available after install via the command `s2s` oin the terminal
+part) available after install via the command `s2s` on the terminal
 (type `s2s --help` to show all subcommands).
 
 A detailed documentation is available online in the
