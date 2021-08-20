@@ -79,28 +79,28 @@ Stream2segment is a Python program and command line application (at least for th
 part) available after install via the command `s2s` on the terminal
 (type `s2s --help` to show all subcommands).
 
-> **Note** the program supports SQLite and Postgres as backend databases.
-  For massive downloads (as a rule of thumb: &ge; 1 million segments) we 
-  suggest to use Postgres, and we **strongly** suggest running the program 
-  on computers with at least **16GB** of RAM
-
 A detailed documentation is available online in the
 **[github wiki page](https://github.com/rizac/stream2segment/wiki)**, but
 you can also simply start the program via the command `init` ( 
 `s2s init --help` for details) which creates several fully documented
 examples files that you can immediately start to configure and modify: 
 
- - A download configuration file (in YAML syntax with all parameters documented)
+ 1 A download configuration file (in YAML syntax with all parameters documented)
    to start the download routine:
    ```bash
    s2s download -c <config_file> ...
    ```
    
- - A Jupyter notebook tutorial with examples, for user who prefer this approach 
+   > **Note** the program supports SQLite and Postgres as backend databases.
+     For massive downloads (as a rule of thumb: &ge; 1 million segments) we 
+     suggest to use Postgres, and we **strongly** suggest running the program 
+     on computers with at least **16GB** of RAM
+
+ 2 A Jupyter notebook tutorial with examples, for user who prefer this approach 
    instead of the processing module described below, in order to work with
    downloaded data
 
- - A Python module `paramtable.py` with relative configuration in YAML syntax.
+ 3 A Python module `paramtable.py` with relative configuration in YAML syntax.
    The module is a working example showing how to process downloaded data
    to create a parametric table in either CSV or HDF format, and can be 
    renamed or modified for all user needs, following few simple documented
