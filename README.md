@@ -31,6 +31,7 @@ The main advantages of this approach are:
   given magnitude range, with no gaps, enough data (related to the requested 
   data), from broadband channels only and a given specific network"
 
+<!--
 Each download is highly customizable with several parameters for any step required
 (event, data center, station and waveform data download). In addition, as data 
 is never downloaded per se, Stream2segment helps the whole workflow with:
@@ -62,6 +63,7 @@ is never downloaded per se, Stream2segment helps the whole workflow with:
   | ![](https://geofon.gfz-potsdam.de/software/stream2segment/processgui.png) | ![](https://geofon.gfz-potsdam.de/software/stream2segment/s2s_dinfogui.png)|
   | (image linked from https://geofon.gfz-potsdam.de/software/stream2segment/) | (image linked from https://geofon.gfz-potsdam.de/software/stream2segment/) |
 
+-->
 
 **Citation (Software):**
 > Zaccarelli, Riccardo (2018): Stream2segment: a tool to download, process and visualize event-based seismic waveform data. V. 2.7.3. GFZ Data Services.
@@ -77,10 +79,14 @@ is never downloaded per se, Stream2segment helps the whole workflow with:
 
 ## Usage
 
+Stream2segment is a command line application (at least for the download
+part) available after install via the command `s2s` oin the terminal
+(type `s2s --help` to show all subcommands).
+
 A detailed documentation is available online in the
 **[github wiki page](https://github.com/rizac/stream2segment/wiki)**, but
 you can also simply start the program via the command `init` ( 
-`s2s init --help` for details) which creates several highly documented
+`s2s init --help` for details) which creates several fully documented
 examples files that you can immediately start to configure and modify: 
 
  - A download configuration file (in YAML syntax with all parameters documented)
@@ -94,9 +100,10 @@ examples files that you can immediately start to configure and modify:
    downloaded data
 
  - A Python module `paramtable.py` with relative configuration in YAML syntax.
-   The module is a working example showing how to create a parametric table of data
-   from the downloaded waveforms and metadata, but can be renamed or modified
-   for all user needs. It can then be either: 
+   The module is a working example showing how to process downloaded data
+   to create a parametric table in either CSV or HDF format, and can be 
+   renamed or modified for all user needs, following few simple documented
+   instructions. Such a Python module can then be either: 
    
    - executed as script:
      ```bash
@@ -110,7 +117,7 @@ examples files that you can immediately start to configure and modify:
      ```
      (type `s2s process --help` for details)
      
-   - used as module to define custom plots to be visualized in the user browser
+   - used as module implementing custom plots to be visualized in the user browser
      as graphical user interface (GUI) of the downloaded waveforms:
      ```bash
      s2s show -c <config_file> -p <processing_module> ...
@@ -118,6 +125,10 @@ examples files that you can immediately start to configure and modify:
      (`s2s show` can be run also without a custom module and config as arguments.
      Type `s2s show --help` for details)
     
+  | The GUI produced with the `s2s show` command  | The dynamic HTML page produced with the `s2s dl dstats` command  |
+  | --- | --- |
+  | ![](https://geofon.gfz-potsdam.de/software/stream2segment/processgui.png) | ![](https://geofon.gfz-potsdam.de/software/stream2segment/s2s_dinfogui.png)|
+  | (image linked from https://geofon.gfz-potsdam.de/software/stream2segment/) | (image linked from https://geofon.gfz-potsdam.de/software/stream2segment/) |
 
 ## Installation
 
