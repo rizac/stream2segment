@@ -598,9 +598,10 @@ usually hosts the table of contents with links to other markdown files `.md`
     
 #### To add a new notebook
   
-  Create the notebook (`jupyter notebook stream2segment/resources/templates`) 
-  **and choose a meaningful file name, as it will be
-  the title of the wiki page** (hyphens will be replaced with spaces in the titles).
+  Create the notebook (`jupyter notebook stream2segment/resources/templates`). 
+  **Choose a meaningful file name: use upper case when needed, type hyphens '-'
+  instead of spaces**: the file name will be used as title to show the page
+  online (replacing hyphens with spaces).
   Once the notebook is created and executed:
      
   a) (optional) If you want to include the notebook also as example in the `s2s init` command,
@@ -609,31 +610,17 @@ usually hosts the table of contents with links to other markdown files `.md`
   b) Make the notebook being executed during tests (see examples in `tests/misc/test_notebook.py`)
      and run tests to check everything works.
   
-  c) Make the notebook visible in the wiki, either by referencing it in `Home.md`,
-     or linking its full URL in some other notebook (see example 
-     in `Using-stream2segment-in-you-Python-code.ipynb`): you might then need to update
-     also the notebook referencing it, see points 2-3 above under
-     `To update one of those existing notebooks`)
+  c) Make the notebook visible in the wiki by adding a reference to it
+     (the notebook URL is the file name with no extension and hyphens replaced by 
+     spaces, see already implemented URLs as example). A reference can be added in
+     several places:
+     - In the file `_Sidebar.md` (in the wiki repository)
+       which will show it in the sidebar on GitHub
+    - In `Home.md`
+    - In some other notebook (see example in
+      `Using-stream2segment-in-you-Python-code.ipynb`). In this case, note that
+      you might need to update also the referencing notebook
+      (see points 2-3 [above](#To-update-one-of-those-existing-notebooks))
 
   d) Create the markdown file and commit to the wiki (see points 2-3 above under
      `To update one of those existing notebooks`)
-
-<!--
-## Misc:
-
-### sqlitebrowser
-The program saves data on a sql database (tested with postresql and sqlite). If sqlite is
-used as database, to visualize the sqlite content you can download sqlitebrowser
-(http://sqlitebrowser.org/). The installation on Mac is straightforward (use brew cask or
-go to the link above) whereas on Ubuntu can be done as follows:
-```
-sudo add-apt-repository ppa:linuxgndu/sqlitebrowser
-sudo apt-get install sqlitebrowser
-```
-
-### matplotlibrc
-
-A `matplotlibrc` file is included in the main root package. As said, matplotlib is not
-used by the program but from imported libraries, The included file sets the backend to
-'Agg' so that we hide the "Turning interactive mode on" message (for Mac users)
--->
