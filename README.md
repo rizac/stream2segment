@@ -604,13 +604,13 @@ instead of spaces**: the file name will be used as title to show the page
 online (replacing hyphens with spaces).
 Once the notebook is created and executed:
      
-a. (optional) If you want to include the notebook also as example in the `s2s init` command,
+- (optional) If you want to include the notebook also as example in the `s2s init` command,
      look at `stream2segment/cli.py`  
   
-b. Make the notebook being executed during tests (see examples in `tests/misc/test_notebook.py`)
+- Make the notebook being executed during tests (see examples in `tests/misc/test_notebook.py`)
      and run tests to check everything works.
   
-c. Make the notebook visible in the wiki by adding a reference to it
+- Make the notebook visible in the wiki by adding a reference to it
      (the notebook URL is the file name with no extension, I guess case
      insensitive). A reference can be added in
      several places:
@@ -622,5 +622,5 @@ c. Make the notebook visible in the wiki by adding a reference to it
       you might need to update also the referencing notebook
       (see points 2-3 [above](#to-update-one-of-those-existing-notebooks))
 
-d. Create the markdown file and commit to the wiki (see points 2-3 above under
+- Create the markdown file and commit to the wiki (see points 2-3 above under
      `To update one of those existing notebooks`)
