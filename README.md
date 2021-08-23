@@ -27,39 +27,6 @@ metadata. The main advantages of this approach are:
   given magnitude range, with well-formed data and no gaps, 
   from broadband channels only and a given specific network"*
 
-<!--
-Each download is highly customizable with several parameters for any step required
-(event, data center, station and waveform data download). In addition, as data 
-is never downloaded per se, Stream2segment helps the whole workflow with:
-
-* **An integrated processing environment** to get any user-dependent output (e.g., 
-  tabular output such as CSV or HDF files). Write your segment selection 
-  in a configuration (YAML) file, and your own code in a processing (Python) 
-  module.
-  Pass both files to the `s2s process` command, and Stream2segment takes care of
-  executing the code on all selected segments, interacting with the database for 
-  you while displaying progress bars, estimated available time, and handling 
-  errors.
-
-* **A visualization tool** to show *any* kind of user defined plot from each selected
-  segment. Similar to the processing case above, write your selection in 
-  the configuration file and the code of your own plots in the processing (or 
-  any Python) module. 
-  Pass both files to the `s2s show` command, and Stream2segment takes care of 
-  visualizing your plots in a *web browser* Graphical User Interface (GUI) with
-  no external programs required. The GUI can also be used to label segments with 
-  user-defined classes in order to refine the segments selection later, or for 
-  creating datasets in machine-learning supervised classification problems
-
-* **Several utilities** to interact with the database, print download reports
-  or show interactive stats on web GUI maps (see command `s2s utils`)
-  
-  | The GUI produced with the `show` command  | The dynamic HTML page produced with the `utils dstats` command  |
-  | --- | --- |
-  | ![](https://geofon.gfz-potsdam.de/software/stream2segment/processgui.png) | ![](https://geofon.gfz-potsdam.de/software/stream2segment/s2s_dinfogui.png)|
-  | (image linked from https://geofon.gfz-potsdam.de/software/stream2segment/) | (image linked from https://geofon.gfz-potsdam.de/software/stream2segment/) |
-
--->
 
 **Citation (Software):**
 > Zaccarelli, Riccardo (2018): Stream2segment: a tool to download, process and visualize event-based seismic waveform data. V. 2.7.3. GFZ Data Services.
@@ -119,7 +86,7 @@ examples files that you can immediately start to configure and modify:
      ```
      (see section `if __name__ == "__main__"` in the module)
    
-   - executed via the stream2segment `processing` routine:
+   - executed via the stream2segment `process` command:
      ```console
      s2s process -c <config_file> -p <processing_module> ...
      ```
