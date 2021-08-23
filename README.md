@@ -598,21 +598,21 @@ usually hosts the table of contents with links to other markdown files `.md`
     
 #### To add a new notebook
   
-  Create the notebook (`jupyter notebook stream2segment/resources/templates`). 
-  **Choose a meaningful file name: use upper case when needed, type hyphens '-'
-  instead of spaces**: the file name will be used as title to show the page
-  online (replacing hyphens with spaces).
-  Once the notebook is created and executed:
+Create the notebook (`jupyter notebook stream2segment/resources/templates`). 
+**Choose a meaningful file name: use upper case when needed, type hyphens '-'
+instead of spaces**: the file name will be used as title to show the page
+online (replacing hyphens with spaces).
+Once the notebook is created and executed:
      
-  a) (optional) If you want to include the notebook also as example in the `s2s init` command,
+a. (optional) If you want to include the notebook also as example in the `s2s init` command,
      look at `stream2segment/cli.py`  
   
-  b) Make the notebook being executed during tests (see examples in `tests/misc/test_notebook.py`)
+b. Make the notebook being executed during tests (see examples in `tests/misc/test_notebook.py`)
      and run tests to check everything works.
   
-  c) Make the notebook visible in the wiki by adding a reference to it
-     (the notebook URL is the file name with no extension and hyphens replaced by 
-     spaces, see already implemented URLs as example). A reference can be added in
+c. Make the notebook visible in the wiki by adding a reference to it
+     (the notebook URL is the file name with no extension, I guess case
+     insensitive). A reference can be added in
      several places:
      - In the file `_Sidebar.md` (in the wiki repository)
        which will show it in the sidebar on GitHub
@@ -620,7 +620,7 @@ usually hosts the table of contents with links to other markdown files `.md`
     - In some other notebook (see example in
       `Using-stream2segment-in-you-Python-code.ipynb`). In this case, note that
       you might need to update also the referencing notebook
-      (see points 2-3 [above](#To-update-one-of-those-existing-notebooks))
+      (see points 2-3 [above](#to-update-one-of-those-existing-notebooks))
 
-  d) Create the markdown file and commit to the wiki (see points 2-3 above under
+d. Create the markdown file and commit to the wiki (see points 2-3 above under
      `To update one of those existing notebooks`)
