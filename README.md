@@ -75,8 +75,8 @@ is never downloaded per se, Stream2segment helps the whole workflow with:
 
 ## Usage
 
-Stream2segment is a Python program and command line application (at least for the download
-part) available after install via the command `s2s` on the terminal
+Stream2segment is a Python library and command line application available 
+after install via the command `s2s` on the terminal
 (type `s2s --help` to show all subcommands).
 
 A detailed documentation is available online in the
@@ -85,9 +85,11 @@ you can also simply start the program via the command `init` (
 `s2s init --help` for details) which creates several fully documented
 examples files that you can immediately start to configure and modify: 
 
- 1 A download configuration file (in YAML syntax with all parameters documented)
-   to start the download routine:
-   ```bash
+ 1 **A download configuration file** in YAML syntax. You can edit the file 
+   (all documentation is provided in the file as block comments) and start
+   downloading waveform data and metadata with the corresponding command on the
+   terminal:
+   ```console
    s2s download -c <config_file> ...
    ```
    
@@ -97,31 +99,38 @@ examples files that you can immediately start to configure and modify:
      we suggest to use Postgres. In any case, we **strongly** suggest running the program 
      on computers with at least **16GB** of RAM
 
- 2 A Jupyter notebook tutorial with examples, for user who prefer this approach 
-   instead of the processing module described below, in order to work with
-   downloaded data
+ 2 **A Jupyter notebook tutorial with examples for processing downloaded data**,
+   for user who prefer this approach instead of the processing module described
+   below
 
- 3 A Python module `paramtable.py` with relative configuration in YAML syntax.
-   The module is a working example showing how to process downloaded data
-   to create a parametric table in either CSV or HDF format, and can be 
-   renamed or modified for all user needs, following few simple documented
-   instructions. Such a Python module can then be either: 
+ 3 **A Python module with relative configuration in YAML syntax illustrating how
+   to process or visualize downloaded data**. You can edit the files 
+   (all documentation is provided in the files as block comments), e.g. select
+   the segment of interest in the configuration file through powerful expressions,
+   or modify the Python code according to your needs.
+ 
+   For processing data, the two files produce a tabular output in either
+   CSV or HDF format. After you edited the code, you can start the processing in
+   two ways:
    
-   - executed as script:
-     ```bash
+   - By executing the Python module as script:
+     ```console
      python <processing_module>
      ```
      (see section `if __name__ == "__main__"` in the module)
    
-   - executed via the stream2segment processing routine:
-     ```bash
+   - executed via the stream2segment `processing` routine:
+     ```console
      s2s process -c <config_file> -p <processing_module> ...
      ```
      (type `s2s process --help` for details)
      
-   - used as module implementing custom plots to be visualized in the user browser
-     as graphical user interface (GUI) of the downloaded waveforms:
-     ```bash
+   For visualizing data, the default example implements several custom plots
+   to be visualized along with the default waveform data. You can start 
+   visualizing those plots in your browser as graphical user
+   interface (GUI) via the corresponding command on the terminal:
+
+     ```console
      s2s show -c <config_file> -p <processing_module> ...
      ```
      (`s2s show` can be run also without a custom module and config as arguments.
