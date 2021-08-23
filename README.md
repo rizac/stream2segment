@@ -129,13 +129,12 @@ examples files that you can immediately start to configure and modify:
    to be visualized along with the default waveform data. You can start 
    visualizing those plots in your browser as graphical user
    interface (GUI) via the corresponding command on the terminal:
-
-     ```console
+   ```console
      s2s show -c <config_file> -p <processing_module> ...
-     ```
-     (`s2s show` can be run also without a custom module and config as arguments.
-     Type `s2s show --help` for details)
-    
+   ```
+   (`s2s show` can be run also without a custom module and config as arguments.
+   Type `s2s show --help` for details)
+
   | The GUI produced with the `s2s show` command  | The dynamic HTML page produced with the `s2s dl dstats` command  |
   | --- | --- |
   | ![](https://geofon.gfz-potsdam.de/software/stream2segment/processgui.png) | ![](https://geofon.gfz-potsdam.de/software/stream2segment/s2s_dinfogui.png)|
