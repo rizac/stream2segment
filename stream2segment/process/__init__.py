@@ -251,7 +251,7 @@ def get_segment_help(format='html', maxwidth=80, **print_kwargs):
     lines = []
     # one format supported for the moment (html):
     if format.lower() in ('html', 'htm'):
-        pre_code_re = re.compile(r'```\n*(.*?)\n*```\n*', re.DOTALL)
+        pre_code_re = re.compile(r'\n*```\n*(.*?)\n*```\n*', re.DOTALL)
         code_re = re.compile('`(.*?)`')
         br_re = re.compile('\n')
         b_re = re.compile(r'\*\*(.+?)\*\*')
@@ -263,18 +263,19 @@ def get_segment_help(format='html', maxwidth=80, **print_kwargs):
         def convert(string):
             search = pre_code_re.search(string)
             if search and search.group(1):
-                string = string[:search.start()] + \
+                string = convert(string[:search.start()]) + \
                     '<p><pre><code>' +\
                     textwrap.dedent(search.group(1)) + '</code></pre></p>' +\
-                    string[search.end():]
-            # string = pre_code_re.sub('<code>\\1</code>', string)
-            string = code_re.sub('<code>\\1</code>', string)
-            string = b_re.sub('<b>\\1</b>', string)
-            string = i_re.sub('<i>\\1</i>', string)
-            string = br_re.sub('<br/>', string)
-            string = param_re.sub('<i>Parameter</i> <b>\\1</b>:', string)
-            string = link_re.sub('<a target="_blank" href="\\1">\\1</a>', string)
-            string = raises_re.sub('<i>Raises</i>', string)
+                    convert(string[search.end():])
+            else:
+                # string = pre_code_re.sub('<code>\\1</code>', string)
+                string = code_re.sub('<code>\\1</code>', string)
+                string = b_re.sub('<b>\\1</b>', string)
+                string = i_re.sub('<i>\\1</i>', string)
+                string = br_re.sub('<br/>', string)
+                string = param_re.sub('<i>Parameter</i> <b>\\1</b>:', string)
+                string = link_re.sub('<a target="_blank" href="\\1">\\1</a>', string)
+                string = raises_re.sub('<i>Raises</i>', string)
             return string
 
         if maxwidth and maxwidth > 0:
