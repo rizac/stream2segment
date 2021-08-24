@@ -298,13 +298,13 @@ class Segment(Base, models.Segment):
             label('classlabels_count')
 
     def sds_path(self, root='.'):
-        """Return a string representing the seiscomp data structure (sds) path
-        where to store the given segment or any data associated with it.
-        The returned path has no extension (to be supplied by the user)
-        and has the following format (e_id=event id, y=year, d=day of year):
+        """Return a string representing the SeisComP data structure
+        which can be used as path to store the segment miniSEED:
+        ```
         [root]/[e_id]/[net]/[sta]/[loc]/[cha].D/[net].[sta].[loc].[cha].[y].[d]
-        For info see:
-        https://www.seiscomp3.org/doc/applications/slarchive/SDS.html
+        ```
+        where e_id=event id, y=year, d=day of year. For details, see:
+        https://www.seiscomp.de/seiscomp3/doc/applications/slarchive/SDS.html
 
         :param root: Optional (defaults to '.' when missing). The root path of this
             segment file (first argument of `os.path.join`)
@@ -324,8 +324,8 @@ class Segment(Base, models.Segment):
     def del_classlabel(self, *class_ids_or_labels, commit=True):
         """Delete class labels previously associated to this segment
 
-        :param class_ids_or_labels: variable length argument denoting the ids
-            (int) or unique labels (str) of the classes to be removed from this
+        :param class_ids_or_labels: variable-length argument of the unique IDs
+            (int) or labels (str) of the classes to be removed from this
             segment. When NO ids or labels are provided, ALL class labels
             associated to this segment will be deleted. E.g.: `segment.del_classes()`
 
@@ -359,11 +359,12 @@ class Segment(Base, models.Segment):
 
     def add_classlabel(self, *class_ids_or_labels, commit=True, empty_first=False,
                        annotator=None):
-        """Add class label(s) to this segment. Old class labellings are not removed
+        """Add class label(s) to this segment
 
-        :param class_ids_or_labels: list of int (denoting class ids) or str (denoting
-            class label). Classes already assigned to this segment will be
-            removed, as well as class ids ot labels not matching any database class
+        :param class_ids_or_labels: variable-length argument of the unique IDs
+            (int) or labels (str) of the classes to be added to this segment.
+            Classes already assigned to this segment will be ignored,
+            as well as IDs ot labels not matching any database class
 
         :param commit: boolean (default: True) denoting if any change
             should be saved to the database (flush pending changes and commit
@@ -439,7 +440,7 @@ class Segment(Base, models.Segment):
 
         The returned iterable is technically a SQLAlchemy Query object that can
         be customized by advanced users (as in the example above). For further
-        details, see https://docs.sqlalchemy.org/en/14/orm/tutorial.html#querying
+        details, see https://docs.sqlalchemy.org/en/latest/orm/tutorial.html#querying
 
         :param parent: str or None (default: None). Any of the following:
 
@@ -450,16 +451,18 @@ class Segment(Base, models.Segment):
                "Orientation code" here:
                http://www.fdsn.org/pdf/SEEDManual_V2.4_Appendix-A.pdf)
 
-            - `networkname`: return all db segments of the same network (using the
+            - "networkname": return all db segments of the same network (using the
                network code as identifier)
 
-            - `stationname`: return all db segments of the same station, where
+            - "stationname": return all db segments of the same station, where
                a station is uniquely identified by the tuple:
                (newtwork code, station code)
 
-            - `station`, `channel`, `datacenter`, `event`: return all db
-               segments from the associated foreign key. Note: a station in this
-               case is uniquely identified by the tuple:
+            - "station", "channel", "datacenter", "event": return all db
+               segments from the associated foreign key. With `include_self=True`,
+               this is the same as calling `self.station`, `self.channel`,
+               and so on. Note: a station in this case is uniquely identified
+               by the tuple:
                (network code, station code, start_time)
 
         :param include_self: boolean (default: False). Whether to include this
@@ -541,7 +544,10 @@ class Segment(Base, models.Segment):
 
     @property
     def dbsession(self):
-        """Return the database session to which this object is attached"""
+        """Return the database session to which this object is attached, for
+        advanced users only. For details see:
+        https://docs.sqlalchemy.org/en/latest/orm/session.html
+        """
         return object_session(self)
 
     def stream(self, reload=False):

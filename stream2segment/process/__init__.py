@@ -46,12 +46,13 @@ def get_segments(dburl, conditions, orderby=None):
         if close_sess:
             close_session(sess)
 
-def get_segment_help(format='html', maxwidth=70, **print_kwargs):
+
+def get_segment_help(format='html', maxwidth=80, **print_kwargs):
     """Return the :class:`Segment` help (attributes and methods) as string
 
     :param format: Not supported yet, only html allopwed
     """
-    import re, inspect
+    import re, inspect, textwrap
     from itertools import chain
     from stream2segment.io.db.inspection import attnames, get_related_models
 
@@ -245,57 +246,35 @@ def get_segment_help(format='html', maxwidth=70, **print_kwargs):
         except Exception:  # getattr might fail (e.g. for hybrid properties with no expr)
             pass
 
-    # all_documented_meths = set(_[0] for _ in _SEGMENT_METHODS)
-    # undocumented_attrs = set(meths) - all_documented_meths
-    # assert not undocumented_attrs, "Missing doc for method(s): %s" % undocumented_attrs
-    # # # check that all documentable attributes are considered and we did not forget any
-    # # # (might happen when adding new hybrid props or methods):
-    # # all_documented_attrs = set(_[0] for _ in _SEGMENT_ATTRS) | \
-    # #     set(attnames(Segment, fkey=True))
-    # # undocumented_attrs = set(qatts) - all_documented_attrs
-    # # assert not undocumented_attrs, "Missing doc for attribute(s): %s" % undocumented_attrs
-    #
-    # # Get segment methods:
-    # meths = []
-    # for meth in list(attnames(Segment, qatt=False, rel=False)):
-    #     if meth[:1] == '_':
-    #         continue
-    #     func = getattr(Segment, meth)
-    #     if not callable(func):
-    #         continue
-    #     meths.append(meth)
-    # all_documented_meths = set(_[0] for _ in _SEGMENT_METHODS)
-    # undocumented_attrs = set(meths) - all_documented_meths
-    # assert not undocumented_attrs, "Missing doc for method(s): %s" % undocumented_attrs
-    #
-    # table = []
-    # # attrs:
-    # table += [('Selectable attributes', 'Type and optional description')]
-    # table += _SEGMENT_ATTRS
-    # # methods (some work more, add signature to the method name):
-    # table += [('Standard attributes or methods', 'Description')]
-    # for meth, doc in _SEGMENT_METHODS:
-    #     if doc:
-    #         # create
-    #         func = getattr(Segment, meth)
-    #         meth += '(' + str(inspect.signature(func))[7:]  # remove "(self, "
-    #         table.append((meth, doc))
-
     format = format or ''
 
     lines = []
     # one format supported for the moment (html):
     if format.lower() in ('html', 'htm'):
+        pre_code_re = re.compile(r'```\n*(.*?)\n*```\n*', re.DOTALL)
         code_re = re.compile('`(.*?)`')
         br_re = re.compile('\n')
         b_re = re.compile(r'\*\*(.+?)\*\*')
         i_re = re.compile(r'\*(.+?)\*')
+        param_re = re.compile(r'\:param (\w+)\:', re.MULTILINE)
+        link_re = re.compile(r'(https?:\/\/[\w\~\-\.\/\#]+)', re.MULTILINE)
+        raises_re = re.compile(r'\:raises?\:')
 
         def convert(string):
+            search = pre_code_re.search(string)
+            if search and search.group(1):
+                string = string[:search.start()] + \
+                    '<p><pre><code>' +\
+                    textwrap.dedent(search.group(1)) + '</code></pre></p>' +\
+                    string[search.end():]
+            # string = pre_code_re.sub('<code>\\1</code>', string)
             string = code_re.sub('<code>\\1</code>', string)
             string = b_re.sub('<b>\\1</b>', string)
             string = i_re.sub('<i>\\1</i>', string)
             string = br_re.sub('<br/>', string)
+            string = param_re.sub('<i>Parameter</i> <b>\\1</b>:', string)
+            string = link_re.sub('<a target="_blank" href="\\1">\\1</a>', string)
+            string = raises_re.sub('<i>raises</i>', string)
             return string
 
         if maxwidth and maxwidth > 0:
@@ -306,8 +285,7 @@ def get_segment_help(format='html', maxwidth=70, **print_kwargs):
         for aname, aval in table:
             if not aval:
                 continue  # safety check (shoulw not happen)
-            attname = '<span style="white-space: nowrap">{0}</span>'.\
-                format(convert(aname))
+            attname = '<span>{0}</span>'.format(convert(aname))
             if aname in signatures:
                 attname = attname.replace(aname, aname+signatures[aname])
             # replace markdown with html:
