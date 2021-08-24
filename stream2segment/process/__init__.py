@@ -71,7 +71,7 @@ def get_segment_help(format='html', maxwidth=70, **print_kwargs):
         ["has_data", "bool: if the segment waveform data is not empty, i.e. it has "
                      "at least 1 byte of data saved. This parameter or `has_valid_data` "
                      "are often necessary in segment selection, e.g.: \n"
-                     "has_data: 'true'"
+                     "has_data: 'true'\ngit ats"
                      "Empty segments are those whose server did not return any data "
                      "and are stored anyway for collecting stats and allow to the user "
                      "customize what should be re-downloaded in further attempts"],
