@@ -274,7 +274,7 @@ def get_segment_help(format='html', maxwidth=80, **print_kwargs):
             string = br_re.sub('<br/>', string)
             string = param_re.sub('<i>Parameter</i> <b>\\1</b>:', string)
             string = link_re.sub('<a target="_blank" href="\\1">\\1</a>', string)
-            string = raises_re.sub('<i>raises</i>', string)
+            string = raises_re.sub('<i>Raises</i>', string)
             return string
 
         if maxwidth and maxwidth > 0:
