@@ -68,10 +68,17 @@ def get_segment_help(format='html', maxwidth=70, **print_kwargs):
 
     _SELECTABLE_ATTRS = [
         ["id", "int: segment (unique) db id"],
-        ["has_data", "bool: if the segment has waveform data saved (at least one "
-                     "byte of data). Often necessary in segment selection: "
-                     "e.g., to skip processing segments with no data, then:\n"
-                     "has_data: 'true'"],
+        ["has_data", "bool: if the segment waveform data is not empty, i.e. it has "
+                     "at least 1 byte of data saved. This parameter or `has_valid_data` "
+                     "are often necessary in segment selection, e.g.: \n"
+                     "has_data: 'true'"
+                     "Empty segments are those whose server did not return any data "
+                     "and are stored anyway for collecting stats and allow to the user "
+                     "customize what should be re-downloaded in further attempts"],
+        ["has_valid_data", "bool: if the segment waveform data is not empty and "
+                           "could be successfully read as miniSEED during "
+                           "download. Often necessary in segment selection, e.g.: \n"
+                           "has_valid_data: 'true'"],
         ["event_distance_deg", "float: distance between the segment station and the "
                                "event, in degrees"],
         ["event_distance_km", "float: distance between the segment station and the "
@@ -121,13 +128,7 @@ def get_segment_help(format='html', maxwidth=70, **print_kwargs):
         ["data", "bytes: the waveform (raw) data. Used by `segment.stream()`"],
         ["queryauth", "bool: if the segment download required authentication "
                       "(data is restricted)"],
-        ["download_code", "int: the segment download status. For advanced users. "
-                          "Useful in segment selection. E.g., to process segments "
-                          "with non malformed waveform data (readable as miniSEED):\n"
-                          "has_data: 'true'\n"
-                          "download_code: '!=-2'\n"
-                          "(for details on all download codes, see Table 2 in "
-                          "https://doi.org/10.1785/0220180314)"],
+        ["download_code", None],  # <- IGNORED
         # ["event", "object (attributes below)"],
         ["event.id", "int"],
         ["event.event_id", "str: the id returned by the web service or catalog"],

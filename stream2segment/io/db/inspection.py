@@ -115,24 +115,25 @@ def pk_colnames(table):
 
 
 def attnames(model_or_instance, pkey=None, fkey=None, col=None, rel=None, qatt=None):
-    """Yield all attribute names of the given ORM model (or instance) that can be
-    inspected and match the criteria given as argument. Inspected attributes are
-    those returned by the SQLAlchemy :func:`inspect(model_class).all_orm_descriptors`,
-    e.g. :class:`QueryableAttribute`s (which includes table columns), relationships,
-    hybrid properties, and so on (technically, all yielded attributes are subclasses of
-    :class:`sqlalchemy.orm.InspectionAttr`)
+    """Yield the names of the SQLAlchemy attribute(s) defined on the given ORM model
+    (or instance) matching the criteria given as argument, e.g., all
+    class:`.QueryableAttribute`s (e.g., table columns, relationships), as well as
+    extension types such as :class:`.hybrid_property` (with or without associated
+    expression set), :class:`.hybrid_method` and :class:`.AssociationProxy`.
 
-    Note that some attributes might match different arguments: an attribute denoting
+    All other "normal" Python methods are accessible via a normal `dir` function, e.g.:
+    `set(dir(model_or_instance)) - set(attnames(model_or_instance))`
+
+    Notes
+
+    1. Some attributes might match different arguments: an attribute denoting
     a primary key (`pkey=True`) is also an attribute denoting a database table column
     (`col=True`), thus  `pkey=True, col=False` is inconsistent and yields no item.
 
-    Regardless of the filer given as arguments, the yielded model attributes are
-    only those inheriting from :class:`.InspectionAttr`, e.g.
-    :class:`.QueryableAttribute` (e.g., table columns, hybrid properties with associated
-    expression), as well as extension types such as
-    :class:`.hybrid_property`, :class:`.hybrid_method` and :class:`.AssociationProxy`.
-    Normal Python methods, attributes and properties defined on the class are not
-    included (for that, a normal `dir(model_or_instance)` is the way to go)
+    2. Technically, yielded attributes are subclasses of
+    :class:`sqlalchemy.orm.InspectionAttr` and are those returned by
+    :func:`inspect(model_class).all_orm_descriptors`.
+
 
     :param model_or_instance: an ORM model (Python class representing a db table), i.e.
         a :class:`sqlalchemy.ext.declarative.api.DeclarativeMeta`, or an instance of

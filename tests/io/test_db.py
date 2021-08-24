@@ -20,7 +20,7 @@ from sqlalchemy.orm.session import object_session
 from stream2segment.download.modules.stations import compress
 from stream2segment.process.db.models import Event, WebService, Channel, Station, \
     DataCenter, Segment, Class, Download, ClassLabelling
-from stream2segment.io.db.models import withdata
+from stream2segment.io.db.models import withdata, MINISEED_READ_ERROR_CODE
 from stream2segment.io.db.pdsql import harmonize_rows, _harmonize_columns,\
     harmonize_columns
 from stream2segment.io.db.inspection import colnames
@@ -673,6 +673,27 @@ class Test(object):
         q2 = db.session.query(Segment.has_data)
         # string are equal except "AS anon_1" which is "has_data"
         assert str(q1) == str(q2).replace('has_data', 'anon_1')
+
+        # Test valid data:
+        # Valid data assumes there is data and the download code is not
+        # MINISEED_READ_ERROR_CODE or None/NULL. Because _seg_with_data download code
+        # is None / NULL, we should have no valid segement:
+        assert not db.session.query(Segment).filter(Segment.has_valid_data).all()
+        # same if we set the download_code to MINISEED_READ_ERROR_CODE:
+        _seg_with_data = db.session.query(Segment).filter(Segment.has_data).one()
+        _dcode = _seg_with_data.download_code
+        _seg_with_data.download_code = MINISEED_READ_ERROR_CODE
+        db.session.commit()
+        assert not db.session.query(Segment).filter(Segment.has_valid_data).all()
+        _seg_with_data.download_code = 200
+        db.session.commit()
+        _segs = db.session.query(Segment).filter(Segment.has_valid_data).all()
+        assert len(_segs) == 1
+        _seg_with_data = _segs[0]
+        assert _seg_with_data.has_valid_data
+        # restore download code:
+        _seg_with_data.download_code = _dcode
+        db.session.commit()
 
         # test has_data as filter argument
         seg1 = db.session.query(Segment.id).filter(Segment.has_data)

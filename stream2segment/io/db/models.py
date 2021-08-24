@@ -347,6 +347,9 @@ class Channel(Base):
                                  name='net_sta_loc_cha_uc'),)
 
 
+MINISEED_READ_ERROR_CODE = -2
+
+
 class Segment(Base):
     """Model representing a Waveform segment"""
 
@@ -403,6 +406,21 @@ class Segment(Base):
     @has_data.expression
     def has_data(cls):  # pylint:disable=no-self-argument
         return withdata(cls.data)
+
+    @hybrid_property
+    def has_valid_data(self):
+        return bool(self.data) and self.download_code is not None and \
+               self.download_code != MINISEED_READ_ERROR_CODE
+
+    @has_valid_data.expression
+    def has_valid_data(cls):  # pylint:disable=no-self-argument
+        # download code should never be None. However, for safety, != None
+        # checks also that the server HTTP status code is an integer properly
+        # set. Note that by checking cls.download_code == 200 is not sufficient
+        # as there are custom codes set during download
+        return withdata(cls.data) & \
+               cls.download_code.isnot(None) & \
+               (cls.download_code != MINISEED_READ_ERROR_CODE)
 
     # relationships (implement here only those shared by download+process):
     @declared_attr
