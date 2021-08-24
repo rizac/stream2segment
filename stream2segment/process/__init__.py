@@ -47,7 +47,7 @@ def get_segments(dburl, conditions, orderby=None):
             close_session(sess)
 
 
-def get_segment_help(format='html', maxwidth=80, **print_kwargs):
+def get_segment_help(format='html', maxwidth=79, **print_kwargs):
     """Return the :class:`Segment` help (attributes and methods) as string
 
     :param format: Not supported yet, only html allopwed
