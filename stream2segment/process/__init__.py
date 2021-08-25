@@ -257,7 +257,8 @@ def get_segment_help(format='html', maxwidth=79, **print_kwargs):
         b_re = re.compile(r'\*\*(.+?)\*\*')
         i_re = re.compile(r'\*(.+?)\*')
         param_re = re.compile(r'\:param (\w+)\:', re.MULTILINE)
-        link_re = re.compile(r'(https?:\/\/[\w\~\-\.\/\#]+)', re.MULTILINE)
+        link_re = re.compile(r'(https?:\/\/[\w\~\-\.\?\&\=\%\/\#]+)',
+                             re.IGNORECASE | re.MULTILINE)
         raises_re = re.compile(r'\:raises?\:')
 
         def convert(string):

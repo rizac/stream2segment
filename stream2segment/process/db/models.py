@@ -300,10 +300,11 @@ class Segment(Base, models.Segment):
     def sds_path(self, root='.'):
         """Return a string representing the SeisComP data structure
         which can be used as path to store the segment miniSEED:
-        ```
-        [root]/[e_id]/[net]/[sta]/[loc]/[cha].D/[net].[sta].[loc].[cha].[y].[d]
-        ```
-        where e_id=event id, y=year, d=day of year. For details, see:
+
+        `root/EID/Year/NET/STA/CHAN.D/NET.STA.LOC.CHAN.TYPE.YEAR.DAY`
+
+        where `root` is the optional argument, EID is the database unique id of
+        the event (integer), and all other fields are defined here:
         https://www.seiscomp.de/seiscomp3/doc/applications/slarchive/SDS.html
 
         :param root: Optional (defaults to '.' when missing). The root path of this
@@ -317,9 +318,10 @@ class Segment(Base, models.Segment):
         # day is in [1, 366], padded with zeroes:
         day = '%03d' % ((seg_dtime - datetime(year, 1, 1)).days + 1)
         eid = self.event_id
+        typ = 'D'
         return os.path.join(root,
-                            str(eid), str(year), net, sta, loc, cha + ".D",
-                            '.'.join((net, sta, loc, cha, str(year), day)))
+                            str(eid), str(year), net, sta, loc, cha + "." + typ,
+                            '.'.join((net, sta, loc, cha, typ, str(year), day)))
 
     def del_classlabel(self, *class_ids_or_labels, commit=True):
         """Delete class labels previously associated to this segment
@@ -460,9 +462,9 @@ class Segment(Base, models.Segment):
 
             - "station", "channel", "datacenter", "event": return all db
                segments from the associated foreign key. With `include_self=True`,
-               this is the same as calling `self.station`, `self.channel`,
-               and so on. Note: a station in this case is uniquely identified
-               by the tuple:
+               this is the same as calling `self.station.segments`,
+               `self.channel.segments`, and so on.
+               Note: a station in this case is uniquely identified by the tuple:
                (network code, station code, start_time)
 
         :param include_self: boolean (default: False). Whether to include this
