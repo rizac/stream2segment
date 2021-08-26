@@ -428,7 +428,7 @@ class Segment(Base, models.Segment):
 
     def siblings(self, *matching_attributes, include_self=False):
         """Return an iterable of all Segment objects that are equal to this
-        segment under the given matching attribute values. By default, these
+        segment in the given matching attribute(s). By default, these
         are the segments from the same seismic event on the other two components
         identified by the channel orientation code.
         E.g., given a segment object `seg`, `seg.siblings()` is equivalent to:
