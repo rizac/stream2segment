@@ -1291,33 +1291,23 @@ class Test(object):
         segs = db.session.query(Segment).options(load_only(Segment.id)).all()
         assert len(db.session.identity_map) > 0
 
-        def getsiblings(seg, parent=None):
-            return seg.siblings(parent=parent).all()
-            # var1 = seg.get_siblings(parent=parent).all()
-            # var1 = sorted(var1, key=lambda obj: obj.id)
-            # var2 = seg.get_siblings(parent=parent, colname='id').all()
-            # var2 = sorted(var2, key=lambda obj: obj[0])
-            # assert len(var1) == len(var2)
-            # assert all(a.id == b[0] for (a, b) in zip(var1, var2))
-            # return var1
-
         total = db.session.query(Segment).count()
         assert total == 9
 
         for seg in segs:
-            sib_evt = getsiblings(seg, 'event')
+            sib_evt = seg.siblings('event.id').all()  #  ('event')
 
-            sib_dc = getsiblings(seg, 'datacenter')
+            sib_dc = seg.siblings('datacenter.id').all()  # ('datacenter')
 
-            sib_cha = getsiblings(seg, 'channel')
+            sib_cha = seg.siblings('channel.id').all()  # ('channel')
 
-            sib_sta = getsiblings(seg, 'station')
+            sib_sta = seg.siblings('station.id').all()  # ('station')
 
-            sib_stan = getsiblings(seg, 'stationname')
+            sib_stan = seg.siblings('station.network', 'station.station').all()  # ('stationname')
 
-            sib_netn = getsiblings(seg, 'networkname')
+            sib_netn = seg.siblings('station.network').all()  # ('networkname')
 
-            sib_or = getsiblings(seg)
+            sib_or = seg.siblings().all()
 
             if seg.channel.location in ('1', '2'):
                 assert len(sib_stan) == 5-1

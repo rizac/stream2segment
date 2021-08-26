@@ -21,7 +21,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import relationship, backref, load_only
 from sqlalchemy.orm.session import object_session
-from sqlalchemy.sql.expression import text, case, select, or_, func
+from sqlalchemy.sql.expression import text, case, select, or_, func, and_
 from obspy.core.stream import _read  # noqa
 from obspy.core.inventory.inventory import read_inventory
 
@@ -426,80 +426,105 @@ class Segment(Base, models.Segment):
 
         return needs_commit
 
-    def siblings(self, parent=None, include_self=False):
-        """Return an iterable of all Segment objects which are siblings of this
-        segment according to `parent`.
+    def siblings(self, *matching_attributes, include_self=False):
+        """Return an iterable of all Segment objects that are equal to this
+        segment under the given matching attribute values. By default, these
+        are the segments from the same seismic event on the other two components
+        identified by the channel orientation code.
+        E.g., given a segment object `seg`, `seg.siblings()` is equivalent to:
 
-        For huge collections, consider loading only the desired attributes,
-        e.g.,given a Segment instance `seg`:
+        ```
+        seg.siblings('station.id',
+                     'channel.location',
+                     'channel.band_instrument_code',
+                     'event.id')
+        ```
+
+        Any segment selectable attribute can be given. For instance, to yield
+        all segments from the same event/channel/station/network:
+        ```
+        seg.siblings('event.id')
+        seg.siblings('channel.id')
+        seg.siblings('station.id')
+        seg.siblings('station.network')
+        ```
+        Note that the a station closed and reopened with a different start
+        time is not considered the same. To yield all segments of the same
+        station identified only by its network and station code, you have two
+        options:
+        ```
+        seg.siblings('station.network', 'station.station')
+        seg.siblings('station.netsta_code')
+        ```
+
+        If multiple attributes are given, they will be concatenated with a
+        logical "and", e.g.., to yield all segments from the same seismic event
+        and recorded by the same instrument (e.g., if `seg` is an accelerometer,
+        yield all accelerometers recording the event):
+        ```
+        seg.siblings('channel.instrument_code', 'event.id')
+        ```
+
+        Note: The returned iterable is technically a SQLAlchemy Query object
+        that can be customized by advanced users (for further details, see
+        https://docs.sqlalchemy.org/en/latest/orm/tutorial.html#querying).
+        For instance, in case of huge collections, consider loading only the
+        desired attributes, e.g.:
         ```
         from stream2segment.process import Segment
         from sqlalchemy.orm import load_only
-        for seg in seg.siblings('event').options(load_only(Segment.id))):
+        for seg in seg.siblings('event.id').options(load_only(Segment.id))):
             seg_id = seg.id
             ...
         ```
 
-        The returned iterable is technically a SQLAlchemy Query object that can
-        be customized by advanced users (as in the example above). For further
-        details, see https://docs.sqlalchemy.org/en/latest/orm/tutorial.html#querying
-
-        :param parent: str or None (default: None). Any of the following:
-
-            - `None`: return all db segments of the same recorded event, on the
-               other channel orientations (e.g., if this segment is the recorded
-               event on a channel vertical component "Z", return the segments of
-               the two horizontal components, "N" and "E". For details see
-               "Orientation code" here:
-               http://www.fdsn.org/pdf/SEEDManual_V2.4_Appendix-A.pdf)
-
-            - "networkname": return all db segments of the same network (using the
-               network code as identifier)
-
-            - "stationname": return all db segments of the same station, where
-               a station is uniquely identified by the tuple:
-               (newtwork code, station code)
-
-            - "station", "channel", "datacenter", "event": return all db
-               segments from the associated foreign key. With `include_self=True`,
-               this is the same as calling `self.station.segments`,
-               `self.channel.segments`, and so on.
-               Note: a station in this case is uniquely identified by the tuple:
-               (network code, station code, start_time)
+        :param matching_attributes: variable-length argument of strings denoting
+            the attributes used to find a match: a segment will be yielded if
+            it equals this segment in all matching attributes.
+            Attributes of related objects should be typed with the dot as
+            separator, e.g. 'station.id', 'event.magnitude'.
+            When empty, the matching attributes will default to the tuple:
+            'station.id', 'channel.location', 'channel.band_instrument_code',
+            'event.id'.
 
         :param include_self: boolean (default: False). Whether to include this
             segment among the yielded siblings
         """
-
         session = object_session(self)
         qry = session.query(Segment)
 
-        if parent is None:
-            qry = qry.join(Segment.channel).\
-                filter((Segment.event_id == self.event_id) &
-                       (Channel.station_id == self.channel.station_id) &
-                       (Channel.location == self.channel.location) &
-                       (Channel.band_instrument_code ==
-                        self.channel.band_instrument_code))
-        elif parent == 'stationname':
-            qry = qry.join(Segment.channel, Channel.station).\
-                filter((Station.network == self.channel.station.network) &
-                       (Station.station == self.channel.station.station))
-        elif parent == 'networkname':
-            qry = qry.join(Segment.channel, Channel.station).\
-                filter((Station.network == self.channel.station.network))
-        elif parent == 'station':
-            qry = qry.join(Segment.channel).\
-                filter((Channel.station_id == self.channel.station_id))
-        else:
-            try:
-                qry = qry.filter(getattr(Segment, parent + '_id') ==
-                                 getattr(self, parent + '_id'))
-            except AttributeError:
-                raise TypeError("invalid 'parent' argument '%s'" % parent)
+        if not matching_attributes:
+            matching_attributes = ('station.id', 'channel.location',
+                                   'channel.band_instrument_code', 'event_id')
+
+        joins = set()
+        exprs = []
+        for att in matching_attributes:
+            obj = self
+            # few optimizations avoiding loading a full object if we have a
+            # corresponding foreign key. Let's avoid excessive optimization though
+            # (e.g. avoid replacing station.id with channel.station_id):
+            if att in ('event.id', 'datacenter.id', 'download.id', 'channel.id'):
+                att = att.replace('.', '_')
+            else:
+                try:
+                    obj_name, att = att.split('.')
+                    joins.add(obj_name)
+                    obj = getattr(self, obj_name)
+                except ValueError:
+                    pass
+
+            exprs.append(getattr(obj.__class__, att) == getattr(obj, att))
 
         if not include_self:
-            qry = qry.filter(Segment.id != self.id)
+            exprs.append(Segment.id != self.id)
+
+        if joins:
+            qry = qry.join(*(getattr(self.__class__, obj) for obj in joins))
+
+        if exprs:
+            qry = qry.filter(and_(*exprs))
+
         return qry
 
     @hybrid_property
