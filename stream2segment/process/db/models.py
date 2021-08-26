@@ -366,7 +366,7 @@ class Segment(Base, models.Segment):
         :param class_ids_or_labels: variable-length argument of the unique IDs
             (int) or labels (str) of the classes to be added to this segment.
             Classes already assigned to this segment will be ignored,
-            as well as IDs ot labels not matching any database class
+            as well as IDs or labels not matching any database class
 
         :param commit: boolean (default: True) denoting if any change
             should be saved to the database (flush pending changes and commit
@@ -429,38 +429,42 @@ class Segment(Base, models.Segment):
     def siblings(self, *matching_attributes, include_self=False):
         """Return an iterable of all Segment objects that are equal to this
         segment in the given matching attribute(s). By default, these
-        are the segments from the same seismic event on the other two components
-        identified by the channel orientation code.
+        are the segments recording the same event on the other channel
+        components / orientations.
+
         E.g., given a segment object `seg`, `seg.siblings()` is equivalent to:
 
         ```
-        seg.siblings('station.id',
-                     'channel.location',
-                     'channel.band_instrument_code',
-                     'event.id')
+        seg.siblings(
+            'event.id'
+            'station.id',
+            'channel.location',
+            'channel.band_instrument_code'
+        )
         ```
+        (`channel.band_instrument_code` is the channel code without the last
+        letter denoting the channel orientation).
 
-        Any segment selectable attribute can be given. For instance, to yield
-        all segments from the same event/channel/station/network:
+        In general, any segment selectable attribute can be given. For instance,
+        to get all segments from the same event, channel, station or network:
         ```
         seg.siblings('event.id')
         seg.siblings('channel.id')
         seg.siblings('station.id')
         seg.siblings('station.network')
         ```
-        Note that the a station closed and reopened with a different start
-        time is not considered the same. To yield all segments of the same
-        station identified only by its network and station code, you have two
-        options:
+        Note that a station closed and reopened with a different start time is
+        not considered the same. To get all segments of the same station
+        identified only by its network and station code, you have two options:
         ```
         seg.siblings('station.network', 'station.station')
         seg.siblings('station.netsta_code')
         ```
 
         If multiple attributes are given, they will be concatenated with a
-        logical "and", e.g.., to yield all segments from the same seismic event
+        logical "and", e.g.., to get all segments from the same seismic event
         and recorded by the same instrument (e.g., if `seg` is an accelerometer,
-        yield all accelerometers recording the event):
+        yield all accelerometers recording the same event of `seg`):
         ```
         seg.siblings('channel.instrument_code', 'event.id')
         ```
@@ -571,9 +575,10 @@ class Segment(Base, models.Segment):
 
     @property
     def dbsession(self):
-        """Return the database session to which this object is attached, for
-        advanced users only. For details see:
-        https://docs.sqlalchemy.org/en/latest/orm/session.html
+        """Return the database session to which this object is attached. Use with care:
+        the session is for advanced users who need full freedom to interact with
+        the database.
+        For an introduction, see: https://docs.sqlalchemy.org/en/latest/orm/session.html
         """
         return object_session(self)
 
