@@ -1,3 +1,5 @@
+from sqlalchemy import orm
+
 from stream2segment.io.db import close_session
 from stream2segment.process.db.models import (Segment, Channel, Event,
                                               Station, DataCenter, Download)
@@ -7,13 +9,13 @@ from stream2segment.io import yaml_load  # noqa
 from stream2segment.process.db import get_session
 
 
-def get_segments(dburl, conditions, orderby=None):
+def get_segments(dburl, conditions, *, load_only=None, defer=None, orderby=None):
     """Return a query object (iterable of `Segment`s) from teh given conditions
     Example of conditions (dict):
     ```
     {
         'id' : '<6',
-        'has_data': 'true'
+        'has_valid_data': 'true'
     }
     ```
     :param conditions: a dict of string columns mapped to **string**
@@ -30,6 +32,14 @@ def get_segments(dburl, conditions, orderby=None):
         For each condition mapped to a falsy value (e.g., None or empty
         string), the condition is discarded. See note [*] below for auto-added
         joins  from columns
+    :param load_only: str or list of Segment attribute(s) or attribute name(s)
+        denoting the database columns to be loaded. If None, all Segment
+        attributes are loaded. If specified, the Segment attributes can be
+        accessed anyway, but will cost a new db query each time. Example:
+        when accessing only segment metadata, you can pass.
+        Example: if you want only segment id, use `load_only='id'`
+    :param defer: same as `load_only`, but specifies the columns NOT to load.
+        Example: if you want to avoid loading the waveform, use `defer='data'`
     :param orderby: a list of string columns (same format
         as `conditions` keys), or a list of tuples where the first element is
         a string column, and the second is either "asc" (ascending) or "desc"
@@ -42,7 +52,21 @@ def get_segments(dburl, conditions, orderby=None):
         if isinstance(sess, str):
             sess = get_session(dburl)
             close_sess = True
-        yield from exprquery(sess.query(Segment), conditions, orderby)
+        qry = exprquery(sess.query(Segment), conditions, orderby)
+        if load_only:
+            if isinstance(load_only, str):
+                load_only = [load_only]
+            qry = qry.options(orm.load_only(*load_only))
+        if defer:
+            if isinstance(defer, str):
+                defer = [defer]
+            # check:
+            common = set(defer) & set(load_only)
+            if common:
+                raise ValueError('You cannot supply the same columns in '
+                                 '`load_only` and `defer` arguments')
+            qry = qry.options(orm.defer(*defer))
+        yield from qry
     finally:
         if close_sess:
             close_session(sess)
