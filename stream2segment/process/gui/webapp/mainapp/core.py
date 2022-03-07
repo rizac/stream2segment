@@ -15,6 +15,7 @@ from itertools import cycle
 import contextlib
 
 import yaml
+import numpy as np
 from obspy import Stream, Trace
 from obspy.core.utcdatetime import UTCDateTime
 from sqlalchemy.orm import load_only
@@ -36,11 +37,17 @@ NPTS_SHORT = 900  # FIXME: see above
 # Note that the use of global variables like this should be investigted
 # in production (which is not the intended goal of the web GUI for the moment):
 
-
 g_config = {}  # noqa
 
-
 g_selection = {}
+
+# `g_segment_ids` caches the segments ids to be shown in the GUI. It is initialized in
+# `init_segment_ids` and populated in `get_segment_id`. This is not for faster retrieval
+# but to avoid subtle inconsistencies when navigating, e.g.: select unlabelled segments
+# only, open the GUI, label a segment S and move next, then S doesn't match the select
+# conditions anymore, the labelling could not be corrected if needed, because moving back
+# would show another segment
+g_segment_ids = None
 
 
 def _default_preprocessfunc(segment, config):
@@ -118,19 +125,6 @@ def _reset_global_vars():
     g_selection.clear()
 
 
-def get_segments_count(segselect=None):
-    """Compute the segment count to be shown according if the given
-    `segments_selection` is given (dict), and returns the number if block=True
-    otherwise returns None
-    """
-    if segselect is not None:
-        num_segments = db.get_segments_count(segselect)
-        set_select_conditions(segselect)
-    else:
-        num_segments = db.get_segments_count(get_select_conditions())
-    return num_segments
-
-
 def get_db_url(safe=True):
     return db.get_db_url(safe=safe)
 
@@ -203,9 +197,19 @@ def set_select_conditions(newdict):
 
     :param newdict: a dict of new select expressions all in str format
     """
-    # FIXME: handle concurrency with locks?
     g_selection.clear()
     g_selection.update(newdict)
+
+
+def init_segment_ids():
+    global g_segment_ids
+    segments_count = db.get_segments_count(g_selection)
+    # float32 max: np.finfo(np.float32).max
+    g_segment_ids = np.full((segments_count,), np.nan, dtype=np.float32)
+
+
+def get_segments_count():
+    return len(g_segment_ids)  # noqa
 
 
 def get_segment(segment_id):
@@ -215,9 +219,20 @@ def get_segment(segment_id):
 
 def get_segment_id(segment_index, segment_count):
     """Return the segment id corresponding to the given segment index in
-    the GUI"""
-    return db.get_segment_id(segment_index, segment_count,
-                             get_select_conditions())
+    the GUI
+
+    :param segment_index: the segment index
+    :param segment_count: the total number of segments, needed to make the db retrieval
+        faster (see `db.get_segment_id`). It is passed by the frontend which stores it
+        when we initialize the segments selection. Although we could avoid this, because
+        `segment_count` is available server side as `len(g_segment_ids)`, for simplicity
+        we keep things as they are
+    """
+    seg_id = g_segment_ids[segment_index]
+    if np.isnan(seg_id):
+        seg_id = g_segment_ids[segment_index] = \
+            db.get_segment_id(segment_index, segment_count, get_select_conditions())
+    return int(seg_id)
 
 
 def set_class_id(seg_id, class_id, value):

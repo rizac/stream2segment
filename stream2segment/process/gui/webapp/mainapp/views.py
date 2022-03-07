@@ -71,9 +71,14 @@ def validate_config_str():
 def set_selection():
     try:
         data = request.get_json()
-        seg_select = data.get(SEGMENT_SELECT_PARAM_NAMES[0], None)
-        num_segments = core.get_segments_count(seg_select)
-        return jsonify({'num_segments': num_segments, 'error_msg': ''})
+        sel_conditions = data.get(SEGMENT_SELECT_PARAM_NAMES[0], None)
+        # sel condition = None: do not update conditions but use already loaded one
+        if sel_conditions is not None:
+            core.set_select_conditions(sel_conditions)
+        # might need to initialize the segments id array:
+        if sel_conditions is not None or core.g_segment_ids is None:
+            core.init_segment_ids()
+        return jsonify({'num_segments': core.get_segments_count(), 'error_msg': ''})
 
     except Exception as exc:  # pylint: disable=broad-except
         return jsonify({'num_segments': 0, 'error_msg': str(exc)})

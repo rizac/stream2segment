@@ -87,8 +87,8 @@ def get_segment_id(seg_index, segment_count, conditions):
         # reverse the sort order and the seg_index:
         orderby = [('id', 'asc')]
         seg_index = segment_count - seg_index - 1
-    return [_[0] for _ in _query4gui(session.query(Segment.id),
-                                     conditions, orderby).limit(1).offset(seg_index)]
+    return _query4gui(session.query(Segment.id), conditions, orderby).\
+        offset(seg_index).limit(1).one()[0]
 
 
 def get_segment(segment_id):  # , cols2load=None):
