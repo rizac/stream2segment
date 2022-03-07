@@ -61,6 +61,7 @@
 					Config
 				</button>
 
+				<div class="flexible text-right" ng-show="!warnMsg && !loading">DB: {% endraw %}{{ dburl }}{% raw %}</div>
 				<div class="flexible" ng-show='warnMsg || loading' ng-class="warnMsg && !loading ? 'select-highlighted-err' : ''">{{ warnMsg }} <div ng-show='loading' class='loader'></div></div>
 			</div>
 		</div>

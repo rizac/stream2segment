@@ -25,7 +25,8 @@ def main():
     # FIXME: remove hasPreProcessFunc below (legacy code, now there is
     # always a preprocess function, also when no mopdule is provided):
     settings = {'hasPreprocessFunc': True}
-    return render_template('mainapp.html', title=core.get_db_url(safe=True),
+    return render_template('mainapp.html',
+                           dburl=core.get_db_url(safe=True),
                            settings=settings,
                            rightPlots=[_ for _ in ud_plots if _['position'] == 'r'],
                            bottomPlots=[_ for _ in ud_plots if _['position'] == 'b'],
