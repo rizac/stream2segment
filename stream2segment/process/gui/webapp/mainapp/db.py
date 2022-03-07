@@ -191,7 +191,7 @@ def get_metadata(segment_id=None):
             related_model_attrs = _attnames(related_model,
                                             filter_funcs.get(relation_name, None))
             # obj will load all related model attributes (except those that are deferred
-            # by desing, e.g. download.log. Any kind other optimization is premature)
+            # by design, e.g. download.log. Any kind other optimization is premature)
             # Note that there is always a 1-1 related object, as we removed 'classes'
             obj = getattr(segment, relation_name)
             anames.extend((relation_name + '.' + a, getattr(obj, a))

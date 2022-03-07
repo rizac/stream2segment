@@ -300,10 +300,16 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 			var classId = elm.id;
 			classIds[classId] = response.data.classes.indexOf(classId) > -1;
 		});
+		$scope.segData.mainInfo = {
+		    seedId: segMetadata['segment']['data_seed_id'] || "unknown",
+		    arrivalTime: segMetadata['segment']['arrival_time'] || "unknown",
+		    eventMag: segMetadata['event']['magnitude'] || " unknown",
+		    eventDistanceKm: parseInt(segMetadata['segment']['event_distance_km']) || "unknown"
+		};
 		$scope.segData.metadata = segMetadata;
 		$scope.segData.classIds = classIds;  // dict created above
 	};
-	
+
 	/** functions for getting data for the plot query above **/
 	// this function is used for getting the zooms and clearing them:
 	$scope.getAndClearZooms = function(){
