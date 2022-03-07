@@ -35,10 +35,10 @@
 				<!-- use checkbox class for all same level divs (bootstraps controls margins top and bottom intelligently -->
 				<div class="flex-direction-row toolbar" ng-show="segmentsCount>0">
 					<h4>Segment {{ segIdx + 1 }} of {{ segmentsCount.toLocaleString('en-US') }}</h4>
-					<button class='btn btn-default center' ng-click="setPreviousSegment()">
+					<button id="prev-segment-btn" class='btn btn-default center' ng-click="setPreviousSegment()">
 						<span class='arrow-left'></span>
 					</button>
-					<button class='btn btn-default center' ng-click="setNextSegment()">
+					<button id="next-segment-btn" class='btn btn-default center' ng-click="setNextSegment()">
 						<span class='arrow-right'></span>
 					</button>
 				</div>
@@ -172,10 +172,10 @@
 					<th><i>Select</i> expression
 					    <table class='note'>
 					    		<tr><td>a b c</td><td>select segments whose attribute value is a, b or c</td></tr>
-    							<tr><td>[a, b]</td><td>select segments whose attribute value is between a and b (including endpoints)</td></tr>
-    							<tr><td>(a, b)</td><td>select segments whose attribute value is between a and b (excluding endpoints)</td></tr>
-   							<tr><td>!=a</td><td>select segments whose attribute value is not a</td></tr>
-   							<tr><td> =a &gt;a &gt;=a &lt;a &lt;=a</td><td>(same as above with different operators)</td></tr>
+								<tr><td>[a, b]</td><td>select segments whose attribute value is between a and b (including endpoints)</td></tr>
+								<tr><td>(a, b)</td><td>select segments whose attribute value is between a and b (excluding endpoints)</td></tr>
+							<tr><td>!=a</td><td>select segments whose attribute value is not a</td></tr>
+							<tr><td> =a &gt;a &gt;=a &lt;a &lt;=a</td><td>(same as above with different operators)</td></tr>
 						</table>
 					</th>
 				</tr>
@@ -215,28 +215,44 @@
 	<script src="static/js/mainapp/ng-app.js" defer></script>
 	
 	<!-- <script src="https://pagecdn.io/lib/ace/1.4.8/ace.min.js" crossorigin="anonymous"
-    	integrity="sha256-2vrgUWyhDF1A6gCwYj0YcNWMoEdeJNuj0G3MHPLP9RE=" ></script> -->
-    <script src="https://pagecdn.io/lib/ace/1.4.8/ace.js" crossorigin="anonymous"
-    	integrity="sha256-+svOVB1WmhKhTy7N21gWvtyXn91qF0r52P2hIArRRug=" ></script>
-    <!-- <script src="https://pagecdn.io/lib/ace/1.4.8/theme-monokai.min.js" crossorigin="anonymous">
-    </script>
-    <script src="https://pagecdn.io/lib/ace/1.4.8/mode-yaml.min.js" crossorigin="anonymous">
-    </script> -->
-	
+			integrity="sha256-2vrgUWyhDF1A6gCwYj0YcNWMoEdeJNuj0G3MHPLP9RE=" ></script> -->
+	<script src="https://pagecdn.io/lib/ace/1.4.8/ace.js" crossorigin="anonymous"
+		    integrity="sha256-+svOVB1WmhKhTy7N21gWvtyXn91qF0r52P2hIArRRug=" ></script>
+
 	<script type="text/javascript">
 		var configEditor = ace.edit("configEditor");
 		ace.config.set('basePath', 'https://pagecdn.io/lib/ace/1.4.8');
 		// instead of doing so:
-	    // configEditor.setTheme("ace/theme/idle_fingers");
-	    // configEditor.session.setMode("ace/mode/yaml");
-	    // we set everything in the options dict
-	    // (for infor see: https://codepen.io/ryancat/pen/mMyvpx)
-	    configEditor.setOptions({
-	    	wrap: true,
-	    	fontSize: 12,
-	    	mode: "ace/mode/yaml",
-	    	theme: "ace/theme/idle_fingers",
-	    	showLineNumbers: true,
+		// configEditor.setTheme("ace/theme/idle_fingers");
+		// configEditor.session.setMode("ace/mode/yaml");
+		// we set everything in the options dict
+		// (for infor see: https://codepen.io/ryancat/pen/mMyvpx)
+		configEditor.setOptions({
+			wrap: true,
+			fontSize: 12,
+			mode: "ace/mode/yaml",
+			theme: "ace/theme/idle_fingers",
+			showLineNumbers: true,
 	    });
+
+		// adding keystrokes to segments selection:
+		document.addEventListener("keyup", e => {
+			if(e.ctrlKey || e.metaKey){ return; }
+			var eTag  = (e.target.tagName || "").toLowerCase();
+			var eType = (e.target.getAttribute('type') || "").toLowerCase();
+			if((eTag == 'textarea') || (eTag == 'input' && eType == 'text')){ return; }
+			var elm = null;
+			if (e.keyCode + "" == '37') {  // left arrow
+				elm = document.getElementById("prev-segment-btn");
+			}else if (e.keyCode + "" == '39') {  // right arrow
+				elm = document.getElementById("next-segment-btn");
+			}
+			if (elm){
+				e.preventDefault();
+				elm.click();
+			}
+		});
+
+
 	</script>
 {% endblock %}
