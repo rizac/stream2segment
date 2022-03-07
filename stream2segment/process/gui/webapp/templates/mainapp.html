@@ -35,10 +35,12 @@
 				<!-- use checkbox class for all same level divs (bootstraps controls margins top and bottom intelligently -->
 				<div class="flex-direction-row toolbar" ng-show="segmentsCount>0">
 					<h4>Segment {{ segIdx + 1 }} of {{ segmentsCount.toLocaleString('en-US') }}</h4>
-					<button id="prev-segment-btn" class='btn btn-default center' ng-click="setPreviousSegment()">
+					<button id="prev-segment-btn" class='btn btn-default center' ng-click="setPreviousSegment()"
+							title="previous segment (keyboard: left arrow)">
 						<span class='arrow-left'></span>
 					</button>
-					<button id="next-segment-btn" class='btn btn-default center' ng-click="setNextSegment()">
+					<button id="next-segment-btn" class='btn btn-default center' ng-click="setNextSegment()"
+							title="next segment (keyboard: right arrow)">
 						<span class='arrow-right'></span>
 					</button>
 				</div>
