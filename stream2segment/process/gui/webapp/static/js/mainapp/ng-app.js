@@ -588,6 +588,7 @@ function getPlotLayout(title, warningMessage, ...layoutOverrides){
 		margin:{'l':55, 't':36, 'b':45, 'r':15},
 		pad: 0,
 		autosize: true,
+		paper_bgcolor: 'rgba(0,0,0,0)',
 		font: {
 		    family: 'Montserrat',
 		    size: 13
