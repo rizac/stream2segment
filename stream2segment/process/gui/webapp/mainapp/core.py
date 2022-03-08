@@ -18,12 +18,8 @@ import yaml
 import numpy as np
 from obspy import Stream, Trace
 from obspy.core.utcdatetime import UTCDateTime
-from sqlalchemy.orm import load_only
 
-# import stream2segment.download.db.inspection.main
 from stream2segment.process import gui
-from stream2segment.process.db.models import Segment
-# from stream2segment.process.db.sqlevalexpr import exprquery
 from stream2segment.process.inspectimport import iterfuncs
 from stream2segment.process.funclib.traces import sn_split
 from stream2segment.io import yaml_safe_dump, StringIO  # <- io.StringIO py2 compatible
@@ -37,14 +33,13 @@ NPTS_SHORT = 900  # FIXME: see above
 # Note that the use of global variables like this should be investigted
 # in production (which is not the intended goal of the web GUI for the moment):
 
-g_config = {}  # noqa
+g_config = {}  # global config
 
-g_selection = {}
+g_selection = {}  # segments selection conditions
 
-# `g_segment_ids` is None if `g_selection` is empty, otherwise it's a numpy Array that
-# caches the segments ids to be shown in the GUI. This avoids subtle inconsistencies when
-# navigating, e.g.: select unlabelled segments only, open the GUI, label a segment S and
-# move next, then moving back wouldn't show S anymore, so we need to store its id
+# `g_segment_ids` below is a numpy Array that caches the segments ids if `g_selection` is
+# not empty in order to avoid modifying the matching segments from the GUI. E.g.,
+# labelling segments while `g_selection` is configured to show unlabelled segments only
 g_segment_ids = None
 
 
