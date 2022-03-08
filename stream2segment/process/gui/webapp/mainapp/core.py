@@ -41,12 +41,10 @@ g_config = {}  # noqa
 
 g_selection = {}
 
-# `g_segment_ids` caches the segments ids to be shown in the GUI. It is initialized in
-# `init_segment_ids` and populated in `get_segment_id`. This is not for faster retrieval
-# but to avoid subtle inconsistencies when navigating, e.g.: select unlabelled segments
-# only, open the GUI, label a segment S and move next, then S doesn't match the select
-# conditions anymore, the labelling could not be corrected if needed, because moving back
-# would show another segment
+# `g_segment_ids` is None if `g_selection` is empty, otherwise it's a numpy Array that
+# caches the segments ids to be shown in the GUI. This avoids subtle inconsistencies when
+# navigating, e.g.: select unlabelled segments only, open the GUI, label a segment S and
+# move next, then moving back wouldn't show S anymore, so we need to store its id
 g_segment_ids = None
 
 
@@ -191,25 +189,38 @@ def get_select_conditions():
     return dict(g_selection)
 
 
-def set_select_conditions(newdict):
+def set_select_conditions(sel_conditions=None):
     """Set a new a dict representing the current select conditions (parameter
     'segments_selection' of the YAML file)
 
-    :param newdict: a dict of new select expressions all in str format
+    :param sel_conditions: a dict of new select expressions all in str format,
+        or None to keep the dict as it is and just (re)compute the total number of
+        segments to select. Note that if this parameter is None the internal array
+        of segment ids might be updated anyway
+
+    :return: the total number of segments to select
     """
-    g_selection.clear()
-    g_selection.update(newdict)
-
-
-def init_segment_ids():
+    # Array caching the segment ids to select (or None if no selection condition is set):
     global g_segment_ids
-    segments_count = db.get_segments_count(g_selection)
-    # float32 max: np.finfo(np.float32).max
-    g_segment_ids = np.full((segments_count,), np.nan, dtype=np.float32)
 
+    if sel_conditions is not None:
+        g_selection.clear()
+        g_selection.update(sel_conditions)
+        update_segment_ids = True
+    else:
+        update_segment_ids = (not g_selection) != (g_segment_ids is None)
 
-def get_segments_count():
-    return len(g_segment_ids)  # noqa
+    if update_segment_ids:
+        segments_count = db.get_segments_count(g_selection)
+        if not g_selection:
+            g_segment_ids = None
+        else:
+            # float32 max: np.finfo(np.float32).max
+            g_segment_ids = np.full((segments_count,), np.nan, dtype=np.float32)
+        return segments_count
+
+    return len(g_segment_ids) if g_segment_ids is not None else \
+        db.get_segments_count(g_selection)
 
 
 def get_segment(segment_id):
@@ -223,15 +234,14 @@ def get_segment_id(segment_index, segment_count):
 
     :param segment_index: the segment index
     :param segment_count: the total number of segments, needed to make the db retrieval
-        faster (see `db.get_segment_id`). It is passed by the frontend which stores it
-        when we initialize the segments selection. Although we could avoid this, because
-        `segment_count` is available server side as `len(g_segment_ids)`, for simplicity
-        we keep things as they are
+        faster (see `db.get_segment_id`). Note that if some selection condition is set,
+        then `g_segment_ids` is not None and `segment_count  equals `len(g_segment_ids)`
     """
-    seg_id = g_segment_ids[segment_index]
+    seg_id = np.nan if g_segment_ids is None else g_segment_ids[segment_index]  # noqa
     if np.isnan(seg_id):
-        seg_id = g_segment_ids[segment_index] = \
-            db.get_segment_id(segment_index, segment_count, get_select_conditions())
+        seg_id = db.get_segment_id(segment_index, segment_count, get_select_conditions())
+        if g_segment_ids is not None:
+            g_segment_ids[segment_index] = seg_id  # noqa
     return int(seg_id)
 
 
