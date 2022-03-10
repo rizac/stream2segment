@@ -1,25 +1,20 @@
-'''
+"""
 Created on Feb 14, 2017
 
 @author: riccardo
-'''
+"""
 from __future__ import print_function, division
 
 import os
 from click.testing import CliRunner
 from mock import patch
-import pandas as pd
+
 import pytest
 
 from stream2segment.cli import cli
 from stream2segment.resources import get_templates_fpath
-from stream2segment.io.db.models import get_classlabels
-from stream2segment.process.db.models import (get_inventory, get_stream,
-                                              Event, Station, Segment,
-                                              Channel, Download, DataCenter,
-                                              ClassLabelling, Class)
-from stream2segment.process.main import query4process
-from stream2segment.process.log import configlog4processing as o_configlog4processing
+from stream2segment.download.db.models import Class, ClassLabelling
+
 
 class Test(object):
 
@@ -72,8 +67,12 @@ class Test(object):
                             # fixtures:
                             db4process):
 
-        # legacy code: get_classlabels was get_classes, feel lazy:
-        get_classes = lambda session, *v: get_classlabels(session, Class)
+        def get_classes(session):
+            return [{
+                'id': c.id,
+                'label': c.label,
+                'description': c.description
+            } for c in session.query(Class)]
 
         classes = get_classes(db4process.session)
         assert not classes

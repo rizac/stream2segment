@@ -16,7 +16,6 @@ import zlib
 import bz2
 
 from sqlalchemy import event
-from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import relationship, backref, load_only
@@ -27,7 +26,6 @@ from obspy.core.inventory.inventory import read_inventory
 
 from stream2segment.io.db.sqlconstructs import missing_data_ratio, missing_data_sec, \
     duration_sec, deg2km, concat, substr
-from stream2segment.process.db.sqlevalexpr import exprquery
 from stream2segment.io.db import models
 
 
@@ -659,3 +657,44 @@ def get_stream(segment, format="MSEED", headonly=False, **kwargs):  # noqa
         return _read(BytesIO(data), format, headonly, **kwargs)
     except Exception as terr:
         raise SkipSegment(str(terr))
+
+
+def get_classlabels(session, segments=False):
+    """Return a list of class labels in a dict form:
+    ```
+    {
+     'id': int
+     'label': str,
+     'description': str
+     'segments': int (number of segments labelled with this object, or 0)
+    }
+    ```
+    :param session: the database session. See `get_session` for info
+    :param segments: bool. If true, each class label dict will
+        also provide in the 'segments' key the number of segments labelled
+        with the given class label. When false (the default) no counting is
+        performed (it might be time consuming) the 'segments' key
+        value is 0
+    """
+    colnames = [Class.id.key, Class.label.key, Class.description.key,
+                'segments']
+
+    if not segments:
+        return [{colnames[0]: c.id,
+                 colnames[1]: c.label,
+                 colnames[2]: c.description,
+                 colnames[3]: 0} for c in session.query(Class)]
+
+    # compose the query step by step:
+    query = session.query(Class.id, Class.label, Class.description,
+                          func.count(ClassLabelling.id).label(colnames[-1]))
+    # Join class labellings to get how many segments per class:
+    # Note: `isouter` below, which produces a left outer join, is important
+    # when we have no class labellings (i.e. third column all zeros) otherwise
+    # with a normal join we would have no results
+    query = query.join(ClassLabelling, ClassLabelling.class_id == Class.id,
+                       isouter=True)
+    # group by class id:
+    query = query.group_by(Class.id).order_by(Class.id)
+    return [{name: val for name, val in zip(colnames, d)} for d in query]
+

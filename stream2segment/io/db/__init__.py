@@ -67,8 +67,7 @@ class DbNotFound(ValueError):
 
     def __str__(self):
         # Warning: if you change the message below, check also the message raised in
-        # check also stream2segment.download.db::valid_session
-        # that relies upon this:
+        # `stream2segment.download.db::valid_session` that relies upon it
         return 'Database not accessible. Possible reason: wrong user/password/host ' \
                'in the URL, or the db does not exist'
 

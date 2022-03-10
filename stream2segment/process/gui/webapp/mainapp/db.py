@@ -14,10 +14,8 @@ from sqlalchemy import func
 # from sqlalchemy.orm import defer, load_only, lazyload
 
 from stream2segment.io.db import secure_dburl
-from stream2segment.io.db.models import get_classlabels
 from stream2segment.io.db.inspection import attnames, get_related_models
-from stream2segment.process.db.models import (Segment, Class, Station, Download,
-                                              ClassLabelling, Event, Channel)
+from stream2segment.process.db.models import (Segment, Station, get_classlabels)
 from stream2segment.process.db.sqlevalexpr import exprquery, get_pytype, get_sqltype
 
 # import atexit
@@ -152,7 +150,7 @@ def get_classes(segment_id=None):
         segment = get_segment(segment_id)
         return [] if not segment else sorted(c.id for c in segment.classes)
 
-    return get_classlabels(get_session(), Class, ClassLabelling)
+    return get_classlabels(get_session(), segments=True)
 
 
 def get_metadata(segment_id=None):

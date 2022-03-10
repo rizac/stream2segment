@@ -9,9 +9,7 @@ from builtins import input
 from sqlalchemy import func
 from sqlalchemy.exc import SQLAlchemyError
 
-# from stream2segment.io import inputvalidation
 from stream2segment.io.db import close_session
-from stream2segment.io.db.models import get_classlabels
 from stream2segment.io.inputvalidation import validate_param
 from stream2segment.download.db import get_session
 from stream2segment.download.db.models import Class, Download, Segment
@@ -36,7 +34,7 @@ def classlabels(dburl, *, add, rename, delete):
     session = validate_param("dburl", dburl, get_session)
     try:
         configure_classlabels(session, add=add, rename=rename, delete=delete)
-        return get_classlabels(session, Class)
+        return {c.label: c.description for c in session.query(Class)}
     finally:
         close_session(session)
 

@@ -6,8 +6,8 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	$scope.segmentsCount = 0;
 	$scope.metadata = []; // array of 2-element arrays [key, type] (all elements as string):
 						  // example: [('has_data', 'bool'), ('id', 'int'), ...]
-	$scope.classes = []; // Array of dicts. Each dict represents a class and is: {count: <int>, id: <int>, label:<string>}
-						 // example: [{count:1, id:1, label'Ok'}, {count:0, id:2, label'Bad'}, ...]
+	$scope.classes = []; // Array of dicts. Each dict represents a class and is:
+	                     // {segments: <int>, id: <int>, label:<string>}
 
 	// selection "window" handling:
 	$scope.selection = {
@@ -510,7 +510,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		    function(response) {
 		    	$scope.classes.forEach(function(elm, index){
 		    		if (elm.id == classId){
-		    			elm.count += (value ? 1 : -1);  //update count
+		    			elm.segments += (value ? 1 : -1);  //update count
 		    		}
 		    	});
 		    },

@@ -926,8 +926,8 @@ def classlabel(dburl, add, rename, delete, no_prompt):
         if not c_labels:
             print('None')
         else:
-            for c_lbl in c_labels:
-                print("%s (%s)" % (c_lbl['label'], c_lbl['description']))
+            for c_lbl, c_dsc in c_labels.items():
+                print("%s (%s)" % (c_lbl, c_dsc))
         sys.exit(0)
     except BadParam as err:
         _print_badparam_and_exit(err)
