@@ -60,19 +60,20 @@ def get_segments(db, conditions, *, load_only=None, defer=None, orderby=None):
             close_session(sess)
 
 
-def get_classlabel(db, label):
-    """Get the given class label. The returned :Class: object has attributes
-    `label`, `description`, '`id` and `segments`, which yields the Segments labelled
-    as belonging to the given Class
+def get_classlabels(db):
+    """Yields the Python objects representing each class label stored on the given
+    database. The object main attributes are `label`, `description`, '`id` and
+    `segments`, which can be used to yield the Segments assigned to the given class label.
 
     :param db: the database URL, as string, or a `session` object already created from
         an given URL (see :func:`get_session`). URLs must be given in this format:
-        https://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls
-    :param: label (str) the class label
+        https://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls.
+        NOTE: if `db` is a string, a db session is opened and closed just before this
+        function returns: afterwards, the `segments` attribute is not accessible anymore
     """
     sess = get_session(db) if isinstance(db, str) else db
     try:
-        return sess.query(Class).filter(Class.label == label).one()
+        yield from sess.query(Class)
     finally:
         if sess is not db:  # we created the session here, close it before returning
             sess.close()
