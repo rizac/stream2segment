@@ -9,7 +9,7 @@ s2s process database ORM
 import os
 from datetime import datetime
 from math import pi
-from io import BytesIO
+from io import BytesIO, StringIO
 import gzip
 import zipfile
 import zlib
@@ -148,9 +148,8 @@ class Station(Base, models.Station):
         return concat(Station.network, dot, Station.station). \
             label('networkstationcode')
 
-
-    def inventory(self, reload=False):
-        """Return the inventory as ObsPy Response object"""
+    def inventory(self, reload=False, format=None):  # noqa
+        """Return the station inventory. See `Segment.inventory` for details"""
         # inventory is lazy loaded. The output of the loading process
         # (or the Exception raised, if any) is stored in the self._inventory
         # attribute. When querying the inventory a further time, the stored value
@@ -167,6 +166,10 @@ class Station(Base, models.Station):
                                 (str(exc) or str(exc.__class__.__name__)))
         if isinstance(inventory, Exception):
             raise inventory
+        if format in ("stationxml", "stationtxt"):
+            buffer = BytesIO() if format == "stationxml" else StringIO()
+            inventory.write(buffer, format=format, validate=False)
+            return buffer.getvalue()
         return inventory
 
 
@@ -559,15 +562,18 @@ class Segment(Base, models.Segment):
         return case([(cls.data_seed_id.isnot(None), cls.data_seed_id)],
                     else_=sel)
 
-    def inventory(self, reload=False):
+    def inventory(self, reload=False, format=None):  # noqa
         """Return the inventory of the segment Station as ObsPy Response object
 
         :param reload: bool. Optional (default: False). Force reloading the Response
-            object from the downloaded waveform data (bytes sequence). In most cases
-            you can ignore this parameter as a Response object is usually never modified
-            but used as read-only object
+            object from the database data. This method is mainly implemented for
+            consistency with `stream` but can be generally ignored as Response objects
+            are used primarily as read-only objects
+        :param format: None by default (i.e., return an ObsPy Object), if 'stationxml'
+            then the XML content (as bytes sequence, not string) is returned. If
+            'stationtxt' then the text content (as `str`) is returned
         """
-        return self.station.inventory(reload)
+        return self.station.inventory(reload, format)
 
     @property
     def dbsession(self):

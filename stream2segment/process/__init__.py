@@ -6,6 +6,7 @@ from stream2segment.process.db.models import (Segment, Channel, Event, Station,
                                               DataCenter, Download, Class)
 from stream2segment.process.db.sqlevalexpr import exprquery
 from stream2segment.process.main import process, imap, SkipSegment
+from stream2segment.process.funclib import traces
 
 
 def get_segments(db, conditions, *, load_only=None, defer=None, orderby=None):
