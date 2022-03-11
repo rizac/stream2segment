@@ -157,6 +157,9 @@ class Test(object):
                 segment.inventory(True)
                 assert mock_getinv.call_count == ccc + 1
 
+                assert type(segment.inventory(format='stationxml')) == bytes
+                assert type(segment.inventory(format='stationtxt')) == str
+
             # call segment.stream
             assert not mock_getstream.called
             read_stream(segment)
