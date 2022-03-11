@@ -19,7 +19,10 @@ def get_segments(db, conditions, *, load_only=None, defer=None, orderby=None):
     ```
     :param db: the database URL, as string, or a `session` object already created from
         an given URL (see :func:`get_session`). URLs must be given in this format:
-        https://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls
+        https://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls.
+        NOTE: if `db` is a string, a db session is opened and closed just before this
+        function returns: afterwards, attributes returning related db objects (e.g.,
+        `event`, `station`) might not be accessible anymore
     :param conditions: a dict of Segment attribute names (string) mapped to
         an expression, *also as string*. E.g. "event.magnitude": "[4, 7]" or
         "has_valid_data": "true" (note the quotes around true).
@@ -61,15 +64,16 @@ def get_segments(db, conditions, *, load_only=None, defer=None, orderby=None):
 
 
 def get_classlabels(db):
-    """Yields the Python objects representing each class label stored on the given
-    database. The object main attributes are `label`, `description`, '`id` and
-    `segments`, which can be used to yield the Segments assigned to the given class label.
+    """Yields the Python objects representing each class label stored on the given db.
+    The object main attributes are `label`, `description`, '`id` and `segments`, which
+    can be used to yield the Segments assigned to the given class label.
 
     :param db: the database URL, as string, or a `session` object already created from
         an given URL (see :func:`get_session`). URLs must be given in this format:
         https://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls.
         NOTE: if `db` is a string, a db session is opened and closed just before this
-        function returns: afterwards, the `segments` attribute is not accessible anymore
+        function returns: afterwards, attributes returning related db objects (e.g.,
+        `segments`) might not be accessible anymore
     """
     sess = get_session(db) if isinstance(db, str) else db
     try:
