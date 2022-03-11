@@ -8,7 +8,7 @@ from stream2segment.process.db.sqlevalexpr import exprquery
 from stream2segment.process.main import process, imap, SkipSegment
 
 
-def get_segments(dburl, conditions, *, load_only=None, defer=None, orderby=None):
+def get_segments(db, conditions, *, load_only=None, defer=None, orderby=None):
     """Return a query object (iterable of `Segment`s) from teh given conditions
     Example of conditions (dict):
     ```
@@ -17,6 +17,9 @@ def get_segments(dburl, conditions, *, load_only=None, defer=None, orderby=None)
         'has_valid_data': 'true'
     }
     ```
+    :param db: the database URL, as string, or a `session` object already created from
+        an given URL (see :func:`get_session`). URLs must be given in this format:
+        https://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls
     :param conditions: a dict of Segment attribute names (string) mapped to
         an expression, *also as string*. E.g. "event.magnitude": "[4, 7]" or
         "has_valid_data": "true" (note the quotes around true).
@@ -34,12 +37,9 @@ def get_segments(dburl, conditions, *, load_only=None, defer=None, orderby=None)
         a string column, and the second is either "asc" (ascending) or "desc"
         (descending). In the first case, the order is "asc" by default
     """
-    sess = dburl
-    close_sess = False
+
+    sess = get_session(db) if isinstance(db, str) else db
     try:
-        if isinstance(sess, str):
-            sess = get_session(dburl)
-            close_sess = True
         qry = exprquery(sess.query(Segment), conditions, orderby)
         if load_only:
             if isinstance(load_only, str):
@@ -51,13 +51,31 @@ def get_segments(dburl, conditions, *, load_only=None, defer=None, orderby=None)
             # check:
             common = set(defer) & set(load_only)
             if common:
-                raise ValueError('You cannot supply the same columns in '
-                                 '`load_only` and `defer` arguments')
+                raise ValueError('You cannot supply the same column(s) in '
+                                 'both `load_only` and `defer`')
             qry = qry.options(orm.defer(*defer))
         yield from qry
     finally:
-        if close_sess:
+        if sess is not db:  # we created the session here, close it before returning
             close_session(sess)
+
+
+def get_classlabel(db, label):
+    """Get the given class label. The returned :Class: object has attributes
+    `label`, `description`, '`id` and `segments`, which yields the Segments labelled
+    as belonging to the given Class
+
+    :param db: the database URL, as string, or a `session` object already created from
+        an given URL (see :func:`get_session`). URLs must be given in this format:
+        https://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls
+    :param: label (str) the class label
+    """
+    sess = get_session(db) if isinstance(db, str) else db
+    try:
+        return sess.query(Class).filter(Class.label == label).one()
+    finally:
+        if sess is not db:  # we created the session here, close it before returning
+            sess.close()
 
 
 def get_segment_help(format='html', maxwidth=79, **print_kwargs):
