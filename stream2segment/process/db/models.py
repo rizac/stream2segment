@@ -426,11 +426,9 @@ class Segment(Base, models.Segment):
 
     def siblings(self, *matching_attributes, include_self=False):
         """Return an iterable of all Segment objects that are equal to this
-        segment in the given matching attribute(s). By default, these
-        are the segments recording the same event on the other channel
-        components / orientations.
-
-        E.g., given a segment object `seg`, `seg.siblings()` is equivalent to:
+        segment in the given matching attribute(s). `By default, `siblings()`
+        yields this segment and its other (usually two) components. This is
+        equivalent to call:
 
         ```
         seg.siblings(
@@ -441,7 +439,8 @@ class Segment(Base, models.Segment):
         )
         ```
         (`channel.band_instrument_code` is the channel code without the last
-        letter denoting the channel orientation).
+        letter denoting the channel orientation, i.e. each single component of
+        the recorded event).
 
         In general, any segment selectable attribute can be given. For instance,
         to get all segments from the same event, channel, station or network:
@@ -461,8 +460,7 @@ class Segment(Base, models.Segment):
 
         If multiple attributes are given, they will be concatenated with a
         logical "and", e.g.., to get all segments from the same seismic event
-        and recorded by the same instrument (e.g., if `seg` is an accelerometer,
-        yield all accelerometers recording the same event of `seg`):
+        and recorded by the same instrument (e.g., accelerometer, broadband):
         ```
         seg.siblings('channel.instrument_code', 'event.id')
         ```
@@ -474,7 +472,7 @@ class Segment(Base, models.Segment):
         desired attributes, e.g.:
         ```
         from stream2segment.process import Segment
-        from sqlalchemy.orm import load_only
+        from stream2segment.process.orm import load_only
         for seg in seg.siblings('event.id').options(load_only(Segment.id))):
             seg_id = seg.id
             ...

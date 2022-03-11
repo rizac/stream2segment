@@ -17,33 +17,22 @@ def get_segments(dburl, conditions, *, load_only=None, defer=None, orderby=None)
         'has_valid_data': 'true'
     }
     ```
-    :param conditions: a dict of string columns mapped to **string**
-        expression, e.g. "column2": "[1, 45]" or "column1": "true" (note:
-        string, not the boolean True). A string column is an expression
-        denoting an attribute of the reference model class and can include
-        relationships.
-        Example: if the reference model tablename is 'mymodel', then a string
-        column 'name' will refer to 'mymodel.name', 'name.id' denotes on the
-        other hand a relationship 'name' on 'mymodel' and will refer to the
-        'id' attribute of the table mapped by 'mymodel.name'. The values of
-        the dict on the other hand are string expressions in the form
-        recognized by `binexpr`. E.g. '>=5', '["4", "5"]' ...
-        For each condition mapped to a falsy value (e.g., None or empty
-        string), the condition is discarded. See note [*] below for auto-added
-        joins  from columns
+    :param conditions: a dict of Segment attribute names (string) mapped to
+        an expression, *also as string*. E.g. "event.magnitude": "[4, 7]" or
+        "has_valid_data": "true" (note the quotes around true).
     :param load_only: str or list of Segment attribute(s) or attribute name(s)
-        denoting the database columns to be loaded. If None, all Segment
-        attributes are loaded. If specified, the Segment attributes can be
-        accessed anyway, but will cost a new db query each time. Example:
-        when accessing only segment metadata, you can pass.
+        denoting database Table columns, that need to be loaded. If None, all
+        attributes are loaded, but this might be inefficient for huge queries.
+        If specified, the Segment attributes can be accessed anyway, but will
+        cost a new db query each time.
         Example: if you want only segment id, use `load_only='id'`
     :param defer: same as `load_only`, but specifies the columns NOT to load.
-        Example: if you want to avoid loading the waveform, use `defer='data'`
+        Example: if you want to avoid loading the waveform data because youn work
+        with metadata only, use `defer='data'`
     :param orderby: a list of string columns (same format
         as `conditions` keys), or a list of tuples where the first element is
         a string column, and the second is either "asc" (ascending) or "desc"
-        (descending). In the first case, the order is "asc" by default. See
-        note [*] below for auto-added joins from orderby columns
+        (descending). In the first case, the order is "asc" by default
     """
     sess = dburl
     close_sess = False
@@ -80,16 +69,13 @@ def get_segment_help(format='html', maxwidth=79, **print_kwargs):
     from itertools import chain
     from stream2segment.io.db.inspection import attnames, get_related_models
 
-    # ======================================================================================
-    # Selectable attributes (attributes that can be used in both the instance level
-    # and class level for SQL queries) cannot have docs and thus we set the docs here
-    # below in the form (attname, description). You can rearrange the attributes as you
-    # like (order matters).
+    # ==================================================================================
+    # Set Segment attributes documentation as list of `[attname, description]` items.
     # Falsy descriptions (None, '', False) mean the relative attribute will be hidden
     # from the doc. Otherwise, a description should start always with the Python type
-    # (see below) and be in plain text with "\n", * (italic) and ** (bold)
-    # allowed (but newlines it might not be rendered in markdowns tables)
-    # ======================================================================================
+    # (see below). Recognized special characters are: "\n" (newline), * (italic) and **
+    # (bold)
+    # ==================================================================================
 
     _SELECTABLE_ATTRS = [
         ["id", "int: segment (unique) db id"],
