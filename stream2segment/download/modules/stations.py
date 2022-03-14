@@ -14,6 +14,7 @@ import zipfile
 import zlib
 import bz2
 import logging
+from datetime import timedelta
 
 import pandas as pd
 
@@ -32,14 +33,20 @@ def _get_sta_request(datacenter_url, network, station, start_time, end_time):
     """Return a Request object from the given station arguments to download the
     inventory xml
     """
-    stime_iso = start_time.isoformat()
+    # fix bug of ncedc and scedc whereby dates exactly on the start are not returned.
+    # Adding 1s to the start time is heavily hacky but it fixes the problem easily:
+    one_sec = timedelta(seconds=1)
+    stime_iso = (start_time + one_sec).isoformat()
 
     # we need a endtime (ingv does not accept * as last param)
-    if pd.isnull(end_time):
-        # note :pd.isnull(None) is true, as well as pd.isnull(float('nan'))
-        etime_iso = datetime.utcnow().isoformat()
+    if pd.isnull(end_time):  # pd.isnull is more general (e.g. NAT nan return true)
+        end_time = datetime.utcnow().replace(microsecond=0)
     else:
-        etime_iso = end_time.isoformat()
+        # etiem is given, thus it might fall exactly on a "new" inventory that we do not
+        # want. Decrease etime to be sure:
+        end_time -= one_sec
+
+    etime_iso = end_time.isoformat()
 
     post_data = " ".join("*" if not x else x for x in
                          [network, station, "*", "*", stime_iso, etime_iso])
