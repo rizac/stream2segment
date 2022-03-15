@@ -94,6 +94,15 @@ eventws_params:
 # Stations / Channels: https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=10
 # ====================
 
+# Preliminary note: the station URL(s) are configurable in `dataws` (see below). When
+# providing several URLs, if the same station code is returned by more than one URL, the
+# program will try to infer the correct one by means of a Routing service for EIDA URLs
+# (see `advanced_settings`) or by querying the station URL to the database, if any. If
+# none of the operations is successful, the station will be discarded and all its
+# available waveforms not downloaded (see log file in case).
+# Implementation details: in case of connection problems where no station can be fetched,
+# then the requested stations (and channels) will be fetched from the database, if any.
+
 # Limit the search to the specified channels (if missing, defaults to '*', i.e. fetch all
 # channels). For info see https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf.
 # You can also filter out specific channels by placing the special character "!" in front
@@ -175,17 +184,7 @@ search_radius:
 # type two special values: 1) "iris" (Incorporated Research Institutions for Seismology),
 # shortcut for the URL above or 2) "eida", shortcut for several nodes - or data centers -
 # of the European Integrated Data Archive. Being FDSN compliant, all URLs are also used
-# to fetch automatically the stations and channels necessary for the waveforms download.
-# This means that when providing several URLs, station conflicts (e.g., the same station
-# code returned by more than one URL) might happen. The program tries to resolve
-# conflicts with a Routing service (for EIDA URLs) or by checking if the station URL is
-# saved on the database from a previous download. HOWEVER, PLEASE NOTE that unresolved
-# conflicts - albeit rare - will cause the station to be discarded (the user will be
-# notified in the log file) and all its available waveforms not to be downloaded
-# Implementation details: If no station /channel could be downloaded (e.g., connection
-# problems), then the requested stations and channels will be fetched from the database,
-# if non-empty (otherwise the download process will stop with an error message). The EIDA
-# routing service is configurable in `advanced_settings`
+# to fetch automatically the stations and channels necessary for the waveforms download
 dataws:
   - 'eida'
   # - 'iris'
@@ -275,7 +274,7 @@ advanced_settings:
  # leave this parameter to null because it improves significantly the execution speed.
  # The drawback is that some waveform data might not be downloaded because servers
  # usually limit the number of concurrent requests allowed from the same source. This
- # might be a problem in more in targeted, less "massive" downloads, where you might need
+ # might be a problem in more targeted, less "massive" downloads, where you might need
  # to lower this parameter (e.g., 1, 2) to increase download efficiency over speed, e.g.:
  # a) when fetching restricted data (see `restricted_data` parameter)
  # b) when retrying to fetch data from a specific datacenter which reported many download
