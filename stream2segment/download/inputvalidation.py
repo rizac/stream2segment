@@ -55,10 +55,6 @@ def load_config_for_download(config, validate, **param_overrides):
                                           for url in urls])
     new_config[pname] = dataws
 
-    pname, pval = pop_param(old_config, 'update_metadata')
-    validated_params.add(pname)
-    new_config[pname] = validate_param(pname, pval, valid_updatemetadata_param)
-
     pname, pval = pop_param(old_config, 'eventws')
     validated_params.add(pname)
     new_config[pname] = validate_param(pname, pval, valid_fdsn,
@@ -400,18 +396,6 @@ def valid_authorizer(restricted_data, dataws, configfile=None):
         raise ValueError('downloading from EIDA requires a token, '
                          'not username and password')
     return ret
-
-
-def valid_updatemetadata_param(value):
-    """Parse parse_update_metadata returning True, False or 'only'"""
-    val_str = str(value).lower()
-    if val_str == 'true':
-        return True
-    if val_str == 'false':
-        return False
-    if val_str == 'only':
-        return val_str
-    raise ValueError('value can be true, false or only, %s provided' % val_str)
 
 
 def valid_tt_table(file_or_name):

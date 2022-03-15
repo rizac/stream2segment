@@ -130,10 +130,7 @@ min_sample_rate: 60
 
 # Update segments metadata, i.e., overwrite the data of already saved stations and
 # channels, such as e.g., the channels sample rate, or the station inventories (see also
-# ‘inventory’ parameter). On a subsequent download, you can also provide "only" as value
-# (without quotes) to update metadata only, skipping events and waveform download: in
-# this case the only parameters used will be 'dataws' (to get the station web service(s))
-# and 'inventory' (to optionally re-download and save all station inventories).
+# ‘inventory’ parameter)
 update_metadata: false
 
 # Download station inventories (xml format). Already saved inventories will be

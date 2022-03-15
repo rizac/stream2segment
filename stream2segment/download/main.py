@@ -218,14 +218,9 @@ def _run(session, download_id, eventws, starttime, endtime, dataws,
     max_thread_workers = advanced_settings['max_concurrent_downloads']
     download_blocksize = advanced_settings['download_blocksize']
 
-    update_md_only = update_metadata == 'only'
-    if update_md_only:
-        update_metadata = True
-
     process = psutil.Process(os.getpid()) if isterminal else None
     # calculate steps (note that booleans work, e.g: 8 - True == 7):
-    __steps = 3 if update_md_only else \
-        (6 + inventory + (True if authorizer.token else False))
+    __steps = 6 + inventory + (True if authorizer.token else False)
     stepiter = iter(range(1, __steps+1))
 
     # custom function for logging.info different steps:
@@ -238,12 +233,10 @@ def _run(session, download_id, eventws, starttime, endtime, dataws,
             logger.warning("(%.1f%% memory used)", percent)
 
     try:
-        if not update_md_only:
-
-            stepinfo("Fetching events")
-            events_df = get_events_df(session, eventws, eventws_params,
-                                      starttime, endtime, dbbufsize,
-                                      advanced_settings['e_timeout'], isterminal)
+        stepinfo("Fetching events")
+        events_df = get_events_df(session, eventws, eventws_params,
+                                  starttime, endtime, dbbufsize,
+                                  advanced_settings['e_timeout'], isterminal)
 
         # Get datacenters, store them in the db, returns the dc instances
         # (db rows) correctly added
@@ -267,67 +260,66 @@ def _run(session, download_id, eventws, starttime, endtime, dataws,
                                       download_blocksize,
                                       dbbufsize, isterminal)
 
-        if not update_md_only:
-            # get channel id to mseed id dict and purge channels_df. The dict
-            # will be used to download the segments later, but we use it now to
-            # drop unnecessary columns and save space (and time)
-            chaid2mseedid = chaid2mseedid_dict(channels_df,
-                                               drop_mseedid_columns=True)
+        # get channel id to mseed id dict and purge channels_df. The dict
+        # will be used to download the segments later, but we use it now to
+        # drop unnecessary columns and save space (and time)
+        chaid2mseedid = chaid2mseedid_dict(channels_df,
+                                           drop_mseedid_columns=True)
 
-            stepinfo("Selecting stations within search area from %d events",
-                     len(events_df))
-            # merge vents and stations (might raise FailedDownload):
-            segments_df = merge_events_stations(events_df, channels_df,
-                                                search_radius, tt_table,
-                                                isterminal)
-            # help gc by deleting the (only) refs to unused dataframes
-            del events_df
-            del channels_df
+        stepinfo("Selecting stations within search area from %d events",
+                 len(events_df))
+        # merge vents and stations (might raise FailedDownload):
+        segments_df = merge_events_stations(events_df, channels_df,
+                                            search_radius, tt_table,
+                                            isterminal)
+        # help gc by deleting the (only) refs to unused dataframes
+        del events_df
+        del channels_df
 
-            if authorizer.token:
-                stepinfo("Acquiring credentials from token in order to "
-                         "download restricted data")
-            dc_dataselect_manager = DcDataselectManager(datacenters_df,
-                                                        authorizer, isterminal)
+        if authorizer.token:
+            stepinfo("Acquiring credentials from token in order to "
+                     "download restricted data")
+        dc_dataselect_manager = DcDataselectManager(datacenters_df,
+                                                    authorizer, isterminal)
 
-            stepinfo("%d segments found. Checking already downloaded segments",
-                     len(segments_df))
-            # raises NothingToDownload
-            segments_df, request_timebounds_need_update = \
-                prepare_for_download(session, segments_df,
-                                     dc_dataselect_manager, timespan,
-                                     retry_seg_not_found, retry_url_err,
-                                     retry_mseed_err, retry_client_err,
-                                     retry_server_err, retry_timespan_err,
-                                     retry_timespan_warn=False)
+        stepinfo("%d segments found. Checking already downloaded segments",
+                 len(segments_df))
+        # raises NothingToDownload
+        segments_df, request_timebounds_need_update = \
+            prepare_for_download(session, segments_df,
+                                 dc_dataselect_manager, timespan,
+                                 retry_seg_not_found, retry_url_err,
+                                 retry_mseed_err, retry_client_err,
+                                 retry_server_err, retry_timespan_err,
+                                 retry_timespan_warn=False)
 
-            # prepare_for_download raises a NothingToDownload if there is no
-            # data, so if we are here segments_df is not empty
-            stepinfo("Downloading %d segments %sand saving to db", len(segments_df),
-                     '(open data only) ' if dc_dataselect_manager.opendataonly else '')
-            # frees memory. Although maybe unnecessary, let's do our best to
-            # free stuff cause the next one is memory consuming:
-            # https://stackoverflow.com/a/30022294/3526777
-            session.expunge_all()
-            session.close()
+        # prepare_for_download raises a NothingToDownload if there is no
+        # data, so if we are here segments_df is not empty
+        stepinfo("Downloading %d segments %sand saving to db", len(segments_df),
+                 '(open data only) ' if dc_dataselect_manager.opendataonly else '')
+        # frees memory. Although maybe unnecessary, let's do our best to
+        # free stuff cause the next one is memory consuming:
+        # https://stackoverflow.com/a/30022294/3526777
+        session.expunge_all()
+        session.close()
 
-            d_stats = download_save_segments(session, segments_df,
-                                             dc_dataselect_manager,
-                                             chaid2mseedid, download_id,
-                                             update_metadata,
-                                             request_timebounds_need_update,
-                                             max_thread_workers,
-                                             advanced_settings['w_timeout'],
-                                             download_blocksize,
-                                             dbbufsize,
-                                             isterminal)
-            del segments_df  # help gc?
-            session.close()  # frees memory?
-            logger.info("")
-            logger.info(("** Segments download summary **\n"
-                         "Number of segments per data center url (row) and response "
-                         "type (column):\n%s") %
-                        str(d_stats) or "Nothing to show")
+        d_stats = download_save_segments(session, segments_df,
+                                         dc_dataselect_manager,
+                                         chaid2mseedid, download_id,
+                                         update_metadata,
+                                         request_timebounds_need_update,
+                                         max_thread_workers,
+                                         advanced_settings['w_timeout'],
+                                         download_blocksize,
+                                         dbbufsize,
+                                         isterminal)
+        del segments_df  # help gc?
+        session.close()  # frees memory?
+        logger.info("")
+        logger.info(("** Segments download summary **\n"
+                     "Number of segments per data center url (row) and response "
+                     "type (column):\n%s") %
+                    str(d_stats) or "Nothing to show")
 
     except NothingToDownload as ntdexc:
         # we are here if some function raised a NothingToDownload (e.g., in
@@ -344,7 +336,7 @@ def _run(session, download_id, eventws, starttime, endtime, dataws,
         inventory = False
         logger.error(dexc)
         raise
-    except:  # @IgnorePep8
+    except:  # noqa
         inventory = False
         raise
     finally:

@@ -334,7 +334,7 @@ def init(outdir):
     # https://www.tomrochette.com/problems/2020/03/07
 
     try:
-        copied_files = copy_example_files(outdir, True, *helpdict)  # pass only helpdict keys
+        copied_files = copy_example_files(outdir, True, *helpdict)
         if not copied_files:
             print("No file copied")
         else:
@@ -451,8 +451,7 @@ def copy_example_files(outpath, prompt=True, *filenames):
 @click.option('-ds', '--dataws', multiple=True)
 @click.option('-t', '--traveltimes-model')
 @click.option('-w', '--timespan', nargs=2, type=float)
-@click.option('-u', '--update-metadata',
-              type=click.Choice(['true', 'false', 'only']), default=None)
+@click.option('-u', '--update-metadata', is_flag=True, default=None)
 @click.option('-r1', '--retry-url-err', is_flag=True, default=None)
 @click.option('-r2', '--retry-mseed-err', is_flag=True, default=None)
 @click.option('-r3', '--retry-seg-not-found', is_flag=True, default=None)
