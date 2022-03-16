@@ -7,9 +7,6 @@ except ImportError:
     # pytest.mark.skip("Jupyter not installed, not testing notebooks correctness")
 
 import pytest
-pytest.mark.skipif(nbformat is None,
-                   "Jupyter not installed, not testing notebooks correctness")
-
 import os
 from stream2segment.process import get_segment_help
 from stream2segment.resources import get_resource_abspath
@@ -22,6 +19,8 @@ def test_segment_help():
     get_segment_help()
 
 
+@pytest.mark.skipif(nbformat is None,
+                   "Jupyter not installed, not testing notebooks correctness")
 def test_notebook(data):
 
     # cwd = os.getcwd()
