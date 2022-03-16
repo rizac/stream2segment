@@ -7,7 +7,7 @@ from __future__ import print_function, division
 
 import os
 from click.testing import CliRunner
-from mock import patch
+from unittest.mock import patch
 
 import pytest
 

@@ -8,7 +8,7 @@ import time
 from datetime import datetime
 import pandas as pd
 
-from mock import patch
+from unittest.mock import patch
 import pytest
 import numpy as np
 from obspy.core.stream import read

@@ -8,7 +8,7 @@ from __future__ import print_function, division
 import os
 from builtins import object  # pylint: disable=redefined-builtin
 
-from mock import patch
+from unittest.mock import patch
 import pytest
 
 from stream2segment.io.inputvalidation import BadParam

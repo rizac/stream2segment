@@ -5,12 +5,9 @@ Created on Feb 23, 2016
 """
 from __future__ import division
 
-import os
-import sys
 from itertools import product
 
-import mock
-from mock import patch
+from unittest.mock import Mock, patch
 from past.utils import old_div
 import pytest
 import numpy as np
@@ -88,14 +85,14 @@ def test_argtrim(y):
                            ([], False, []),
                            ([], True, []),
                            ])
-@mock.patch('stream2segment.process.funclib.ndarrays.np')
+@patch('stream2segment.process.funclib.ndarrays.np')
 def test_cumsum(mock_np, arr, normalize, expected_result):
-    mock_np.cumsum = mock.Mock(side_effect = lambda *a, **k: np.cumsum(*a, **k))
-    mock_np.square =  mock.Mock(side_effect = lambda *a, **k: np.square(*a, **k))
-    mock_np.nanmax =  mock.Mock(side_effect = lambda *a, **k: np.nanmax(*a, **k))
-    mock_np.nanmin =  mock.Mock(side_effect = lambda *a, **k: np.nanmin(*a, **k))
+    mock_np.cumsum = Mock(side_effect = lambda *a, **k: np.cumsum(*a, **k))
+    mock_np.square = Mock(side_effect = lambda *a, **k: np.square(*a, **k))
+    mock_np.nanmax = Mock(side_effect = lambda *a, **k: np.nanmax(*a, **k))
+    mock_np.nanmin = Mock(side_effect = lambda *a, **k: np.nanmin(*a, **k))
     # mock_np.true_divide =  mock.Mock(side_effect = lambda *a, **k: np.true_divide(*a, **k))
-    mock_np.isnan = mock.Mock(side_effect = lambda *a, **k: np.isnan(*a, **k))
+    mock_np.isnan = Mock(side_effect = lambda *a, **k: np.isnan(*a, **k))
     r = cumsumsq(arr, normalize=normalize)
     assert len(r) == len(arr)
     assert (r == np.array(expected_result)).all()
@@ -117,14 +114,14 @@ def test_cumsum(mock_np, arr, normalize, expected_result):
 #         assert not mock_np.true_divide.called
 
 
-@mock.patch('stream2segment.process.funclib.ndarrays.np')
+@patch('stream2segment.process.funclib.ndarrays.np')
 def test_cumsum_errs(mock_np):
-    mock_np.cumsum = mock.Mock(side_effect = lambda *a, **k: np.cumsum(*a, **k))
-    mock_np.square =  mock.Mock(side_effect = lambda *a, **k: np.square(*a, **k))
-    mock_np.nanmax =  mock.Mock(side_effect = lambda *a, **k: np.nanmax(*a, **k))
-    mock_np.nanmin =  mock.Mock(side_effect = lambda *a, **k: np.nanmin(*a, **k))
+    mock_np.cumsum = Mock(side_effect = lambda *a, **k: np.cumsum(*a, **k))
+    mock_np.square = Mock(side_effect = lambda *a, **k: np.square(*a, **k))
+    mock_np.nanmax = Mock(side_effect = lambda *a, **k: np.nanmax(*a, **k))
+    mock_np.nanmin = Mock(side_effect = lambda *a, **k: np.nanmin(*a, **k))
     # mock_np.true_divide =  mock.Mock(side_effect = lambda *a, **k: np.true_divide(*a, **k))
-    mock_np.isnan = mock.Mock(side_effect = lambda *a, **k: np.isnan(*a, **k))
+    mock_np.isnan = Mock(side_effect = lambda *a, **k: np.isnan(*a, **k))
     
     def compute_cumsum(*args, **kwargs):
         '''reset mocks, computes cumsumsq, asserts that the specified function have been called

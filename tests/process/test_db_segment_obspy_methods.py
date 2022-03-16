@@ -6,8 +6,7 @@ Created on Feb 14, 2017
 from __future__ import print_function, division
 
 import os
-from click.testing import CliRunner
-from mock import patch
+from unittest.mock import patch
 import pandas as pd
 import pytest
 

@@ -16,8 +16,7 @@ try:
     from cStringIO import StringIO  # python2.x
 except ImportError:
     from io import StringIO
-from mock import patch
-from mock import Mock
+from unittest.mock import Mock, patch
 
 import pandas as pd
 import pytest

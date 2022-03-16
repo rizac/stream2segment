@@ -8,8 +8,7 @@ import threading
 from itertools import cycle
 from subprocess import call
 
-import mock
-from mock import patch
+from unittest.mock import Mock, patch
 import pytest
 
 from stream2segment.download.url import _ismainthread, read_async
@@ -64,7 +63,7 @@ class Test(object):
                 self.successes.append(result)
 
     def config_urlopen(self, read_side_effect_as_list, sleep_time=None):
-        a = mock.Mock()
+        a = Mock()
         read_side_effect_as_cycle = cycle(read_side_effect_as_list)
         def retfunc(*a, **v):
             if sleep_time:

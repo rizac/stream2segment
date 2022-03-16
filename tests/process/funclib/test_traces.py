@@ -5,9 +5,6 @@ Created on May 12, 2017
 """
 from __future__ import division
 
-import sys
-import os
-
 import pytest
 import numpy as np
 

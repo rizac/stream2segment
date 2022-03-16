@@ -11,8 +11,8 @@ from itertools import cycle
 import logging
 from logging import StreamHandler
 from io import BytesIO
-from mock import patch
-from mock import Mock
+from unittest.mock import Mock, patch
+
 # this can apparently not be avoided neither with the future package:
 # The problem is io.StringIO accepts unicodes in python2 and strings in python3:
 try:

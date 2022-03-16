@@ -3,12 +3,6 @@ Created on Jul 15, 2016
 
 @author: riccardo
 """
-# from builtins import str
-# from datetime import datetime
-from itertools import combinations, product
-
-# import pytest
-from sqlalchemy import func
 from sqlalchemy.ext.hybrid import hybrid_property
 
 import stream2segment.io.db.inspection as insp

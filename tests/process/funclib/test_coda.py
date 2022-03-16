@@ -3,9 +3,8 @@ Created on Jul 25, 2016
 
 @author: riccardo
 """
-import os
-from obspy import read as obspy_read
 from stream2segment.process.funclib import coda as coda_module
+
 
 def test_coda_jessie_mseed(data):
     mseed = data.read_stream("20091217_231838.FR.ESCA.00.HHZ.SAC")

@@ -6,11 +6,9 @@ Created on Dec 12, 2016
 from builtins import range, object
 
 from io import StringIO, BytesIO
-from itertools import cycle, product
 import socket
 
-import mock
-from mock import patch
+from unittest.mock import Mock, patch
 import pytest
 from click.termui import progressbar
 
@@ -29,7 +27,7 @@ def test_utils_url_read(mock_urlopen):
     def side_effect(argss):
         return StringIO(argss)
 
-    mockread = mock.Mock()
+    mockread = Mock()
     class mybytesio(object):
 
         def __init__(self, url, **kwargs):

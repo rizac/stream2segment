@@ -17,8 +17,7 @@ except ImportError:
 
 from itertools import cycle
 from logging import StreamHandler
-from mock import patch
-from mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 

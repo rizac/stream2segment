@@ -5,7 +5,6 @@ Created on Apr 2, 2019
 """
 import numpy as np
 
-import stream2segment.download.db.inspection.main
 from stream2segment.process.gui.webapp.mainapp import jsplot
 from obspy.core.utcdatetime import UTCDateTime
 

@@ -19,7 +19,7 @@ try:
 except ImportError:
     from io import StringIO  # @UnusedImport
 
-from mock.mock import patch
+from unittest.mock import patch
 from future.utils import PY2
 from click.testing import CliRunner
 import pytest

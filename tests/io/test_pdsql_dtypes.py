@@ -5,8 +5,6 @@ Created on Apr 11, 2017
 """
 from builtins import zip
 from datetime import datetime
-import os
-import sys
 
 import numpy as np
 import pytest
