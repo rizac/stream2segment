@@ -2,9 +2,13 @@ try:
     import nbformat
     from nbconvert.preprocessors import ExecutePreprocessor
 except ImportError:
-    import pytest
-    pytest.mark.skip("Jupyter not installed, not testing notebooks correctness")
+    nbformat = None
+    # import pytest
+    # pytest.mark.skip("Jupyter not installed, not testing notebooks correctness")
 
+import pytest
+pytest.mark.skipif(nbformat is None,
+                   "Jupyter not installed, not testing notebooks correctness")
 
 import os
 from stream2segment.process import get_segment_help

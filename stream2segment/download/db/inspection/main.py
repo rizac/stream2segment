@@ -111,7 +111,7 @@ def _get_download_info(info_generator, dburl, download_indices=None, download_id
                 opn.write(info_generator.html(session, download_ids))
             if openbrowser:
                 open_in_browser('file://' + outfile)
-            threading.Timer(1, lambda: sys.exit(0)).start()
+            # threading.Timer(1, lambda: sys.exit(0)).start()
         else:
             itr = info_generator.str_iter(session, download_ids)
             if outfile is not None:
