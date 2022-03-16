@@ -20,7 +20,7 @@ def test_segment_help():
 
 
 @pytest.mark.skipif(nbformat is None,
-                   "Jupyter not installed, not testing notebooks correctness")
+                    reason="Jupyter not installed, not testing notebooks correctness")
 def test_notebook(data):
 
     # cwd = os.getcwd()
