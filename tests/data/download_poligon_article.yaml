@@ -155,9 +155,7 @@ update_metadata: false
 
 # Download station inventories (xml format). Inventories will be downloaded and saved on the db
 # for all stations that have saved segments with data. If the metadata should not be updated
-# (see 'update_metadata') already saved inventories will not be downloaded again. You can always
-# download inventories later by providing "only" as value (wihtout quotes): this will skip all other
-# download steps (and ignore all other parameters values except 'update_metadata')
+# (see 'update_metadata') already saved inventories will not be downloaded again
 inventory: true
 
 # search radius: for each event, stations will be searched within a circular area whose radius
