@@ -10,14 +10,10 @@ import re
 import pytest
 from sqlalchemy.exc import IntegrityError, ProgrammingError
 from sqlalchemy.sql.expression import desc
-from sqlalchemy.ext.hybrid import hybrid_property
-from sqlalchemy.sql.functions import func
-from sqlalchemy.orm.attributes import QueryableAttribute
 
 from stream2segment.process.db.sqlevalexpr import exprquery, binexpr
 from stream2segment.process.db.models import ClassLabelling, Class, Segment, Station, Channel,\
     Event, DataCenter, Download, WebService
-# from stream2segment.gui.webapp.mainapp.core import get_metadata
 
 
 class Test(object):

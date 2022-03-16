@@ -10,7 +10,7 @@ import json
 from itertools import product
 from datetime import datetime, timedelta
 
-from mock import patch
+from unittest.mock import patch
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy import func
 import pytest

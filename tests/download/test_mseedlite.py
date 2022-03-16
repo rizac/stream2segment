@@ -6,7 +6,7 @@ Created on Apr 9, 2017
 from datetime import datetime, timedelta
 from io import BytesIO
 from math import log
-from mock import patch
+from unittest.mock import patch
 from struct import unpack as original_unpack
 import numpy as np
 import pytest

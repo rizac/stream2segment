@@ -11,7 +11,6 @@ import pytest
 from stream2segment.io import Fdsnws
 
 
-
 def test_models_fdsn_url_1():
     for url in ["mock/fdsnws/station/1/query",
                 "mock/fdsnws/station/1/query?",

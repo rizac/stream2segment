@@ -9,8 +9,7 @@ from builtins import str, object  # pylint: disable=redefined-builtin
 import os
 import re
 
-import mock
-from mock import patch
+from unittest.mock import patch
 import pytest
 import numpy as np
 from obspy.core.stream import read
@@ -99,7 +98,7 @@ class Test(object):
                               ({}, ['--multi-process']),
                               ({'segments_chunksize': 1}, ['--multi-process', '--num-processes', '1']),
                               ({}, ['--multi-process', '--num-processes', '1'])])
-    @mock.patch(patches.run_process, side_effect=process_main_run)
+    @patch(patches.run_process, side_effect=process_main_run)
     def test_save2file(self, mock_run, advanced_settings,
                        cmdline_opts,
                        # fixtures:
@@ -167,14 +166,14 @@ class Test(object):
                               ({}, ['--multi-process']),
                               ({'segments_chunksize': 1}, ['--multi-process', '--num-processes', '1']),
                               ({}, ['--multi-process', '--num-processes', '1'])])
-    @mock.patch('stream2segment.process.main.Pool')
-    @mock.patch('stream2segment.process.main.get_default_chunksize',
-                side_effect=o_get_default_chunksize)
-    @mock.patch('stream2segment.process.main.process_segments', side_effect=o_process_segments)
-    @mock.patch('stream2segment.process.main.process_segments_mp',
-                side_effect=o_process_segments_mp)
-    @mock.patch('stream2segment.process.main._get_chunksize_defaults')
-    @mock.patch(patches.run_process, side_effect=process_main_run)
+    @patch('stream2segment.process.main.Pool')
+    @patch('stream2segment.process.main.get_default_chunksize',
+           side_effect=o_get_default_chunksize)
+    @patch('stream2segment.process.main.process_segments', side_effect=o_process_segments)
+    @patch('stream2segment.process.main.process_segments_mp',
+           side_effect=o_process_segments_mp)
+    @patch('stream2segment.process.main._get_chunksize_defaults')
+    @patch(patches.run_process, side_effect=process_main_run)
     def test_multiprocess_chunksize_combinations(self,
                                                  mock_run_func,
                                                  mock_get_chunksize_defaults,

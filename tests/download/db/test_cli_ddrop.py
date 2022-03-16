@@ -12,7 +12,7 @@ from itertools import cycle, chain
 from collections import defaultdict
 from datetime import datetime, timedelta
 
-from mock import patch
+from unittest.mock import patch
 import pytest
 from click.testing import CliRunner
 

@@ -3,12 +3,9 @@ Created on Feb 23, 2016
 
 @author: riccardo
 """
-import os
-import sys
-
 import pytest
 import numpy as np
-import mock
+from unittest.mock import patch
 from obspy.core import Trace
 from obspy.core.utcdatetime import UTCDateTime
 
@@ -22,7 +19,7 @@ from stream2segment.process.funclib.traces import fft, bandpass, dfreq, maxabs, 
                          ([1, 2, 3, 4], 4, 3),
                          ([1, 2, 3], 3, 2),
                          ])
-@mock.patch('stream2segment.process.funclib.traces._fft',
+@patch('stream2segment.process.funclib.traces._fft',
             side_effect=lambda *a, **k: orig_fft(*a, **k))
 def test_fft(mock_mseed_fft, arr, arr_len_after_trim, fft_npts):
     t = Trace(np.array(arr))

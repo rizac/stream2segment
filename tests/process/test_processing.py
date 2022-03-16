@@ -8,8 +8,7 @@ from __future__ import print_function, division
 import os
 import re
 from itertools import product
-import mock
-from mock import patch
+from unittest.mock import patch
 import pandas as pd
 import pytest
 from pandas.errors import EmptyDataError
@@ -110,7 +109,7 @@ class Test(object):
     # station_inventory in [true, false] and segment.data in [ok, with_gaps, empty]
     # use db4process(with_inventory, with_data, with_gap) to return sqlalchemy query for
     # those segments in case. For info see db4process in conftest.py
-    @mock.patch(patches.run_process, side_effect=process_main_run)
+    @patch(patches.run_process, side_effect=process_main_run)
     def test_simple_run_no_outfile_provided(self, mock_run,
                                             # fixtures:
                                             db4process, yamlfile):

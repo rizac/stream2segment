@@ -14,7 +14,7 @@ try:
 except ImportError:
     from io import StringIO, BytesIO
 
-from mock import patch
+from unittest.mock import patch
 import pandas as pd
 
 import pytest

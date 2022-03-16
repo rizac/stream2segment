@@ -11,8 +11,7 @@ import re
 import os
 from os.path import splitext
 
-import mock
-from mock import patch
+from unittest.mock import patch
 
 import pytest
 import pandas as pd
@@ -127,7 +126,7 @@ def main2(segment, config):""")
     # station_inventory in [true, false] and segment.data in [ok, with_gaps, empty]
     # use db4process(with_inventory, with_data, with_gap) to return sqlalchemy query for
     # those segments in case. For info see db4process in conftest.py
-    @mock.patch(patches.run_process, side_effect=process_main_run)
+    @patch(patches.run_process, side_effect=process_main_run)
     def test_simple_run_no_outfile_provided(self, mock_run,
                                             # fixtures:
                                             db4process, clirunner, yamlfile):
@@ -256,7 +255,7 @@ def main2(segment, config):""")
                              [({}, ['-a']),
                               ({}, ['-a', '--multi-process']),
                               ])
-    @mock.patch('stream2segment.cli.click.confirm', return_value=True)
+    @patch('stream2segment.cli.click.confirm', return_value=True)
     # @mock.patch('stream2segment.process.writers.SEGMENT_ID_COLNAME')
     def test_append(self, # mock_seg_id_colname,
                     mock_click_confirm, advanced_settings, cmdline_opts,

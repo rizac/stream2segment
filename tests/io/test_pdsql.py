@@ -4,12 +4,10 @@ Created on Apr 11, 2017
 @author: riccardo
 """
 from builtins import zip, range
-import sys
-import os
 import math
 from datetime import datetime
 
-from mock import patch
+from unittest.mock import patch
 import numpy as np
 import pytest
 import pandas as pd

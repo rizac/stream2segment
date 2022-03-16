@@ -152,6 +152,7 @@ def test_ttable(ttdata):
 #             assert np.nanmedian(err_c) < np.nanmedian(err_l)
 #             assert np.nanmax(err_c) < np.nanmax(err_l)
 
+
 def test_edge_cases(ttdata):
     for ttable in ttdata.tables:
         for method in ['linear', 'cubic', 'nearest']:
