@@ -1,9 +1,9 @@
 # -*- encoding: utf-8 -*-
-'''
+"""
 Created on Feb 14, 2017
 
 @author: riccardo
-'''
+"""
 from __future__ import print_function, division
 
 import re
@@ -13,13 +13,11 @@ from datetime import datetime, timedelta
 
 from mock import patch
 import pytest
-from future.utils import PY2
 from click.testing import CliRunner
 
 from stream2segment.cli import cli
 from stream2segment.download.db.models import (Event, Station, WebService, Segment,
                                                Channel, Download, DataCenter)
-from stream2segment.io.cli import ascii_decorate
 from stream2segment.download.modules.utils import s2scodes
 
 

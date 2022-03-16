@@ -1,8 +1,8 @@
-'''
+"""
 Created on Sep 14, 2017
 
 @author: riccardo
-'''
+"""
 from builtins import range
 import os
 from itertools import product

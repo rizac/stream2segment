@@ -1,8 +1,8 @@
-'''
+"""
 Created on Apr 2, 2019
 
 @author: riccardo
-'''
+"""
 import numpy as np
 
 import stream2segment.download.db.inspection.main

@@ -1,8 +1,8 @@
-'''
+"""
 Created on Feb 23, 2016
 
 @author: riccardo
-'''
+"""
 from __future__ import division
 
 import os
@@ -10,7 +10,7 @@ import sys
 from itertools import product
 
 import mock
-from mock.mock import patch
+from mock import patch
 from past.utils import old_div
 import pytest
 import numpy as np

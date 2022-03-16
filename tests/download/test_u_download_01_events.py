@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-'''
+"""
 Created on Feb 4, 2016
 
 @author: riccardo
-'''
+"""
 from builtins import str
 from datetime import datetime, timedelta
 import socket

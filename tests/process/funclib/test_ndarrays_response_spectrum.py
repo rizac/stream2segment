@@ -1,8 +1,8 @@
-'''
+"""
 Created on Nov 28, 2017
 
 @author: riccardo
-'''
+"""
 import numpy as np
 import pytest
 from obspy.core.trace import Trace

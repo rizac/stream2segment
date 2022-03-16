@@ -1,8 +1,8 @@
-'''
+"""
 Created on May 23, 2017
 
 @author: riccardo
-'''
+"""
 # as we patch os.path.isfile, this seems to be the correct way to store beforehand
 # the original functions (also in other packages, e.g. pytestdir in conftest does not break):
 from os.path import isfile, join, dirname

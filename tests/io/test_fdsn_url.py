@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-'''
+"""
 Created on Mar 27, 2021
 
 @author: riccardo
-'''
+"""
 from itertools import product
 
 import pytest

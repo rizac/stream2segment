@@ -1,8 +1,8 @@
-'''
+"""
 Created on Feb 4, 2016
 
 @author: riccardo
-'''
+"""
 from __future__ import print_function
 
 from datetime import datetime
@@ -21,8 +21,7 @@ import pytest
 
 from stream2segment.cli import cli
 from stream2segment.download.log import configlog4download
-from stream2segment.download.db.models import Segment, Download, Station, WebService
-from stream2segment.download.modules.utils import s2scodes
+from stream2segment.download.db.models import Station, WebService
 from stream2segment.download.url import urlread
 from stream2segment.download.modules.channels import get_post_data as origi_get_post_data
 

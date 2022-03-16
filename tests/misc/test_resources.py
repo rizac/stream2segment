@@ -1,8 +1,8 @@
-'''
+"""
 Created on 14 Mar 2018
 
 @author: riccardo
-'''
+"""
 import os
 
 from stream2segment.resources import (get_resource_abspath, get_templates_fpaths,

@@ -5,17 +5,12 @@
 # {{ YAML_WARN }}
 
 
-# Database URL where to save data (currently supported are SQLite and Postgres).
-# We suggest sqlite for small to medium data sizes or enough system RAM (as a rule of
-# thumb: less than a million segments, and/or more than 8GB of RAM) and postgres
-# otherwise (note that with postgres, the database must have been created beforehand).
-# If sqlite, just write the path to your local file prefixed with 'sqlite:///' (e.g.,
-# 'sqlite:////home/myfolder/db.sqlite'): non-absolute paths will be relative to the
-# config file path.
-# If non-sqlite, the syntax is: dialect+driver://username:password@host:port/database
-# E.g.: postgresql://smith:Hw_6,@mymachine.example.org/mydb
-# (for info see: http://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls)
-dburl: 'sqlite:///./db.sqlite'
+# Database URL where to save downloaded data, either SQLite (local file db) or Postgres
+# (local or remote db. With postgres, the database must have been created beforehand). We
+# suggest sqlite for small to medium data or enough system RAM (as a rule of thumb:
+# less than a million segments, and/or more than 8GB of RAM) and postgres otherwise.
+# For info see: http://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls
+dburl: 'sqlite:///<local_file_path>'  # postgresql://<user>:<password>@<host>/<dbname>
 
 # Limit to events / data centers / station / channels on or after the specified start
 # time. Specify an ISO-formatted date or date-time string, or an integer >=0 to denote
@@ -35,15 +30,14 @@ endtime: 2016-12-25T00:00:00
 # =======
 
 # The event catalog in form of URL (event web service) or local file path.
-# The events list returned by the URL or in the supplied file must be formatted as
-# specified in https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=16
-# or in isf format (http://www.isc.ac.uk/standards/isf/download/isf.pdf), although the
-# latter has limited support in this program (e.g., comments are not recognized. Use at
-# your own risk).
-# IMPORTANT: when providing a file, the file name (not the full path) will be used as
-# catalog identifier: renaming the file and downloading again on the same database will
-# result in the events and their segments being saved twice, most likely unnecessarily.
-# Implementation details: you can also type these shortcut strings instead of URLs:
+# The events list returned by the URL or in the supplied file must be in FDSN format
+# (https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=16) or ISF format
+# (http://www.isc.ac.uk/standards/isf/download/isf.pdf), although the latter has limited
+# support (e.g. comments are not recognized and might break): use it at your own risk.
+# IMPORTANT: when providing a file, the file name will be used as catalog identifier:
+# renaming the file and downloading again on the same database will result in the events
+# and their segments being saved twice, most likely unnecessarily.
+# You can also type these shortcut strings instead of URLs:
 # {{ DOWNLOAD_EVENTWS_LIST }}.
 eventws: 'http://seismicportal.eu/fdsnws/event/1/query'
 
@@ -302,3 +296,7 @@ advanced_settings:
  # Consider also that a single database error while writing a segment will unfortunately
  # affect all buffer segments, which must all be discarded
  db_buf_size: 100
+
+
+# Implementation details:
+#

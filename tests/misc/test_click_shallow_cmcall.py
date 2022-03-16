@@ -1,12 +1,12 @@
-'''
+"""
 Created on May 23, 2017
 
 @author: riccardo
-'''
+"""
 import os
 from datetime import datetime, timedelta
 import time
-from mock.mock import patch
+from mock import patch
 
 import pytest
 import yaml

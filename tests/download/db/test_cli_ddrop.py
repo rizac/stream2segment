@@ -1,9 +1,9 @@
 # -*- encoding: utf-8 -*-
-'''
+"""
 Created on Feb 14, 2017
 
 @author: riccardo
-'''
+"""
 from __future__ import print_function, division
 
 from builtins import object

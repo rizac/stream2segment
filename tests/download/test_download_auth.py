@@ -1,27 +1,17 @@
-'''
+"""
 Created on Feb 4, 2016
 
 @author: riccardo
-'''
+"""
 from __future__ import print_function
 
 from builtins import str, map
 import os
-# import random
-# import stream2segment
 import re
 from itertools import cycle
 import socket
-# from datetime import datetime, timedelta
-# import sys
-# from itertools import product, combinations
-# import logging
 from io import BytesIO
 from logging import StreamHandler
-# import threading
-# from collections import defaultdict
-# this can apparently not be avoided neither with the future package:
-# The problem is io.StringIO accepts unicodes in python2 and strings in python3:
 try:
     from cStringIO import StringIO  # python2.x
 except ImportError:
@@ -29,16 +19,8 @@ except ImportError:
 from mock import patch
 from mock import Mock
 
-# import yaml
-# import numpy as np
 import pandas as pd
 import pytest
-# from sqlalchemy.engine import create_engine
-# from sqlalchemy.orm.session import sessionmaker
-# from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-# from sqlalchemy.sql.expression import func
-# from obspy.core.stream import Stream, read
-# from obspy.taup.helper_classes import TauModelError
 
 from stream2segment.download.modules.segments import DcDataselectManager
 from stream2segment.cli import cli

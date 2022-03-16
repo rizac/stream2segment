@@ -1,8 +1,8 @@
-'''
+"""
 Created on May 23, 2017
 
 @author: riccardo
-'''
+"""
 # as we patch os.path.isfile, this seems to be the correct way to store beforehand
 # the original functions (also in other packages, e.g. pytestdir in conftest does not break):
 from os.path import isfile, join, dirname
@@ -16,8 +16,8 @@ try:
 except ImportError:
     from io import StringIO  # @UnusedImport
 
-from mock.mock import patch
-from future.utils import PY2
+from mock import patch
+
 from click.testing import CliRunner
 import pytest
 

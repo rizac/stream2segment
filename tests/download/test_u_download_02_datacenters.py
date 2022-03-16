@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
-'''
+"""
 Created on Feb 4, 2016
 
 @author: riccardo
-'''
+"""
 from builtins import str
 
 try:
-    from __builtin__ import open as oopen  # @UnresolvedImport
+    from __builtin__ import open as oopen  # noqa
 except:
     from builtins import open as oopen
 

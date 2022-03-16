@@ -1,16 +1,16 @@
 # @PydevCodeAnalysisIgnore
-'''
+"""
 Created on Jul 15, 2016
 
 @author: riccardo
-'''
+"""
 
 from io import BytesIO
 import json
 from itertools import product
 from datetime import datetime, timedelta
 
-from mock.mock import patch
+from mock import patch
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy import func
 import pytest

@@ -1,10 +1,8 @@
-'''
+"""
 Created on Apr 9, 2017
 
 @author: riccardo
-'''
-import sys
-import os
+"""
 from datetime import datetime, timedelta
 from io import BytesIO
 from math import log
