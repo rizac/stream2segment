@@ -26,8 +26,8 @@ from stream2segment.download.modules.utils import (s2scodes, DownloadStats,
                                                    strconvert, strptime)
 
 
-# @pytest.mark.skip(reason="Test failing in remote CI, not locally on macOS. Need to "
-#                          "investigate this")
+@pytest.mark.skip(reason="Test failing in remote CI, not locally on macOS. Need to "
+                         "investigate this")
 @pytest.mark.parametrize('str_input, expected_diff, ',
                           [
                            ("2016-01-01", timedelta(minutes=60)),
