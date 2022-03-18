@@ -14,7 +14,10 @@ from __future__ import division
 from builtins import zip, range, object
 
 import numpy as np
-from scipy.interpolate.ndgriddata import griddata
+try:
+    from scipy.interpolate import griddata
+except ImportError:
+    from scipy.interpolate.ndgriddata import griddata
 
 
 class TTTable(object):

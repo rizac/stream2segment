@@ -342,7 +342,7 @@ def run_and_yield(dburl, seg_ids, pyfunc, config, show_progress=False,
         if show_progress and seg_len:
             # Show the progressbar now, because the 1st chunk might be ready in minutes,
             # and an empty screen might give the impression of a program hang:
-            time.sleep(pbar.short_limit)
+            time.sleep(0.5)
             pbar.render_progress()
 
         if multi_process:

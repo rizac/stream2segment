@@ -736,7 +736,7 @@ class Test(object):
         assert isc_df[isc_df[Event.event_id.key] == '16868827'].loc[0, Event.magnitude.key] == 2.1
         # and set the value to the corresponding iris value, which IN THIS CASE
         # differs (maybe due to the 'Err' field =0.2 reported in the isc file?):
-        isc_df.at[isc_df.loc[isc_df[Event.event_id.key] == '16868827'].index,
+        isc_df.at[isc_df.loc[isc_df[Event.event_id.key] == '16868827'].index[0],
                   Event.magnitude.key] = 2.0
         # test we set the value:
         assert isc_df[isc_df[Event.event_id.key] == '16868827'].loc[0, Event.magnitude.key] == 2.0
@@ -746,7 +746,7 @@ class Test(object):
             == 'THE'
         # and set the value to the corresponding iris value, which IN THIS CASE
         # differs (why?):
-        isc_df.at[isc_df.loc[isc_df[Event.event_id.key] == '16868827'].index,
+        isc_df.at[isc_df.loc[isc_df[Event.event_id.key] == '16868827'].index[0],
                   Event.mag_author.key] = 'ATH'
         # test we set the value:
         assert isc_df[isc_df[Event.event_id.key] == '16868827'].loc[0, Event.mag_author.key] \

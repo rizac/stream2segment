@@ -64,9 +64,9 @@ def run_cli_download(pytestdir, db):
 
 
 def msgin(msg, click_output):
-    '''click changes the quote character in messages. Provide a common
-    function to test messages regardeless of the quote character
-    '''
+    """compare "msg" with the given click output, quote-char- and case-insensitive
+    """
+    msg, click_output = msg.lower(), click_output.lower()
     if '"' in msg and "'" not in msg:
         return (msg in click_output) or (msg.replace('"', "'") in click_output)
     elif '"' not in msg and "'" in msg:
@@ -423,7 +423,8 @@ class Test(object):
     def test_download_bad_values(self,
                                  # fixtures:
                                  db, run_cli_download):
-        '''test different scenarios where the value in the dwonload.yaml are not well formatted'''
+        """test different scenarios where the value in the dwonload.yaml are
+        not well formatted"""
 
         # INCREMENT THIS VARIABLE EVERY TIME YOU RUN A SUCCESSFUL DOWNLOAD
         dcount = 0
@@ -461,7 +462,7 @@ class Test(object):
         # no such option:
         result = run_cli_download('--zrt', '!*')
         assert result.exit_code != 0
-        assert 'Error: no such option: --zrt' in result.output  # why -z and not -zz? whatever...
+        assert msgin('Error: no such option: --zrt', result.output)  # why -z and not -zz? whatever...
         # assert we did not write to the db, cause the error threw before setting up db:
         assert db.session.query(Download).count() == dcount
 

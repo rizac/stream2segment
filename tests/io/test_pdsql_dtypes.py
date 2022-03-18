@@ -108,9 +108,11 @@ class Test(object):
         # count               float64 -> pandas cannot handle int+None, defaults to float + nan
         # price               float64 -> ok, inferred from the non-None value (the other is nan)
         # validated            object -> pandas cannot handle bool+None, defaults to obj
+
         dtypes_pre = dfr_post.dtypes
         dfr_post2 = harmonize_columns(Customer, dfr_post.copy())
         dtypes_post = dfr_post2.dtypes
+
         # The conversion did converted only boolean because None values had to be handled
         # id                    int64
         # name                 object

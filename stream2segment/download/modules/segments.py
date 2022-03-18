@@ -177,9 +177,9 @@ def set_segments_to_retry(db_seg_df, is_opendataonly, retry_seg_not_found,
     if retry_mseed_err:
         mask |= db_seg_df[SEG.DSCODE] == codes.mseed_err
     if retry_client_err:
-        mask |= db_seg_df[SEG.DSCODE].between(400, 499.9999, inclusive=True)
+        mask |= (db_seg_df[SEG.DSCODE] >= 400) & (db_seg_df[SEG.DSCODE] < 500)
     if retry_server_err:
-        mask |= db_seg_df[SEG.DSCODE].between(500, 599.9999, inclusive=True)
+        mask |= (db_seg_df[SEG.DSCODE] >= 500) & (db_seg_df[SEG.DSCODE] < 600)
     if retry_timespan_err:
         mask |= db_seg_df[SEG.DSCODE] == codes.timespan_err
     if retry_timespan_warn:
