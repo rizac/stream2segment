@@ -18,7 +18,7 @@ from stream2segment.download.db.models import Station, Channel, Event, Segment
 from stream2segment.download.modules.utils import formatmsg
 from stream2segment.download.exc import FailedDownload
 from stream2segment.io.cli import get_progressbar
-from stream2segment.io.db.pdsql import mergeupdate, dfrowiter
+from stream2segment.io.db.pdsql import mergeupdate
 
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
@@ -75,16 +75,17 @@ def merge_events_stations(events_df, channels_df, search_radius,
                                                  events_df[EVT_MAG].values)
 
         radia_event_iter = zip(min_radia, max_radia,
-                               dfrowiter(events_df, [EVT_ID, EVT_LAT, EVT_LON,
-                                                     EVT_TIME, EVT_DEPTH]))
+                               events_df[[EVT_ID, EVT_LAT, EVT_LON, EVT_TIME,
+                                          EVT_DEPTH]].itertuples(index=False, name=None))
 
         oneday = timedelta(days=1)
-        for min_radius, max_radius, evt_dic in radia_event_iter:
+        for min_radius, max_radius, (ev_id, ev_lat, ev_lon, ev_time, ev_depth) \
+                in radia_event_iter:
             l2d = locations2degrees(stations_df[STA_LAT], stations_df[STA_LON],
-                                    evt_dic[EVT_LAT], evt_dic[EVT_LON])
-            condition = (stations_df[STA_STIME] <= evt_dic[EVT_TIME]) & \
+                                    ev_lat, ev_lon)
+            condition = (stations_df[STA_STIME] <= ev_time) & \
                         (pd.isnull(stations_df[STA_ETIME]) |
-                         (stations_df[STA_ETIME] >= evt_dic[EVT_TIME] + oneday))
+                         (stations_df[STA_ETIME] >= ev_time + oneday))
             # l2d is a distance, thus non negative. We can add the min radius
             # condition only if it is >=0. Evaluate to false in case min_radius
             # is None (legacy code):
@@ -115,11 +116,11 @@ def merge_events_stations(events_df, channels_df, search_radius,
             # Now drop channels which are not related to station within radius:
             cha_df = cha_df.dropna(subset=[SEG_EVDIST], inplace=False).copy()
             # ...and add "safely" SEG_EVID values:
-            cha_df[SEG_EVID] = evt_dic[EVT_ID]
+            cha_df[SEG_EVID] = ev_id
             # append to arrays (calculate arrival times in one shot a t the
             # end, it's faster):
-            sourcedepths += [evt_dic[EVT_DEPTH]] * len(cha_df)
-            eventtimes += [np.datetime64(evt_dic[EVT_TIME])] * len(cha_df)
+            sourcedepths += [ev_depth] * len(cha_df)
+            eventtimes += [ev_time] * len(cha_df)
             # Append only relevant columns:
             ret.append(cha_df[[SEG_CHAID, SEG_EVID, SEG_DCID, SEG_EVDIST]])
 
@@ -134,8 +135,7 @@ def merge_events_stations(events_df, channels_df, search_radius,
     sourcedepths = np.array(sourcedepths)
     distances = ret[SEG_EVDIST].values
     traveltimes = tttable(sourcedepths, 0, distances)
-    # assign to column (should be of type  '<M8[us]' or any datetime dtype):
-    eventtimes = np.array(eventtimes)
+    eventtimes = np.array(eventtimes, dtype='datetime64[us]')  # or "M8[us]"
     # now to compute arrival times: eventtimes + traveltimes does not work
     # (we cannot sum np.datetime64 and np.float). Convert traveltimes to
     # np.timedelta: we first multiply by 1000000 to preserve the millisecond
