@@ -5,14 +5,16 @@ Created on Apr 11, 2017
 """
 from builtins import zip
 from datetime import datetime
+from unittest import mock
 
 import numpy as np
 import pytest
 import pandas as pd
 from sqlalchemy.ext.declarative.api import declarative_base
 from sqlalchemy import Column, Integer, String, LargeBinary, DateTime, Float, \
-    Boolean
+    Boolean, INTEGER
 
+from stream2segment.io.db.inspection import colnames
 from stream2segment.io.db.pdsql import insertdf, dbquery2df, harmonize_columns
 
 Base = declarative_base()
@@ -27,6 +29,44 @@ class Customer(Base):
     count = Column(Integer)
     price = Column(Float)
     validated = Column(Boolean)
+
+cast_func = {
+    Boolean: bool,
+    Integer: int
+}
+
+def _getdtype(sqltype):
+    if isinstance(sqltype, Float):
+        return float
+    if isinstance(sqltype, Integer):
+        return int
+    if isinstance(sqltype, DateTime):
+        # Caution: np.datetime64 is also a subclass of np.number.
+        return datetime
+    if isinstance(sqltype, Boolean):
+        return bool
+    return object
+
+
+def _dfrowiter(dataframe, columns=None):
+    table = Customer
+    if columns is not None:
+        dataframe = dataframe[columns]
+
+    cols = dataframe.columns
+    data = dataframe.itertuples(name=None, index=False)
+    data_na = dataframe.isna().itertuples(name=None, index=False)
+
+    cast_f = {}
+    for c in colnames(table):
+        pytype = _getdtype(getattr(table, c).type)
+        if pytype in (int, bool):
+            cast_f[c] = pytype
+
+    for row, nulls in zip(data, data_na):
+        yield {col: None if null else val if col not in cast_f else cast_f[col](val)
+               for col, val, null in zip(cols, row, nulls)}
+
 
 
 class Test(object):
@@ -139,10 +179,45 @@ class Test(object):
 #         for col in dfr2.dtypes.keys():
 #             assert dfr2.dtypes[col] == (np.int64 if col == 'id' else object)
 
+    # @mock.patch('stream2segment.io.db.pdsql.dfrowiter', side_effect=_dfrowiter)
+    # def test_writing_querying(self, mocked_dfrrowiter, db):
+    def test_writing_querying(self, db):
+        # now let's save to the db adataframe with nulls:
+        dfr = pd.DataFrame([{'id': 1, 'name': 'a', 'time': None, 'data': None,
+                             'count': None, 'price': None, 'validated': None},
+                            {'id': 2, 'name': 'b', 'time': datetime.utcnow(), 'data': b'',
+                             'count': 2, 'price': 1.1, 'validated': True}])
+        # as seen above, the dataframe has weird types due to the way pandas infers them:
+        # id                    int64
+        # name                 object
+        # time         datetime64[ns]
+        # count               float64
+        # data                 object
+        # price               float64
+        # validated            object
+
+        # if we write to the db and we query back
+        dfr_pre = self.init_db(db.session, dfr)
+        # and we get beck the result:
+        dfr_post = dbquery2df(db.session.query(Customer.id, Customer.name, Customer.data,
+                                               Customer.time, Customer.count, Customer.price,
+                                               Customer.validated))
+        # THen:
+        # id                    int64
+        # name                 object -> pandas stores strings as object
+        # data                 object -> see above (bytes behaves as strings)
+        # time         datetime64[ns] -> ok, inferred from the non-None value (the other is NaT)
+        # count               float64 -> pandas cannot handle int+None, defaults to float + nan
+        # price               float64 -> ok, inferred from the non-None value (the other is nan)
+        # validated            object -> pandas cannot handle bool+None, defaults to obj
+
+        assert sorted(dfr_pre.columns) == sorted(dfr_post.columns)
+        pd.testing.assert_frame_equal(dfr_pre[sorted(dfr_pre.columns)],
+                                      dfr_post[sorted(dfr_post.columns)])
 
 
 
 def array_equal(a1, a2):
     """test array equality by assuming nan == nan. Probably already implemented
     somewhere in numpy, no time for browsing now"""
-    return len(a1) == len(a2) and all([c ==d or (np.isnan(c) == np.isnan(d)) for c, d in zip(a1, a2)])
+    return len(a1) == len(a2) and all([c == d or (np.isnan(c) == np.isnan(d)) for c, d in zip(a1, a2)])

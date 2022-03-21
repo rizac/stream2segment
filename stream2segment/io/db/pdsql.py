@@ -244,7 +244,7 @@ def _harmonize_columns(table, dataframe, parse_dates=None):
                 # boolean seems to convert without errors but
                 # converts NaN's to True, None to False. So, for preserving
                 # None's and NaN:
-                bool_col = df_col.astype(col_type, copy=True)
+                bool_col = df_col.astype(col_type, copy=False)
                 # in the presence of Nones, the line below will convert type
                 # from bool to float
                 # to account for Nones (stored as nans):
@@ -296,120 +296,6 @@ def _handle_date_column(col, format=None):  # noqa
     # if format in ['D', 'd', 'h', 'm', 's', 'ms', 'us', 'ns']:  FIXME REMOVE
     #     return pd.to_datetime(col, errors='coerce', unit=format)
     # return pd.to_datetime(col, errors='coerce', format=format)
-
-
-if tuple(int(_) for _ in pd.__version__.split('.')) > (1, 2, 1):
-    def _insert_data(dataframe):  # pandas.io.sql.SqlTable.insert_data
-        temp = dataframe
-
-        column_names = list(map(str, temp.columns))
-        ncols = len(column_names)
-        data_list = [None] * ncols
-
-        for i, (_, ser) in enumerate(temp.items()):
-            vals = ser._values
-            if vals.dtype.kind == "M":
-                d = vals.to_pydatetime()
-            elif vals.dtype.kind == "m":
-                # store as integers, see GH#6921, GH#7076
-                d = vals.view("i8").astype(object)
-            else:
-                d = vals.astype(object)
-
-            assert isinstance(d, np.ndarray), type(d)
-
-            if ser._can_hold_na:
-                # Note: this will miss timedeltas since they are converted to int
-                mask = pd.isna(d)
-                d[mask] = None
-
-            # error: No overload variant of "__setitem__" of "list" matches
-            # argument types "int", "ndarray"
-            data_list[i] = d  # type: ignore[call-overload]
-
-        return column_names, data_list
-else:
-    def _insert_data(dataframe):
-        """Convert dataframe to a numpy array of arrays for insertion inside a db
-        table.
-
-        :return: a tuple of two elements (cols, data):
-            cols denotes the dataframe columns (list of strings),
-            data denotes the dataframe data (converted and casted) to be inserted.
-            NOTE: Each element of data denotes a COLUMN. Thus len(data)==len(cols).
-            For each column, data[i] has M elements denoting the M rows
-            (where M = len(dataframe)). Thus, to get each table row as array, use:
-                zip(*data)
-            To get each table row as dict colname:value, use:
-                for row in zip(*data):
-                    row_as_dict = dict(zip(cols, row_values))
-
-        (this code is copied from pandas.io.sql.SqlTable._insert_data)
-        """
-        column_names = list(map(text_type, dataframe.columns))
-        ncols = len(column_names)
-        data_list = [None] * ncols
-        blocks = dataframe._data.blocks
-
-        for i in range(len(blocks)):
-            b = blocks[i]
-            if b.is_datetime:
-                # in pandas versions before 1.0, b.values is a numpy ndarray of
-                # dtype datetime64[ns]
-                # After, it might be a DatetimeArray IF ALL items are all not
-                # pd NaT (so we might jump in any case to the else below)
-                # Looking at the code
-                # (https://github.com/pandas-dev/pandas/blob/master/pandas/io/sql.py#L700)
-                # we can do like this:
-                if b.is_datetimetz:
-                    # this is equivalent to say: we have a DatetimeArray
-                    # (or DatetimeIndex?). Why we will never be here in pd < 0.24
-                    # using the same tests is also a mystery. However, we use
-                    # the code provided at the link above with a single addition:
-                    # remove the timezone as we do not work with timezone aware
-                    # datetimes and also make the objects returned by this "if"
-                    # branch and the "else" below the same
-                    # (tz_convert(tz) convert tz-aware Datetime Array/Index from
-                    # one time zone to another. A `tz` of None will
-                    # convert to UTC and remove the timezone information)
-                    d = b.values.tz_convert(None).to_pydatetime()
-                    # Need to return 2-D data; DatetimeArray is 1D
-                    d = np.atleast_2d(d)
-                else:
-                    # convert to microsecond resolution so this yields
-                    # datetime.datetime
-                    d = b.values.astype('M8[us]').astype(object)
-            else:
-                d = np.array(b.get_values(), dtype=object)
-
-            # replace NaN with None
-            if b._can_hold_na:
-                mask = pd.isnull(d)
-                d[mask] = None
-
-            for col_loc, col in zip(b.mgr_locs, d):
-                data_list[col_loc] = col
-
-        return column_names, data_list
-
-
-def dfrowiter(dataframe, columns=None):
-    """Returns an efficient iterator over `dataframe` rows. The i-th returned
-    values is a `dict`s of `dataframe` columns (strings) keyed to the i-th row
-    values. Each value is assured to be a Python type (str, bool, datetime, int
-    and float are currently supported) with pandas null values (NaT, NaN)
-    converted to None, if any.
-
-    :param dataframe: the input dataframe
-    """
-    cols, datalist = _insert_data(dataframe[columns] if columns is not None
-                                  else dataframe)
-    # Note below: datalist is an array of N column, each of M rows (it would be
-    # nicer to return an array of N rows, each of them representing a table row.
-    # But we do not want to touch pandas code. See _insert_table below).
-    # Thus we zip it:
-    for row_values in zip(*datalist):
-        yield dict(zip(cols, row_values))
 
 
 def _get_max(session, numeric_column):
@@ -1117,6 +1003,39 @@ def updatedf(dataframe, session, where_col, colnames2update=None, buf_size=10,
                 ret_df = dataframe.iloc[indices]
 
     return updated, ret_df
+
+
+def dfrowiter(dataframe, columns=None):
+    """Yields dataframe rows as `dict`s for insertion into a database. The output is
+    `dataframe.to_dict(orient='records')` but with dict values converted to Python
+    objects, including all pandas NA (Nat, NaN, None) converted to `None`. Supported
+    data types are int, float, datetime, str / object and bool. Data type matching
+    between `dataframe` and the underlying database table are not checked for.
+    """
+
+    if columns is not None:
+        dataframe = dataframe[columns]
+
+    data_list = []
+    columns = []
+    for col, series in dataframe.items():
+        columns.append(str(col))
+        if series.dtype.kind == "M":
+            d = series.dt.to_pydatetime()
+        else:
+            d = series.values.astype(object)
+
+        # assert isinstance(d, np.ndarray), type(d)
+
+        mask = pd.isna(d)
+        if mask.any():
+            d[mask] = None
+
+        data_list.append(d)
+
+    # columns = list(map(str, dataframe.columns))
+    for row_values in zip(*data_list):
+        yield dict(zip(columns, row_values))
 
 
 def syncdfcol(dataframe, session, matching_columns, sync_col):
