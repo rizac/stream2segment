@@ -15,6 +15,7 @@ from builtins import zip, range  # http://python-future.org/imports.html#explici
 import os
 import sys
 import re
+from io import StringIO
 from datetime import datetime
 from itertools import chain
 from collections import OrderedDict
@@ -299,7 +300,7 @@ def response2normalizeddf(url, raw_data, dbmodel_key):
     :param raw_data: valid FDSN data in text format. For info see:
         https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf#page=12
     """
-    dframe = response2df(raw_data)
+    dframe = pd.read_csv(StringIO(raw_data), sep='|', header=None, comment='#')
     oldlen, dframe = len(dframe), normalize_fdsn_dframe(dframe, dbmodel_key)
     # stations_df surely not empty:
     if oldlen > len(dframe):
@@ -307,49 +308,6 @@ def response2normalizeddf(url, raw_data, dbmodel_key):
                                  "malformed text data", url),
                        oldlen - len(dframe))
     return dframe
-
-
-def response2df(response_data, strip_cells=True):
-    """Return a pandas Dataframe from the given FDSN text format data
-    `response_data`
-
-    :param: response_data the string sequence of data as text. For info see:
-        https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf#page=12
-    :raise: ValueError in case of errors (mismatching row lengths), including
-        the case where the resulting dataframe is empty. Note that
-        response_data evaluates to False, then `empty()` is returned without
-        raising
-    """
-    if not response_data:
-        raise ValueError("Empty input data")
-    data = []
-    expected_length = None
-    # parse text into dataframe. Note that we check the row lengths beforehand
-    # because pandas fills with trailing NaNs which we don't want to handle.
-    # E.g.:
-    # >>> pd.DataFrame(data=[[1,2], [3,4,5]], columns=['a', 'b', 'g'])
-    #    a  b    g
-    # 0  1  2  NaN
-    # 1  3  4  5.0
-    # We use simple list append and not np.append cause np string arrays having
-    # fixed lengths sometimes cut strings. np.append(arr1, arr2) seems to
-    # handle this, but let's be safe
-    for line in response_data.splitlines():
-        if line[:1] == '#':
-            continue
-
-        items = line.split('|') if not strip_cells \
-            else [_.strip() for _ in line.split("|")]
-        if expected_length is None:
-            expected_length = len(items)
-        elif expected_length != len(items):
-            raise ValueError("Column length mismatch")
-
-        data.append(items)
-
-    if not data:
-        raise ValueError("Data empty after parsing")
-    return pd.DataFrame(data=data)
 
 
 def normalize_fdsn_dframe(dframe, query_type):
