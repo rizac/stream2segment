@@ -76,33 +76,30 @@ else:
         return d.iterkeys()
 
 
-def _get_dtype(sqltype):
-    """Converts a sql type to a numpy type. Modified from pandas.io.sql
+def get_dtype(sqltype):
+    """Converts a SQL type to a numpy type. Given a SQLAlchemy column (ORM model
+    attribute) the SQL type is given by its `.type` attribute
 
-    :param sqltype: one of the following: Integer, Float, Boolean, DateTime,
-        Date. Any other sql type will result in `object` being returned. This
-        includes TIMESTAMPs as no support for TIMESTAMP as we assume all
-        datetime(s) are in UTC thus they do not require a timezone set
+    sqlType   | returned type
+    ----------+--------------
+    Integer   | np.int64
+    Float     | np.float64
+    DateTime  | np.datetime64
+    Boolean   | np.bool_
+    Any other | np.object_
+
+    :param sqltype: one of the following: Integer, Float, Boolean, DateTime.
     """
     if isinstance(sqltype, Float):
-        return float
+        return np.float64
     if isinstance(sqltype, Integer):
-        # TODO: Refine integer size.
-        return np.dtype('int64')
-    # Drop compatibility with TIMESTAMPS. If needed in the future, here the old code:
-    # if isinstance(sqltype, TIMESTAMP):
-    #     # we have a timezone capable type
-    #     if not sqltype.timezone:
-    #         return datetime
-    #     return DatetimeTZDtype
+        return np.int64
     if isinstance(sqltype, DateTime):
         # Caution: np.datetime64 is also a subclass of np.number.
-        return datetime
-    if isinstance(sqltype, Date):
-        return date
+        return np.datetime64
     if isinstance(sqltype, Boolean):
-        return bool
-    return object
+        return np.bool_
+    return np.object_
 
 
 def shared_colnames(table, dataframe, pkey=None, fkey=None, nullable=None):
@@ -213,7 +210,7 @@ def _harmonize_columns(table, dataframe, parse_dates=None):
         try:
             df_col = dataframe[col_name]
             # the type the dataframe column should have
-            col_type = _get_dtype(sql_col.type)
+            col_type = get_dtype(sql_col.type)
 
             if col_type is datetime or col_type is date:
                 # (removed `or col_type is DatetimeTZDtype` from the if above)
@@ -800,7 +797,7 @@ def syncdfseq(dataframe, session, seq_col, overwrite=False, pkeycol_maxval=None)
             if nacount > 0:
                 dataframe.loc[mask, pkeyname] = \
                     np.arange(pkeycol_maxval, pkeycol_maxval+nacount,
-                              dtype=_get_dtype(seq_col.type))
+                              dtype=get_dtype(seq_col.type))
             # cast values if we modified only SOME row values of
             # dataframe[pkeyname]. E.g., if dataframe[seq_col.key] was of type
             # float because it has NaNs, and seq_col is of type integer, we
@@ -815,7 +812,7 @@ def syncdfseq(dataframe, session, seq_col, overwrite=False, pkeycol_maxval=None)
     # In ALL these cases we do not need `cast_column`, but simply set the dtype
     # in np.arange:
     new_pkeys = np.arange(pkeycol_maxval, pkeycol_maxval+len(dataframe),
-                          dtype=_get_dtype(seq_col.type))
+                          dtype=get_dtype(seq_col.type))
     dataframe[pkeyname] = new_pkeys
     return dataframe
 
@@ -829,7 +826,7 @@ def cast_column(dataframe, sql_column):
 
     :return: dataframe with the column casted
     """
-    col_type = _get_dtype(sql_column.type)
+    col_type = get_dtype(sql_column.type)
     pkeyname = sql_column.key
     if dataframe[pkeyname].dtype != col_type:
         dataframe[pkeyname] = dataframe[pkeyname].astype(col_type, copy=False)
