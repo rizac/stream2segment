@@ -46,18 +46,20 @@ def load_config_for_download(config, validate, **param_overrides):
     validated_params = set()
 
     # validate dataws FIRST because it is used by other params later
-    pname, pval = pop_param(old_config, 'dataws')
-    validated_params.add(pname)
+    pnames = ('data_url', 'dataws')
+    validated_params.update(pnames)
+    pname, pval = pop_param(old_config, pnames)
     if isinstance(pval, string_types):  # backward compatibility
         pval = [pval]
     dataws = validate_param(pname, pval,
                             lambda urls: [valid_fdsn(url, is_eventws=False)
                                           for url in urls])
-    new_config[pname] = dataws
+    new_config[pnames[0]] = dataws
 
-    pname, pval = pop_param(old_config, 'eventws')
-    validated_params.add(pname)
-    new_config[pname] = validate_param(pname, pval, valid_fdsn,
+    pnames = ('events_url', 'eventws')
+    validated_params.update(pnames)
+    pname, pval = pop_param(old_config, pnames)
+    new_config[pnames[0]] = validate_param(pname, pval, valid_fdsn,
                                        is_eventws=True, configfile=configfile)
 
     pname, pval = pop_param(old_config, 'search_radius')
@@ -127,7 +129,7 @@ def load_config_for_download(config, validate, **param_overrides):
     # in the main config but also in the eventws_params dict, which was formerly
     # named eventws_query_args:
 
-    pnames = ('eventws_params', 'eventws_query_args')
+    pnames = ('events_extra_params', 'eventws_params', 'eventws_query_args')
     validated_params.update(pnames)
     # get eventws_param dict:
     pname, evt_params = get_param(old_config, pnames, default=None)

@@ -29,7 +29,7 @@ endtime: 2016-12-25T00:00:00
 # Events: https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=14
 # =======
 
-# The event catalog in form of URL (event web service) or local file path.
+# The event catalog in form of URL or local file path.
 # The events list returned by the URL or in the supplied file must be in FDSN format
 # (https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=16) or ISF format
 # (http://www.isc.ac.uk/standards/isf/download/isf.pdf), although the latter has limited
@@ -39,45 +39,41 @@ endtime: 2016-12-25T00:00:00
 # and their segments being saved twice, most likely unnecessarily.
 # You can also type these shortcut strings instead of URLs:
 # {{ DOWNLOAD_EVENTWS_LIST }}.
-eventws: 'http://seismicportal.eu/fdsnws/event/1/query'
+events_url: 'http://seismicportal.eu/fdsnws/event/1/query'
+
+# NOTE: all event parameters below are ignored if missing, empty, null, or
+# 'events_url' is  given as file path
 
 # Limit to events with a latitude larger than or equal to the specified minimum.
-# This parameter is ignored if missing, null, or 'eventws' is given as file path
 minlatitude: 47.0
 
 # Limit to events with a latitude smaller than or equal to the specified maximum
-# This parameter is ignored if missing, null, or 'eventws' is given as file path
 maxlatitude: 57.0
 
 # Limit to events with a longitude larger than or equal to the specified minimum
-# This parameter is ignored if missing, null, or 'eventws' is given as file path
 minlongitude: 4.0
 
 # Limit to events with a longitude smaller than or equal to the specified maximum
-# This parameter is ignored if missing, null, or 'eventws' is given as file path
 maxlongitude: 17.0
 
-# Limit to events with depth more than the specified minimum.
-# This parameter is ignored if missing, null, or 'eventws' is given as file path
+# Limit to events with depth more than the specified minimum
 mindepth: 1
 
 # Limit to events with depth less than the specified maximum
-# This parameter is ignored if missing, null, or 'eventws' is given as file path
 maxdepth: 50
 
 # Limit to events with a magnitude larger than the specified minimum
-# This parameter is ignored if missing, null, or 'eventws' is given as file path
 minmagnitude: 4.0
 
 # Limit to events with a magnitude smaller than the specified maximum
-# This parameter is ignored if missing, null, or 'eventws' is given as file path
 maxmagnitude: null
 
-# Additional event web search parameters (YAML Mapping of indented "param: value" pairs):
-# https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=14
+# Event parameters in addition to those already provided above. These are usually for
+# refined searches and can be provided as YAML Mapping of indented "param: value" pairs.
+# For info see https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=14
 # Note that parameters with support 'Optional' at the link above are not guaranteed to
 # work. The 'format' parameter will be ignored as it is automatically set by the program.
-eventws_params:
+events_extra_params:
   # lat: 47.0
   # lon: 4.0
   # minradius: 17.0
@@ -88,7 +84,7 @@ eventws_params:
 # Stations / Channels: https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=10
 # ====================
 
-# Preliminary note: the station URL(s) are configurable in `dataws` (see below). When
+# NOTE: the station URL(s) are configurable in `data_url` (see below). When
 # providing several URLs, if the same station code is returned by more than one URL, the
 # program will try to infer the correct one by means of a Routing service for EIDA URLs
 # (see `advanced_settings`) or by querying the station URL to the database, if any. If
@@ -173,13 +169,13 @@ search_radius:
 # Data (waveform segments) https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=8
 # ========================
 
-# List of URLs for downloading waveform data (data web services). All URLs must be
+# List of URLs for downloading waveform data. All URLs must be
 # FDSN-compliant (e.g.: https://service.iris.edu/fdsnws/dataselect/1/query). You can also
 # type two special values: 1) "iris" (Incorporated Research Institutions for Seismology),
 # shortcut for the URL above or 2) "eida", shortcut for several nodes - or data centers -
 # of the European Integrated Data Archive. Being FDSN compliant, all URLs are also used
 # to fetch automatically the stations and channels necessary for the waveforms download
-dataws:
+data_url:
   - 'eida'
   # - 'iris'
 
@@ -215,7 +211,7 @@ timespan:
 # token, see https://geofon.gfz-potsdam.de/waveform/archive/auth/auth-overview.php)
 # IMPORTANT: You SHOULD NOT perform massive, time-consuming downloads when fetching
 # restricted data: first, it makes no sense: credentials are valid only for the
-# organization emitting them (thus there must be only one item in `dataws`) and second,
+# organization emitting them (thus there must be only one item in `data_url`) and second,
 # credentials might have an expiration time (e.g., roughly few hours for EIDA tokens).
 # Thus, try narrowing the search: e.g., shorter time bounds, network(s) or station(s) of
 # interest only. Have a look also at `max_concurrent_downloads` in `advanced_settings` as
@@ -246,7 +242,7 @@ retry_mseed_err: false
 retry_client_err: true
 
 # Retry already downloaded segments if the database reports that the previous attempt was
-# unsuccessful because of a server (see `dataws`) response error
+# unsuccessful because of a server (see `data_url`) response error
 retry_server_err: true
 
 # Retry already downloaded segments if the database reports that the previous attempt was
@@ -260,8 +256,6 @@ retry_timespan_err: true
 # =====================================
 
 advanced_settings:
- # Routing service used to fetch the EIDA nodes and relative network/stations
- routing_service_url: "http://www.orfeus-eu.org/eidaws/routing/1/query"
  # Maximum number of concurrent / simultaneous downloads allowed. The default (null) sets
  # it automatically depending on the number of CPUs (usually >= 4), whereas 1 disables
  # concurrency and downloads all data in series, i.e., sequentially. We recommend to
@@ -276,6 +270,8 @@ advanced_settings:
  #    "Too Many Requests" (code 429). You can inspect errors in the summary table printed
  #    after all segments are downloaded, or via the command `s2s dl report`
  max_concurrent_downloads: null
+ # Routing service used to fetch the EIDA nodes and relative network/stations
+ routing_service_url: "http://www.orfeus-eu.org/eidaws/routing/1/query"
  # Max time to wait (in seconds) for a single request while downloading events
  e_timeout: 120
  # Max time to wait (in seconds) for a single request while downloading stations+channel

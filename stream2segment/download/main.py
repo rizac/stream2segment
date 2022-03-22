@@ -195,8 +195,8 @@ def _pretty_printed_str(yaml_dict):
     ]).strip()
 
 
-def _run(session, download_id, eventws, starttime, endtime, dataws,
-         eventws_params, network, station, location, channel, min_sample_rate,
+def _run(session, download_id, events_url, starttime, endtime, data_url,
+         events_extra_params, network, station, location, channel, min_sample_rate,
          search_radius, update_metadata, inventory, timespan,
          retry_seg_not_found, retry_url_err, retry_mseed_err, retry_client_err,
          retry_server_err, retry_timespan_err, tt_table, advanced_settings,
@@ -234,7 +234,7 @@ def _run(session, download_id, eventws, starttime, endtime, dataws,
 
     try:
         stepinfo("Fetching events")
-        events_df = get_events_df(session, eventws, eventws_params,
+        events_df = get_events_df(session, events_url, events_extra_params,
                                   starttime, endtime, dbbufsize,
                                   advanced_settings['e_timeout'], isterminal)
 
@@ -243,7 +243,7 @@ def _run(session, download_id, eventws, starttime, endtime, dataws,
         stepinfo("Fetching data-centers")
         # get dacatanters (might raise FailedDownload):
         datacenters_df, eidavalidator = \
-            get_datacenters_df(session, dataws,
+            get_datacenters_df(session, data_url,
                                advanced_settings['routing_service_url'],
                                network, station, location, channel, starttime,
                                endtime, dbbufsize)

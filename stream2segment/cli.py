@@ -440,7 +440,7 @@ def copy_example_files(outpath, prompt=True, *filenames):
                    "(https://learn.getgrav.org/advanced/yaml).",
               type=clickutils.ExistingPath, required=True)
 @click.option('-d', '--dburl', is_eager=True)
-@click.option('-es', '--eventws')
+@click.option('-ev', '--events_url', '--catalog', '--eventws')
 @click.option('-s', '--start', '--starttime', "starttime", metavar='DATE or DATETIME')
 @click.option('-e', '--end', '--endtime', 'endtime', metavar='DATE or DATETIME', )
 @click.option('-n', '--network', '--networks', '--net', 'network')
@@ -448,7 +448,7 @@ def copy_example_files(outpath, prompt=True, *filenames):
 @click.option('-l', '--location', '--locations', '--loc', 'location')
 @click.option('-k', '--channel', '--channels', '--cha', 'channel')
 @click.option('-msr', '--min-sample-rate', type=float)
-@click.option('-ds', '--dataws', multiple=True)
+@click.option('-ds', '--data_url', '--dataselect', '--dataws', multiple=True)
 @click.option('-t', '--traveltimes-model')
 @click.option('-w', '--timespan', nargs=2, type=float)
 @click.option('-u', '--update-metadata', is_flag=True, default=None)
@@ -487,9 +487,9 @@ def copy_example_files(outpath, prompt=True, *filenames):
               help="Do not execute any download, but print the final YAML created by "
                    "merging the provided yaml file with the command line parameters "
                    "(default False when missing)")
-def download(config, dburl, eventws, starttime, endtime, network,  # noqa
+def download(config, dburl, events_url, starttime, endtime, network,  # noqa
              station, location, channel, min_sample_rate,  # noqa
-             dataws, traveltimes_model, timespan,  # noqa
+             data_url, traveltimes_model, timespan,  # noqa
              update_metadata, retry_url_err, retry_mseed_err,  # noqa
              retry_seg_not_found, retry_client_err,  # noqa
              retry_server_err, retry_timespan_err, inventory,  # noqa

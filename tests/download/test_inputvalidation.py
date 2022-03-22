@@ -35,12 +35,12 @@ from stream2segment.io import yaml_load
 
 @pytest.fixture
 def run_cli_download(pytestdir, db):
-    '''returns a function(*arg, removals=None, **kw) where each arg is the
+    """returns a function(*arg, removals=None, **kw) where each arg is the
     COMMAND LINE parameter to be overridden, removals is a list of pyaml
     parameters TO BE REMOVED, and **kw the YAML CONFIG PARAMETERS TO BE
     overridden.
     Uses fixture pytestdir defined in conftest
-    '''
+    """
     def func(*args, removals=None, **yaml_overrides):
         args = list(args)
         nodburl = False
@@ -254,21 +254,25 @@ class Test(object):
         # INCREMENT THIS VARIABLE EVERY TIME YOU RUN A SUCCESSFUL DOWNLOAD
         dcount = 0
         # test that eventws_params is optional if not provided
-        result = run_cli_download(removals=['eventws_params'])
+        result = run_cli_download(removals=['events_extra_params'])
         assert result.exit_code == 0
         dcount += 1
 
-        # now check parameters supplied in config and in `eventws` subdict
+        # Conflict: supply eventws_params (old name):
         result = run_cli_download(eventws_params={'maxmagnitude': 5})
+        assert result.exit_code != 0
+
+        # now check parameters supplied in config and in `eventws` subdict
+        result = run_cli_download(events_extra_params={'maxmagnitude': 5})
         assert result.exit_code == 0
         dcount += 1
         # check maxmagnitude is NOT in the eventws params:
-        eventws_params = self.mock_run_download.call_args_list[-1][1]['eventws_params']
+        eventws_params = self.mock_run_download.call_args_list[-1][1]['events_extra_params']
         assert 'maxmagnitude' in eventws_params
 
         # same as above, but let's check a type error? No, it does not raise
         # because the validation function is float (and float('5') works)
-        result = run_cli_download(eventws_params={'maxmagnitude': '5'})
+        result = run_cli_download(events_extra_params={'maxmagnitude': '5'})
         assert result.exit_code == 0
         dcount += 1
 
@@ -298,7 +302,7 @@ class Test(object):
         dcount += 1
 
         # check maxmagnitude is NOT in the eventws params:
-        eventws_params = self.mock_run_download.call_args_list[-1][1]['eventws_params']
+        eventws_params = self.mock_run_download.call_args_list[-1][1]['events_extra_params']
         assert 'maxmagnitude' not in eventws_params
         # assert we did not write to the db, cause the error threw before setting up db:
         assert db.session.query(Download).count() == dcount
@@ -431,10 +435,12 @@ class Test(object):
 
         # test dataws provided multiple times in the cli:
         result = run_cli_download('-ds', 'http://a/fdsnws/dataselect/1/query',
-                                  '--dataws', 'http://b/fdsnws/dataselect/1/query')
-        dataws = self.mock_run_download.call_args_list[-1][1]['dataws']
+                                  '--dataws', 'http://b/fdsnws/dataselect/1/query',
+                                  '--data_url', 'http://c/fdsnws/dataselect/1/query')
+        dataws = self.mock_run_download.call_args_list[-1][1]['data_url']
         assert sorted(dataws) == ['http://a/fdsnws/dataselect/1/query',
-                                  'http://b/fdsnws/dataselect/1/query']
+                                  'http://b/fdsnws/dataselect/1/query',
+                                  'http://c/fdsnws/dataselect/1/query']
         assert result.exit_code == 0
         dcount += 1
 
@@ -548,41 +554,41 @@ class Test(object):
 def test_download_eventws_query_args(mock_isfile, mock_run_download,
                                      # fixtures:
                                      run_cli_download):  # pylint: disable=redefined-outer-name
-    '''test different scenarios where we provide eventws query args from the command line'''
+    """test different scenarios where we provide eventws query args from the command line"""
 
     d_yaml_file = get_templates_fpath("download.yaml")
     # FIRST SCENARIO: no  eventws_params porovided
     mock_run_download.reset_mock()
-    def_yaml_dict = yaml_load(d_yaml_file)['eventws_params']
+    def_yaml_dict = yaml_load(d_yaml_file)['events_extra_params']
     assert not def_yaml_dict  # None or empty dict
     result = run_cli_download()  # invalid type
     assert result.exit_code == 0
     # assert the yaml (as passed to the download function) has the correct value:
-    real_eventws_params = mock_run_download.call_args_list[0][1]['eventws_params']
+    real_eventws_params = mock_run_download.call_args_list[0][1]['events_extra_params']
     # just assert it has keys merged from the global event-related yaml keys
     assert 'maxmagnitude' not in real_eventws_params
     assert real_eventws_params
 
     # test by providing an eventsws param which is not optional:
     mock_run_download.reset_mock()
-    def_yaml_dict = yaml_load(d_yaml_file)['eventws_params']
+    def_yaml_dict = yaml_load(d_yaml_file)['events_extra_params']
     assert not def_yaml_dict  # None or empty dict
     result = run_cli_download('--minmagnitude', '15.5')
     assert result.exit_code == 0
     # assert the yaml (as passed to the download function) has the correct value:
-    real_eventws_params = mock_run_download.call_args_list[0][1]['eventws_params']
+    real_eventws_params = mock_run_download.call_args_list[0][1]['events_extra_params']
     # just assert it has keys merged from the global event-related yaml keys
     assert real_eventws_params['minmagnitude'] == 15.5
 
     # test by providing a eventsws param which is optional:
     mock_run_download.reset_mock()
-    def_yaml_dict = yaml_load(d_yaml_file)['eventws_params']
+    def_yaml_dict = yaml_load(d_yaml_file)['events_extra_params']
     assert not def_yaml_dict  # None or empty dict
     result = run_cli_download('--minmagnitude', '15.5',
-                              eventws_params={'format': 'abc'})
+                              events_extra_params={'format': 'abc'})
     assert result.exit_code == 0
     # assert the yaml (as passed to the download function) has the correct value:
-    real_eventws_params = mock_run_download.call_args_list[0][1]['eventws_params']
+    real_eventws_params = mock_run_download.call_args_list[0][1]['events_extra_params']
     # just assert it has keys merged from the global event-related yaml keys
     assert real_eventws_params['minmagnitude'] == 15.5
     assert real_eventws_params['format'] == 'abc'
@@ -595,10 +601,10 @@ def test_download_eventws_query_args(mock_isfile, mock_run_download,
         for par1, par2 in product(pars, pars):
             mock_run_download.reset_mock()
             result = run_cli_download(par1, '15.5',
-                                      eventws_params={par2.replace('-', ''): 15.5})
+                                      events_extra_params={par2.replace('-', ''): 15.5})
             assert result.exit_code != 1
             assert msgin('Conflicting name(s) ', result.output)
-            assert msgin('"eventws_params"', result.output)
+            assert msgin('"events_extra_params"', result.output)
             # assert 'conflict' in result.output
             # assert msgin('Invalid value for "eventws_params"', result.output)
 
@@ -607,14 +613,14 @@ def test_download_eventws_query_args(mock_isfile, mock_run_download,
     assert not mock_isfile.called
     result = run_cli_download('--eventws', 'myfile')
     assert result.exit_code != 0
-    assert 'eventws' in result.output
+    assert 'events_url' in result.output
     assert mock_isfile.called
 
 
 @pytest.mark.parametrize('filepath_is_abs',
                          [True, False])
 @pytest.mark.parametrize('yamlarg',
-                         ['eventws', 'restricted_data', 'dburl'])
+                         ['events_url', 'restricted_data', 'dburl'])
 @patch('stream2segment.download.main._run', side_effect=lambda *a, **v: None)
 def test_argument_which_accept_files_relative_and_abs_paths(mock_run_download,
                                                             yamlarg, filepath_is_abs,

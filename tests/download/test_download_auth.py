@@ -341,7 +341,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         mock_get_data_open.reset_mock()
         mock_get_data_from_token.reset_mock()
         mock_get_data_from_userpass.reset_mock()
-        yaml_file = yamlfile(restricted_data=['user', 'password'], dataws='eida')
+        yaml_file = yamlfile(restricted_data=['user', 'password'], data_url='eida')
         result = clirunner.invoke(cli, ['download',
                                         '-c', yaml_file,
                                         '--dburl', db.dburl,
@@ -356,7 +356,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         mock_get_data_from_token.reset_mock()
         mock_get_data_from_userpass.reset_mock()
         yaml_file = yamlfile(restricted_data='abcdg465du97_Sdr4fvssgflero',
-                             dataws='eida')
+                             data_url='eida')
         result = clirunner.invoke(cli, ['download',
                                         '-c', yaml_file,
                                         '--dburl', db.dburl,
@@ -371,7 +371,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         mock_get_data_from_token.reset_mock()
         mock_get_data_from_userpass.reset_mock()
         yaml_file = yamlfile(restricted_data=os.path.abspath(filepath),
-                             dataws='eida')
+                             data_url='eida')
         result = clirunner.invoke(cli, ['download',
                                         '-c', yaml_file,
                                         '--dburl', db.dburl,

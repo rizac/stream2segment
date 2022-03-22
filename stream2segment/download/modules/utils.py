@@ -129,7 +129,7 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024 * 1024,
     do_memcheck = 0 < max_mem_consumption < 100
     process = psutil.Process(os.getpid()) if do_memcheck else None
     count = 0
-    step = 100
+    step = 200
     for result in original_read_async(iterable, urlkey, max_workers, blocksize,
                                       decode, raise_http_err, timeout,
                                       **kwargs):
