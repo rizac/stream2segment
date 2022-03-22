@@ -449,8 +449,7 @@ def copy_example_files(outpath, prompt=True, *filenames):
 @click.option('-k', '--channel', '--channels', '--cha', 'channel')
 @click.option('-msr', '--min-sample-rate', type=float)
 @click.option('-ds', '--data_url', '--dataselect', '--dataws', multiple=True)
-@click.option('-t', '--traveltimes-model')
-@click.option('-w', '--timespan', nargs=2, type=float)
+@click.option('-t', '--timespan', nargs=2, type=float)
 @click.option('-u', '--update-metadata', is_flag=True, default=None)
 @click.option('-r1', '--retry-url-err', is_flag=True, default=None)
 @click.option('-r2', '--retry-mseed-err', is_flag=True, default=None)
@@ -489,7 +488,7 @@ def copy_example_files(outpath, prompt=True, *filenames):
                    "(default False when missing)")
 def download(config, dburl, events_url, starttime, endtime, network,  # noqa
              station, location, channel, min_sample_rate,  # noqa
-             data_url, traveltimes_model, timespan,  # noqa
+             data_url, timespan,  # noqa
              update_metadata, retry_url_err, retry_mseed_err,  # noqa
              retry_seg_not_found, retry_client_err,  # noqa
              retry_server_err, retry_timespan_err, inventory,  # noqa
