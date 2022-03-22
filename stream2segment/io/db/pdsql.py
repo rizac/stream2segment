@@ -154,7 +154,8 @@ def harmonize_columns(table, dataframe):
     """Make the DataFrame's column types align with the SQL table
     column types. Returns a new dataframe with "correct" types (according to
     table). If the types already match, no new array is created
-    Dataframe columns not members of the table columns are left as they are
+    Dataframe columns not members of the table columns are left as they are.
+    For ints and bools with NaN / None, the array dtype is converted to `object`.
 
     :param table: an ORM model class
     :param dataframe: the Data frame
