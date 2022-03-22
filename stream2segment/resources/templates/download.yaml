@@ -10,7 +10,7 @@
 # suggest sqlite for small to medium data or enough system RAM (as a rule of thumb:
 # less than a million segments, and/or more than 8GB of RAM) and postgres otherwise.
 # For info see: http://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls
-dburl: 'sqlite:///<local_file_path>'  # postgresql://<user>:<password>@<host>/<dbname>
+dburl: 'sqlite:///<local_file_path>'  # or, e.g.: postgresql://<user>:<password>@<host>/<dbname>
 
 # Limit to events / data centers / station / channels on or after the specified start
 # time. Specify an ISO-formatted date or date-time string, or an integer >=0 to denote
@@ -126,7 +126,6 @@ location: '*'
 # Set to 0 or negative number to ignore the sampling rate
 min_sample_rate: 60
 
-
 # Update segments metadata, i.e., overwrite the data of already saved stations and
 # channels, such as e.g., the channels sample rate, or the station inventories (see also
 # ‘inventory’ parameter)
@@ -178,22 +177,6 @@ search_radius:
 data_url:
   - 'eida'
   # - 'iris'
-
-# The model to asses the travel time of a wave from the event location to a station
-# location, which will be used to get the segment arrival time (travel time +
-# event time) and eventually the segment time window to download (see also `timespan`).
-# Type one of the 4 built-in models:
-#   ak135_ttp+: ak135 model for all ttp+ phases (P wave arrivals)
-#   ak135_tts+: ak135 model for all tts+ phases (S wave arrivals)
-#   iasp91_ttp+: iasp91 model for all ttp+ phases (P wave arrivals)
-#   iasp91_tts+: iasp91 model for all tts+ phases (S wave arrivals)
-# Implementation details: the models above are grids of pre-computed travel times
-# obtained from the corresponding model. The grids allow to speed up significantly the
-# computation introducing a negligible interpolation error (roughly in the order of
-# few milliseconds and never exceeding 0.5s). Disclaimer: you can also create your own
-# grid file and put its path here. However, the procedure is not maintained anymore, use
-# at your risk. For info type `python stream2segment/traveltimes/ttcreator.py --help`
-traveltimes_model: 'ak135_ttp+'
 
 # The segment's time span (i.e., the data time window to download): specify two
 # floats denoting the minutes to account for before and after the calculated arrival
@@ -292,7 +275,18 @@ advanced_settings:
  # Consider also that a single database error while writing a segment will unfortunately
  # affect all buffer segments, which must all be discarded
  db_buf_size: 100
-
-
-# Implementation details:
-#
+ # The model to asses the travel time of a wave from the event location to a station
+ # location, which will be used to get the segment arrival time (travel time +
+ # event time) and eventually the segment time window to download (see also `timespan`).
+ # Type one of the 4 built-in models:
+ #   ak135_ttp+: ak135 model for all ttp+ phases (P wave arrivals)
+ #   ak135_tts+: ak135 model for all tts+ phases (S wave arrivals)
+ #   iasp91_ttp+: iasp91 model for all ttp+ phases (P wave arrivals)
+ #   iasp91_tts+: iasp91 model for all tts+ phases (S wave arrivals)
+ # Implementation details: the models above are grids of pre-computed travel times
+ # obtained from the corresponding model. The grids allow to speed up significantly the
+ # computation introducing a negligible interpolation error (roughly in the order of
+ # few milliseconds and never exceeding 0.5s). Disclaimer: you can also create your own
+ # grid file and put its path here. However, the procedure is not maintained anymore, use
+ # at your risk. For info type `python stream2segment/traveltimes/ttcreator.py --help`
+ traveltimes_model: 'ak135_ttp+'

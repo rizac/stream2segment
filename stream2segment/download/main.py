@@ -91,8 +91,8 @@ def download(config, log2file=True, verbose=False, print_config_only=False,
     # Validate params converting them in dict of args for the download function. Also in
     # this case do it before configuring loggers, we simply need to raise `BadParam`s in
     # case of problems:
-    d_kwargs, session, authorizer, tt_table = \
-        load_config_for_download(config, True, **param_overrides)
+    d_kwargs, session, authorizer = load_config_for_download(config, True,
+                                                             **param_overrides)
 
     ret = 0
     noexc_occurred = True
@@ -138,9 +138,8 @@ def download(config, log2file=True, verbose=False, print_config_only=False,
                                                        Download.log.key))
 
         stime = time.time()
-        _run(download_id=download_id, isterminal=verbose,
-             authorizer=authorizer, session=session, tt_table=tt_table,
-             **d_kwargs)
+        _run(download_id=download_id, isterminal=verbose, authorizer=authorizer,
+             session=session, **d_kwargs)
         logger.info("Completed in %s", str(elapsed_time(stime)))
         if db_streamer is not None:
             errs, warns = db_streamer.errors, db_streamer.warnings
@@ -199,7 +198,7 @@ def _run(session, download_id, events_url, starttime, endtime, data_url,
          events_extra_params, network, station, location, channel, min_sample_rate,
          search_radius, update_metadata, inventory, timespan,
          retry_seg_not_found, retry_url_err, retry_mseed_err, retry_client_err,
-         retry_server_err, retry_timespan_err, tt_table, advanced_settings,
+         retry_server_err, retry_timespan_err, advanced_settings,
          authorizer, isterminal=False):
     """Download waveforms related to events to a specific path.
 
@@ -217,6 +216,7 @@ def _run(session, download_id, events_url, starttime, endtime, data_url,
     dbbufsize = advanced_settings['db_buf_size']
     max_thread_workers = advanced_settings['max_concurrent_downloads']
     download_blocksize = advanced_settings['download_blocksize']
+    tt_table = advanced_settings['traveltimes_model']
 
     process = psutil.Process(os.getpid()) if isterminal else None
     # calculate steps (note that booleans work, e.g: 8 - True == 7):

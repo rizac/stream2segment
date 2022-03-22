@@ -81,10 +81,6 @@ def load_config_for_download(config, validate, **param_overrides):
     validated_params.add(pname)
     session = validate_param(pname, pval, get_session)
 
-    pname, pval = pop_param(old_config, 'traveltimes_model')
-    validated_params.add(pname)
-    tt_table = validate_param(pname, pval,valid_tt_table)
-
     # parameters with multiple allowed names (use get_param_tuple to get which
     # param name is implemented among the allowed ones)
 
@@ -120,6 +116,12 @@ def load_config_for_download(config, validate, **param_overrides):
 
     # validate advanced_settings:
     pname = 'advanced_settings'
+    # old configs had traveltimes_model as top-level param (now in advanced_settings):
+    ttmodel_pname = 'traveltimes_model'
+    if ttmodel_pname in old_config:
+        validated_params.add(ttmodel_pname)
+        old_config[pname][ttmodel_pname] = old_config.pop(ttmodel_pname)
+    # now process advanced settings:
     validated_params.add(pname)
     # Call get_param with no default just for raising if param is missing:
     new_config[pname] = pop_param(old_config, pname)[1]
@@ -178,7 +180,7 @@ def load_config_for_download(config, validate, **param_overrides):
     if missing_keys:
         raise BadParam(BadParam.P_MISSING, missing_keys)
 
-    return new_config, session, authorizer, tt_table
+    return new_config, session, authorizer
 
 
 def _pop_event_params(config, prefix=None):
@@ -255,6 +257,11 @@ def _validate_download_advanced_settings(config, adv_settings_key):
      """
     adv_settings_dict = config[adv_settings_key]
     prefix = adv_settings_key + '.'  # 'advanced_settings'
+
+    pname = 'traveltimes_model'
+    tt_table = validate_param(prefix + pname, pop_param(config, prefix + pname)[1],
+                              valid_tt_table)
+    adv_settings_dict[pname] = tt_table
 
     pname = 'download_blocksize'
     pval = validate_param(prefix + pname, pop_param(config, prefix + pname)[1],

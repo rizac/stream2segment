@@ -423,7 +423,6 @@ class Test(object):
             assert 'Did you create the database first?' in result.output
             assert result.exit_code != 0
 
-
     def test_download_bad_values(self,
                                  # fixtures:
                                  db, run_cli_download):
@@ -479,24 +478,29 @@ class Test(object):
         # assert we did not write to the db, cause the error threw before setting up db:
         assert db.session.query(Download).count() == dcount
 
-        result = run_cli_download(traveltimes_model=[])  # invalid type
+        adv = dict(self.yaml_def_params['advanced_settings'])
+        adv['traveltimes_model'] = []
+        result = run_cli_download(advanced_settings=adv)  # invalid type
         assert result.exit_code != 0
-        assert msgin('Error: Invalid type for "traveltimes_model":', result.output)
+        assert msgin('Error: Invalid type for "advanced_settings.traveltimes_model":', result.output)
         # assert we did not write to the db, cause the error threw before setting up db:
         assert db.session.query(Download).count() == dcount
 
-        result = run_cli_download(traveltimes_model='wat')  # invalid value
+        adv = dict(self.yaml_def_params['advanced_settings'])
+        adv['traveltimes_model'] = 'wat'
+        result = run_cli_download(advanced_settings=adv)  # invalid value
         assert result.exit_code != 0
-        assert msgin('Error: Invalid value for "traveltimes_model":', result.output)
+        assert msgin('Error: Invalid value for "advanced_settings.traveltimes_model":', result.output)
         # assert we did not write to the db, cause the error threw before setting up db:
         assert db.session.query(Download).count() == dcount
 
-        # same as above but with error from the cli, not from within the config yaml:
-        result = run_cli_download('--traveltimes-model', 'wat')  # invalid value
-        assert result.exit_code != 0
-        assert msgin('Error: Invalid value for "traveltimes_model":', result.output)
-        # assert we did not write to the db, cause the error threw before setting up db:
-        assert db.session.query(Download).count() == dcount
+        # NOTE: traveltimes model not supplied anymore from cmline, comment:
+        # # same as above but with error from the cli, not from within the config yaml:
+        # result = run_cli_download('--traveltimes-model', 'wat')  # invalid value
+        # assert result.exit_code != 0
+        # assert msgin('Error: Invalid value for "traveltimes_model":', result.output)
+        # # assert we did not write to the db, cause the error threw before setting up db:
+        # assert db.session.query(Download).count() == dcount
 
         result = run_cli_download(removals=['inventory'])  # invalid value
         assert result.exit_code != 0
@@ -519,7 +523,7 @@ class Test(object):
 
         result = run_cli_download(advanced_settings={})  # remove an opt. param.
         assert result.exit_code != 0
-        assert 'Error: Missing value for "advanced_settings.download_blocksize"' \
+        assert 'Error: Missing value for "advanced_settings.traveltimes_model"' \
                in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
         assert db.session.query(Download).count() == dcount
