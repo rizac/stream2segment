@@ -127,17 +127,23 @@ def shared_colnames(table, dataframe, pkey=None, fkey=None, nullable=None):
             yield colname
 
 
-def dropnulls(table, dataframe, inplace=True):
+def dropnulls(table, dataframe):
     """Drop rows of dataframe which contain invalid NA/None, i.e. whose table
-    colum is not nullable. Consider calling `harmonize_cols` first to make sure
-    the column values align with the table column types
-
-    :param inplace: argument to be passed to pandas `dropna`
+    column is not nullable. Consider calling `harmonize_columns` first to make sure
+    that all Nulls (pandas NA) are properly set. Note that if some column
+    is dropped, then int and boolean columns might be casted again after dropping
     """
     non_nullable_cols = list(shared_colnames(table, dataframe, nullable=False))
     if non_nullable_cols:
-        return dataframe.dropna(subset=non_nullable_cols, axis=0, inplace=inplace)
-    return None if inplace else dataframe
+        oldlen = len(dataframe)
+        dataframe = dataframe.dropna(subset=non_nullable_cols, axis=0, inplace=False)
+        if oldlen > len(dataframe):
+            # Cast bools and ints as they might have been object:
+            for col in non_nullable_cols:
+                dtype = get_dtype(getattr(table, col).type)
+                if dtype in (np.int64, np.bool_):
+                    dataframe[col] = dataframe[col].astype(dtype, copy=False)
+    return dataframe
 
 
 def harmonize_columns(table, dataframe):

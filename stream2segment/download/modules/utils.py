@@ -289,65 +289,46 @@ def dblog(table, inserted, not_inserted, updated=0, not_updated=0):
         dolog(updated, not_updated, "%d %s updated", ", %d discarded")
 
 
-def response2normalizeddf(url, raw_data, dbmodel_key):
+def get_dataframe_from_fdsn(response_str, query_type, url=''):
     """Return a normalized and harmonized dataframe from raw_data. dbmodel_key
     can be 'event' 'station' or 'channel'. Raises ValueError if the resulting
     dataframe is empty or if a `ValueError` is raised from sub-functions
 
-    :param url: URL (string) or `Request` object. Used only to log the
+    :param response_str: the response content of a FDSN query, in str format. For
+        info see https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf#page=12
+    :param query_type: a string denoting the web service type:
+        "event", "station" (for a station query with parameter level=station)
+        or "channel" (for a station query with parameter level=channel)
+    :param url: URL (string) or `Request` object. Optional, used only to log the
         specified URL in case of warnings
-    :param raw_data: valid FDSN data in text format. For info see:
-        https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf#page=12
     """
-    dframe = pd.read_csv(StringIO(raw_data), sep='|', header=None, comment='#')
-    oldlen, dframe = len(dframe), normalize_fdsn_dframe(dframe, dbmodel_key)
+    # read csv but do not let pandas infer data types (`_harmonize_columns` does that
+    # later): `dtype=str` reads everything as strings (this prevents `event_id`s in
+    # catalogs to be inadvertently casted as int), `na_values` + `keep_default_na` reads
+    # empty cells as "" (this prevents channels `location` to be NULL and the relative
+    # row to be dropped in `_harmonize_columns` because NULL is not allowed)
+    dframe = pd.read_csv(StringIO(response_str), sep='|', header=None, comment='#',
+                         dtype=str, keep_default_na=False,
+                         na_values=['#N/A', '#NA', '-NaN', '-nan', '<NA>', 'N/A', 'NA',
+                                    'NULL', 'NaN', 'n/a', 'nan', 'null'])
+    # however
+    oldlen = len(dframe)
+    dframe = _rename_columns(dframe, query_type)
+    dframe = _harmonize_fdsn_dframe(dframe, query_type)
+    if dframe.empty:
+        raise ValueError("Malformed data (e.g., type mismatch, NaN)")
     # stations_df surely not empty:
     if oldlen > len(dframe):
+        dframe = dframe.copy()
         logger.warning(formatmsg("%d row(s) discarded",
                                  "malformed text data", url),
                        oldlen - len(dframe))
     return dframe
 
 
-def normalize_fdsn_dframe(dframe, query_type):
-    """Call `rename_columns` and `harmonize_fdsn_dframe`. The returned
-    Dataframe has the first N columns with normalized names according to
-    `query` and correct data types (rows with unparsable values, e.g. NaNs, are
-    removed). The data frame is ready to be saved to the internal database
-
-    :param dframe: the dataframe resulting from a FDSN query
-    :param query_type: either 'event', 'channel', 'station'
-    :return: a new dataframe, whose length is <= `len(dframe)`
-    :raise: ValueError in case of errors, e.g., mismatching column number, or
-        the returning Dataframe is empty, e.g. **all** rows have at least one
-        invalid value
-    """
-    dframe = rename_columns(dframe, query_type)
-    ret = harmonize_fdsn_dframe(dframe, query_type)
-    if ret.empty:
-        raise ValueError("Malformed data (e.g., type mismatch, NaN)")
-    return ret
-
-
-def rename_columns(query_df, query_type):
-    """Rename the columns of `query_df` according to the "standard" expected
-    column names given by query_type, so that IO operation with the database
-    are not suffering naming mismatch (e.g., non matching cases). If the
-    number of columns of `query_df` does not match the number of expected
-    columns, a `ValueError` is raised. The assumption is that any datacenter
-    returns the *same* column in the *same* position, as guessing columns by
-    name might be tricky (there is not only a problem of case sensitivity, but
-    also of e.g. "#Network" vs "network". <-Ref needed!)
-
-    :param query_df: the DataFrame resulting from an fdsn query, either events
-        station (level=station) or station (level=channel)
-    :param query_type: a string denoting the query type whereby `query_df` has
-        been generated and determining the expected column names, so that
-        `query_df` columns will be renamed accordingly. Possible values are
-        "event", "station" (for a station query with parameter level=station)
-        or "channel" (for a station query with parameter level=channel)
-
-    :return: a new DataFrame with columns correctly renamed
+def _rename_columns(query_df, query_type):
+    """Rename the columns of `query_df` according to the ORM model representing
+    the FDSN query type ('event', 'station', 'channel') originating the data frame
     """
     if query_df.empty:
         return query_df
@@ -416,14 +397,9 @@ def rename_columns(query_df, query_type):
     return ret
 
 
-def harmonize_fdsn_dframe(query_df, query_type):
+def _harmonize_fdsn_dframe(query_df, query_type):
     """Harmonize the query dataframe (convert to dataframe dtypes, removes
-    NaNs and so on) according to query_type.
-
-    :param query_df: a query dataframe *on which `rename_columns` has already
-        been called*
-    :param query_type: either 'event', 'channel', 'station'
-    :return: a new dataframe with only the good values
+    NaNs and so on) according to query_type ('event', 'station', 'channel').
     """
     if query_df.empty:
         return query_df
@@ -434,14 +410,14 @@ def harmonize_fdsn_dframe(query_df, query_type):
         fdsn_model_classes = [Station]
     elif query_type.lower() in ("channel", "channels"):
         fdsn_model_classes = [Station, Channel]
+    else:
+        return query_df
 
     # convert columns to correct dtypes (datetime, numeric etcetera). Values
     # not conforming will be set to NaN or NaT or None, thus detectable via
     # pandas.dropna or pandas.isnull
     for fdsn_model_class in fdsn_model_classes:
         query_df = harmonize_columns(fdsn_model_class, query_df)
-        # we might have NA values (NaNs) after harmonize_columns, now
-        # drop the rows with NA rows (NA for columns which are non-nullable):
         query_df = dropnulls(fdsn_model_class, query_df)
 
     return query_df

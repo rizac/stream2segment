@@ -1180,11 +1180,8 @@ class Test(object):
 
         # check harmonize rows: invalid rows should be removed (we have 1 invalid row)
         oldlen = len(dfx)
-        dfrows = dropnulls(Event, dfx, inplace=False)
+        dfrows = dropnulls(Event, dfx)
         assert len(dfrows) == 0 and len(dfx) == oldlen
-        # check inplace = True
-        dropnulls(Event, dfx, inplace=True)
-        assert len(dfx) == 0
 
         # go on by checking harmonize_columns. FIXME: what are we doing here below?
         dfx = pd.DataFrame(columns=evcolnames,

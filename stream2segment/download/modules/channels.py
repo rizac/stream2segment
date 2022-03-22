@@ -19,7 +19,7 @@ from stream2segment.io.cli import get_progressbar
 from stream2segment.io.db.pdsql import dbquery2df, shared_colnames, mergeupdate
 from stream2segment.download.db.models import DataCenter, Station, Channel
 from stream2segment.download.url import Request  # this handles py2+3 compatibility
-from stream2segment.download.modules.utils import (read_async, response2normalizeddf,
+from stream2segment.download.modules.utils import (read_async, get_dataframe_from_fdsn,
                                                    dbsyncdf, formatmsg,
                                                    logwarn_dataframe, strconvert)
 from stream2segment.download.exc import FailedDownload
@@ -66,7 +66,7 @@ def get_channels_df(session, datacenters_df, eidavalidator, net, sta, loc, cha,
                 logger.warning(formatmsg("Unable to fetch stations", exc, url))
             else:
                 try:
-                    dframe = response2normalizeddf(url, result[0], "channel")
+                    dframe = get_dataframe_from_fdsn(result[0], "channel", url)
                     if not dframe.empty:
                         dframe[Station.datacenter_id.key] = dcen_id
                         ret.append(dframe)

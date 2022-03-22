@@ -30,7 +30,7 @@ from stream2segment.download.modules.events import (get_events_df, isf2text_iter
                                                     ERR_FETCH_FDSN, ERR_FETCH_ISF,
                                                     ERR_READ_FDSN, ERR_READ_ISF,
                                                     ERR_FETCH, ERR_FETCH_NODATA)
-from stream2segment.download.modules.utils import response2normalizeddf, urljoin
+from stream2segment.download.modules.utils import get_dataframe_from_fdsn, urljoin
 from stream2segment.download.exc import FailedDownload, NothingToDownload
 from stream2segment.download.url import URLError, HTTPError, responses
 from stream2segment.resources import get_templates_fpath
@@ -712,15 +712,14 @@ class Test(object):
         # http://www.isc.ac.uk/fdsnws/event/1/query?starttime=2011-01-08T00:00:00&endtime=2011-01-08T00:05:00&format=isf
         isc_req_file = 'event_request_sample_isc.isf'
 
-        iris_df = response2normalizeddf('',
-                                        data.read(iris_req_file).decode('utf8'),
-                                        'event')
+        iris_df = get_dataframe_from_fdsn(data.read(iris_req_file).decode('utf8'),
+                                          'event')
         ret = []
         with open(data.path(isc_req_file)) as opn:
             for lst in isf2text_iter(opn, 'ISC', 'ISC'):
                 ret.append('|'.join(lst))
 
-        isc_df = response2normalizeddf('', '\n'.join(ret), 'event')
+        isc_df = get_dataframe_from_fdsn('\n'.join(ret), 'event')
 
         # sort values
         iris_df.sort_values(by=[Event.contributor_id.key], inplace=True)
@@ -761,7 +760,9 @@ class Test(object):
         for col in iris_df.columns:
             if col not in (Event.event_id.key, # Event.time.key,
                            Event.event_location_name.key,):
-                assert (iris_df[col].values == isc_df[col].values).all()
+                notna1, notna2 = iris_df[col].notna(), isc_df[col].notna()
+                assert (notna1 == notna2).all()
+                assert (iris_df[col][notna1].values == isc_df[col][notna2].values).all()
 
     @patch('stream2segment.download.modules.events.urljoin', side_effect=urljoin)
     def test_get_events_response_has_one_col_more(self, mock_urljoin, db):

@@ -17,7 +17,7 @@ import pandas as pd
 
 from stream2segment.io import StringIO  # <- io.StringIO py2 compatible
 from stream2segment.io.cli import get_progressbar
-from stream2segment.download.modules.utils import (dbsyncdf, response2normalizeddf,
+from stream2segment.download.modules.utils import (dbsyncdf, get_dataframe_from_fdsn,
                                                    formatmsg,
                                                    EVENTWS_MAPPING, strptime, urljoin)
 from stream2segment.download.exc import FailedDownload, NothingToDownload
@@ -118,7 +118,7 @@ def events_df_list(url, evt_query_args, start, end, timeout=15, show_progress=Fa
     for url_, data in urls_and_data:
         # data surely not empty, FDSN formatted
         try:
-            pd_df_list.append(response2normalizeddf(url_, data, "event"))
+            pd_df_list.append(get_dataframe_from_fdsn(data, "event", url_))
         except Exception as exc:
             msg = ERR_READ_FDSN if is_local_file else ERR_FETCH_FDSN
             if is_local_file or len(urls_and_data) == 1:  # raise:
