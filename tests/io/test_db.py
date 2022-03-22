@@ -21,8 +21,7 @@ from stream2segment.download.modules.stations import compress
 from stream2segment.process.db.models import Event, WebService, Channel, Station, \
     DataCenter, Segment, Class, Download, ClassLabelling
 from stream2segment.io.db.models import withdata, MINISEED_READ_ERROR_CODE
-from stream2segment.io.db.pdsql import harmonize_rows, _harmonize_columns,\
-    harmonize_columns
+from stream2segment.io.db.pdsql import harmonize_rows, harmonize_columns
 from stream2segment.io.db.inspection import colnames
 from stream2segment.process.db.models import get_inventory_from_bytes
 from stream2segment.process.db.sqlevalexpr import exprquery
@@ -1131,10 +1130,9 @@ class Test(object):
         colx = 'iassdvgdhrnjynhnt_________'
         df.insert(0, colx, 1)
 
-        cnames, df2 = _harmonize_columns(Event, df)
-
-        # colx is not part of the Event model:
-        assert colx not in cnames
+        df2 = harmonize_columns(Event, df)
+        # colx is part of the Event model, but unchanged:
+        assert colx in df2
 
         # df2 has been modified in place actually:
         assert (df.dtypes == df2.dtypes).all()
@@ -1152,32 +1150,29 @@ class Test(object):
         # assert also other fields are objects (not all of them, just two):
         assert df2types[Event.event_location_name.key] == object
         assert df2types[Event.author.key] == object
-        assert df2types[Event.id.key] == np.float64
-        assert df2types[Event.webservice_id.key] == np.float64
+        assert df2types[Event.id.key] == object  # there are Nones, so no int but object
+        assert df2types[Event.webservice_id.key] == object  # See above
 
         # last two columns where coerced to float cause we had None's. Now try to see
         # if by supplying good values they are coerced to int
         df2bis = df2.copy()
         df2bis.loc[:, Event.id.key] = 64.0
         df2bis.loc[:, Event.webservice_id.key] = 164.0
-        cnames, df2bis = _harmonize_columns(Event, df2bis)
+        df2bis = harmonize_columns(Event, df2bis)
         df2types = df2bis.dtypes
         assert df2types[Event.id.key] == np.int64
         assert df2types[Event.webservice_id.key] == np.int64
-
-        df3 = harmonize_columns(Event, df2)[cnames]  # this calls _harmonize_columns above
-
-        assert colx not in df3.columns
 
         # now try to see with invalid values for floats
         evcolnames = list(colnames(Event))
         dfx = pd.DataFrame(columns=evcolnames,
                            data=[["a" for _ in evcolnames]])
 
-        _harmonize_columns(Event, dfx)
+        harmonize_columns(Event, dfx)
 
         # df2 and dfx should have the same dtypes:
-        assert (dfx.dtypes == df2[cnames].dtypes).all()
+        cols = [c for c in dfx.columns if c in df2.columns]
+        assert (dfx[cols].dtypes == df2[cols].dtypes).all()
 
         # fast check: datetimes and a float field
         assert pd.isnull(dfx.loc[0, Event.time.key])
@@ -1198,7 +1193,7 @@ class Test(object):
         dfx.loc[0, Event.time.key] = utcnow
         dfx.loc[0, Event.latitude.key] = 6.5
 
-        _harmonize_columns(Event, dfx)
+        harmonize_columns(Event, dfx)
         # fast check: datetimes and a float field
         assert pd.notnull(dfx.loc[0, Event.time.key])
         assert pd.isnull(dfx.loc[0, Event.longitude.key])

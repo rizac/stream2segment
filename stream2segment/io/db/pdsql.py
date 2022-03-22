@@ -98,8 +98,8 @@ def get_dtype(sqltype):
         # Caution: np.datetime64 is also a subclass of np.number.
         return np.datetime64
     if isinstance(sqltype, Boolean):
-        return np.bool_
-    return np.object_
+        return np.bool_  # same as np.bool
+    return np.object_  # same as np.object
 
 
 def shared_colnames(table, dataframe, pkey=None, fkey=None, nullable=None):
@@ -150,149 +150,57 @@ def harmonize_rows(table, dataframe, inplace=True):
     return dataframe
 
 
-def harmonize_columns(table, dataframe, parse_dates=None):
+def harmonize_columns(table, dataframe):
     """Make the DataFrame's column types align with the SQL table
     column types. Returns a new dataframe with "correct" types (according to
-    table)
-    Columns which are *not* shared with table columns (assuming dataframe
-    columns are strings) are left as they are. Columns of the table are assumed
-    to be its attribute names (as typed in the code), thus the DataFrame is
-    assumed to have string columns as well. The returned dataframe row numbers
-    is not modified
+    table). If the types already match, no new array is created
+    Dataframe columns not members of the table columns are left as they are
 
     :param table: an ORM model class
+    :param dataframe: the Data frame
     """
-    _, dfr = _harmonize_columns(table, dataframe, parse_dates)
-    return dfr
-
-
-def _harmonize_columns(table, dataframe, parse_dates=None):
-    """Copied and modified from pandas.io.sql:
-    Make the DataFrame's column types align with the SQL table
-    column types. The original dataframe dtypes and values MIGHT be modified
-    in place!
-
-    Modified because it uses pandas.to_numeric when df.as_type fails. It
-    should silently converts all non-numeric non-date values to NaN and NaT
-    respectively, the only drawback is that int types are float64 in case,
-    which **might** be a problem with some SQL backends which require ints
-    and are not casting it. The issue is handled by all method of this modules
-    (for details, see `setpkeys` in case)
-
-    :param parse_dates: a dict of `dataframe` column names which need to be
-        forcibly casted to datetime(s). The dict values can be None (infer the
-        cast format) or a letter in ['D', 'd', 'h', 'm', 's', 'ms', 'us', 'ns']
-        denoting the unit of the column values, if they are numeric. If this
-        parameter is falsy (e.g. None) it defaults to the empty dict
-
-    Original pandas doc:
-    Need to work around limited NA value support. Floats are always
-    fine, ints must always be floats if there are Null values.
-    Booleans are hard because converting bool column with None replaces
-    all Nones with false. Therefore only convert bool if there are no
-    NA values.
-    Datetimes should already be converted to np.datetime64 if supported,
-    but here we also force conversion if required
-    by means of parse_dates (a list of strings denoting the name of the
-    additional columns to be parsed as dates. None by default)
-    """
-    if not parse_dates:
-        parse_dates = {}
-
-    column_names = []  # added by me
-    # note below: it seems that the original pandas module uses Column objects
-    # however, some properties (such as type) are also available in
-    # InstrumentedAttribute (getattr(table, col_name)). So we use the latter
     for col_name in colnames(table):
         sql_col = getattr(table, col_name)
-        # changed, in pandas was: 'sql_col.name', but we want to harmonize
-        # according to the attribute names
+        col_type = get_dtype(sql_col.type)
         try:
             df_col = dataframe[col_name]
             # the type the dataframe column should have
-            col_type = get_dtype(sql_col.type)
-
-            if col_type is datetime or col_type is date:
-                # (removed `or col_type is DatetimeTZDtype` from the if above)
-                dataframe[col_name] = _handle_date_column(df_col)
-
-            elif col_type is float:
-                # floats support NA, can always convert!
-                # BUT: if we have non-numeric non-NaN values, this fails, so
-                # we fall back to pd.to_numeric
-                try:
-                    dataframe[col_name] = df_col.astype(col_type, copy=False)
-                except ValueError:
-                    # failed, use to_numeric coercing to None on errors
-                    # this also sets the column dtype to float64
-                    dataframe[col_name] = pd.to_numeric(df_col, errors='coerce')
-            elif col_type is np.dtype('int64'):
-                # integers. Try with normal way. The original code checked
-                # NaNs like this: if len(df_col) == df_col.count():
-                # but this raises on e.g., non numeric strings, which we want
-                # to convert to NaN. So, try the "normal way":
+            if col_type == np.datetime64:
+                format_ = 's' if issubclass(df_col.dtype.type, np.number) else None
+                # let's assume utc and then remove tz info so comparison to "standard"
+                # Python date-times (i.e., with no tzinfo) is possible
+                dataframe[col_name] = pd.to_datetime(df_col, errors='coerce',
+                                                     format=format_,
+                                                     utc=True).dt.tz_localize(None)
+            elif col_type == np.float64:
                 try:
                     dataframe[col_name] = df_col.astype(col_type, copy=False)
                 except (TypeError, ValueError):
-                    # failed, use to_numeric coercing to None on errors
-                    # this also sets the column dtype to float64
                     dataframe[col_name] = pd.to_numeric(df_col, errors='coerce')
-            elif col_type is bool:
-                # boolean seems to convert without errors but
-                # converts NaN's to True, None to False. So, for preserving
-                # None's and NaN:
-                bool_col = df_col.astype(col_type, copy=False)
-                # in the presence of Nones, the line below will convert type
-                # from bool to float
-                # to account for Nones (stored as nans):
-                na = pd.isnull(df_col)
-                if na.any():
-                    bool_col[pd.isnull(df_col)] = None
-                    bool_col = pd.to_numeric(bool_col, errors='coerce')
-
-                dataframe[col_name] = bool_col
-
-            # OLD CODE (commented out):
-#             elif len(df_col) == df_col.count():
-#                 # No NA values, can convert ints and bools
-#                 if col_type is np.dtype('int64') or col_type is bool:
-#                     dataframe[col_name] = df_col.astype(
-#                         col_type, copy=False)
-
-            # Handle date parsing. Try to get if it is a dict, in that case
-            # use the values as the format argument, otherwise use None:
-            if col_name in parse_dates:
+            elif col_type in (np.bool_, np.int64):
                 try:
-                    fmt = parse_dates[col_name]
-                except TypeError:
-                    fmt = None
-                dataframe[col_name] = _handle_date_column(df_col, format=fmt)
-
-            column_names.append(col_name)  # added by me
+                    dataframe[col_name] = df_col.astype(col_type, copy=False)
+                except (TypeError, ValueError):
+                    # We have NA, i.e. non castable values. Use `to_numeric` that
+                    # casts Na to NaN by converting the dtype to float
+                    dataframe[col_name] = pd.to_numeric(df_col, errors='coerce')
+                    # now keep track of the NaNs indices:
+                    invalid = pd.isna(dataframe[col_name]) if col_type == np.int64 else \
+                        (~dataframe[col_name].isin([0, 1]))
+                    # Temporarily set as 0 the NaNs, so casting later is feasible:
+                    dataframe.loc[invalid, col_name] = 0
+                    # Cast to our type and then to object (wht? see later)
+                    dataframe[col_name] = \
+                        dataframe[col_name].astype(col_type).astype(object)
+                    # Reset back `None`s in place of our NaN (NaN is invalid SQL type).
+                    # Note that the operation below applied on an array of type int/bool
+                    # would upcast the array type to float, converting None to NaNs.
+                    # Hence we need to apply it on an array iof dtype object:
+                    dataframe.loc[invalid, col_name] = None
         except KeyError:
             pass  # this column not in results
 
-    return column_names, dataframe
-
-
-def _handle_date_column(col, format=None):  # noqa
-    """Modified from `pandas.io.sql._handle_date_column` for parsing
-    datetime(s) which are supposed to be in UTC.
-
-    :param col: pandas Series or numpy array with values to be cated to datetime
-    :param format: either None (in that case the column values are supposed to
-        be parsable as datetime) or a string in
-        ['D', 'd', 'h', 'm', 's', 'ms', 'us', 'ns'] denoting the unit of `col`,
-        in which case `col` must be numeric. If `col` is numeric and `format`
-        is None, then `format` defaults to 's' (seconds)
-    """
-    if format is None and (issubclass(col.dtype.type, np.floating) or
-                           issubclass(col.dtype.type, np.integer)):
-        format = 's'  # @ReservedAssignment
-    return pd.to_datetime(col, errors='coerce', format=format, utc=True).dt.tz_localize(None)
-    # if format in ['D', 'd', 'h', 'm', 's', 'ms', 'us', 'ns']:  FIXME REMOVE
-    #     return pd.to_datetime(col, errors='coerce', unit=format)
-    # return pd.to_datetime(col, errors='coerce', format=format)
+    return dataframe
 
 
 def _get_max(session, numeric_column):
@@ -1020,7 +928,7 @@ def dfrowiter(dataframe, columns=None):
         if series.dtype.kind == "M":
             d = series.dt.to_pydatetime()
         else:
-            d = series.values.astype(object)
+            d = series.values.astype(object, copy=False)
 
         # assert isinstance(d, np.ndarray), type(d)
 
