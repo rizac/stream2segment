@@ -179,7 +179,7 @@ def get_metadata(segment_id=None):
         'channel': lambda attr: True,
         'datacenter': lambda attr: attr in {'id', 'dataselect_url'},
         'download': lambda attr: attr in {'id', 'run_time'},
-        'classes': lambda attr: attr in {'id', 'label', 'description'},
+        'classes': lambda attr: False  # attr in {'id', 'label', 'description'},
     }
 
     if segment:

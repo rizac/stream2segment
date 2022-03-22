@@ -224,18 +224,19 @@ def get_segment_help(format='html', maxwidth=79, **print_kwargs):
         # ["download", "object (attributes below): the download execution"],
         ["download.id", "int"],
         ["download.run_time", "datetime.datetime"],
-        ["classes.id", "int: the id(s) of the class labels assigned to the segment"],
-        ["classes.label", "int: the unique name(s) of the class labels assigned to "
-                          "the segment"],
-        ["classes.description", "int: the description(s) of the class labels "
-                                "assigned to the segment"],
         # attrs mapped to None are ignored:
-        ["station.inventory_xml", None], # bytes
-        ["download.log", None], # str
-        ["download.warnings", None], # int
-        ["download.errors", None], # int
-        ["download.config", None], # str
-        ["download.program_version", None], # str
+        ["classes.id", None],  # "int: the id(s) of the class labels assigned to
+                               # the segment"],
+        ["classes.label", None],  # "int: the unique name(s) of the class labels
+                                  # assigned to  the segment"],
+        ["classes.description", None],  # "int: the description(s) of the class labels
+                                        #  assigned to the segment"],
+        ["station.inventory_xml", None],  # bytes
+        ["download.log", None],  # str
+        ["download.warnings", None],  # int
+        ["download.errors", None],  # int
+        ["download.config", None],  # str
+        ["download.program_version", None],  # str
     ]
 
     # Prepare a list of strings (aname, socstring) tuples:
@@ -249,7 +250,7 @@ def get_segment_help(format='html', maxwidth=79, **print_kwargs):
     table += [('**Standard attributes or methods**', '**Description**')]
     # Define the main attributes/methods to be shown first (those not listed
     # below will simply be shown next):
-    _MAIN_ATTS = ('stream', 'inventory', 'url', 'sds_path', 'dbsession')
+    _MAIN_ATTS = ('stream', 'inventory', 'url', 'sds_path', 'dbsession', 'classlabels')
     # Before looping through the Segment class, define what to skip:
     skip_attrs = set(attnames(Segment)) | {'metadata'}  # <- reserved att names
     signatures = {}

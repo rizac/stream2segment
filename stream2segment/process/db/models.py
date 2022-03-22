@@ -292,11 +292,16 @@ class Segment(Base, models.Segment):
         return self.classes.count()  # len(self.classes) > 0
 
     @classlabels_count.expression
-    def classlabels_count(cls):  # pylint:disable=no-self-argument
-        # return cls.classes.any()
+    def classlabels_count(cls):  # noqa
         return select([func.count(ClassLabelling.id)]).\
             where(ClassLabelling.segment_id == cls.id).\
             label('classlabels_count')
+
+    @property
+    def classlabels(self):
+        """Return a sorted list of strings denoting the class labels assigned to this
+        segment"""
+        return sorted(_.label for _ in self.classes.options(load_only(Class.label)))
 
     def sds_path(self, root='.'):
         """Return a string representing the SeisComP data structure

@@ -735,6 +735,10 @@ class Test(object):
         assert all(q.classlabels_count > 0 for q in db.session.query(Segment).filter(Segment.classlabels_count > 0))
         assert all(q.classlabels_count == 0 for q in db.session.query(Segment).
                    filter(Segment.classlabels_count == 0))  # pylint: disable=invalid-unary-operand-type
+        assert all(len(q.classlabels) > 0 for q in
+                   db.session.query(Segment).filter(Segment.classlabels_count > 0))
+        assert all(len(q.classlabels) == 0 for q in
+                   db.session.query(Segment).filter(Segment.classlabels_count == 0))
 
         # Test exprquery with classes (have a look above at the db classes):
         a = exprquery(db.session.query(Segment.id), {"classes.id": '56'})
