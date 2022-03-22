@@ -622,6 +622,10 @@ class Segment(Base, models.Segment):
     channel = relationship("Channel", backref=backref("segments",
                                                       lazy="dynamic"))
     # (station relationship is implemented in superclass, as it's needed for download)
+
+    # `classes` below is kind-of private, because exposing it in selection expression is
+    # complex (it is the only many-to-many relationship) and also in most case redundant,
+    # as users is generally interested to have the labels only (see `self.classlabels`):
     classes = relationship("Class",  lazy='dynamic',  # viewonly=True,
                            # `secondary` must be table name in metadata:
                            secondary="class_labellings",
