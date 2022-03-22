@@ -31,8 +31,7 @@ import pandas as pd
 import psutil
 
 from stream2segment.io.db.models import MINISEED_READ_ERROR_CODE
-from stream2segment.io.db.pdsql import harmonize_columns, \
-    harmonize_rows, syncdf
+from stream2segment.io.db.pdsql import harmonize_columns, dropnulls, syncdf
 from stream2segment.io.db.inspection import colnames
 from stream2segment.download.db.models import Event, Station, Channel
 from stream2segment.download.exc import FailedDownload
@@ -443,7 +442,7 @@ def harmonize_fdsn_dframe(query_df, query_type):
         query_df = harmonize_columns(fdsn_model_class, query_df)
         # we might have NA values (NaNs) after harmonize_columns, now
         # drop the rows with NA rows (NA for columns which are non-nullable):
-        query_df = harmonize_rows(fdsn_model_class, query_df)
+        query_df = dropnulls(fdsn_model_class, query_df)
 
     return query_df
 

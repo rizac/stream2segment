@@ -127,27 +127,17 @@ def shared_colnames(table, dataframe, pkey=None, fkey=None, nullable=None):
             yield colname
 
 
-def harmonize_rows(table, dataframe, inplace=True):
-    """Make the DataFrame's rows align with the SQL table column nullable value.
-    That is, removes the dataframe rows which are NA (None, NaN or NaT) for
-    those values corresponding to `table` columns which were set to not be Null
-    (nullable=False). Non nullable table attributes (reflecting db table
-    columns)  not present in dataframe columns are not accounted for: in other
-    words, the non-nullable condition on the dataframe is set for those columns
-    only which have a corresponding name in any of the table attributes.
-    Consider calling `harmonize_cols` first to make sure the column values
-    align with the table column types
+def dropnulls(table, dataframe, inplace=True):
+    """Drop rows of dataframe which contain invalid NA/None, i.e. whose table
+    colum is not nullable. Consider calling `harmonize_cols` first to make sure
+    the column values align with the table column types
 
     :param inplace: argument to be passed to pandas `dropna`
     """
     non_nullable_cols = list(shared_colnames(table, dataframe, nullable=False))
-    # `dropna` below accepts also generators, so list(...) is only used
-    # to check if we have elements:
     if non_nullable_cols:
-        tmp = dataframe.dropna(subset=non_nullable_cols, axis=0, inplace=inplace)
-        if not inplace:  # if inplace, tmp is None and dataframe has been modified
-            dataframe = tmp
-    return dataframe
+        return dataframe.dropna(subset=non_nullable_cols, axis=0, inplace=inplace)
+    return None if inplace else dataframe
 
 
 def harmonize_columns(table, dataframe):

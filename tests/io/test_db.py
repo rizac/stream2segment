@@ -21,7 +21,7 @@ from stream2segment.download.modules.stations import compress
 from stream2segment.process.db.models import Event, WebService, Channel, Station, \
     DataCenter, Segment, Class, Download, ClassLabelling
 from stream2segment.io.db.models import withdata, MINISEED_READ_ERROR_CODE
-from stream2segment.io.db.pdsql import harmonize_rows, harmonize_columns
+from stream2segment.io.db.pdsql import dropnulls, harmonize_columns
 from stream2segment.io.db.inspection import colnames
 from stream2segment.process.db.models import get_inventory_from_bytes
 from stream2segment.process.db.sqlevalexpr import exprquery
@@ -1180,11 +1180,11 @@ class Test(object):
 
         # check harmonize rows: invalid rows should be removed (we have 1 invalid row)
         oldlen = len(dfx)
-        dfrows = harmonize_rows(Event, dfx, inplace=False)
+        dfrows = dropnulls(Event, dfx, inplace=False)
         assert len(dfrows) == 0 and len(dfx) == oldlen
         # check inplace = True
-        dfrows = harmonize_rows(Event, dfx, inplace=True)
-        assert len(dfrows) == len(dfx) == 0
+        dropnulls(Event, dfx, inplace=True)
+        assert len(dfx) == 0
 
         # go on by checking harmonize_columns. FIXME: what are we doing here below?
         dfx = pd.DataFrame(columns=evcolnames,
