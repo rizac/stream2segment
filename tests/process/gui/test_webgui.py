@@ -282,7 +282,7 @@ class Test(object):
             assert sum(_[0].startswith('channel.') for _ in a2) > 1
             assert sum(_[0].startswith('event.') for _ in a2) > 1
             assert sum(_[0].startswith('station.') for _ in a2) > 1
-            assert sum(_[0].startswith('classes.') for _ in a2) > 1
+            assert sum(_[0].startswith('classes.') for _ in a2) == 0  # no classes selection allowed
             # fake method does not have a python type, not returned:
             assert not any(_[0] == '_fake_method' for _ in a2)
     
