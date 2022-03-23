@@ -1,1 +1,5 @@
 recursive-include stream2segment/resources *
+recursive-include stream2segment/downloaad/db/inspection/static *
+recursive-include stream2segment/downloaad/db/inspection/templates *
+recursive-include stream2segment/process/gui/webapp/static *
+recursive-include stream2segment/process/gui/webapp/templates *
