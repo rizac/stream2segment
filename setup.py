@@ -104,7 +104,7 @@ setup(
                       'numpy>=1.13.1',
                       # 'h5py>=2.10.0',
                       # 'numexpr>=2.7.0',
-                      # 'tables>=3.5.2',
+                      'tables>=3.5.2',
                       'pandas>=0.20.3',
                       'obspy>=1.0.3',
                       'Flask>=0.12.3',
