@@ -1,1 +1,2 @@
 recursive-include stream2segment/resources *
+include version
