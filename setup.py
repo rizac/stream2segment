@@ -74,10 +74,12 @@ setup(
         # 'Programming Language :: Python :: 3.2',
         # 'Programming Language :: Python :: 3.3',
         # 'Programming Language :: Python :: 3.4',
-        'Programming Language :: Python :: 3.5',
+        # 'Programming Language :: Python :: 3.5',
         'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',
+        'Programming Language :: Python :: 3.9',
+        'Programming Language :: Python :: 3.10',
     ],
 
     # What does your project relate to?
@@ -102,13 +104,10 @@ setup(
     # numpy must be therefore installed separately, and we write:
     install_requires=['PyYAML>=3.12',
                       'numpy>=1.13.1',
-                      # 'h5py>=2.10.0',
-                      # 'numexpr>=2.7.0',
                       'tables>=3.5.2',
                       'pandas>=0.20.3',
                       'obspy>=1.0.3',
                       'Flask>=0.12.3',
-                      # 'futures==3.1.1',
                       'psycopg2>=2.7.3.1',
                       'psutil>=5.3.1',
                       'SQLAlchemy>=1.1.14,<1.4',
