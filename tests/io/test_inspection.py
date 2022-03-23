@@ -7,7 +7,7 @@ from sqlalchemy.ext.hybrid import hybrid_property
 
 import stream2segment.io.db.inspection as insp
 from stream2segment.io.db.inspection import get_related_models
-from stream2segment.process.db.models import Segment
+from stream2segment.io.db.models import Segment
 
 
 def test_attnames():

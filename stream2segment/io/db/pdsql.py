@@ -174,7 +174,19 @@ def harmonize_columns(table, dataframe):
                     dataframe[col_name] = df_col.astype(col_type, copy=False)
                 except (TypeError, ValueError):
                     dataframe[col_name] = pd.to_numeric(df_col, errors='coerce')
-            elif col_type in (np.bool_, np.int64):
+            elif col_type  == np.bool_:
+                # bool does not raise, but converts None to False, everything "truthy"
+                # to True. So first store nulls, if any:
+                invalid = pd.isna(df_col)
+                dataframe[col_name] = df_col.astype(col_type, copy=False)
+                if invalid.any():
+                    # convert to object otherwise the next operation upcasts the column
+                    # datat type to float:
+                    dataframe[col_name] = dataframe[col_name].astype(object)
+                    # Reset back `None`s:
+                    dataframe.loc[invalid, col_name] = None
+            elif col_type == np.int64:
+                # int is more strict than bool, and does not coerce invaldi values, So:
                 try:
                     dataframe[col_name] = df_col.astype(col_type, copy=False)
                 except (TypeError, ValueError):
@@ -182,15 +194,14 @@ def harmonize_columns(table, dataframe):
                     # casts Na to NaN by converting the dtype to float
                     dataframe[col_name] = pd.to_numeric(df_col, errors='coerce')
                     # now keep track of the NaNs indices:
-                    invalid = pd.isna(dataframe[col_name]) if col_type == np.int64 else \
-                        (~dataframe[col_name].isin([0, 1]))
+                    invalid = pd.isna(dataframe[col_name])
                     # Temporarily set as 0 the NaNs, so casting later is feasible:
                     dataframe.loc[invalid, col_name] = 0
                     # Cast to our type and then to object (wht? see later)
                     dataframe[col_name] = \
                         dataframe[col_name].astype(col_type).astype(object)
                     # Reset back `None`s in place of our NaN (NaN is invalid SQL type).
-                    # Note that the operation below applied on an array of type int/bool
+                    # Note that the operation below applied on an array of type int
                     # would upcast the array type to float, converting None to NaNs.
                     # Hence we need to apply it on an array iof dtype object:
                     dataframe.loc[invalid, col_name] = None

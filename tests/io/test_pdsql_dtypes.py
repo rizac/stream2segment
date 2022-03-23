@@ -11,8 +11,7 @@ import numpy as np
 import pytest
 import pandas as pd
 from sqlalchemy.ext.declarative.api import declarative_base
-from sqlalchemy import Column, Integer, String, LargeBinary, DateTime, Float, \
-    Boolean, INTEGER
+from sqlalchemy import Column, Integer, String, LargeBinary, DateTime, Float, Boolean
 
 from stream2segment.io.db.inspection import colnames
 from stream2segment.io.db.pdsql import insertdf, dbquery2df, harmonize_columns
@@ -125,59 +124,53 @@ class Test(object):
                              'count': None, 'price': None, 'validated': None},
                             {'id': 2, 'name': 'b', 'time': datetime.utcnow(), 'data': b'',
                              'count': 2, 'price': 1.1, 'validated': True}])
-        # as seen above, the dataframe has weird types due to the way pandas infers them:
+        # dfr dtypes (`dfr.dtypes`):
+        # --------------------------
         # id                    int64
         # name                 object
+        # data                 object
         # time         datetime64[ns]
         # count               float64
-        # data                 object
         # price               float64
         # validated            object
 
-        # if we write to the db and we query back
+        # Data types do not perfectly match the Customer table types, but our method
+        # works. In fact if we insert data:
         dfr_pre = self.init_db(db.session, dfr)
         # and we get beck the result:
         dfr_post = dbquery2df(db.session.query(Customer.id, Customer.name, Customer.data,
                                                Customer.time, Customer.count, Customer.price,
                                                Customer.validated))
-        # THen:
-        # id                    int64
-        # name                 object -> pandas stores strings as object
-        # data                 object -> see above (bytes behaves as strings)
-        # time         datetime64[ns] -> ok, inferred from the non-None value (the other is NaT)
-        # count               float64 -> pandas cannot handle int+None, defaults to float + nan
-        # price               float64 -> ok, inferred from the non-None value (the other is nan)
-        # validated            object -> pandas cannot handle bool+None, defaults to obj
+        # We have the two rows above
+        assert len(dfr_post) == 2
 
-        dtypes_pre = dfr_post.dtypes
-        dfr_post2 = harmonize_columns(Customer, dfr_post.copy())
-        dtypes_post = dfr_post2.dtypes
-
-        # The conversion did converted only boolean because None values had to be handled
+        # Now, dfr dtypes (`dfr_post.dtypes`) are the same as above:
+        # ---------------------------------------------------------
         # id                    int64
         # name                 object
         # data                 object
         # time         datetime64[ns]
         # count               float64
         # price               float64
-        # validated           float64 -> boolean
+        # validated            object
 
-        # let's check that:
-        assert all(dfr_post[c].dtype == dfr_post2[c].dtype for c in dfr_post.columns
-                   if c != 'validated')
-        assert dfr_post['validated'].dtype == object
-        assert dfr_post2['validated'].dtype == np.dtype('float64')
+        # What happens if we harmonize columns?
+        dfr_post_h = harmonize_columns(Customer, dfr_post.copy())
+        # these two types (bool and int with Nones) have been converted to objects:
+        assert dfr_post_h.validated.dtype == np.object_
+        assert dfr_post_h['count'].dtype == np.object_
+        # the rest is the same:
+        assert all(dfr_post[c].dtype == dfr_post_h[c].dtype for c in dfr_post.columns
+                   if c not in ('count', 'validated'))
 
-#         src_dtypes = dfr.dtypes
-#         dfr2 = self.init_db(db.session, dfr)
-#         assert all([dfr.dtypes[c] == dfr2.dtypes[c] for c in dfr.dtypes.keys()])
-# 
-#         dfr2 = dbquery2df(db.session.query(Customer.id, Customer.name, Customer.data,
-#                                            Customer.time, Customer.count, Customer.price,
-#                                            Customer.validated))
-#         assert dfr2.dtypes['id'] == np.int64
-#         for col in dfr2.dtypes.keys():
-#             assert dfr2.dtypes[col] == (np.int64 if col == 'id' else object)
+        # now we remove the NA column in the int column:
+        dfr_post_h = harmonize_columns(Customer, dfr_post[pd.notnull(dfr_post['count'])].copy())
+        # these two types (bool and int with Nones) have been converted to objects:
+        assert dfr_post_h.validated.dtype == np.bool_
+        assert dfr_post_h['count'].dtype == np.int64
+        # the rest is the same:
+        assert all(dfr_post[c].dtype == dfr_post_h[c].dtype for c in dfr_post.columns
+                   if c not in ('count', 'validated'))
 
     # @mock.patch('stream2segment.io.db.pdsql.dfrowiter', side_effect=_dfrowiter)
     # def test_writing_querying(self, mocked_dfrrowiter, db):
