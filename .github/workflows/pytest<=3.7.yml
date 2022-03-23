@@ -28,7 +28,7 @@ jobs:
       run: |
         pip install --upgrade pip setuptools wheel
         pip install ".[dev]"
-        pip install jupyter
+        pip install jupyter future
     # - name: Cleanup
     #   run: |
     #     find . \( -name '__pycache__' -or -name '*.pyc' \) -delete
