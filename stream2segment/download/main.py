@@ -37,6 +37,8 @@ from stream2segment.download.modules.stations import (save_inventories,
 
 # make the logger refer to the parent of this package (`rfind` below. For info:
 # https://docs.python.org/3/howto/logging.html#advanced-logging-tutorial):
+from stream2segment.resources import get_resource_abspath
+
 logger = logging.getLogger(__name__[:__name__.rfind('.')])
 
 
@@ -405,13 +407,5 @@ def tounicode(string, decoding='utf-8'):
 
 
 def version():
-    dir_ = os.path.abspath(os.path.dirname(__file__))
-    while True:
-        filez = set(os.listdir(dir_))
-        if 'setup.py' in filez and 'version' in filez:
-            with open(os.path.join(dir_, "version")) as _:
-                return _.read().strip()
-        _  = os.path.dirname(dir_)
-        if _ == dir_:  # root
-            raise ValueError('No version file found')
-        dir_ = _
+    with open(get_resource_abspath('program_version')) as _:
+        return _.read().strip()

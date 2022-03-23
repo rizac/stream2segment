@@ -25,7 +25,7 @@ with open(path.join(here, 'README.md'), encoding='utf-8') as f:
 
 # http://stackoverflow.com/questions/2058802/how-can-i-get-the-version-defined-in-setup-py-setuptools-in-my-package
 version = ""
-with open(path.join(here, 'version')) as version_file:
+with open(path.join(here, 'resources', 'program_version')) as version_file:
     version = version_file.read().strip()
 
 setup(
