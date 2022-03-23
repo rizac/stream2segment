@@ -1,2 +1,0 @@
-#!/bin/bash
-pip install --upgrade pip setuptools wheel && pip install `grep numpy ./requirements.dev.txt` && pip install -r ./requirements.dev.txt && pip install -e .
