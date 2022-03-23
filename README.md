@@ -128,15 +128,6 @@ and the required database software. The latter should not needed if you use
 database is already installed remotely, so basically you are concerned only if you
 need to download data locally (on your computer) on a Postgres database.
 
-<!--
-In most packages, the management of required external software is generally left
-to the user, as it depends on too many factors. We try to help collecting
-in this section and in [Installation Notes](#installation-notes) the feedbacks
-from several installations, also be to skip this section and - if you can stand some potential error
-during installation  - handle potential errors
-due to missing software later, in order to have more control on what you
-install or update, and why.
--->
 
 #### macOS
 
@@ -168,11 +159,6 @@ of the necessary packages can be installed with the `apt-get` command:
 ```
 sudo apt-get install git python3-pip python3-dev  # python 3
 ```
-
-<!-- 
-sudo apt-get update
-
-sudo apt-get install git python-pip python2.7-dev  # python 2 -->
 
 <details>
 <summary>Details</summary>
@@ -215,8 +201,6 @@ We strongly recommend to use Python virtual environment,
 because by isolating all Python packages we are about to install,
 we won't create conflicts with already installed packages. 
 
-<!-- * Installation (recommended, but works for Python 3.5+ only) -->
-
 Python (from version 3.3) has a built-in support for virtual environments - venv
 (On Ubuntu, you might need to install it first
 via `sudo apt-get install python3-venv`).
@@ -227,24 +211,6 @@ which makes it usually hidden in Ubuntu).
 ```
 python3 -m venv ./env
 ```
-
-<!--
-* Installation (all Python versions)
-
-	To install Python virtual environment either use
-	[Virtualenvwrapper](http://virtualenvwrapper.readthedocs.io/en/latest/install.html#basic-installation)
-	or the more low-level approach `virtualenv`:
-	```
-	sudo pip install virtualenv
-	```
-	Make virtual environment in an stream2segment/env directory (env is a convention, but
-	it's ignored by git commits so better keep it)
-	 ```
-	virtualenv env
-	 ```
-	(on ubuntu 16.04, we got the message 'virtualenv: Command not found.'.
-	We just typed: `/usr/local/bin/virtualenv env`)
--->
 
 To activate your virtual environment, type:
 
@@ -290,103 +256,39 @@ Activate your virtual environment
      (where you cloned the repository) with your Python virtualenv activated
   - In case of errors, check the [Installation notes below](#installation-Notes)
 
-To install the package, you should run as usual `pip install`, but because
-some required packages must unfortunately be installed in a specific order,
-we implemented a script that handles that and can be invoked exactly as `pip install`:
- 
+To install stream2segment (no jupyter), run:
+```console
+pip install --upgrade pip setuptools wheel && pip install -r ./requirements.txt
 ```
-./pipinstall <options...> .
+
+With jupyter:
+```console
+pip install --upgrade pip setuptools wheel && pip install -r ./requirements.txt && pip install jupyter
 ```
+
+(use `requirements.dev.txt` instead of `requirements.txt` in the command above
+if you want to install also test packages, e.g., you want to contribute to the code 
+and/or run tests)
+
+Note: in older obspy version, numpy needs to be installed first. If you see an error 
+like "you need to install numpy first", open "requirements.txt" and copy the line which
+starts with numpy. Supposing it's `numpy==0.1.12`, then run `pip install numpy==0.1.12` 
+before re-running the `pip install ...` command above
 
 <details>
-<summary>script details (if you want to run each
-`pip install` command separately to have more control)</summary>
+<summary>Why requirements file vs normal `pip install` (click for details)</summary>
 
-`pipinstall` is simply a shorthand for several `pip install` commands, run in these
-specific order:
-
-1. Install pre-requisites as `pip install --upgrade pip setuptools wheel`
-
-1. Install numpy first (this is an obspy requirement): either `pip install numpy` or,
-   if you want to use a requirements file, extracting (e.g. via `grep`) the specific
-   numpy version in the file (e.g. `numpy==1.15.4`), and then executing
-   `pip install numpy==1.15.4`
-
-2. Running `pip install` with *exactly the same arguments* provided to the script. E.g.
-   `pipinstall -e .` executes `pip install -e .` 
+Using a `requirements` file is safer because we listed there the Package versions that
+have passed the CI tests. Instead of `pip install -r ...`, the usual `pip install .` 
+works too, but it will install missing packages in their last versions, which might not 
+have been tested yet. Although we do our best to keep stream2segment updated, we cannot 
+guarantee that the program will work. Consequently, **cecause `pip install` does nothing 
+if a package is already installed, use it when you want to install stream2segment in a 
+virtual environment with already installed extra packages, in order not to break existing 
+code**: with a requirements file, already installed Packages would be **replaced** with
+the version required by stream2segment.
 
 </details>
-
-The `pipinstall` argument `.` means "install this directory" (i.e., stream2segment) and
-can be enhanced with extra packages. For instance, if you want to install Jupyter in order 
-to work with Stream2segment downloaded data in a notebook, then type:
-```
-    ./pipinstall <options...> ".[jupyter]"
-```
-If you want to install additional packages needed for testing (install in dev mode)
-and be able to push code and/or run tests, then type:
-```
-    ./pipinstall <options...> ".[dev]"
-```
-(You can also provide both: `".[dev,jupyter]"`. Quotes were necessary on some
-specific macOS with `zsh`, in other OSs or shell languages might not be needed)
-
-The `<options...>` are the usual `pip install` options. The two more important are usually:
-
- `-e` This [makes the package editable](https://pip.pypa.io/en/stable/reference/pip_install/#install-editable).
-  A typical advantage of an editable package is that when you run `git pull` to fetch a new
-  version that does not need new requirements (e.g. a bugfix), you don't need to reinstall
-  it but the new version will be already available for use
- 
- `-r ./requirements.txt`: install requirements with specific versions. `pip install` by
-  default skips already installed requirements if they satisfy Stream2segment minimum
-  versions. With the `-r` option instead, requirements are installed with "tested" versions
-  (i.e., those "freezed" after successfully running tests), which should generally be safer
-  for obvious reasons. However, some versions in the requirements might not be (yet?) supported
-  in your computer, some might be in conflicts with the requirements of other packages you
-  installed in the virtualenv, if any. You can try this option and then remove it, in case
-  of problems. In any case, do not use this option if you plan to install other
-  stuff alongside stream2segemtn on the virtualenv. 
-  
-  (There is also a `./requirements.dev.txt`
-  that installs also the dev-related packages, similar to `".[dev]"`, but with specific
-  exact versions.
-
-  
-<!--
-Installation first installs all *requirements* (i.e., required external Python
-packages) and then this package, and can be performed in a single command in two ways:
-
-1. If you already have other Python packages installed in the virtual environment, run:
-   ```
-   pip install -e .
-   ```
-   (the -e is optional, [it makes the package editable](https://pip.pypa.io/en/stable/reference/pip_install/#install-editable)). 
-   This does not reinstall already installed requirements if they satisfy Stream2segment
-   minimum versions, and it's therefore generally safer in order to avoid conflicts with
-   existing packages. However, in all other cases requirements are installed with their
-   newest version. Therefore, you might have problems with Stream2segment, if some
-   new untested requirement is used (we do our best to keep
-   everything updated regularly and avoid this case as much as we can).
-
-2. If you plan to only use Stream2segment in an empty virtual environment, run:
-   ```
-   ./installme
-   ```
-   (or `./installme-dev` if you want to contribute and/or run tests to check if the program
-    will likely work in your system). This installs all requirements with specific version
-    "freezed" after successfully running tests, and it's therefore generally safer in order
-    to avoid problems with Stream2segment.
-
-
-##### Install Jupyter (optional)
-
-If you wish to use the program within Jupyter notebooks, jupyter is not included
-in the dependencies. Thus
-```
-pip install jupyter>=1.0.0
-```
--->
 
 **The program is now installed. To double check the program functionalities,
 we suggest to run tests (see below) and report the problem in case of failure.
