@@ -30,6 +30,9 @@ jobs:
         python -m pip install pytest
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
         python -m pip install jupyter
+    - name: Cleanup
+      run: |
+        find . \( -name '__pycache__' -or -name '*.pyc' \) -delete
     #- name: Lint with flake8
     #  run: |
     #    # stop the build if there are Python syntax errors or undefined names
