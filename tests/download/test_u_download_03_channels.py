@@ -346,7 +346,7 @@ level=channel
                                        eidavalidator,
                                        net, sta, loc, cha, None, None, 100,
                                        False, None, None, -1, self.db_buf_size)
-        assert 'timeout' in self.log_msg()
+        assert 'timeout' in self.log_msg() or assert 'TimeoutError' in self.log_msg()
         assert "Fetching stations from database for 2 (of 2) data center(s)" in self.log_msg()
 
         # now mixed case:

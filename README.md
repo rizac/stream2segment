@@ -270,23 +270,30 @@ pip install --upgrade pip setuptools wheel && pip install -r ./requirements.txt 
 if you want to install also test packages, e.g., you want to contribute to the code 
 and/or run tests)
 
-Note: in older obspy version, numpy needs to be installed first. If you see an error 
-like "you need to install numpy first", open "requirements.txt" and copy the line which
-starts with numpy. Supposing it's `numpy==0.1.12`, then run `pip install numpy==0.1.12` 
-before re-running the `pip install ...` command above
+#### Troubleshooting / errors:
 
+- in older ObsPy version, numpy needs to be installed first. If you see an error 
+  like "you need to install numpy first", open "requirements.txt" and copy the line which
+  starts with numpy. Supposing it's `numpy==0.1.12`, then run `pip install numpy==0.1.12` 
+  before re-running the `pip install ...` command above
+
+- in case of a message like `ERROR: No matching distribution found for <package_name>`,
+  try to use `pip install .` (see details below)
+  
 <details>
-<summary>Why requirements file vs normal `pip install` (click for details)</summary>
+<summary>Requirements file vs normal `pip install` (click for details)</summary>
 
-Using a `requirements` file is safer because we listed there the Package versions that
-have passed the CI tests. Instead of `pip install -r ...`, the usual `pip install .` 
-works too, but it will install missing packages in their last versions, which might not 
-have been tested yet. Although we do our best to keep stream2segment updated, we cannot 
-guarantee that the program will work. Consequently, **cecause `pip install` does nothing 
-if a package is already installed, use it when you want to install stream2segment in a 
-virtual environment with already installed extra packages, in order not to break existing 
-code**: with a requirements file, already installed Packages would be **replaced** with
-the version required by stream2segment.
+Using a `requirements` file is safer because we listed there the *exact* versions 
+of the required packages that have passed the CI tests. 
+Instead of `pip install -r ...`, the usual `pip install .` is
+more flexible: it can check and install package versions matching the current Python 
+distribution, and in general does not re-install already installed packages, if they
+match a *minimum* required version. 
+**As such, use `pip install -r` is generally safer, especially on a new, empty virtual 
+environment. However, `pip install .` might be required if you see some matching 
+distribution error (e.g. you use an older Python version), or you are installing 
+stream2segment in a virtual environment with already installed extra packages, 
+and you want to avoid breaking existing code.**
 
 </details>
 
