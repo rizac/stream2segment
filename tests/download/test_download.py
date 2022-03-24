@@ -191,8 +191,6 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # Check if we have an iterable (where strings are considered not iterables):
         if not hasattr(urlread_side_effect, "__iter__") or \
                 isinstance(urlread_side_effect, (bytes, str)):
-            # it's not an iterable (wheere str/bytes/unicode are considered NOT iterable in
-            # both py2 and 3)
             urlread_side_effect = [urlread_side_effect]
 
         for k in urlread_side_effect:
@@ -201,7 +199,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                 a.read.side_effect = HTTPError('url', int(k),  responses[k], None, None)
             elif type(k) in (bytes, str):
                 def func(k):
-                    b = BytesIO(k.encode('utf8') if type(k) == str else k)  # py2to3 compatible
+                    b = BytesIO(k.encode('utf8') if type(k) == str else k)
                     def rse(*a, **v):
                         rewind = not a and not v
                         if not rewind:
@@ -798,11 +796,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         # test a type error in the url_segment_side effect
         db.session.query(Segment).delete()
         assert len(db.session.query(Segment).all()) == 0
-        # there are several error types. E.g.:
-        # errmsg_py2 = '_sre.SRE_Pattern object is not an iterator'  # python2
-        # errmsg_py3 = "'_sre.SRE_Pattern' object is not an iterator"  # python3
-        # errmsg_py37 = "'re.Pattern' object is not an iterator"  # python 3.7
-        # To avoid confusion with future versions, let's check something simple:
+        # Because error msgs might differ across Python dists, loosely check:
         errmsg = " object is not an iterator"
         assert errmsg not in self.log_msg()
         suse = self._seg_urlread_sideeffect  # remainder (reset later)

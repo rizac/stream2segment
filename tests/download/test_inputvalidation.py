@@ -1,10 +1,10 @@
 """
 Created on May 23, 2017
 
-@author: riccardo
+@author: rizac@gfz-potsdam.de
 """
-# as we patch os.path.isfile, this seems to be the correct way to store beforehand
-# the original functions (also in other packages, e.g. pytestdir in conftest does not break):
+# as we patch os.path.isfile, this seems to be the correct way to store beforehand the
+# original functions (also in other packages, e.g. pytestdir in conftest does not break):
 from os.path import isfile, join, dirname
 from datetime import datetime
 from itertools import product
@@ -703,7 +703,8 @@ def test_download_verbosity(mock_run_download, mock_configlog, mock_closesess, m
 
     mock_configlog.side_effect = clogd
 
-    last_known_id = [None]  # stupid hack to assign to out-of-scope var (py2 compatible)
+    last_known_id = [None]  # stupid hack to assign to out-of-scope var
+
     def dblog_err_warn():
         qry = sess.query(Download.id, Download.log, Download.warnings, Download.errors)
         if last_known_id[0] is not None:
@@ -719,7 +720,7 @@ def test_download_verbosity(mock_run_download, mock_configlog, mock_closesess, m
     mock_run_download.side_effect = lambda *a, **v: None
     ret = o_download(d_yaml_file, log2file=False, verbose=False, dburl=dburl)
     out, err = capsys.readouterr()
-    assert not out  # assert empty (avoid comparing to strings and potential py2 py3 headache)
+    assert not out
     log, err, warn = dblog_err_warn()
     assert "N/A: either logger not configured, or " in log
     assert err == 0

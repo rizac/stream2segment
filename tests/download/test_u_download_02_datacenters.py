@@ -145,8 +145,6 @@ ZU * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
         # Check if we have an iterable (where strings are considered not iterables):
         if not hasattr(urlread_side_effect, "__iter__") or \
                 isinstance(urlread_side_effect, (bytes, str)):
-            # it's not an iterable (wheere str/bytes/unicode are considered NOT iterable
-            # in both py2 and 3)
             urlread_side_effect = [urlread_side_effect]
 
         for k in urlread_side_effect:
@@ -155,7 +153,7 @@ ZU * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
                 a.read.side_effect = HTTPError('url', int(k),  responses[k], None, None)
             elif type(k) in (bytes, str):
                 def func(k):
-                    b = BytesIO(k.encode('utf8') if type(k) == str else k)  # py2to3 compatible
+                    b = BytesIO(k.encode('utf8') if type(k) == str else k)
 
                     def rse(*a, **v):
                         rewind = not a and not v

@@ -331,12 +331,10 @@ def test_click_template(mock_main_init, mock_input, pytestdir):
             for key in sourceconfig.keys():
                 assert type(sourceconfig[key]) == type(destconfig[key])
         elif os.path.splitext(fle)[1] == '.py':
-            # check loaded python modules, which also assures our templates are well formed:
+            # check loaded Py modules, which also assures our templates are well formed:
             sourcepy = load_source(sourcepath)
             destpy = load_source(destpath)
-            # avoid comparing "__blabla__" methods as they are intended to be python
-            # 'private' attributes and there are differences between py2 and py3
-            # we want to test OUR stuff is the same
+            # compare module attrs except those starting and ending with '__':
             sourcekeys = [a for a in dir(sourcepy) if (a[:2] + a[-2:]) != "____"]
             destkeys = [a for a in dir(destpy) if (a[:2] + a[-2:]) != "____"]
             assert sorted(sourcekeys) == sorted(destkeys)

@@ -141,8 +141,6 @@ class Test(object):
         # Check if we have an iterable (where strings are considered not iterables):
         if not hasattr(urlread_side_effect, "__iter__") or \
                 isinstance(urlread_side_effect, (bytes, str)):
-            # it's not an iterable (wheere str/bytes/unicode are considered NOT iterable
-            # in both py2 and 3)
             urlread_side_effect = [urlread_side_effect]
 
         for k in urlread_side_effect:
@@ -151,7 +149,7 @@ class Test(object):
                 mymock.read.side_effect = HTTPError('url', int(k),  responses[k], None, None)
             elif type(k) in (bytes, str):
                 def func(k):
-                    bio = BytesIO(k.encode('utf8') if type(k) == str else k)  # py2to3 compatible
+                    bio = BytesIO(k.encode('utf8') if type(k) == str else k)
 
                     def rse(*mymock, **v):
                         rewind = not mymock and not v
