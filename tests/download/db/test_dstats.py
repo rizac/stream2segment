@@ -25,7 +25,7 @@ def readfile(outfile):
         return _.read()
 
 
-class patches(object):
+class patches:
     # paths container for patchers used below. Hopefully
     # will mek easier debug when refactoring/move functions
     open_in_browser = 'stream2segment.download.db.inspection.main.open_in_browser'
@@ -33,7 +33,7 @@ class patches(object):
     get_session = 'stream2segment.download.db.inspection.main.get_session'
 
 
-class Test(object):
+class Test:
 
     # define ONCE HERE THE command name, so if we change it in the cli it will be easier to fix here
     CMD_PREFIX = ['dl', 'stats']

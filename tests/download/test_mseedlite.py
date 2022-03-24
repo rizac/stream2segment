@@ -18,7 +18,7 @@ from stream2segment.download.modules.mseedlite import unpack, _FIXHEAD_LEN, MSee
 @pytest.fixture
 def mock_response_inbytes(data, scope='module'):
 
-    class Return(object):
+    class Return:
 
         def __call__(self, with_gaps=False):
             name = "IA.BAKI..BHZ.D.2016.004.head" if with_gaps else "GE.FLT1..HH?.mseed"

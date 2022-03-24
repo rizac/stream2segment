@@ -18,14 +18,14 @@ from stream2segment.download.db.models import (Event, Station, WebService, Segme
 from stream2segment.download.modules.utils import s2scodes
 
 
-class patches(object):
+class patches:
     # paths container for patchers used below. Hopefully
     # will mek easier debug when refactoring/move functions
     input = 'stream2segment.download.db.management.input'
     get_session = 'stream2segment.download.db.management.get_session'
 
 
-class Test(object):
+class Test:
 
     # define ONCE HERE THE command name, so if we change it in the cli it will be easier to fix here
     CMD_PREFIX = ['db', 'drop']

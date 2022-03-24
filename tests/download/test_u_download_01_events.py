@@ -35,7 +35,7 @@ query_logger = logger = logging.getLogger("stream2segment")
 def tt_ak135_tts(request, data):
     return data.read_tttable('ak135_tts+_5.npz')
 
-class Test(object):
+class Test:
 
     # execute this fixture always even if not provided as argument:
     # https://docs.pytest.org/en/documentation-restructure/how-to/fixture.html#autouse-fixtures-xunit-setup-on-steroids
@@ -86,7 +86,7 @@ class Test(object):
         self.mock_urlopen = patchers[-2].start()
 
         # mock ThreadPool (tp) to run one instance at a time, so we get deterministic results:
-        class MockThreadPool(object):
+        class MockThreadPool:
 
             def __init__(self, *a, **kw):
                 pass
@@ -287,7 +287,7 @@ class Test(object):
     def test_pbar1(self, mock_urljoin, mock_pbar, db):
         '''test request splitted, but failing due to a http error'''
 
-        class Pbar(object):
+        class Pbar:
 
             def __init__(self, *a, **kw):
                 self.updates = []
@@ -431,7 +431,7 @@ class Test(object):
                               '''20160508_0000129|2016-05-08 05:17:11.500000|40.57|52.23|60.0|AZER|EMSC-RTS|AZER|505483|ml|3.1|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN''',
                               ]
 
-        class Pbar(object):
+        class Pbar:
 
             def __init__(self, *a, **kw):
                 self.updates = []

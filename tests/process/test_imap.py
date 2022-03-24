@@ -13,14 +13,14 @@ from stream2segment.process.main import imap
 from stream2segment.process import SkipSegment
 
 
-class patches(object):
+class patches:
     # paths container for class-level patchers used below. Hopefully
     # will mek easier debug when refactoring/move functions
     get_session = 'stream2segment.process.main.get_session'
     close_session = 'stream2segment.process.main.close_session'
     configlog4processing = 'stream2segment.process.main.configlog4processing'
 
-class Test(object):
+class Test:
 
     # The class-level `init` fixture is marked with autouse=true which implies that all test
     # methods in the class will use this fixture without a need to state it in the test

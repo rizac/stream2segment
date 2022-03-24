@@ -25,7 +25,7 @@ from stream2segment.resources import get_templates_fpath
 from stream2segment.io import yaml_load
 
 
-class Test(object):
+class Test:
 
     # execute this fixture always even if not provided as argument:
     # https://docs.pytest.org/en/documentation-restructure/how-to/fixture.html#autouse-fixtures-xunit-setup-on-steroids
@@ -186,7 +186,7 @@ BS|VETAM||HNZ|43.0805|25.6367|224.0|0.0|0.0|-90.0|200|427475.0|0.02|M/S**2|100.0
         # self._logout_cache = ""
 
 
-        class patches(object):
+        class patches:
             # paths container for class-level patchers used below. Hopefully
             # will mek easier debug when refactoring/move functions
             urlopen = 'stream2segment.download.url.urlopen'
@@ -215,7 +215,7 @@ BS|VETAM||HNZ|43.0805|25.6367|224.0|0.0|0.0|-90.0|200|427475.0|0.02|M/S**2|100.0
 
                         # mock ThreadPool (tp) to run one instance at a time, so we
                         # get deterministic results:
-                        class MockThreadPool(object):
+                        class MockThreadPool:
 
                             def __init__(self, *a, **kw):
                                 pass

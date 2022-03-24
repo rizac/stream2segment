@@ -34,7 +34,7 @@ def yamlfile(pytestdir):
     return func
 
 
-class patches(object):
+class patches:
     # paths container for class-level patchers used below. Hopefully
     # will mek easier debug when refactoring/move functions
     get_session = 'stream2segment.process.main.get_session'
@@ -43,7 +43,7 @@ class patches(object):
     run_process = 'stream2segment.process.main._run_and_write'
 
 
-class Test(object):
+class Test:
 
     @property
     def logfilecontent(self):
@@ -192,7 +192,7 @@ class Test(object):
             mock_get_chunksize_defaults.side_effect = \
                 lambda *a, **v: (def_chunksize, _o_get_chunksize_defaults()[1])
 
-        class MockPool(object):
+        class MockPool:
             def __init__(self, *a, **kw):
                 pass
 

@@ -28,7 +28,7 @@ def no_connection():
 @pytest.mark.skipif(no_connection(),
                     reason="no internet connection")
 
-class patches(object):
+class patches:
     # paths container for class-level patchers used below. Hopefully
     # will mek easier debug when refactoring/move functions
     # urlopen = 'stream2segment.download.url.urlopen'

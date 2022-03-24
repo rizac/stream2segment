@@ -66,7 +66,7 @@ def _dfrowiter(dataframe, columns=None):
 
 
 
-class Test(object):
+class Test:
 
     # execute this fixture always even if not provided as argument:
     # https://docs.pytest.org/en/documentation-restructure/how-to/fixture.html#autouse-fixtures-xunit-setup-on-steroids

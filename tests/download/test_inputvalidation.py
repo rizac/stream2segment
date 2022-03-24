@@ -67,7 +67,7 @@ def msgin(msg, click_output):
         return msg in click_output
 
 
-class Test(object):
+class Test:
 
     yaml_def_params = yaml_load(get_templates_fpath("download.yaml"))
 
@@ -87,7 +87,7 @@ class Test(object):
             # package:
             return o_configlog4download(logger, pytestdir.newfile('.log'), verbose)
 
-        class patches(object):
+        class patches:
             # paths container for class-level patchers used below. Hopefully
             # will mek easier debug when refactoring/move functions
             configlog4download = 'stream2segment.download.main.configlog4download'

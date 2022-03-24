@@ -45,7 +45,7 @@ def read_processing_output(filename, header=True):  # <- header only for csv
         raise ValueError('Unrecognized extension %s' % ext)
 
 
-class patches(object):
+class patches:
     # paths container for class-level patchers used below. Hopefully
     # will mek easier debug when refactoring/move functions
     get_session = 'stream2segment.process.main.get_session'
@@ -54,7 +54,7 @@ class patches(object):
     run_process = 'stream2segment.process.main._run_and_write'
 
 
-class Test(object):
+class Test:
 
     pyfile = get_templates_fpath("paramtable.py")
 

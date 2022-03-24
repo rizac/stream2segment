@@ -33,7 +33,7 @@ from stream2segment.process.gui.webapp.mainapp import db as db_module
 SEG_SEL_STR = SEGMENT_SELECT_PARAM_NAMES[0]
 
 
-class Test(object):
+class Test:
     pyfile, configfile = get_templates_fpaths("paramtable.py", "paramtable.yaml")
 
     pymodule = load_source(pyfile)

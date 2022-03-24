@@ -14,7 +14,7 @@ from stream2segment.resources import get_templates_fpath
 from stream2segment.download.db.models import Class, ClassLabelling
 
 
-class Test(object):
+class Test:
 
     pyfile = get_templates_fpath("paramtable.py")
 
@@ -33,7 +33,7 @@ class Test(object):
         db4process.create(to_file=True)
         session = db4process.session
 
-        class patches(object):
+        class patches:
             # paths container for class-level patchers used below. Hopefully
             # will mek easier debug when refactoring/move functions
             get_session = 'stream2segment.download.db.management.get_session'

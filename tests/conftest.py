@@ -261,7 +261,7 @@ def pytestdir(tmpdir):
                                          # does not exists
     """
 
-    class Pytestdir(object):
+    class Pytestdir:
         """Pytestdir object"""
 
         @classmethod
@@ -364,7 +364,7 @@ def db(request, tmpdir_factory):  # pylint: disable=invalid-name
     ```
     and just use `db.session` inside the code
     """
-    class DB(object):
+    class DB:
         """class handling a database in testing functions. You should call self.create
         inside the tests"""
         def __init__(self, dburl):
@@ -464,7 +464,7 @@ def db4process(db, data):
     method of the `db` object (db.dburl, db.session) plus:
     db4process.segments(self, with_inventory, with_data, with_gap)
     """
-    class _ProcessDB(object):
+    class _ProcessDB:
         """So, no easy way to override easily with pytest from the object returned by the
         `db` fixture. The best way is to pass `db` as argument above, which also assures
         that functions/methods having `db4process` as arguments will behave as those

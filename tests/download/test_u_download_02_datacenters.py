@@ -33,7 +33,7 @@ def tt_ak135_tts(request, data):
     return data.read_tttable('ak135_tts+_5.npz')
 
 
-class Test(object):
+class Test:
 
     # execute this fixture always even if not provided as argument:
     # https://docs.pytest.org/en/documentation-restructure/how-to/fixture.html#autouse-fixtures-xunit-setup-on-steroids
@@ -89,7 +89,7 @@ ZU * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
         self.mock_urlopen = patchers[-2].start()
 
         # mock ThreadPool (tp) to run one instance at a time, so we get deterministic results:
-        class MockThreadPool(object):
+        class MockThreadPool:
 
             def __init__(self, *a, **kw):
                 pass

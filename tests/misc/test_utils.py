@@ -26,7 +26,7 @@ def test_utils_url_read(mock_urlopen):
         return StringIO(argss)
 
     mockread = Mock()
-    class mybytesio(object):
+    class mybytesio:
 
         def __init__(self, url, **kwargs):
             mockread.reset_mock()
