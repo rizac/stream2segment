@@ -305,10 +305,9 @@ In any case, before reporting a problem remember to check first the
 ### Runt tests
 
 Stream2segment has been highly tested (current test coverage is above 90%)
-on Python version >= 3.5+ ~~and 2.7~~ (as of 2020, support for Python2 is 
-discontinued). Although automatic continuous integration (CI) systems are not
-in place, we do our best to regularly tests under new Python versions, when
-available. Remember that tests are time consuming (some minutes currently).
+on Python version >= 3.5+. Although automatic continuous integration (CI) systems are not
+in place, we do our best to regularly tests under new Python and package versions. 
+Remember that tests are time consuming (some minutes currently).
 Here some examples depending on your needs:
 
 ```
