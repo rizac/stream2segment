@@ -8,6 +8,7 @@ Stations/Channels download functions
 import re
 from itertools import cycle
 import logging
+from urllib.request import Request
 
 import pandas as pd
 from sqlalchemy import or_, and_
@@ -15,11 +16,10 @@ from sqlalchemy import or_, and_
 from stream2segment.io.cli import get_progressbar
 from stream2segment.io.db.pdsql import dbquery2df, shared_colnames, mergeupdate
 from stream2segment.download.db.models import DataCenter, Station, Channel
-from urllib.request import Request
+from stream2segment.download.exc import FailedDownload
 from stream2segment.download.modules.utils import (read_async, get_dataframe_from_fdsn,
                                                    dbsyncdf, formatmsg,
                                                    logwarn_dataframe, strconvert)
-from stream2segment.download.exc import FailedDownload
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__)
@@ -336,7 +336,7 @@ def get_sqla_binexp(net, sta, loc, cha):
     return True if not sa_bin_exprs else and_(*sa_bin_exprs)
 
 
-class ST(object):  # pylint: disable=too-few-public-methods, useless-object-inheritance
+class ST:  # noqa
     """Simple enum-like container of strings defining the station's related
     database/dataframe columns needed in this module
     """
@@ -350,7 +350,7 @@ class ST(object):  # pylint: disable=too-few-public-methods, useless-object-inhe
     ERRCOLS = [NET, STA, STIME, DCID]  # pylint: disable=invalid-name
 
 
-class CH(object):  # pylint: disable=too-few-public-methods, useless-object-inheritance
+class CH:  # noqa
     """Simple enum-like container of strings defining the channel's related
     database/dataframe columns needed in this module
     """

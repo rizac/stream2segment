@@ -178,7 +178,7 @@ def dbsyncdf(dataframe, session, matching_columns, autoincrement_pkey_col,
     return dfr
 
 
-class DbExcLogger(object):
+class DbExcLogger:
     """Class handling db I/O error and logging the rows not inserted
     (:meth:`DbExcLogger.failed_insert`) or updated
     (:meth:`DbExcLogger.failed_update`). The rows have to be passed to those
@@ -417,7 +417,7 @@ def _harmonize_fdsn_dframe(query_df, query_type):
     return query_df
 
 
-class s2scodes(object):  # pylint: disable=too-few-public-methods, invalid-name
+class s2scodes:  # pylint: disable=too-few-public-methods, invalid-name
     """Simple container for download codes"""
     url_err = -1
     mseed_err = MINISEED_READ_ERROR_CODE  # -2
@@ -760,7 +760,7 @@ EVENTWS_SAFE_PARAMS = ['minlatitude', 'minlat', 'maxlatitude', 'maxlat',
                        'mindepth', 'maxdepth']
 
 
-class Authorizer(object):
+class Authorizer:
     """Class handling authorization/authentication"""
 
     def __init__(self, token):
@@ -818,7 +818,7 @@ class Authorizer(object):
         return self._uname, self._pswd
 
 
-class strconvert(object):
+class strconvert:
     """String conversion utilities from sql-LIKE operator's wildcards,
     Filesystem's wildcards, and regular expressions
     """

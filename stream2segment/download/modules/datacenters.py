@@ -143,7 +143,7 @@ def _get_local_routing_service():
     return responsetext, lastmod_dtime.strftime('%Y-%m-%d')
 
 
-class RoutingService(object):
+class RoutingService:
     """Class representing a Routing service, i.e. and object that
     returns datacenter ids (int) from given channels (given as the tuple
     `(net, sta, loc, cha, start_time, end_time)`). An object of this class is
@@ -180,7 +180,7 @@ class RoutingService(object):
         return ret
 
 
-class ItemMatcher(object):
+class ItemMatcher:
     """Class representing a matcher in a Routing service. E.g. a line of text
     of the form:
     ```

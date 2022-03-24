@@ -43,7 +43,7 @@ def ascii_decorate(string, frame=None):
                            [hline_bottom]))
 
 
-class Nop(object):
+class Nop:
     """Dummy class (no-op), used to yield a contextmanager where each method
     is no-op. Used in `get_progressbar`
     """

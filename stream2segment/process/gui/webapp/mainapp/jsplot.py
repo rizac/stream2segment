@@ -13,7 +13,7 @@ import numpy as np
 from obspy.core import UTCDateTime  # , Stream, Trace, read
 
 
-class Plot(object):
+class Plot:
     """A plot is a class representing a Plot on the GUI"""
 
 #     colors = cycle(["#1f77b4",

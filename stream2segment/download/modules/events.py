@@ -161,7 +161,7 @@ def events_data_from_file(file_path, format_=None):
         return tofileuri(file_path), data
 
 
-class Formats(object):
+class Formats:
     """Container for the supported Web service recognized format strings"""
 
     ISF = 'isf'

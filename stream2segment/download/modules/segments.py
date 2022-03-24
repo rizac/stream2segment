@@ -6,9 +6,9 @@ Segments download functions
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
 from datetime import timedelta
-
 from collections import OrderedDict
 import logging
+from urllib.request import Request
 
 import numpy as np
 import pandas as pd
@@ -20,7 +20,7 @@ from stream2segment.download.db.models import DataCenter, Segment
 from stream2segment.download.modules.utils import read_async, DbExcLogger, logwarn_dataframe, DownloadStats, formatmsg, s2scodes, url2str
 from stream2segment.download.exc import NothingToDownload
 from stream2segment.download.modules.mseedlite import MSeedError, unpack as mseedunpack
-from stream2segment.download.url import Request, get_opener, get_host
+from stream2segment.download.url import get_opener, get_host
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__)
@@ -243,7 +243,7 @@ def check_suspiciously_duplicated_segment(segments_df):
                           max_row_count=100)
 
 
-class SEG(object):  # noqa
+class SEG:  # noqa
     """Simple enum-like container of strings defining the segment's
     related database/dataframe columns needed in this module
     """
@@ -613,7 +613,7 @@ def get_counts(dframe, dframe_column, na_key):
         yield na_key, na_count
 
 
-class DcDataselectManager(object):
+class DcDataselectManager:
     """Class building the ground requirements for a dataselect download: it
     merges datacenters and authorization information in order to build URLs
     and openers for downloading waveform data"""

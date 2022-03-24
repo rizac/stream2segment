@@ -57,7 +57,7 @@ class MSeedError(Exception):
         super(MSeedError, self).__init__(message)
 
 
-class Record(object):
+class Record:
     """Mini-SEED record."""
 
     def __init__(self, fd):
@@ -447,7 +447,7 @@ class Record(object):
         fd.write(buf)
 
 
-class Input(object):
+class Input:
     """Iterate over the available Mini-SEED records. Keeps track of record ids
     in case of errors on a single mseed
     """

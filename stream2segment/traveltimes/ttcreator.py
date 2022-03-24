@@ -166,7 +166,7 @@ def getstep(tt_errtol, wavevelocity, deg2km=DEFAULT_DEG2KM, unit='deg'):
     return dist_step
 
 
-class StepIterator(object):
+class StepIterator:
     """An iterator which can move back and decrease the iteration step until a
     maximum depth is reached"""
     def __init__(self, start, end, step):

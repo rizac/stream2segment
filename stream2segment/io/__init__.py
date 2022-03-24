@@ -4,7 +4,7 @@ import yaml
 from urllib.parse import urlparse
 
 
-class Fdsnws(object):
+class Fdsnws:
     """Fdsn w(eb) s(ervice) URL normalizer. Gets any URL, checks its
     correctness and allows retrieving all other FDSN URLs easily and safely.
     Example:

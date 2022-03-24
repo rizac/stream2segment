@@ -13,15 +13,16 @@ import zlib
 import bz2
 import logging
 from datetime import timedelta
+from urllib.request import Request
 
 import pandas as pd
 
 from stream2segment.io.cli import get_progressbar
 from stream2segment.io.db.pdsql import DbManager
 from stream2segment.download.db.models import DataCenter, Station, Segment
+from stream2segment.download.url import get_host
 from stream2segment.download.modules.utils import (read_async, DbExcLogger, formatmsg,
                                                    url2str, err2str)
-from stream2segment.download.url import Request, get_host
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__)

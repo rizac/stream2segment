@@ -18,7 +18,7 @@ from stream2segment.io.inputvalidation import BadParam
 from stream2segment.io import yaml_load
 
 
-class clickutils(object):  # noqa
+class clickutils:  # noqa
     """Container for all `click` related stuff to be used here"""
 
     @staticmethod

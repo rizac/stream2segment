@@ -9,7 +9,7 @@ import time
 from datetime import datetime, timedelta
 
 
-class LevelFilter(object):  # pylint: disable=too-few-public-methods
+class LevelFilter:  # noqa
     """Logging filter that logs only messages in a set of levels (the base filter
     class only allows events which are below a certain point in the logger hierarchy).
 

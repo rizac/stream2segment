@@ -345,7 +345,7 @@ def syncdf(dataframe, session, matching_columns, id_col, update=False,
     return inserted, not_inserted, updated, not_updated, dataframe
 
 
-class DbManager(object):
+class DbManager:
     """Class managing the insertion of table rows into db. This class is
     optimized for adding several dataframes in series, but can be used also to
     insert/update a single dataframe in one

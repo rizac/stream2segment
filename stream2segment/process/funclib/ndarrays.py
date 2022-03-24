@@ -302,7 +302,7 @@ def triangsmooth(array, winlen_ratio):
     return smoothed_array
 
 
-class ResponseSpectrum(object):
+class ResponseSpectrum:
     """
     Base abstract Class to implement a response spectrum calculation
     """

@@ -190,7 +190,7 @@ def get_download_ids(session, download_indices=None, download_ids=None):
     return download_ids or None
 
 
-class _InfoGenerator(object):
+class _InfoGenerator:
     """Base class for any subclasses returning Download info in text and html
     content. Subclasses should overwrite `self.str_iter` and
     `self.html_template_arguments`

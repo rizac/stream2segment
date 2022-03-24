@@ -14,7 +14,7 @@ except ImportError:
     from scipy.interpolate.ndgriddata import griddata
 
 
-class TTTable(object):
+class TTTable:
     """Class handling the computation of the travel times from pre-computed travel times
     stored in .npz numpy format
     """

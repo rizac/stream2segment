@@ -30,7 +30,7 @@ from sqlalchemy.sql.expression import (func, text)
 from stream2segment.io import Fdsnws
 
 
-class Base(object):
+class Base:
     """Abstract base class for a Stream2segment ORM Model"""
 
     @declared_attr

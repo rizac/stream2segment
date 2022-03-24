@@ -29,7 +29,7 @@ def get_writer(outputfile=None, append=False, options_dict=None):
     return CsvWriter(outputfile, append, options_dict)
 
 
-class BaseWriter(object):
+class BaseWriter:
     """Base class, basically no-op: it can be used in a with statement but it's
     basically no-op **IMPORTANT**: subclasses need to call super.__init__ !!!
     """
