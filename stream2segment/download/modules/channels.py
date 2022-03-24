@@ -15,7 +15,7 @@ from sqlalchemy import or_, and_
 from stream2segment.io.cli import get_progressbar
 from stream2segment.io.db.pdsql import dbquery2df, shared_colnames, mergeupdate
 from stream2segment.download.db.models import DataCenter, Station, Channel
-from stream2segment.download.url import Request  # this handles py2+3 compatibility
+from urllib.request import Request
 from stream2segment.download.modules.utils import (read_async, get_dataframe_from_fdsn,
                                                    dbsyncdf, formatmsg,
                                                    logwarn_dataframe, strconvert)

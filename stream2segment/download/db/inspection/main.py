@@ -102,8 +102,6 @@ def _get_download_info(info_generator, dburl, download_indices=None, download_id
                 openbrowser = True
                 outfile = os.path.join(gettempdir(), "s2s_%s.html" %
                                        info_generator.__class__.__name__.lower())
-            # get_dstats_html returns unicode characters in py2, str in py3,
-            # so it is safe to use open like this (cf below):
             with open(outfile, 'w', encoding='utf8', errors='replace') as opn:
                 opn.write(info_generator.html(session, download_ids))
             if openbrowser:
@@ -112,8 +110,6 @@ def _get_download_info(info_generator, dburl, download_indices=None, download_id
         else:
             itr = info_generator.str_iter(session, download_ids)
             if outfile is not None:
-                # itr is an iterator of strings in py2, and str in py3, so open
-                # must be input differently (see utils module):
                 with open(outfile, 'w', encoding='utf8', errors='replace') as opn:
                     for line in itr:
                         line += '\n'

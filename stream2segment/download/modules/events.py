@@ -3,23 +3,23 @@ Events download functions
 
 :date: Dec 3, 2017
 
-.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
+.. moduleauthor:: <rizac@gfz-potsdam.de>
 """
 import os
 from datetime import timedelta
 import logging
+from io import StringIO
 
 import numpy as np
 import pandas as pd
 
-from stream2segment.io import StringIO  # <- io.StringIO py2 compatible
 from stream2segment.io.cli import get_progressbar
-from stream2segment.download.modules.utils import (dbsyncdf, get_dataframe_from_fdsn,
-                                                   formatmsg,
-                                                   EVENTWS_MAPPING, strptime, urljoin)
 from stream2segment.download.exc import FailedDownload, NothingToDownload
 from stream2segment.download.db.models import WebService, Event
 from stream2segment.download.url import urlread, socket, HTTPError
+from stream2segment.download.modules.utils import (dbsyncdf, get_dataframe_from_fdsn,
+                                                   formatmsg,
+                                                   EVENTWS_MAPPING, strptime, urljoin)
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__)

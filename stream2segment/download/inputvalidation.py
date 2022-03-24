@@ -339,12 +339,6 @@ def valid_nslc(value):
     """
     try:
         strings = set()
-
-        # we assume, when parsearg is not list, that parsearg is str in both
-        # py2 and py3, i.e. it is NOT bytes in python2. The line below checks
-        # if is an iterable first:
-        # in python2, it is sufficient to say it's not a string
-        # in python3, we need to check that is no str also
         if not hasattr(value, "__iter__") or isinstance(value, str):
             # it's an iterable not a string
             value = [value]

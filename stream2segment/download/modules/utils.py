@@ -894,10 +894,7 @@ class strconvert(object):
             regexp special characters in the input string will result in a
             string that is not the perfect translation of the input
         """
-        if sys.version_info[0] < 3 or sys.version_info[1] < 3:
-            # py2 and py3.3- escape "_" (insert '\' before) AND '%':
-            percent, underscore = r"\%", r"\_"
-        elif sys.version_info[1] < 7:
+        if sys.version_info[0] == 3 and sys.version_info[1] < 7:
             # versions up to 3.7 do not escape anymore "_":
             percent, underscore = r"\%", "_"
         else:

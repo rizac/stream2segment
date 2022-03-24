@@ -493,7 +493,6 @@ def _get_id(net, sta, loc, cha):
 
     :raise: UnicodeDecodeError if any character cannot be decoded
     """
-    # assure python3 compatibility. Return str in py3 and unicode in py2:
     return (b"%s.%s.%s.%s" %
             (net.strip(), sta.strip(), loc.strip(), cha.strip())).decode('utf8')
 

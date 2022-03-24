@@ -3,18 +3,17 @@ Http requests with multi-threading
 
 :date: Apr 15, 2017
 
-.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
+.. moduleauthor:: <rizac@gfz-potsdam.de>
 """
-from contextlib import closing
 import threading
 import socket
 from multiprocessing.pool import ThreadPool
 
 from urllib.parse import urlparse, urlencode
-from urllib.request import (urlopen, Request, build_opener,
-                            HTTPPasswordMgrWithDefaultRealm, HTTPDigestAuthHandler)
 from urllib.error import HTTPError, URLError
 from http.client import HTTPException, responses
+from urllib.request import (urlopen, build_opener,HTTPPasswordMgrWithDefaultRealm,
+                            HTTPDigestAuthHandler)
 
 
 # https://docs.python.org/3/library/urllib.request.html#request-objects
@@ -92,10 +91,8 @@ def urlread(url, blocksize=-1, decode=None, wrap_exceptions=True,
         if timeout is not None and timeout > 0:
             kwargs['timeout'] = timeout
 
-        # urlib2 does not support with statement in py2, so use `closing`. See:
-        # https://stackoverflow.com/a/14849166
-        with closing(urlopen(url, **kwargs) if opener is None else
-                     opener.open(url, **kwargs)) as conn:
+        with urlopen(url, **kwargs) if opener is None else opener.open(url, **kwargs) \
+                as conn:
             if blocksize < 0:  # https://docs.python.org/2.4/lib/bltin-file-objects.html
                 ret = conn.read()  # pylint: disable=no-member
             else:

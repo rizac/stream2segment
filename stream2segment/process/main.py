@@ -434,8 +434,6 @@ def get_default_chunksize(segments_count, show_progress):
     if not show_progress or segments_count >= 2 * default_chuknksize:
         chunksize = default_chuknksize
     else:
-        # determine the chunksize in order to have `min_pbar_iterations` iterations
-        # use np.true_divide so that py2/3 division is not a problem:
         chunksize = max(1, int(np.true_divide(segments_count,
                                               min_pbar_iterations).item()))
     return chunksize

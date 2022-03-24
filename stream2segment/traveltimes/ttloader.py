@@ -15,11 +15,12 @@ except ImportError:
 
 
 class TTTable(object):
-    '''Class handling the computation of the travel times from pre-computed travel times stored
-    in .npz numpy format'''
+    """Class handling the computation of the travel times from pre-computed travel times
+    stored in .npz numpy format
+    """
 
     def __init__(self, filepath):
-        '''Initializes a new TTTable from a pre-computed .npz numpy compressed file'''
+        """Initializes a new TTTable from a pre-computed .npz numpy compressed file"""
         self.filepath = filepath
         _data = np.load(filepath)
         self._attrs = _data.files
@@ -62,24 +63,24 @@ class TTTable(object):
         return self.min(source_depths, receiver_depths, distances, method)
 
     def min(self, source_depths, receiver_depths, distances, method='linear'):
-        '''
-        Returns the minimum (minima) travel time(s) for the point(s) identified by
+        """Return the minimum (minima) travel time(s) for the point(s) identified by
         (source_depths, receiver_depths, distances) by building a grid and
         interpolating on the points identified by each
         ```
             P[i] = (source_depths[i], receiver_depths[i], distances[i])
         ```
-        if the source file has been built with
-        receiver depths == [0]. It uses a 2d linear interpolation on a grid. It uses
-        scipy griddata
-        :param source_depths: numeric or numpy array of length n: the source depth(s), in km
-        :param receiver_depths: numeric or numpy array of length n: the receiver depth(s), in km.
-        For most applications, this value can be set to zero
+        if the source file has been built with receiver depths == [0]. It uses a 2d
+        linear interpolation on a grid. It uses scipy `griddata`
+
+        :param source_depths: numeric or numpy array of length n: the source depth(s),
+            in km
+        :param receiver_depths: numeric or numpy array of length n: the receiver
+            depth(s), in km. For most applications, this value can be set to zero
         :param distances: numeric or numpy array of length n: the distance(s), in degrees
         :param method: forwarded to `scipy.griddata` function
-        :return: a numpy array of length n denoting the minimum travel time(s) of this model for
-        each P
-        '''
+        :return: a numpy array of length n denoting the minimum travel time(s) of this
+            model for each P
+        """
         # Handle the case some arguments are scalars and some arrays:
         source_depths, receiver_depths, distances = \
             np.broadcast_arrays(source_depths, receiver_depths, distances)
@@ -88,8 +89,7 @@ class TTTable(object):
         source_depths = np.copy(source_depths)
         receiver_depths = np.copy(receiver_depths)
         distances = np.copy(distances)
-        # handle the case all arguments scalars. See
-        # https://stackoverflow.com/questions/29318459/python-function-that-handles-scalar-or-arrays
+        # handle the case all arguments scalars (https://stackoverflow.com/a/29319864):
         allscalars = all(_.ndim == 0 for _ in (source_depths, receiver_depths, distances))
         if source_depths.ndim == 0:
             source_depths = source_depths[None]  # Makes x 1D
@@ -120,8 +120,8 @@ class TTTable(object):
         ret = griddata(self._gridpts, self._gridvals, values,
                        method=method, rescale=False, fill_value=np.nan)
 
-        # ret is almost likely a float, so we can set now nans for out of boun values
-        # we cannot do it before on any input array cause int arrays do not support nan assignement
+        # ret is almost likely a float, so we can set now NaNs for out of bound values
+        # we cannot do it before on any input array because int arrays don't support NaN
         ret[(source_depths > self._sourcedepth_bounds_km[1]) |
             (receiver_depths > self._receiverdepth_bounds_km[1])] = np.nan
         # return scalar if inputs are scalar, array oitherwise
@@ -129,25 +129,24 @@ class TTTable(object):
 
     @property
     def model(self):
-        '''Returns the model name whereby this object has been built
+        """Return the model name whereby this object has been built
+
         :return: the model name (string)
-        '''
+        """
         return self._py23str(self._modelname.item())
 
     @property
     def phases(self):
-        '''Returns the travel times phases whereby this object has been built
+        """Returns the travel times phases whereby this object has been built
+
         :return: a list of strings representing the travel time phases
-        '''
+        """
         return [self._py23str(p) for p in self._phases.tolist()]
 
     @staticmethod
     def _py23str(stringorbytes):
-        # this is due to the fact that we might have created the underlying .npz file with
-        # python2, and read it with python3. So some values of interest, namely
-        # self.phases and self.model, need to be converted. The brute force approach is
-        # to check if they are str (bytes in python2 and str in python3). If yes, go on, otherwise
-        # value is a `byte` object and we are in python3, so decode it:
+        # Because we might have created the underlying .npz file with python2, some
+        # expected str values might be bytes (e.g. `self.phases` and `self.model`):
         if not isinstance(stringorbytes, str):
             stringorbytes = stringorbytes.decode('utf8')
         return stringorbytes

@@ -189,11 +189,9 @@ class CsvWriter(BaseWriter):
                     yield int(row[0])
 
     def __enter__(self):
-        # py2 compatibility of csv library: open in 'wb'. If py3, open in 'w'
-        # mode. See utils module. buffering=1 flushes each line
         self.outputfilehandle = open(self.outputfile, 'a' if self.append else 'w',
                                      buffering=1, encoding='utf8', errors='replace',
-                                     newline='')
+                                     newline='')  # buffering=1: flush each line
 
     def write(self, segment_id, result):  # result is surely not None
         csvwriter, isdict, seg_id_colname = \
@@ -298,8 +296,6 @@ class HDFWriter(BaseWriter):
         return pd.unique(ids)
 
     def __enter__(self):
-        # py2 compatibility of csv library: open in 'wb'. If py3, open in 'w'
-        # mode. See utils module. buffering=1 flushes each line
         self.outputfilehandle = pd.HDFStore(self.outputfile,
                                             mode='a' if self.append else 'w')
 
