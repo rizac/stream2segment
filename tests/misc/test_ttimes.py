@@ -5,7 +5,6 @@ Created on Sep 4, 2017
 """
 from os.path import isfile
 
-from past.utils import old_div
 import numpy as np
 import pandas as pd
 import pytest
@@ -81,12 +80,12 @@ def test_ttcreator_tts(pytestdir):
 
 
 def test_stepiterator():
-    '''test a step iterator which should give me approximately every 100's'''
+    """test a step iterator which should give me approximately every 100's"""
     lastnum = -1
     results = []
     stepiterator = StepIterator(0, 700.0, 31.5)
     for val in stepiterator:
-        if int(old_div(val, 100.0)) > lastnum:  # condition whereby we crossed the 'mark'
+        if int(val / 100.0) > lastnum:  # condition whereby we crossed the 'mark'
             if stepiterator.moveback():
                 continue
             else:
@@ -108,9 +107,9 @@ def test_ttable(ttdata):
         # first 4 points (0,0), (0, half_hstep),
         # (half_vstep, 0) and (half_vstep, half_hstep)
         # get the half step (max distance along x axis = columns)
-        half_hstep = old_div(ttable._distances[1],2.0)
+        half_hstep = ttable._distances[1] / 2.0
         # get the half step (max distance along y axis = row)
-        half_vstep = old_div(ttable._sourcedepths[0], 2.0)
+        half_vstep = ttable._sourcedepths[0] / 2.0
         # each point is (source_depth_km, receiver_depth_km, distance_deg):
         values = np.vstack(([half_vstep, 0, half_hstep], ttdata.values))
         results_c = ttable.min(values[:, 0], values[:, 1], values[:, 2], method='cubic')
