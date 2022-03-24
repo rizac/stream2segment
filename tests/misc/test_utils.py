@@ -5,12 +5,12 @@ Created on Dec 12, 2016
 """
 from io import StringIO, BytesIO
 import socket
-
+from urllib.request import Request
 from unittest.mock import Mock, patch
 import pytest
 from click.termui import progressbar
 
-from stream2segment.download.url import urlread, URLException, URLError, HTTPError, Request
+from stream2segment.download.url import urlread, URLException, URLError, HTTPError
 from stream2segment.io.cli import Nop, get_progressbar
 from stream2segment.io.db import secure_dburl
 from stream2segment.download.modules.utils import formatmsg
@@ -45,7 +45,14 @@ def test_utils_url_read(mock_urlopen):
 
         def close(self, *a, **kw):
             if not isinstance(self.a, Exception):
-                self.a.close(*a, **kw)
+                self.a.close()
+
+        def __enter__(self,*a,**v):
+            return self
+
+        def __exit__(self, *a, **kw):
+            return self.close(*a, **kw)
+
 
     mock_urlopen.side_effect = lambda url, **kw: mybytesio(url, **kw)
     with pytest.raises(TypeError):
@@ -107,15 +114,8 @@ def test_utils_url_read(mock_urlopen):
 def test_secure_dburl(input, expected_result):
     assert secure_dburl(input) == expected_result
 
-# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-# IMPORTANT=======================================================================================
-# THE FOLLOWING TESTS INVOLVING PROGRESSBARS PRINTOUT    
-# WILL FAIL IN PYDEV 5.2.0 and PYTHON 3.6.2 (typical bytes vs string error)
-# RUN FROM TERMINAL
-# IMPORTANT=======================================================================================
-# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
-@pytest.mark.skip(reason="fails if run from within n eclipse because of cryptic bytes vs string propblem")
+# IF RUNNING WITH ECLIPSE, UNCOMMENT THE LINE BELOW:
+# @pytest.mark.skip(reason="fails if run from within n eclipse because of cryptic bytes vs string propblem")
 @patch("stream2segment.io.cli.Nop", side_effect=lambda *a, **v: Nop(*a, **v))
 @patch("stream2segment.io.cli.click_progressbar", side_effect=lambda *a, **v: progressbar(*a, **v))
 def test_progressbar(mock_pbar, mock_nop):
@@ -152,10 +152,10 @@ def test_progressbar(mock_pbar, mock_nop):
     assert mock_pbar.call_count == 1
 
 
-# same as above, but we run for safety the real classes (not mocked)
-@pytest.mark.skip(reason="fails if run from within n eclipse because of cryptic bytes vs string propblem")
+# IF RUNNING WITH ECLIPSE, UNCOMMENT THE LINE BELOW:
+# @pytest.mark.skip(reason="fails if run from within n eclipse because of cryptic bytes vs string propblem")
 def test_progressbar_functional():
-    '''this test has problems with eclipse'''
+    """this test has problems with eclipse"""
     N = 5
     with get_progressbar(False) as bar: # no-op
         for i in range(N):
@@ -195,5 +195,3 @@ def test_formatmsg():
     expected = ("action (errmsg). url: http://mysite/query, POST data:\n"
                 "b'a\\na\\na\\na\\na\\n'")
     assert msg == expected.strip()
-
-    

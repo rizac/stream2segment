@@ -12,7 +12,7 @@ from itertools import cycle, product
 import logging
 from logging import StreamHandler
 from io import BytesIO, StringIO
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, MagicMock
 
 import pytest
 
@@ -174,7 +174,9 @@ ZU * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
                 a.msg = responses[a.code]
             else:
                 a.read.side_effect = k
-            retvals.append(a)
+            ret = MagicMock()
+            ret.__enter__.return_value = a
+            retvals.append(ret)
 
         self.mock_urlopen.side_effect = cycle(retvals)
 

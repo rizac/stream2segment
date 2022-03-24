@@ -10,7 +10,7 @@ from itertools import combinations, cycle, product
 import socket
 from logging import StreamHandler
 from io import BytesIO, StringIO
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, MagicMock
 
 import yaml
 import pytest
@@ -219,7 +219,9 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                 a.msg = responses[a.code]
             else:
                 a.read.side_effect = k
-            retvals.append(a)
+            ret = MagicMock()
+            ret.__enter__.return_value = a
+            retvals.append(ret)
 
         self.mock_urlopen.side_effect = cycle(retvals)
 
@@ -273,7 +275,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(None, *a, **v)
 
         def dss(*a, **v):
-            '''calls self.download_save_segments after setting dbbufsize (a[9]) to 1'''
+            """Call self.download_save_segments after setting dbbufsize (a[9]) to 1"""
             # to make this test work, dbbufsize (a[9]) must be=1
             # First do a check in order to catch if we changed dbbufsize position
             # of the default value in download.yaml:

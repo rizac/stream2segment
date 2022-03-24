@@ -8,7 +8,7 @@ from io import BytesIO, StringIO
 
 from itertools import cycle
 from logging import StreamHandler
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, MagicMock
 
 import pytest
 
@@ -303,7 +303,9 @@ BS|VETAM||HNZ|43.0805|25.6367|224.0|0.0|0.0|-90.0|200|427475.0|0.02|M/S**2|100.0
                 a.msg = responses[a.code]
             else:
                 a.read.side_effect = k
-            retvals.append(a)
+            ret = MagicMock()
+            ret.__enter__.return_value = a
+            retvals.append(ret)
 
         self.mock_urlopen.side_effect = cycle(retvals)
 

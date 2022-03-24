@@ -146,7 +146,7 @@ def events_data_from_file(file_path, format_=None):
     """Yield the tuple (filepath, events_data) from a file, which must exist
     on the local computer.
 
-    :param format_: string: None will infer the format (isf or txt), otherwise
+    :param format_: string: None will infqer the format (isf or txt), otherwise
         it must be isf or txt. Note that support for isf is not fully complete
         (e.g., no comments allowed)
     """

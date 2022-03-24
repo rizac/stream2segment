@@ -11,7 +11,7 @@ import logging
 import shutil
 from logging import StreamHandler
 from io import BytesIO, StringIO
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, MagicMock
 
 import pandas as pd
 import pytest
@@ -170,7 +170,9 @@ class Test:
                 mymock.msg = responses[mymock.code]
             else:
                 mymock.read.side_effect = k
-            retvals.append(mymock)
+            ret = MagicMock()
+            ret.__enter__.return_value = mymock
+            retvals.append(ret)
 
         self.mock_urlopen.side_effect = cycle(retvals)
 

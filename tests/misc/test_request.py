@@ -5,8 +5,9 @@ Created on Sep 18, 2018
 """
 
 import pytest
+from urllib.request import Request
 
-from stream2segment.download.url import read_async, Request, urlread
+from stream2segment.download.url import read_async, urlread
 
 
 def no_connection():

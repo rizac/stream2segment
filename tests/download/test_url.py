@@ -7,7 +7,7 @@ import threading
 from itertools import cycle
 from subprocess import call
 
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, MagicMock
 import pytest
 
 from stream2segment.download.url import _ismainthread, read_async
@@ -74,11 +74,13 @@ class Test:
             else:
                 return val
         a.read.side_effect = retfunc  # returns each item in list
-        self.mock_urlopen.return_value = a
+        ret = MagicMock()
+        ret.__enter__.return_value = a
+        self.mock_urlopen.return_value = ret
 
     @property
     def mock_urlread(self):
-        return self.mock_urlopen.return_value.read
+        return self.mock_urlopen.return_value.__enter__.return_value.read
 
     def test_mocking_urlread(self):
         """Tests onsuccess. WE mock urllib2urlopen.read to return user defined strings"""

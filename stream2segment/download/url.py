@@ -91,8 +91,8 @@ def urlread(url, blocksize=-1, decode=None, wrap_exceptions=True,
         if timeout is not None and timeout > 0:
             kwargs['timeout'] = timeout
 
-        with urlopen(url, **kwargs) if opener is None else opener.open(url, **kwargs) \
-                as conn:
+        open_conn = urlopen(url, **kwargs) if opener is None else opener.open(url, **kwargs)
+        with open_conn as conn:
             if blocksize < 0:  # https://docs.python.org/2.4/lib/bltin-file-objects.html
                 ret = conn.read()  # pylint: disable=no-member
             else:

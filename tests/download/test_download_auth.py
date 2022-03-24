@@ -10,7 +10,7 @@ import socket
 from io import BytesIO
 from logging import StreamHandler
 from io import StringIO
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, MagicMock
 
 import pandas as pd
 import pytest
@@ -224,7 +224,10 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                 a.msg = responses[a.code]
             else:
                 a.read.side_effect = k
-            retvals.append(a)
+            ret = MagicMock()
+            ret.__enter__.return_value = a
+            retvals.append(ret)
+
         self.mock_urlopen.side_effect = cycle(retvals)
 
     def get_events_df(self, url_read_side_effect, *a, **v):
@@ -508,14 +511,15 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # prevlen = len(db.session.query(Segment).all())
 
         # mock our opener
-        m = Mock()
-        mockopen = Mock()
-        mockopen.read = lambda *a, **v: b''
-        mockopen.msg = 'abc'
-        mockopen.code = 204
-        m.open = lambda *a, **v: mockopen
-        # m.read = lambda *a, **v: ''
-        mock_get_opener.side_effect = lambda *a, **v: m
+        mock1 = Mock()
+        mock1.read = lambda *a, **v: b''
+        mock1.mockopen.msg = 'abc'
+        mock1.code = 204
+        mock2 = MagicMock()
+        mock2.__enter__.return_value = mock1
+        mock3 = Mock()
+        mock3.open.return_value = mock2
+        mock_get_opener.return_value = mock3
 
         # patching class methods while preserving the original call requires storing once
         # the original methods (as class attributes). Sets the side effect of the mocked method
@@ -634,8 +638,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # the original methods (as class attributes). Sets the side effect of the mocked method
         # to those class attributes as to preserve the original functionality
         # and be able to assert mock_* functions are called and so on
-        # For info see:
-        # https://stackoverflow.com/a/29563665
+        # For info see https://stackoverflow.com/a/29563665
         mock_get_data_open.side_effect = self.dc_get_data_open
         mock_get_data_from_userpass.side_effect = self.dc_get_data_from_userpass
         mock_get_data_from_token.side_effect = \
