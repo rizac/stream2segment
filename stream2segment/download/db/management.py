@@ -2,8 +2,7 @@
 Database management functions
 """
 
-# Make input py2 compatible, but remember to KEEP IT HERE ALSO AFTER DROPPING PY2,
-# IT IS USED FOR TESTING!
+# Import input so that can be mocked in tests:
 from builtins import input
 
 from sqlalchemy import func

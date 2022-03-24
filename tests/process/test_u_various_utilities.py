@@ -18,6 +18,7 @@ from stream2segment.process.db.models import get_stream
 from stream2segment.process.main import get_slices
 from stream2segment.process.writers import HDFWriter
 
+
 class MockSegment(object):
     def __init__(self, data):
         self.data = data

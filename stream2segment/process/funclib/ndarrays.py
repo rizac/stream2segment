@@ -4,9 +4,6 @@ Library functions operating on `numpy` arrays
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>,
                   Graeme Weatherill <gweather@gfz-potsdam.de>
 """
-
-from __future__ import division
-
 from math import floor, ceil, sqrt
 
 import numpy as np

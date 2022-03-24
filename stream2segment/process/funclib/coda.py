@@ -1,4 +1,4 @@
-'''
+"""
 Module for coda analysis.
 Not yet implemented (future feature in new versions)
 
@@ -6,13 +6,7 @@ Created on Jul 25, 2016
 
 .. moduleauthor:: Jessie mMayor
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
-'''
-from __future__ import division
-
-# make the following(s) behave like python3 counterparts if running from python2.7.x
-# (http://python-future.org/imports.html#explicit-imports):
-from builtins import range
-
+"""
 import numpy as np
 import scipy
 

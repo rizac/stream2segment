@@ -3,9 +3,6 @@ Created on Feb 14, 2017
 
 @author: riccardo
 """
-from __future__ import print_function, division
-
-from builtins import str, object  # pylint: disable=redefined-builtin
 import os
 import re
 
@@ -13,7 +10,6 @@ from unittest.mock import patch
 import pytest
 import numpy as np
 from obspy.core.stream import read
-from future.utils import integer_types
 
 from stream2segment.cli import cli
 from stream2segment.process.inputvalidation import SEGMENT_SELECT_PARAM_NAMES
@@ -310,7 +306,7 @@ class Test(object):
                 # type as the native type. For info see:
                 # http://python-future.org/what_else.html#passing-data-to-from-python-2-libraries
                 # assert type(native(real_advanced_settings['num_processes'])) in integer_types
-                assert isinstance(real_advanced_settings['multi_process'], integer_types)
+                assert isinstance(real_advanced_settings['multi_process'], int)
 
 
 def test_old_new_version_skipsegment(# fixtures:

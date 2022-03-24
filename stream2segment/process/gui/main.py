@@ -1,12 +1,10 @@
-'''
+"""
 Functions for launching the web app
 
 :date: Jun 20, 2016
 
-.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
-'''
-from __future__ import print_function
-
+.. moduleauthor:: <rizac@gfz-potsdam.de>
+"""
 import uuid
 from webbrowser import open as open_in_browser
 import random
@@ -17,8 +15,6 @@ from flask import Flask
 from stream2segment.io import yaml_load
 from stream2segment.io.inputvalidation import validate_param
 from stream2segment.process.inspectimport import load_source
-# valid_session below is imported from stream2segment.process and not stream2segment.io
-# for consistency, but it is currently the same exact function
 from stream2segment.process.db import get_session
 from stream2segment.process.inputvalidation import _extract_segments_selection
 

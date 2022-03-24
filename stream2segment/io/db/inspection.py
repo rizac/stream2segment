@@ -2,9 +2,6 @@
 ORM inspection tools
 """
 from sqlalchemy import inspect
-# from sqlalchemy.exc import NoInspectionAvailable
-# from sqlalchemy.ext.declarative import DeclarativeMeta
-# from sqlalchemy.orm import object_mapper
 from sqlalchemy.orm.attributes import QueryableAttribute
 
 

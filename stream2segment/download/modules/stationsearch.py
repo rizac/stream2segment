@@ -5,8 +5,6 @@ Event-based station search functions
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
-from builtins import zip  # http://python-future.org/imports.html#explicit-imports
-
 from itertools import cycle
 from datetime import timedelta
 import logging

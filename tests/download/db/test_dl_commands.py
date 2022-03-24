@@ -4,13 +4,8 @@ Created on Feb 14, 2017
 
 @author: riccardo
 """
-from __future__ import print_function, division
-
 import re
-from builtins import str, object
-
 from datetime import datetime, timedelta
-
 from unittest.mock import patch
 import pytest
 from click.testing import CliRunner

@@ -3,8 +3,6 @@ Created on Feb 23, 2016
 
 @author: riccardo
 """
-from __future__ import division
-
 from itertools import product
 
 from unittest.mock import Mock, patch

@@ -3,19 +3,13 @@ Created on Feb 4, 2016
 
 @author: riccardo
 """
-from __future__ import print_function
-
-from builtins import str, map
 import os
 import re
 from itertools import cycle
 import socket
 from io import BytesIO
 from logging import StreamHandler
-try:
-    from cStringIO import StringIO  # python2.x
-except ImportError:
-    from io import StringIO
+from io import StringIO
 from unittest.mock import Mock, patch
 
 import pandas as pd

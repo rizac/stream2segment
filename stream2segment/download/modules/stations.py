@@ -5,8 +5,6 @@ Stations (inventory) download functions
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
-from builtins import zip  # http://python-future.org/imports.html#explicit-imports
-
 from datetime import datetime
 from io import BytesIO
 import gzip
@@ -21,8 +19,8 @@ import pandas as pd
 from stream2segment.io.cli import get_progressbar
 from stream2segment.io.db.pdsql import DbManager
 from stream2segment.download.db.models import DataCenter, Station, Segment
-from stream2segment.download.modules.utils import read_async, DbExcLogger, formatmsg, url2str,\
-    err2str
+from stream2segment.download.modules.utils import (read_async, DbExcLogger, formatmsg,
+                                                   url2str, err2str)
 from stream2segment.download.url import Request, get_host
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):

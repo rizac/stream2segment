@@ -3,13 +3,13 @@ Created on Jul 15, 2016
 
 @author: riccardo
 """
-from builtins import zip
 from datetime import datetime
 
 import pytest
 
 from stream2segment.process.db.models import (Event, WebService, Channel, Station, \
                                               DataCenter, Segment, Download)
+
 
 class Test(object):
 

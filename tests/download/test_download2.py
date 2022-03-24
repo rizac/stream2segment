@@ -3,17 +3,8 @@ Created on Feb 4, 2016
 
 @author: riccardo
 """
-from __future__ import print_function
-
-from builtins import str
 from datetime import datetime
-# this can apparently not be avoided neither with the future package:
-# The problem is io.StringIO accepts unicodes in python2 and strings in python3:
-from io import BytesIO
-try:
-    from cStringIO import StringIO  # python2.x
-except ImportError:
-    from io import StringIO
+from io import BytesIO, StringIO
 
 from itertools import cycle
 from logging import StreamHandler

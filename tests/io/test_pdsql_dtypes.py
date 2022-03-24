@@ -3,9 +3,7 @@ Created on Apr 11, 2017
 
 @author: riccardo
 """
-from builtins import zip
 from datetime import datetime
-from unittest import mock
 
 import numpy as np
 import pytest

@@ -6,9 +6,6 @@ Events download functions
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
 import os
-# import sys
-# import re
-from io import open  # py2-3 compatible
 from datetime import timedelta
 import logging
 

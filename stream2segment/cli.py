@@ -3,19 +3,8 @@ Module implementing the Command line interface (cli) to access function in the m
 
 :date: Oct 8, 2017
 
-.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
+.. moduleauthor:: <rizac@gfz-potsdam.de>
 """
-
-# provide some imports to let python3 syntax work also in python 2.7+ effortless.
-# Any of the defaults import below can be safely removed if python2+
-# compatibility is not needed
-
-# standard python imports (must be the first import)
-from __future__ import absolute_import, division, print_function
-
-# (http://python-future.org/imports.html#explicit-imports):
-from builtins import (bytes, dict, int, open, str, super, input)
-
 import sys
 import os
 import warnings

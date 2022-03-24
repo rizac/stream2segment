@@ -8,10 +8,6 @@ Module implementing all functions not involving IO operations
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
-from __future__ import division
-
-from builtins import zip, range  # http://python-future.org/imports.html#explicit-imports
-
 import os
 import sys
 import re
@@ -24,8 +20,6 @@ import logging
 
 from dateutil import parser as dateparser
 from dateutil.tz.tz import tzutc
-
-from future.utils import viewitems, PY2, string_types
 
 import pandas as pd
 import psutil
@@ -460,7 +454,7 @@ def get_s2s_responses():
     See also `s2scodes` and `DownloadStats.sortcodes`
     """
     resp = {}
-    for code, title in viewitems(responses):
+    for code, title in responses.items():
         leg = None
         sortpos = code
         if code >= 500:
@@ -900,7 +894,7 @@ class strconvert(object):
             regexp special characters in the input string will result in a
             string that is not the perfect translation of the input
         """
-        if PY2 or sys.version_info[1] < 3:
+        if sys.version_info[0] < 3 or sys.version_info[1] < 3:
             # py2 and py3.3- escape "_" (insert '\' before) AND '%':
             percent, underscore = r"\%", r"\_"
         elif sys.version_info[1] < 7:
@@ -958,7 +952,7 @@ def strptime(obj):
     ```
     """
     dtime = obj
-    if isinstance(obj, string_types):
+    if isinstance(obj, str):
         try:
             dtime = dateparser.parse(obj, fuzzy=False, fuzzy_with_tokens=False)
             # now, dateperser is quite hacky on purpose, guessing too much.

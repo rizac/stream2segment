@@ -7,21 +7,12 @@ via string expression on database tables columns
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
-
 from datetime import datetime
 import shlex
 import warnings
 
-# iterating over dictionary keys with the same set-like behaviour on Py2.7 as
-# on Py3
-from future.utils import viewitems
-
 import numpy as np
 from sqlalchemy import asc, and_, desc, inspect
-# from sqlalchemy.orm.attributes import QueryableAttribute
-# from sqlalchemy.exc import NoInspectionAvailable
-# from sqlalchemy.orm.collections import InstrumentedList, InstrumentedSet,\
-#     InstrumentedDict
 
 
 def exprquery(sa_query, conditions, orderby=None):
@@ -163,7 +154,7 @@ def exprquery(sa_query, conditions, orderby=None):
     relations = inspect(model).relationships
 
     if conditions:
-        for attname, expression in viewitems(conditions):
+        for attname, expression in conditions.items():
             if not expression:  # discard empty strings, None's, ...
                 # note that expressions MUST be strings
                 continue

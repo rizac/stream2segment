@@ -5,9 +5,6 @@ Stations/Channels download functions
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
-# (http://python-future.org/imports.html#explicit-imports):
-from builtins import zip, object
-
 import re
 from itertools import cycle
 import logging

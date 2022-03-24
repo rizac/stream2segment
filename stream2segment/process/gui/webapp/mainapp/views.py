@@ -9,7 +9,6 @@ from flask import (render_template, request, jsonify, Blueprint)
 
 from stream2segment.process.gui.webapp.mainapp import core
 
-
 # http://flask.pocoo.org/docs/0.12/patterns/appfactories/#basic-factories:
 # Note that the template_folder and the static paths in the HTML are relative
 # to the path of the module WHERE we register this blueprint

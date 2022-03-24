@@ -7,17 +7,10 @@ in  javascript format
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
-from __future__ import division
-
-# make the following(s) behave like python3 counterparts if running from python2.7.x
-# (http://python-future.org/imports.html#explicit-imports):
-from builtins import object
-
 from datetime import datetime, timedelta
 
 import numpy as np
 from obspy.core import UTCDateTime  # , Stream, Trace, read
-from future.utils import text_type
 
 
 class Plot(object):
@@ -67,7 +60,7 @@ class Plot(object):
         if warnings:
             if isinstance(warnings, bytes):
                 warnings = warnings.decode('utf8')
-            if isinstance(warnings, text_type):  # str in py3, unicode in py2
+            if isinstance(warnings, str):
                 warnings = [warnings]
         self.warnings = warnings or []
 

@@ -4,19 +4,14 @@ Created on Feb 14, 2017
 
 @author: riccardo
 """
-from __future__ import print_function, division
-
-from builtins import object
-
 import os
 import json
 import re
+import sys
 from datetime import datetime, timedelta
-
 from unittest.mock import patch
 import pytest
 from click.testing import CliRunner
-from future.utils import PY2
 
 from stream2segment.cli import cli
 from stream2segment.download.db.models import (Event, Station, WebService, Segment,
@@ -170,10 +165,6 @@ TOTAL                      3         1          2      1      1      1        1 
 
         assert not mock_open_in_browser.called
         expected_string = ascii_decorate("Download id: 1")
-        # result.output below is uncicode in PY2, whereas expected_string is str
-        # Thus
-        if PY2:
-            expected_string = expected_string.decode('utf8')
         assert expected_string in result.output
         assert not mock_gettempdir.called
 
@@ -367,10 +358,6 @@ TOTAL                      3         1          2      1      1      1        1 
         assert not mock_gettempdir.called
 
         expected_string = ascii_decorate("Download id: 2")
-        # result.output below is uncicode in PY2, whereas expected_string is str
-        # Thus
-        if PY2:
-            expected_string = expected_string.decode('utf8')
         assert expected_string in content
         expected_string2 = """
 Executed: 2018-12-02T16:46:56.472330

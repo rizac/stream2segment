@@ -3,7 +3,6 @@ Created on Sep 14, 2017
 
 @author: riccardo
 """
-from builtins import range
 import os
 from itertools import product
 
@@ -12,7 +11,7 @@ from stream2segment.process.db.models import decompress
 
 
 def test_compress_decompress():
-    '''tests compression and decompression functions'''
+    """tests compression and decompression functions"""
     bytesdata = b"\x00"+os.urandom(1024*1024)+b"\x00"
     for comp, compresslevel in product(['bz2', 'zlib', 'gzip', 'zip'], list(range(1, 10))):
         compr_ = compress(bytesdata, comp, compresslevel)

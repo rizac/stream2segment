@@ -3,10 +3,7 @@ Created on Feb 14, 2017
 
 @author: riccardo
 """
-from __future__ import print_function, division
-
 import os
-from builtins import object  # pylint: disable=redefined-builtin
 
 from unittest.mock import patch
 import pytest

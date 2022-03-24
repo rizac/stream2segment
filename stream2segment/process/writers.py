@@ -8,10 +8,7 @@ Created on 22 May 2018
 """
 import os
 import csv
-from future.utils import viewkeys
 import pandas as pd
-
-from stream2segment.io import open2writetext
 
 HDF_FILE_EXTENSIONS = ['.hdf', '.h5', '.hdf5']
 SEGMENT_ID_COLNAME = 'segment_db_id'
@@ -194,10 +191,9 @@ class CsvWriter(BaseWriter):
     def __enter__(self):
         # py2 compatibility of csv library: open in 'wb'. If py3, open in 'w'
         # mode. See utils module. buffering=1 flushes each line
-        self.outputfilehandle = open2writetext(self.outputfile, buffering=1,
-                                               encoding='utf8',
-                                               errors='replace', newline='',
-                                               append=self.append)
+        self.outputfilehandle = open(self.outputfile, 'a' if self.append else 'w',
+                                     buffering=1, encoding='utf8', errors='replace',
+                                     newline='')
 
     def write(self, segment_id, result):  # result is surely not None
         csvwriter, isdict, seg_id_colname = \
@@ -213,7 +209,7 @@ class CsvWriter(BaseWriter):
                 # needs to be consumed twice (the doc states differently,
                 # however...):
                 fieldnames = [seg_id_colname]
-                fieldnames.extend(viewkeys(result))
+                fieldnames.extend(result.keys())
                 csvwriter = csv.DictWriter(self.outputfilehandle,
                                            fieldnames=fieldnames,
                                            **self.options)

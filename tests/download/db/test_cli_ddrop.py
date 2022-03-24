@@ -4,10 +4,6 @@ Created on Feb 14, 2017
 
 @author: riccardo
 """
-from __future__ import print_function, division
-
-from builtins import object
-
 from itertools import cycle, chain
 from collections import defaultdict
 from datetime import datetime, timedelta

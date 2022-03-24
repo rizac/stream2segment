@@ -4,18 +4,12 @@ Core functions and classes for the download routine
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
-
-# make the following(s) behave like python3 counterparts if running from
-# python2.7.x
-# (http://python-future.org/imports.html#explicit-imports):
 import time
-from builtins import next, range
 
 import os
 import logging
 
 import psutil
-from future.utils import string_types
 
 from stream2segment.download.log import configlog4download, DbStreamHandler
 from stream2segment.io.log import logfilepath, close_logger, elapsed_time
@@ -85,7 +79,7 @@ def download(config, log2file=True, verbose=False, print_config_only=False,
     #   acording to our config, there are not segments to download
 
     # short check (this should just raise, so execute this before configuring loggers):
-    isfile = isinstance(config, string_types) and os.path.isfile(config)
+    isfile = isinstance(config, str) and os.path.isfile(config)
     if not isfile and log2file is True:
         raise ValueError('`log2file` can be True only if `config` is a '
                          'string denoting an existing file')
@@ -374,36 +368,17 @@ def _run(session, download_id, events_url, starttime, endtime, data_url,
 def new_db_download(session, params=None):
     if params is None:
         params = {}
-    # print local vars: use safe_dump to avoid python types. See:
-    # http://stackoverflow.com/questions/1950306/pyyaml-dumping-without-tags
-    download_inst = Download(config=tounicode(yaml_safe_dump(params)),
-                             # log by default shows error. If everything works
-                             # fine, we replace the content later
-                             log=('N/A: either logger not configured, or an '
-                                  'unexpected error interrupted the process'),
-                             program_version=version())
-
+    config = yaml_safe_dump(params)
+    if isinstance(config, bytes):
+        config = config.decode('utf-8')  # legacy py2 code?
+    tmp_log = ('N/A: either logger not configured, or an '
+               'unexpected error interrupted the process')
+    download_inst = Download(config=config, log=tmp_log, program_version=version())
     session.add(download_inst)
     session.commit()
     download_id = download_inst.id
     session.close()  # frees memory?
     return download_id
-
-
-def tounicode(string, decoding='utf-8'):
-    """Convert string to 'text' (unicode in python2, str in Python3). Function
-    Python 2-3 compatible. If string is already a 'text' type, returns it
-
-    :param string: a `str`, 'bytes' or (in py2) 'unicode' object.
-    :param decoding: the decoding used if `string` has to be converted to text.
-        Defaults to 'utf-8' when missing
-    :return: the text (`str` in python3, `unicode` string in Python2)
-        representing `string`
-    """
-    # Curiously, future.utils has no such a simple method. So instead of
-    # checking when string is text, let's check when it is NOT, i.e. when it's
-    # instance of bytes (str in py2 is instanceof bytes):
-    return string.decode(decoding) if isinstance(string, bytes) else string
 
 
 def version():

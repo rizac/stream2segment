@@ -8,14 +8,6 @@ Created on May 23, 2017
 from os.path import isfile, join, dirname
 from datetime import datetime
 from itertools import product
-
-# this can not apparently be fixed with the future package:
-# The problem is io.StringIO accepts unicodes in python2 and strings in python3:
-try:
-    from cStringIO import StringIO  # python2.x pylint: disable=unused-import
-except ImportError:
-    from io import StringIO  # @UnusedImport
-
 from unittest.mock import patch
 
 from click.testing import CliRunner

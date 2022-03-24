@@ -3,7 +3,6 @@ Created on Jul 15, 2016
 
 @author: riccardo
 """
-from builtins import str, range
 import os
 import time
 from datetime import datetime, timedelta

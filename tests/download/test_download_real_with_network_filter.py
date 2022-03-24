@@ -3,20 +3,11 @@ Created on Feb 4, 2016
 
 @author: riccardo
 """
-from __future__ import print_function
-
-from datetime import datetime
-
 from stream2segment.download.exc import NothingToDownload
-
-try:
-    from cStringIO import StringIO  # python2.x
-except ImportError:
-    from io import StringIO, BytesIO
-
+from io import StringIO
 from unittest.mock import patch
-import pandas as pd
 
+import pandas as pd
 import pytest
 
 from stream2segment.cli import cli

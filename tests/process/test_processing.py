@@ -3,8 +3,6 @@ Created on Feb 14, 2017
 
 @author: riccardo
 """
-from __future__ import print_function, division
-
 import os
 import re
 from itertools import product
@@ -21,7 +19,7 @@ from stream2segment.process.inputvalidation import SEGMENT_SELECT_PARAM_NAMES
 from stream2segment.resources import get_templates_fpath
 from stream2segment.process.main import _run_and_write as process_main_run
 from stream2segment.process.log import configlog4processing as o_configlog4processing
-from stream2segment.process.writers import BaseWriter, SEGMENT_ID_COLNAME
+from stream2segment.process.writers import SEGMENT_ID_COLNAME
 
 
 SEG_SEL_STR = SEGMENT_SELECT_PARAM_NAMES[0]
@@ -464,8 +462,7 @@ def main(""")
             # check correct outputs, in both log and output:
             outputs = [stdout, self.logfilecontent]
             for output in outputs:
-                # Try to assert the messages on standard output being compatible with PY2,
-                # as the messages might change
+                # Try to loosely assert the messages is on standard output:
                 assert err_type.__name__ in output \
                     and 'Traceback' in output and ' line ' in output
         else:

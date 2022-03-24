@@ -5,10 +5,6 @@ Segments download functions
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
-# (http://python-future.org/imports.html#explicit-imports):
-from builtins import zip, object
-# import os
-# import sys
 from datetime import timedelta
 
 from collections import OrderedDict
@@ -28,7 +24,6 @@ from stream2segment.download.url import Request, get_opener, get_host
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__)
-
 
 
 def prepare_for_download(session, segments_df, dc_dataselect_manager, timespan,

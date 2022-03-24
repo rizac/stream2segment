@@ -5,8 +5,6 @@ Input validation for the download routine
 import os
 from datetime import datetime, timedelta
 
-from future.utils import string_types
-
 from stream2segment.download.modules.utils import (EVENTWS_SAFE_PARAMS, Authorizer,
                                                    strptime, EVENTWS_MAPPING)
 from stream2segment.io import yaml_load, absrelpath, Fdsnws
@@ -34,7 +32,7 @@ def load_config_for_download(config, validate, **param_overrides):
 
     # few variables:
     configfile = None
-    if isinstance(config, string_types) and os.path.isfile(config):
+    if isinstance(config, str) and os.path.isfile(config):
         configfile = config
 
     # =====================
@@ -49,7 +47,7 @@ def load_config_for_download(config, validate, **param_overrides):
     pnames = ('data_url', 'dataws')
     validated_params.update(pnames)
     pname, pval = pop_param(old_config, pnames)
-    if isinstance(pval, string_types):  # backward compatibility
+    if isinstance(pval, str):  # backward compatibility
         pval = [pval]
     dataws = validate_param(pname, pval,
                             lambda urls: [valid_fdsn(url, is_eventws=False)
@@ -387,7 +385,7 @@ def valid_authorizer(restricted_data, dataws, configfile=None):
     """
     if restricted_data in ('', None, b''):
         restricted_data = None
-    elif isinstance(restricted_data, string_types) and configfile is not None:
+    elif isinstance(restricted_data, str) and configfile is not None:
         restricted_data = absrelpath(restricted_data, configfile)
     ret = Authorizer(restricted_data)
     # check dataws is single element list:
@@ -413,7 +411,7 @@ def valid_tt_table(file_or_name):
     this package. Raise TypeError or any Exception that TTTable might raise
     (including when the file is not found)
     """
-    if not isinstance(file_or_name, string_types):
+    if not isinstance(file_or_name, str):
         raise TypeError('string required, not %s' % str(type(file_or_name)))
     filepath = get_ttable_fpath(file_or_name)
     if not os.path.isfile(filepath):
@@ -446,7 +444,7 @@ def valid_fdsn(url, is_eventws, configfile=None):
     """Return url if it matches a FDSN service (valid strings are 'eida' and
     'iris'), raise ValueError or TypeError otherwise
     """
-    if not isinstance(url, string_types):
+    if not isinstance(url, str):
         raise TypeError('string required')
 
     if (is_eventws and url.lower() in EVENTWS_MAPPING) or \

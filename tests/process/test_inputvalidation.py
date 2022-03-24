@@ -3,27 +3,11 @@ Created on May 23, 2017
 
 @author: riccardo
 """
-# as we patch os.path.isfile, this seems to be the correct way to store beforehand
-# the original functions (also in other packages, e.g. pytestdir in conftest does not break):
-from os.path import isfile, join, dirname
-from datetime import datetime
-from itertools import product
-
-# this can not apparently be fixed with the future package:
-# The problem is io.StringIO accepts unicodes in python2 and strings in python3:
-# from stream2segment.process.inputvalidation import load_config
-from stream2segment.process.inputvalidation import load_p_config
-
-try:
-    from cStringIO import StringIO  # python2.x pylint: disable=unused-import
-except ImportError:
-    from io import StringIO  # @UnusedImport
-
 from unittest.mock import patch
-from future.utils import PY2
 from click.testing import CliRunner
 import pytest
 
+from stream2segment.process.inputvalidation import load_p_config
 from stream2segment.cli import cli
 from stream2segment.process.main import (configlog4processing as o_configlog4processing,
                                          get_session as o_get_session)
@@ -283,9 +267,6 @@ def test_process_verbosity(mock_run_process, mock_configlog, mock_closesess, moc
     out, err = capsys.readouterr()
     with open(vars['logfilepath']) as _opn:
         expected_out = _opn.read()
-    # out below is uncicode in PY2, whereas expected_string is str. Thus:
-    if PY2:
-        expected_out = expected_out.decode('utf8')
     assert expected_out == out
     assert vars['numloggers'] == 2
 

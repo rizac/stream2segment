@@ -5,13 +5,8 @@ Created on 16 Apr 2020
 
 @author: riccardo
 """
-# import os
-# import threading
 
 from sqlalchemy import func
-
-# from flask import g
-# from sqlalchemy.orm import defer, load_only, lazyload
 
 from stream2segment.io.db import secure_dburl
 from stream2segment.io.db.inspection import attnames, get_related_models

@@ -3,7 +3,6 @@ Created on Apr 11, 2017
 
 @author: riccardo
 """
-from builtins import zip, range
 import math
 from datetime import datetime
 
@@ -16,10 +15,11 @@ from sqlalchemy.ext.declarative.api import declarative_base
 from sqlalchemy import Column, Integer, String, LargeBinary, DateTime
 from sqlalchemy.exc import SQLAlchemyError
 
-from stream2segment.io.db.pdsql import syncdfcol, insertdf, _get_max, syncdf,\
-    mergeupdate, updatedf, dbquery2df, DbManager, syncdfseq
+from stream2segment.io.db.pdsql import (syncdfcol, insertdf, _get_max, syncdf, syncdfseq,
+                                        mergeupdate, updatedf, dbquery2df, DbManager)
 
 Base = declarative_base()
+
 
 class Customer(Base):
     __tablename__ = "customer"

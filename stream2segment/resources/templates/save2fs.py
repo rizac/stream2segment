@@ -4,15 +4,6 @@ from the database on the file system.
 
 {{ PROCESS_PY_MAIN }}
 """
-
-from __future__ import division
-
-# make the following(s) behave like python3 counterparts if running from python2.7.x
-# (http://python-future.org/imports.html#explicit-imports):
-from builtins import (ascii, bytes, chr, dict, filter, hex, input,
-                      int, map, next, oct, open, pow, range, round,
-                      str, super, zip)
-
 import os
 # OrderedDict is a python dict that returns its keys in the order they are inserted
 # (a normal python dict returns its keys in arbitrary order)
@@ -37,10 +28,10 @@ from stream2segment.process.funclib.ndarrays import triangsmooth, snr
 
 
 def assert1trace(stream):
-    '''asserts the stream has only one trace, raising an Exception if it's not the case,
+    """asserts the stream has only one trace, raising an Exception if it's not the case,
     as this is the pre-condition for all processing functions implemented here.
     Note that, due to the way we download data, a stream with more than one trace his
-    most likely due to gaps / overlaps'''
+    most likely due to gaps / overlaps"""
     # stream.get_gaps() is slower as it does more than checking the stream length
     if len(stream) != 1:
         raise SkipSegment("%d traces (probably gaps/overlaps)" % len(stream))

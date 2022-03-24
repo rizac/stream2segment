@@ -3,8 +3,6 @@ Created on Feb 14, 2017
 
 @author: riccardo
 """
-from __future__ import print_function, division
-
 import os
 from unittest.mock import patch
 import pandas as pd
@@ -20,7 +18,7 @@ from stream2segment.process.log import configlog4processing as o_configlog4proce
 
 @pytest.fixture
 def yamlfile(pytestdir):
-    '''global fixture wrapping pytestdir.yamlfile'''
+    """global fixture wrapping pytestdir.yamlfile"""
     def func(**overridden_pars):
         return pytestdir.yamlfile(get_templates_fpath('paramtable.yaml'), **overridden_pars)
 

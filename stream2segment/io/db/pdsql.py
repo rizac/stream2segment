@@ -25,18 +25,6 @@ Refs (URL are split in two when too long):
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
-from __future__ import division
-
-# make the following(s) behave like python3 counterparts if running from py2.7
-# (http://python-future.org/imports.html#explicit-imports):
-from builtins import range
-
-from datetime import datetime, date
-# Returns a list over dictionary values (and keys)
-# with the same list-like behaviour on Py2.7 as on Py3 (scroll at the end of
-# imports for other custom implementations of iterkeys and listkeys):
-from future.utils import listvalues
-
 import numpy as np
 import pandas as pd
 
@@ -46,34 +34,6 @@ from sqlalchemy.sql.expression import func, bindparam
 from sqlalchemy.types import Integer, Float, Boolean, DateTime, Date  # , TIMESTAMP
 
 from stream2segment.io.db.inspection import colnames
-
-# future package implements a iterkeys which checks if the attribute iterkeys
-# is defined on a dict. This looks inefficient. Moreover it lacks a listkeys
-# function. Let's implement both here:
-
-try:
-    dict.iteritems
-except AttributeError:
-    # Python 3
-    text_type = str
-
-    def listkeys(d):
-        return list(d.keys())
-
-    def iterkeys(d):
-        return d.keys()
-else:
-    # Python 2:
-    text_type = unicode  # noqa
-    import itertools
-    zip = itertools.izip  # noqa
-    map = itertools.imap  # noqa
-
-    def listkeys(d):
-        return d.keys()
-
-    def iterkeys(d):
-        return d.iterkeys()
 
 
 def get_dtype(sqltype):
@@ -802,15 +762,15 @@ def insertdf(dataframe, session, table_model, colnames2insert=None,
         if len(buf) == buf_size or (i == last and buf):
             try:
                 session.connection().execute(table_model.__table__.insert(),
-                                             listvalues(buf))
+                                             list(buf.values()))
                 session.commit()
             except SQLAlchemyError as sa_exc:
                 session.rollback()
                 not_inserted += len(buf)
                 if onerr is not None:
-                    onerr(dataframe.iloc[listkeys(buf)], sa_exc)
+                    onerr(dataframe.iloc[list(buf.keys())], sa_exc)
                 if return_df:
-                    indices_discarded.extend(iterkeys(buf))
+                    indices_discarded.extend(buf.keys())
 
             buf.clear()
 
@@ -890,15 +850,15 @@ def updatedf(dataframe, session, where_col, colnames2update=None, buf_size=10,
         buf[i] = rowdict
         if len(buf) == buf_size or (i == last and buf):
             try:
-                session.connection().execute(stmt, listvalues(buf))
+                session.connection().execute(stmt, list(buf.values()))
                 session.commit()
             except SQLAlchemyError as sa_exc:
                 session.rollback()
                 not_updated += len(buf)
                 if onerr is not None:
-                    onerr(dataframe.iloc[listkeys(buf)], sa_exc)
+                    onerr(dataframe.iloc[list(buf.keys())], sa_exc)
                 if return_df:
-                    indices_discarded.extend(iterkeys(buf))
+                    indices_discarded.extend(buf.keys())
 
             buf.clear()
 

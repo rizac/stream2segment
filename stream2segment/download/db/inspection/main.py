@@ -5,21 +5,18 @@ Module implementing the download info (print statistics and generate html page)
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
-from __future__ import print_function
 import json
 import os
 import sys
-import threading
 from collections import defaultdict
 from io import StringIO
 from tempfile import gettempdir
 from webbrowser import open as open_in_browser
 
-from future.utils import viewitems
 from jinja2 import Environment, FileSystemLoader
 from sqlalchemy import func, or_
 
-from stream2segment.io import yaml_load, Fdsnws, open2writetext
+from stream2segment.io import yaml_load, Fdsnws
 from stream2segment.io.cli import ascii_decorate
 from stream2segment.io.db import close_session
 from stream2segment.io.db.sqlconstructs import concat
@@ -117,7 +114,7 @@ def _get_download_info(info_generator, dburl, download_indices=None, download_id
             if outfile is not None:
                 # itr is an iterator of strings in py2, and str in py3, so open
                 # must be input differently (see utils module):
-                with open2writetext(outfile, encoding='utf8', errors='replace') as opn:
+                with open(outfile, 'w', encoding='utf8', errors='replace') as opn:
                     for line in itr:
                         line += '\n'
                         opn.write(line)
@@ -391,7 +388,7 @@ def get_dstats_str_iter(session, download_ids=None, maxgap_threshold=0.5):
             agg_statz[dcurl[dc_id]][dwn_code] += segcount
 
     evparamlen = None  # used for alignement of strings (calculated lazily in loop below)
-    for did, (druntime, evtparams) in viewitems(dwlids):
+    for did, (druntime, evtparams) in dwlids.items():
         yield ''
         yield ''
         yield ascii_decorate('Download id: %d' % did)
@@ -628,10 +625,10 @@ def get_dstats_html_data(session, download_ids=None, maxgap_threshold=0.5):
     sta_list = []
     sortedcodes = DownloadStats2.sortcodes(codesfound)
     codeint = {k: i for i, k in enumerate(sortedcodes)}
-    for staname, values in viewitems(sta_data):
+    for staname, values in sta_data.items():
         staname = staname.split('.')[1]
         dwnlds = values.pop()  # remove last element
-        for did, segs in viewitems(dwnlds):
+        for did, segs in dwnlds.items():
             values.append(did)
             values.append([item for code in segs
                            for item in (codeint[code], segs[code])])

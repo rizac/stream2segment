@@ -3,7 +3,6 @@ Created on Nov 18, 2016
 
 @author: riccardo
 """
-from builtins import next
 import threading
 from itertools import cycle
 from subprocess import call

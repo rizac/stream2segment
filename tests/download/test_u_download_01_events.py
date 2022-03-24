@@ -4,21 +4,14 @@ Created on Feb 4, 2016
 
 @author: riccardo
 """
-from builtins import str
 from datetime import datetime, timedelta
 import socket
 from itertools import cycle
 import logging
 import shutil
 from logging import StreamHandler
-from io import BytesIO
+from io import BytesIO, StringIO
 from unittest.mock import Mock, patch
-# this can apparently not be avoided neither with the future package:
-# The problem is io.StringIO accepts unicodes in python2 and strings in python3:
-try:
-    from cStringIO import StringIO  # python2.x
-except ImportError:
-    from io import StringIO
 
 import pandas as pd
 import pytest

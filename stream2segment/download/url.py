@@ -7,45 +7,20 @@ Http requests with multi-threading
 """
 from contextlib import closing
 import threading
-# import http.client
 import socket
 from multiprocessing.pool import ThreadPool
-import os
 
-from future.utils import PY2
+from urllib.parse import urlparse, urlencode
+from urllib.request import (urlopen, Request, build_opener,
+                            HTTPPasswordMgrWithDefaultRealm, HTTPDigestAuthHandler)
+from urllib.error import HTTPError, URLError
+from http.client import HTTPException, responses
 
-# Python 2 and 3: Futures (http://python-future.org/imports.html#aliased-imports)
-# back-ports to py2 are buggy when used with ThreadPools (like here).
-# Let's go the old way, simple imports
-# **IMPORTANT**: ALL IMPORTS REQUIRING ANY OF THE MODULES/CLASSES BELOW SHOULD IMPORT 
-# FROM HERE TO GUARANTEE PY2+3 COMPATIBILITY
-try:  # py3:
-    from urllib.parse import urlparse, urlencode
-    from urllib.request import urlopen, Request, \
-        build_opener, HTTPPasswordMgrWithDefaultRealm, HTTPDigestAuthHandler
-    from urllib.error import HTTPError, URLError
-    from http.client import HTTPException, responses
 
-    # https://docs.python.org/3/library/urllib.request.html#request-objects
-    def get_host(request):
-        """Returns the host (string) from a Request object"""
-        return request.host
-
-except ImportError:  # py2:
-    from urlparse import urlparse  # noqa
-    from urllib import urlencode
-    from urllib2 import (urlopen, Request, HTTPError, URLError, build_opener,  # noqa
-                         HTTPPasswordMgrWithDefaultRealm, HTTPDigestAuthHandler)  # noqa
-    from httplib import HTTPException    # noqa
-    from BaseHTTPServer import BaseHTTPRequestHandler    # noqa
-    # responses values are tuples, map to the response message (1st tuple item, str)
-    # to make this response compatible with the python3 response above:
-    responses = {k: v[0] for k, v in BaseHTTPRequestHandler.responses.iteritems()}
-
-    # https://docs.python.org/2/library/urllib2.html#request-objects
-    def get_host(request):
-        """Returns the host (string) from a Request object"""
-        return request.get_host()
+# https://docs.python.org/3/library/urllib.request.html#request-objects
+def get_host(request):
+    """Returns the host (string) from a Request object"""
+    return request.host
 
 
 def get_opener(url, user, password):

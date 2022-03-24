@@ -7,12 +7,6 @@ using linear, cubic or nearest sample approximation
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
-from __future__ import print_function, division
-
-# make the following(s) behave like python3 counterparts if running from py2.7+
-# (http://python-future.org/imports.html#explicit-imports):
-from builtins import zip, next, range, object
-
 import os
 import sys
 import math

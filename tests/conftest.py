@@ -1,10 +1,10 @@
-'''
+"""
 Basic conftest.py defining fixtures to be accessed during tests
 
 Created on 3 May 2018
 
 @author: riccardo
-'''
+"""
 
 import os
 from io import BytesIO
@@ -25,8 +25,6 @@ from click.testing import CliRunner
 
 import stream2segment.download.db.models as dbd
 import stream2segment.process.db.models as dbp
-# from stream2segment.io.db.models import Base, Event, DataCenter, WebService, Download,\
-#     Station, Channel, Segment
 from stream2segment.traveltimes.ttloader import TTTable
 from stream2segment.io import yaml_load
 from stream2segment.download.modules.stations import compress
@@ -35,18 +33,20 @@ from stream2segment.download.modules.stations import compress
 # https://docs.pytest.org/en/3.0.0/parametrize.html#basic-pytest-generate-tests-example
 # add option --dburl to the command line
 def pytest_addoption(parser):
-    '''Adds the dburl option to pytest command line arguments. The option can be input multiple
-    times and will parametrize all tests with the 'db' fixture with all defined databases
-    (plus a default SQLite database)'''
+    """Adds the dburl option to pytest command line arguments. The option can be input
+    multiple times and will parametrize all tests with the 'db' fixture with all defined
+    databases (plus a default SQLite database)
+    """
     parser.addoption("--dburl", action="append", default=[],
-                     help=("list of database url(s) to be used for testing *in addition* "
-                           "to the default SQLite database"))
+                     help=("list of database url(s) to be used for testing "
+                           "*in addition* to the default SQLite database"))
 
 
 # make all test functions having 'db' in their argument use the passed databases
 def pytest_generate_tests(metafunc):
-    '''This function is called before generating all tests and parametrizes all tests with the
-    argument 'db' (which is a fixture defined below)'''
+    """This function is called before generating all tests and parametrizes all tests
+    with the argument 'db' (which is a fixture defined below)
+    """
     if 'db' in metafunc.fixturenames:
         dburls = ["sqlite:///:memory:",
                   os.getenv("DB_URL", None)] + metafunc.config.option.dburl  # command line (list)
@@ -86,21 +86,21 @@ def pytest_sessionfinish(session,  # pylint: disable=unused-argument
 
 @pytest.fixture(scope="session")
 def clirunner(request):  # pylint: disable=unused-argument
-    '''Shorthand for
+    """Shorthand for
         runner = CliRunner()
     with an additional method `assertok(result)` which asserts the returned value of
-    the cli (command line interface) is ok, and prints relevant information to the standard
-    output and error:
+    the cli (command line interface) is ok, and prints relevant information to the
+    standard output and error:
 
         result = clirunner.invoke(...)
         assert clirunner.ok(result)
-    '''
+    """
     class Clirunner(CliRunner):
 
         @classmethod
         def ok(cls, result):
-            '''Returns True if result's exit_code is 0. If nonzero, prints
-            relevant info to the standard output and error for debugging'''
+            """Return True if result's exit_code is 0. If nonzero, prints
+            relevant info to the standard output and error for debugging"""
             if result.exit_code != 0:
                 print(result.output)
                 if result.exception:
@@ -112,9 +112,9 @@ def clirunner(request):  # pylint: disable=unused-argument
 
 
 @pytest.fixture(scope="session")
-def data(request):  # pylint: disable=unused-argument
-    '''Fixture handling all data to be used for testing. It points to the testing 'data' folder
-    allowing to just get files / read file contents by file name.
+def data(request):  # noqa
+    """Fixture handling all data to be used for testing. It points to the testing 'data'
+    folder allowing to just get files / read file contents by file name.
     Pass it as argument to a test function
     ```
         def test_bla(..., data,...)
@@ -126,25 +126,31 @@ def data(request):  # pylint: disable=unused-argument
         data.read_stream('myfilename')
         data.read_inv('myfilename')
     ```
-    '''
+    """
     class Data():
-        '''class handling common read operations on files in the 'data' folder'''
+        """class handling common read operations on files in the 'data' folder"""
 
         def __init__(self, root=None):
-            self.root = root or os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
+            self.root = root or os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                             'data')
             self._cache = {}
 
         def path(self, filename):
-            '''returns the full path (string) of the given data file name
-            :param filename: a string denoting the file name inside the test data directory'''
+            """Return the full path (string) of the given data file name
+
+            :param filename: a string denoting the file name inside the test data
+                directory
+            """
             filepath = os.path.join(self.root, filename)
             assert os.path.isfile(filepath)
             return filepath
 
         def read(self, filename):
-            '''reads the data (byte mode) and returns it
-            :param filename: a string denoting the file name inside the test data directory
-            '''
+            """Read the data (byte mode) and returns it
+
+            :param filename: a string denoting the file name inside the test data
+                directory
+            """
             key = ('raw', filename)
             bytesdata = self._cache.get(key, None)
             if bytesdata is None:
@@ -160,8 +166,10 @@ def data(request):  # pylint: disable=unused-argument
             return stream.copy()
 
         def read_stream(self, filename, inventory_filename=None, output=None):
-            '''Returns the obpsy stream object of the given filename
-            :param filename: a string denoting the file name inside the test data directory'''
+            """Return the ObpPy stream object of the given filename
+
+            :param filename: a string denoting the file name inside the test data
+                directory"""
             assert (inventory_filename is None) == (output is None)
             # read the non-processed stream
             stream = self._read_stream(filename)  # returns a copy
@@ -176,8 +184,11 @@ def data(request):  # pylint: disable=unused-argument
             return ret_stream.copy()
 
         def read_inv(self, filename):
-            '''Returns the obpsy Inventory object of the given filename
-            :param filename: a string denoting the file name inside the test data directory'''
+            """Return the ObpPy Inventory object of the given filename
+
+            :param filename: a string denoting the file name inside the test data
+                directory
+            """
             key = ('inv', filename)
             inv = self._cache.get(key, None)
             if inv is None:
@@ -187,8 +198,11 @@ def data(request):  # pylint: disable=unused-argument
             return inv
 
         def read_tttable(self, filename):
-            '''Returns the stream2segment TTTable object of the given filename
-            :param filename: a string denoting the file name inside the test data directory'''
+            """Return the stream2segment TTTable object of the given filename
+
+            :param filename: a string denoting the file name inside the test data
+            directory
+            """
             # the cache assumes we do not modify ttable (which should be always the case)
             key = ('tttable', filename)
             tttable = self._cache.get(key, None)
@@ -197,8 +211,10 @@ def data(request):  # pylint: disable=unused-argument
             return tttable
 
         def to_segment_dict(self, filename):
-            '''returns a dict to be passed as argument for creating new Segment(s), by reading
-            an existing miniseed. The arrival time is set one third of the miniseed time span'''
+            """Return a dict to be passed as argument for creating new Segment(s), by
+            reading an existing miniseed. The arrival time is set one third of the
+            miniSeed time span
+            """
             bdata = self.read(filename)
             stream = read_stream(BytesIO(bdata))
             start_time = stream[0].stats.starttime
@@ -217,38 +233,42 @@ def data(request):  # pylint: disable=unused-argument
 
 @pytest.fixture
 def pytestdir(tmpdir):
-    '''This fixture "inherits" from tmpdir fixture in that it allows to create non-existing
-    (unique) file paths and directories inside `tmpdir`, which is a LocalPath object
+    """This fixture "inherits" from tmpdir fixture in that it allows to create
+    non-existing (unique) file paths and directories inside `tmpdir`, which is a
+    LocalPath object
     (http://py.readthedocs.io/en/latest/_modules/py/_path/local.html#LocalPath)
     representing a temporary directory unique to each test function invocation.
-    `str(tmpdir)` represents in turn a path inside the base temporary directory of the test session
-    (`tmpdir_factory.mktemp`).
-    Another option is to use `newyaml(file, **overrides)` or `newyaml(dict, **overrides)` which
-    returns a file path to a new yaml with optional overrides
+    `str(tmpdir)` represents in turn a path inside the base temporary directory of the
+    test session (`tmpdir_factory.mktemp`).
+    Another option is to use `newyaml(file, **overrides)` or `newyaml(dict, **overrides)`
+    which returns a file path to a new yaml with optional overrides
 
-    Curiously, there is no feature in pytest to create random unique files and directory names.
+    Curiously, there is no feature in pytest to create random unique files and directory
+    names.
 
     Usage:
 
     def my_test(pytestdir):
-        pytestdir.path()           # Return a STRING denoting the path of this dir (i.e. the
-                                   # string of the underlying tmpdir)
-        pytestdir.newfile()        # Returns a STRING denoting an UNIQUE path in `pytestdir.path`
+        pytestdir.path()           # Return a STRING denoting the path of this dir (i.e.
+                                   # the string of the underlying tmpdir)
+        pytestdir.newfile()        # Returns a STRING denoting an UNIQUE path in
+                                   # `pytestdir.path`
         pytestdir.newfile('.py')   # Same as above, but with the given extension
-        pytestdir.makedir()        # Returns a STRING denoting an UNIQUE (sub)directory of
-                                   # `pytestdir.path
+        pytestdir.makedir()        # Returns a STRING denoting an UNIQUE (sub)directory
+                                   # of `pytestdir.path
         pytestdir.join('out.csv')  # Return a STRING os.path.join(`self.path`, "out.csv")
-        pytestdir.join('out.csv', True)  # same as above but file will be created if it does not
-                                          # exists
-    '''
+        pytestdir.join('out.csv', True)  # same as above but file will be created if it
+                                         # does not exists
+    """
 
     class Pytestdir(object):
-        '''Pytestdir object'''
+        """Pytestdir object"""
 
         @classmethod
         def yamlfile(cls, src, removals=None, **overrides):
-            '''creates a yaml file from src (a dict or path to yaml file) and optional
-            overrides. Returns the newly created yaml file path'''
+            """Create a YAML file from src (a dict or path to yaml file) and optional
+            overrides. Returns the newly created yaml file path
+            """
             newyamlfile = cls.newfile('.yaml', create=False)
             data_ = yaml_load(src)
             data_.update(**overrides)
@@ -260,26 +280,28 @@ def pytestdir(tmpdir):
 
         @staticmethod
         def join(filename):
-            '''Returns a file under `self.path`. Implemented for compatibility with
-               `tmpdir.join`'''
+            """Returns a file under `self.path`. Implemented for compatibility with
+            `tmpdir.join`
+            """
             return str(tmpdir.join(filename))
 
         @staticmethod
         def path():
-            '''returns the string of the realpath of the underlying tmpdir'''
+            """Return the string of the realpath of the underlying tmpdir"""
             return str(tmpdir.realpath)
 
         @staticmethod
         def newfile(name_or_extension=None, create=False):
-            '''returns an file path inside `self.path`. If 'name_or_extension' starts with the
-            dot or is falsy (empty or None), the file is assured to be unique (no file with that
-            name exists on `self.path`). If 'name_or_extension'  starts with a dot, then the
-            (unique) file name has the given extension.
-            If `create` is True (False by default), the file will be also created if it does not
-            exist.
+            """Return an file path inside `self.path`. If 'name_or_extension' starts with
+            the dot or is falsy (empty or None), the file is assured to be unique (no
+            file with that name exists on `self.path`). If 'name_or_extension'  starts
+            with a dot, then the (unique) file name has the given extension.
+            If `create` is True (False by default), the file will be also created if it
+            does not exist.
             Summary table:
-            "unique" below denotes a random sequence of 16 alpha numeric digits which assures
-            the file name does NOT denote an existing file name prior to this call.
+            "unique" below denotes a random sequence of 16 alpha numeric digits which
+            assures the file name does NOT denote an existing file name prior to this
+            call.
             +---------------------------------+--------------------+--------------+
             |                                 | Returned           | Returned     |
             | call:                           | file name is:      | file exists: |
@@ -294,13 +316,13 @@ def pytestdir(tmpdir):
             | newfile('abc.txt', create=True) |                    | True         |
             +---------------------------------+--------------------+--------------+
 
-            :param name_or_extension: string. if truthy (not empty and not None), and does not
-            start with a dot, it's the file name. If it starts with a dot, an unique file name
-            is created with suffix `name_or_extension`. If falsy (empty or None), an unique file
-            name is created
-            :param create: boolean (default False) whether to create the given file before
-            returning its path (string) if it does not exist.
-            '''
+            :param name_or_extension: string. if truthy (not empty and not None), and
+                does not start with a dot, it's the file name. If it starts with a dot,
+                an unique file name is created with suffix `name_or_extension`. If falsy
+                (empty or None), an unique file name is created
+            :param create: boolean (default False) whether to create the given file
+                before returning its path (string) if it does not exist.
+            """
             if not name_or_extension:
                 extension = ''
                 filename = None
@@ -322,7 +344,7 @@ def pytestdir(tmpdir):
 
         @staticmethod
         def makedir():
-            '''creates and returns a unique (sub)directory of `self.path`'''
+            """creates and returns a unique (sub)directory of `self.path`"""
             name = None
             while True:
                 name = str(uuid.uuid4())
@@ -336,15 +358,15 @@ def pytestdir(tmpdir):
 
 @pytest.fixture
 def db(request, tmpdir_factory):  # pylint: disable=invalid-name
-    '''Fixture handling all db reoutine stuff. Pass it as argument to a test function
+    """Fixture handling all db reoutine stuff. Pass it as argument to a test function
     ```
         def test_bla(..., db,...)
     ```
     and just use `db.session` inside the code
-    '''
+    """
     class DB(object):
-        '''class handling a database in testing functions. You should call self.create
-        inside the tests'''
+        """class handling a database in testing functions. You should call self.create
+        inside the tests"""
         def __init__(self, dburl):
             self.dburl = dburl
             self._session = None
@@ -352,18 +374,19 @@ def db(request, tmpdir_factory):  # pylint: disable=invalid-name
             self.session_maker = None
 
         def create(self, to_file=False, process=False, custom_base=None):
-            '''creates the database, deleting it if already existing (i.e., if this method
-            has already been called and self.delete has not been called).
-            :param to_file: boolean (False by default) tells whether, if the url denotes sqlite,
-            the database should be created on the filesystem. Creating in-memory sqlite databases
-            is handy in most cases but once the session is closed it seems that the database is
-            closed too.
+            """Create the database, deleting it if already existing (i.e., if this
+            method has already been called and self.delete has not been called)
+
+            :param to_file: boolean (False by default) tells whether, if the url denotes
+                sqlite, the database should be created on the filesystem. Creating
+                in-memory sqlite databases is handy in most cases but once the session
+                is closed it seems that the database is closed too.
             :param process: ignored if base is supplied, if True attaches obspy methods
                 to the ORM classes (streams2segment.process.db)
-            :param custom_base: the Base class whereby creating the db schema. If None (the
-            default) it defaults to the download ot process Base defined in s2s,
-            depending on the value of the `process` argument
-            '''
+            :param custom_base: the Base class whereby creating the db schema. If None
+                (the default) it defaults to the download ot process Base defined in s2s,
+                depending on the value of the `process` argument
+            """
             self.delete()
             self.dburl = 'sqlite:///' + \
                 str(tmpdir_factory.mktemp('db', numbered=True).join('db.sqlite')) \
@@ -377,7 +400,7 @@ def db(request, tmpdir_factory):  # pylint: disable=invalid-name
 
         @property
         def session(self):
-            '''creates a session if not already created and returns it'''
+            """Create a session if not already created and returns it"""
             if self.engine is None:
                 raise TypeError('Database not created. Call `create` first')
             if self._session is None:
@@ -388,16 +411,18 @@ def db(request, tmpdir_factory):  # pylint: disable=invalid-name
 
         @property
         def is_sqlite(self):
-            '''returns True if this db is sqlite, False otherwise'''
+            """Return True if this db is sqlite, False otherwise"""
             return (self.dburl or '').startswith("sqlite:///")
 
         @property
         def is_postgres(self):
-            '''returns True if this db is postgres, False otherwise'''
+            """Return True if this db is postgres, False otherwise"""
             return (self.dburl or '').startswith("postgresql://")
 
         def delete(self):
-            '''Deletes this da tabase, i.e. all tables and the file referring to it, if any'''
+            """Delete this da tabase, i.e. all tables and the file referring to it,
+            if any
+            """
             if self._session is not None:
                 try:
                     self.session.rollback()
@@ -435,33 +460,35 @@ def db(request, tmpdir_factory):  # pylint: disable=invalid-name
 
 @pytest.fixture
 def db4process(db, data):
-    '''This fixture basically extends the `db` fixture and returns an object with all the
+    """This fixture basically extends the `db` fixture and returns an object with all the
     method of the `db` object (db.dburl, db.session) plus:
     db4process.segments(self, with_inventory, with_data, with_gap)
-    '''
+    """
     class _ProcessDB(object):
-        '''So, no easy way to override easily with pytest from the object returned by the 'db'
-        fixture. The best way is to pass `db` as argument above, which also assures that
-        functions/methods having `db4process` as arguments will behave as those having `db`
-        (i.e., they will be called iteratively for any database url passed in the command line).
-        Drawback: we cannot override the class returned by `db`, so we provide a different class
-        which mimics inheritance by forwarding to db each attribute not found
-        (__getatttr__). Whether there might be a better way to achieve this, it wasn't clear from
-        pytest docs'''
+        """So, no easy way to override easily with pytest from the object returned by the
+        `db` fixture. The best way is to pass `db` as argument above, which also assures
+        that functions/methods having `db4process` as arguments will behave as those
+        having `db` (i.e., they will be called iteratively for any database url passed in
+        the command line). Drawback: we cannot override the class returned by `db`, so we
+        provide a different class which mimics inheritance by forwarding to db each
+        attribute not found (__getatttr__). Whether there might be a better way to
+        achieve this, it wasn't clear from pytest docs
+        """
         def __getattr__(self, name):
-            '''Lets the user call db4process.dburl, db4process.session,...'''
+            """Lets the user call db4process.dburl, db4process.session,..."""
             return getattr(db, name)
 
         def segments(self, with_inventory, with_data, with_gap):
-            '''Returns the segment ids matching the given criteria'''
+            """Return the segment ids matching the given criteria"""
             data_seed_id = 'ok.' if with_inventory else 'no.'
             data_seed_id += 'ok' if with_data else ('gap' if with_gap else 'no')
-            return self.session.query(dbp.Segment).filter(dbp.Segment.data_seed_id == data_seed_id)
+            return self.session.query(dbp.Segment).\
+                filter(dbp.Segment.data_seed_id == data_seed_id)
 
         def create(self, to_file=False):
-            '''Calls db.create and then populates the database with the data for processing
-            tests'''
-
+            """Call `db.create` and then populates the database with the data for
+            processing tests
+            """
             # re-init a sqlite database (no-op if the db is not sqlite):
             db.create(to_file, True)
             # init db:
@@ -532,5 +559,3 @@ def db4process(db, data):
                 session.commit()
 
     return _ProcessDB()
-
-

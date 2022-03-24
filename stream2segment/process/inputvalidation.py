@@ -4,8 +4,6 @@ Input validation for the process routine
 import os
 import inspect
 
-from future.utils import string_types
-
 from stream2segment.io import yaml_load
 from stream2segment.io.inputvalidation import (validate_param, get_param,
                                                pop_param, valid_between)
@@ -81,7 +79,7 @@ def _get_process_advanced_settings(config, adv_settings_key):
 def valid_filewritable(filepath):
     """Check that the file is writable, i.e. that is a string and its
     directory exists"""
-    if not isinstance(filepath, string_types):
+    if not isinstance(filepath, str):
         raise TypeError('string required, found %s' % str(type(filepath)))
 
     if not os.path.isdir(os.path.dirname(filepath)):
@@ -102,7 +100,7 @@ def valid_pyfile(pyfile):
     name implemented therein. If missing the function name to search defaults to
     :func:`valid_default_processing_funcname`
     """
-    if not isinstance(pyfile, string_types):
+    if not isinstance(pyfile, str):
         raise TypeError('Python file must be given as string, not %s' %
                         str(type(pyfile)))
 

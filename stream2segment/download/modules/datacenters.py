@@ -5,9 +5,6 @@ Data center(s) download functions
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
-# (http://python-future.org/imports.html#explicit-imports):
-from builtins import zip, object
-
 import os
 from datetime import datetime, timedelta
 import re
@@ -15,7 +12,6 @@ import logging
 
 from collections import defaultdict
 import pandas as pd
-from future.utils import string_types
 
 from stream2segment.io import Fdsnws
 from stream2segment.download.db.models import DataCenter
@@ -58,7 +54,7 @@ def get_datacenters_df(session, service, routing_service_url,
     eidars_response_text = get_eidars_response_text(routing_service_url)
     dclist = []
     discarded = 0
-    if isinstance(service, string_types):
+    if isinstance(service, str):
         service = [service]
     for service_url in service:
         organization = service_url.lower().strip()

@@ -3,18 +3,8 @@ Main module for the segment processing and .csv output
 
 Created on Feb 2, 2017
 
-.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
+.. moduleauthor:: <rizac@gfz-potsdam.de>
 """
-from __future__ import print_function
-
-# future direct imports (needs future package installed, otherwise remove):
-# (http://python-future.org/imports.html#explicit-imports)
-from builtins import (  # int,
-    open)
-
-# iterating over dictionary keys with the same set-like behaviour on Py2.7 as on Py3:
-# from future.utils import viewkeys
-
 import os
 import time
 import sys

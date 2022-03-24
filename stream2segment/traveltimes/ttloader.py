@@ -1,18 +1,12 @@
-'''
+"""
 Module holding the TTTable class, a class ehich loads compressed numpy data previously
 created via the `:ref:ttcreator` module and that allows the calculation of the
 minimum theoretical travel times by means of a pre-computed grid of points
 using linear, cubic or nearest sample approximation
 
 :date: Sep 1, 2017
-.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
-'''
-from __future__ import division
-
-# make the following(s) behave like python3 counterparts if running from python2.7.x
-# (http://python-future.org/imports.html#explicit-imports):
-from builtins import zip, range, object
-
+.. moduleauthor:: <rizac@gfz-potsdam.de>
+"""
 import numpy as np
 try:
     from scipy.interpolate import griddata

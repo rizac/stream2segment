@@ -6,16 +6,6 @@ parametric table.
 
 {{ PROCESS_PY_MAIN }}
 """
-
-from __future__ import division
-
-# make the following(s) behave like python3 counterparts if running from python2.7.x
-# (http://python-future.org/imports.html#explicit-imports). UNCOMMENT or REMOVE
-# if you are working in Python3 (recommended):
-from builtins import (ascii, bytes, chr, dict, filter, hex, input,
-                      int, map, next, oct, open, pow, range, round,
-                      str, super, zip)
-
 # From Python >= 3.6, dicts keys are returned (and thus, written to file) in the order
 # they are inserted. Prior to that version, to preserve insertion order you needed to
 # use OrderedDict:

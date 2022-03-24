@@ -5,15 +5,10 @@ Core functionalities for the main GUI web application (show command)
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
-
-# make the following(s) behave like python3 counterparts if running from py2.7+
-# (http://python-future.org/imports.html#explicit-imports):
-
-from builtins import zip
-
 from itertools import cycle
 import contextlib
 
+from io import StringIO
 import yaml
 import numpy as np
 from obspy import Stream, Trace
@@ -22,9 +17,10 @@ from obspy.core.utcdatetime import UTCDateTime
 from stream2segment.process import gui
 from stream2segment.process.inspectimport import iterfuncs
 from stream2segment.process.funclib.traces import sn_split
-from stream2segment.io import yaml_safe_dump, StringIO  # <- io.StringIO py2 compatible
+from stream2segment.io import yaml_safe_dump
 from stream2segment.process.gui.webapp.mainapp.jsplot import Plot, isoformat
 from stream2segment.process.gui.webapp.mainapp import db
+
 
 # number of points per plot. Used to resample points:
 NPTS_WIDE = 900  # FIXME: automatic retrieve from the GUI?

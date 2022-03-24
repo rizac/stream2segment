@@ -3,9 +3,6 @@ Created on Sep 4, 2017
 
 @author: riccardo
 """
-from __future__ import division
-
-from builtins import zip, str
 from os.path import isfile
 
 from past.utils import old_div

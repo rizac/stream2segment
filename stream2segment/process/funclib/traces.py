@@ -14,12 +14,10 @@ can be applied on a :class:`obspy.Stream` this way:
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>,
                   Graeme Weatherill <gweather@gfz-potsdam.de>
 """
-from __future__ import division
 import numpy as np
 
 from obspy.core import Trace, UTCDateTime  # , Stats
 
-# from obspy import read_inventory
 from stream2segment.process.funclib.ndarrays import fft as _fft, ampspec as _ampspec,\
     powspec as _powspec, cumsumsq as _cumsumsq, dfreq, freqs, \
     ResponseSpectrum as _ResponseSpectrum, NewmarkBeta as _NewmarkBeta, \
