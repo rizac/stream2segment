@@ -109,7 +109,6 @@ setup(
         'dev': ['pep8>=1.7.0',
                 'pylint>=1.7.2',
                 'pytest>=3.2.2',
-                'mock>=2.0.0',  # from py3.4+, builtin library
                 'pytest-cov>=2.5.1',
                 'pytest-mock>=1.6.2'],
         'jupyter': ['jupyter>=1.0.0']
