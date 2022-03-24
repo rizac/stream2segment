@@ -249,51 +249,57 @@ Activate your virtual environment
 
 </details>
 
-### Install Stream2segment Python package
+### Install Stream2segment
 
 **Important reminders before installing**: 
   - From now on you are supposed to be in the stream2segment directory,
      (where you cloned the repository) with your Python virtualenv activated
   - In case of errors, check the [Installation notes below](#installation-Notes)
 
-To install stream2segment (no jupyter), run:
+Install required packages with tested versions listed in `requirements.txt`:
 ```console
 pip install --upgrade pip setuptools wheel && pip install -r ./requirements.txt
 ```
 
-With jupyter:
+Install this package:
 ```console
-pip install --upgrade pip setuptools wheel && pip install -r ./requirements.txt && pip install jupyter
+pip install -e .
 ```
 
-(use `requirements.dev.txt` instead of `requirements.txt` in the command above
-if you want to install also test packages, e.g., you want to contribute to the code 
-and/or run tests)
+(optional) install jupyter:
+```console
+pip install jupyter
+```
 
-#### Troubleshooting / errors:
+<details>
+<summary>Troubleshooting / installation details (click to expand)</summary>
+
+- When using a requirements file, you can type `requirements.dev.txt` instead of 
+  `requirements.txt` if you want to install also test packages, e.g., you want 
+  to contribute to the code and/or run tests
 
 - in older ObsPy version, numpy needs to be installed first. If you see an error 
-  like "you need to install numpy first", open "requirements.txt" and copy the line which
-  starts with numpy. Supposing it's `numpy==0.1.12`, then run `pip install numpy==0.1.12` 
-  before re-running the `pip install ...` command above
+  like "you need to install numpy first", open "requirements.txt" and copy the 
+  line which starts with numpy. Supposing it's `numpy==0.1.12`, then run 
+  `pip install numpy==0.1.12` before re-running the `pip install ...` command 
+  above
 
-- in case of a message like `ERROR: No matching distribution found for <package_name>`,
-  try to use `pip install .` (see details below)
+- When installing the program (`pip install -e .`), `-e` is optional and 
+  makes the package editable, meaning that you can edit the repository and make all 
+  changes immediately available, without re-installing the package. This is useful 
+  when, e.g., `git pull`-ing new versions frequently.
   
-<details>
-<summary>Requirements file vs normal `pip install` (click for details)</summary>
-
-Using a `requirements` file is safer because we listed there the *exact* versions 
-of the required packages that have passed the CI tests. 
-Instead of `pip install -r ...`, the usual `pip install .` is
-more flexible: it can check and install package versions matching the current Python 
-distribution, and in general does not re-install already installed packages, if they
-match a *minimum* required version. 
-**As such, use `pip install -r` is generally safer, especially on a new, empty virtual 
-environment. However, `pip install .` might be required if you see some matching 
-distribution error (e.g. you use an older Python version), or you are installing 
-stream2segment in a virtual environment with already installed extra packages, 
-and you want to avoid breaking existing code.**
+- in case of a message like `ERROR: No matching distribution found for <package_name>`,
+  try to skip the requirements file:
+  ```console
+  pip install --upgrade pip setuptools wheel && pip install -e .
+  ```  
+  This will install packages satisfying a *minimum* required 
+  version (listed in  `setup.py`), and not the *exact* version passing tests, letting
+  `pip` handling the best version to use. **You can choose this strategy
+  in case of mismatching distributions, or while installing stream2segment 
+  in a virtual environment with already installed extra packages, if you want to avoid 
+  breaking existing code.**
 
 </details>
 
@@ -427,9 +433,10 @@ In the absence of Continuous Integration in place, from times to times, it is ne
 	pip install -e ".[dev]"
 	pip freeze > ./requirements.dev.tmp
   ```
-  (you could also do it with jupyter). Remember to comment the line of stream2segment
-  from each requirements (as it should be installed as argument of pip:
+**Remember to comment the line of stream2segment
+  from each requirements** (as it should be installed as argument of pip:
   `pip install <options> .`, and not inside the requirements file).
+
   Run tests (see above) with warnings on: fix what might go wrong, and eventually you can
   replace the old `requirements.txt` and `requirements.dev.txt` with the `.tmp` file
   created. 
