@@ -1,5 +1,8 @@
 # <img align="left" height="30" src="https://www.gfz-potsdam.de/fileadmin/gfz/medien_kommunikation/Infothek/Mediathek/Bilder/GFZ/GFZ_Logo/GFZ-Logo_eng_RGB.svg"> Stream2segment <img align="right" height="50" src="https://www.gfz-potsdam.de/fileadmin/gfz/GFZ_Wortmarke_SVG_klein_en_edit.svg">
 
+|Jump to: | [Usage](#usage) | [Installation](#installation) | [Development and Maintenance](#development-and-maintenance) |
+| - | - | - | - |
+
 A Python library and command line application to download, process and visualize 
 event-based seismic waveform  segments, specifically designed to manage big 
 volumes of data.
@@ -26,8 +29,13 @@ metadata. The main advantages of this approach are:
   complex database queries such as e.g., *"get all downloaded segments within a 
   given magnitude range, with well-formed data and no gaps, 
   from broadband channels only and a given specific network"*
+  
+| Citation (Software) | Citation (Research article) |
+| - | - |
+| Zaccarelli, Riccardo (2018): Stream2segment: a tool to download, process and visualize event-based seismic waveform data. V. 2.7.3. GFZ Data Services. [http://doi.org/10.5880/GFZ.2.4.2019.002](http://doi.org/10.5880/GFZ.2.4.2019.002) | Riccardo Zaccarelli, Dino Bindi, Angelo Strollo, Javier Quinteros and Fabrice Cotton. Stream2segment: An Open‐Source Tool for Downloading, Processing, and Visualizing Massive Event‐Based Seismic Waveform Datasets. *Seismological Research Letters* (2019). [https://doi.org/10.1785/0220180314](https://doi.org/10.1785/0220180314) |
 
 
+<!--
 **Citation (Software):**
 > Zaccarelli, Riccardo (2018): Stream2segment: a tool to download, process and visualize event-based seismic waveform data. V. 2.7.3. GFZ Data Services.
 
@@ -38,13 +46,26 @@ metadata. The main advantages of this approach are:
 > Riccardo Zaccarelli, Dino Bindi, Angelo Strollo, Javier Quinteros and Fabrice Cotton. Stream2segment: An Open‐Source Tool for Downloading, Processing, and Visualizing Massive Event‐Based Seismic Waveform Datasets. *Seismological Research Letters* (2019)
 
 [https://doi.org/10.1785/0220180314](https://doi.org/10.1785/0220180314)
+-->
 
 
 ## Usage
 
 Stream2segment is a Python library and command line application available 
-after install via the command `s2s` on the terminal
-(type `s2s --help` to show all subcommands).
+after installation via the command `s2s` on the terminal (type `s2s --help` to show all subcommands). `s2s` subcommands perform all sort of operations, from downloading and managing data, launch Python processing functions, create class labels for annotation or produce graphical output, as shown below:
+
+<table>
+	<tr>
+		<td align="center"><img width="90%" src="https://geofon.gfz-potsdam.de/software/stream2segment/processgui.png"/></td>
+		<td align="center"><img width="90%" src="https://geofon.gfz-potsdam.de/software/stream2segment/s2s_dinfogui.png"/></td>
+	</tr>
+	<tr>
+		<td>The <code>s2s show ...</code> command opens a GUI in the browser where downloaded data and customizable plots are shown</td>
+		<td> The <code>s2s dl dstats</code> command openas a HTML page in the browser where download statistics can be shown</td>
+	</tr>
+</table>
+
+<sub>Both image linked from https://geofon.gfz-potsdam.de/software/stream2segment/</sub>
 
 A detailed documentation is available online in the
 **[github wiki page](https://github.com/rizac/stream2segment/wiki)**, but
@@ -102,10 +123,7 @@ examples files that you can immediately start to configure and modify:
    (`s2s show` can be run also without a custom module and config as arguments.
    Type `s2s show --help` for details)
 
-  | The GUI produced with the `s2s show` command  | The dynamic HTML page produced with the `s2s dl dstats` command  |
-  | --- | --- |
-  | ![](https://geofon.gfz-potsdam.de/software/stream2segment/processgui.png) | ![](https://geofon.gfz-potsdam.de/software/stream2segment/s2s_dinfogui.png)|
-  | (image linked from https://geofon.gfz-potsdam.de/software/stream2segment/) | (image linked from https://geofon.gfz-potsdam.de/software/stream2segment/) |
+
 
 ## Installation
 
@@ -120,7 +138,7 @@ In case of installation problems, we suggest you to proceed in this order:
  3. [Ask for help](https://github.com/rizac/stream2segment/issues)
 
 
-### Requirements (external software)
+### 1 Requirements (external software)
 
 In this section we assume that you already have Python (**3.5 or later**) 
 and the required database software. The latter should not needed if you use
@@ -129,7 +147,7 @@ database is already installed remotely, so basically you are concerned only if y
 need to download data locally (on your computer) on a Postgres database.
 
 
-#### macOS
+#### 1.1 macOS
 
 On MacOS (El Capitan and later) all required software is generally already
 preinstalled. We suggest you to go to the next step and look at the
@@ -151,7 +169,7 @@ brew install git
 
 </details>
 
-#### Ubuntu
+#### 1.2 Ubuntu
 
 Ubuntu does not generally have all required packages pre-installed. The bare minimum
 of the necessary packages can be installed with the `apt-get` command:
@@ -184,7 +202,7 @@ sudo apt-get install libpng-dev libfreetype6-dev \
 
 </details>
 
-### Cloning repository
+### 2 Cloning repository
 
 Git-clone (basically: download) this repository to a specific folder of your choice:
 ```
@@ -195,7 +213,7 @@ and move into package folder:
 cd stream2segment
 ```
 
-### Install and activate Python virtualenv
+### 3 Install and activate Python virtualenv
 
 We strongly recommend to use Python virtual environment,
 because by isolating all Python packages we are about to install,
@@ -249,7 +267,7 @@ Activate your virtual environment
 
 </details>
 
-### Install Stream2segment
+### 4 Install Stream2segment
 
 **Important reminders before installing**: 
   - From now on you are supposed to be in the stream2segment directory,
@@ -260,6 +278,7 @@ Install required packages with tested versions listed in `requirements.txt`:
 ```console
 pip install --upgrade pip setuptools wheel && pip install -r ./requirements.txt
 ```
+ > <sub>type `requirements.dev.txt` instead of `requirements.txt` if you want to install also test packages, e.g., you want to contribute to the code and/or run tests</sub>
 
 Install this package:
 ```console
@@ -271,24 +290,14 @@ pip install -e .
 pip install jupyter
 ```
 
-<details>
-<summary>Troubleshooting / installation details (click to expand)</summary>
+The program is now installed. To double check the program functionalities,
+you can run tests (see below) and report the problem in case of failure.
+In any case, before reporting a problem remember to check first the
+[Installation Notes](#installation-notes)
 
-- When using a requirements file, you can type `requirements.dev.txt` instead of 
-  `requirements.txt` if you want to install also test packages, e.g., you want 
-  to contribute to the code and/or run tests
 
-- in older ObsPy version, numpy needs to be installed first. If you see an error 
-  like "you need to install numpy first", open "requirements.txt" and copy the 
-  line which starts with numpy. Supposing it's `numpy==0.1.12`, then run 
-  `pip install numpy==0.1.12` before re-running the `pip install ...` command 
-  above
+### 5 Installation Notes
 
-- When installing the program (`pip install -e .`), `-e` is optional and 
-  makes the package editable, meaning that you can edit the repository and make all 
-  changes immediately available, without re-installing the package. This is useful 
-  when, e.g., `git pull`-ing new versions frequently.
-  
 - in case of a message like `ERROR: No matching distribution found for <package_name>`,
   try to skip the requirements file:
   ```console
@@ -301,61 +310,17 @@ pip install jupyter
   in a virtual environment with already installed extra packages, if you want to avoid 
   breaking existing code.**
 
-</details>
+- In older ObsPy version, numpy needs to be installed first. If you see an error 
+  like "you need to install numpy first", open "requirements.txt" and copy the 
+  line which starts with numpy. Supposing it's `numpy==0.1.12`, then run 
+  `pip install numpy==0.1.12` before re-running the `pip install ...` command 
+  above
 
-**The program is now installed. To double check the program functionalities,
-we suggest to run tests (see below) and report the problem in case of failure.
-In any case, before reporting a problem remember to check first the
-[Installation Notes](#installation-notes)**
-
-### Runt tests
-
-Stream2segment has been highly tested (current test coverage is above 90%)
-on Python version >= 3.5+. Although automatic continuous integration (CI) systems are not
-in place, we do our best to regularly tests under new Python and package versions. 
-Remember that tests are time consuming (some minutes currently).
-Here some examples depending on your needs:
-
-```
-pytest -xvvv -W ignore ./tests/
-```
-
-```
-pytest -xvvv -W ignore --dburl postgresql://<user>:<password>@localhost/<dbname> ./tests/
-```
-
-<!--
-```
-pytest -xvvv -W ignore --cov=./stream2segment --cov-report=html ./tests/
-```
--->
-
-```
-pytest -xvvv -W ignore --dburl postgresql://<user>:<password>@localhost/<dbname> --cov=./stream2segment --cov-report=html ./tests/
-```
-
-Where the options denote:
-
-- `-x`: stop at first error
-- `-vvv`: increase verbosity,
-- `-W ignore`: do not print Python warnings issued during tests. You can omit the `-W`
-  option to turn warnings on and inspect them, but consider that a lot of redundant
-  messages will be printed: in case of test failure, it is hard to spot the relevant error
-  message. Alternatively, try `-W once` - warn once per process - and `-W module` -warn
-  once per calling module.
-- `--cov`: track code coverage, to know how much code has been executed during tests, and
-  `--cov-report`: type of report (if html, you will have to opend 'index.html' in the
-  project directory 'htmlcov')
-- `--dburl`: Additional database to use.
-  The default database is an in-memory sqlite database (e.g., no file will be created),
-  thus this option is basically for testing the program also on postgres. In the example,
-  the postgres is installed locally (`localhost`) but it does not need to.
-  *Remember that a database with name `<dbname>` must be created first in postgres, and
-  that the data in any given postgres database will be overwritten if not empty*
-
-
-## Installation Notes:
-
+- When installing the program (`pip install -e .`), `-e` is optional and 
+  makes the package editable, meaning that you can edit the repository and make all 
+  changes immediately available, without re-installing the package. This is useful 
+  when, e.g., `git pull`-ing new versions frequently.
+  
 - (update January 2021) On MacOS (version 11.1, with Python 3.8 and 3.9):
 
   - if the installation fails with a lot of printout and you spot a
@@ -414,15 +379,64 @@ to common problems you might have and that we collected from several Ubuntu inst
    [here](http://stackoverflow.com/questions/25593512/cant-install-matplotlib-using-pip) and
    [here]( http://stackoverflow.com/questions/28914202/pip-install-matplotlib-fails-cannot-build-package-freetype-python-setup-py-e)
 
-## Developer(s) notes:
 
-Although PEP8 recommends 79 character length, the program used initially a 100
+
+## Development and Maintenance
+
+### 1 Run tests
+
+Stream2segment has been highly tested (current test coverage is above 90%)
+on Python version >= 3.5+. Although automatic continuous integration (CI) systems are not
+in place, we do our best to regularly tests under new Python and package versions. 
+Remember that tests are time consuming (some minutes currently).
+Here some examples depending on your needs:
+
+```
+pytest -xvvv -W ignore ./tests/
+```
+
+```
+pytest -xvvv -W ignore --dburl postgresql://<user>:<password>@localhost/<dbname> ./tests/
+```
+
+<!--
+```
+pytest -xvvv -W ignore --cov=./stream2segment --cov-report=html ./tests/
+```
+-->
+
+```
+pytest -xvvv -W ignore --dburl postgresql://<user>:<password>@localhost/<dbname> --cov=./stream2segment --cov-report=html ./tests/
+```
+
+Where the options denote:
+
+- `-x`: stop at first error
+- `-vvv`: increase verbosity,
+- `-W ignore`: do not print Python warnings issued during tests. You can omit the `-W`
+  option to turn warnings on and inspect them, but consider that a lot of redundant
+  messages will be printed: in case of test failure, it is hard to spot the relevant error
+  message. Alternatively, try `-W once` - warn once per process - and `-W module` -warn
+  once per calling module.
+- `--cov`: track code coverage, to know how much code has been executed during tests, and
+  `--cov-report`: type of report (if html, you will have to opend 'index.html' in the
+  project directory 'htmlcov')
+- `--dburl`: Additional database to use.
+  The default database is an in-memory sqlite database (e.g., no file will be created),
+  thus this option is basically for testing the program also on postgres. In the example,
+  the postgres is installed locally (`localhost`) but it does not need to.
+  *Remember that a database with name `<dbname>` must be created first in postgres, and
+  that the data in any given postgres database will be overwritten if not empty*
+
+
+> <sub>Note on coding: although PEP8 recommends 79 character length, the program used initially a 100
   characters max line width, which is being reverted to 79 (you might see mixed
   lengths in the modules). It seems that [among new features planned for Python 4 there is
   an increment to 89.5 characters](https://charlesleifer.com/blog/new-features-planned-for-python-4-0/).
-  If true, we might stick to that in the future
+  If true, we might stick to that in the future</sub>
   
-### Updating dependencies
+  
+### 2 Updating dependencies
 
 In the absence of Continuous Integration in place, from times to times, it is necessary
   to update the dependencies, to make `pip install` more likely to work (at least for
@@ -441,7 +455,7 @@ In the absence of Continuous Integration in place, from times to times, it is ne
   replace the old `requirements.txt` and `requirements.dev.txt` with the `.tmp` file
   created. 
 
-### Updating wiki
+### 3 Updating wiki
   
   Requirements (to be done once):
    - `jupyter` installed.
@@ -460,7 +474,7 @@ usually hosts the table of contents with links to other markdown files `.md`
     - Using-Stream2segment-in-your-Python-code.ipynb
     - The-Segment-object.ipynb
   
-#### To update one of those existing notebooks
+#### 3.1 Update existing notebook
 
 1. Edit the notebook in stream2segment/resources/templates:
   `jupyter notebook stream2segment/resources/templates`
@@ -478,7 +492,7 @@ usually hosts the table of contents with links to other markdown files `.md`
    `cd ../stream2segment.wiki`, then as usual `git commit` and `git push`. One line command:
    `(cd ../stream2segment.wiki && git commit -am 'updating wiki' && git push)`
     
-#### To add a new notebook
+#### 3.2 Add a new notebook
   
 Create the notebook (`jupyter notebook stream2segment/resources/templates`). 
 **Choose a meaningful file name: use upper case when needed, type hyphens '-'
