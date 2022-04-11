@@ -29,23 +29,21 @@ metadata. The main advantages of this approach are:
   complex database queries such as e.g., *"get all downloaded segments within a 
   given magnitude range, with well-formed data and no gaps, 
   from broadband channels only and a given specific network"*
-  
-| Citation (Software) | Citation (Research article) |
+ 
+
+
+| <sub>Citation (Software)</sub> | <sub>Citation (Research article)</sub> |
 | - | - |
-| Zaccarelli, Riccardo (2018): Stream2segment: a tool to download, process and visualize event-based seismic waveform data. V. 2.7.3. GFZ Data Services. [http://doi.org/10.5880/GFZ.2.4.2019.002](http://doi.org/10.5880/GFZ.2.4.2019.002) | Riccardo Zaccarelli, Dino Bindi, Angelo Strollo, Javier Quinteros and Fabrice Cotton. Stream2segment: An Open‐Source Tool for Downloading, Processing, and Visualizing Massive Event‐Based Seismic Waveform Datasets. *Seismological Research Letters* (2019). [https://doi.org/10.1785/0220180314](https://doi.org/10.1785/0220180314) |
+| <sub>Zaccarelli, Riccardo (2018): Stream2segment: a tool to download, process and visualize event-based seismic waveform data. GFZ Data Services. [http://doi.org/10.5880/GFZ.2.4.2019.002](http://doi.org/10.5880/GFZ.2.4.2019.002)</sub> | <sub>Riccardo Zaccarelli, Dino Bindi, Angelo Strollo, Javier Quinteros and Fabrice Cotton. Stream2segment: An Open‐Source Tool for Downloading, Processing, and Visualizing Massive Event‐Based Seismic Waveform Datasets. *Seismological Research Letters* (2019). [https://doi.org/10.1785/0220180314](https://doi.org/10.1785/0220180314)</sub> |
 
 
-<!--
+<!--	
 **Citation (Software):**
-> Zaccarelli, Riccardo (2018): Stream2segment: a tool to download, process and visualize event-based seismic waveform data. V. 2.7.3. GFZ Data Services.
-
-[http://doi.org/10.5880/GFZ.2.4.2019.002](http://doi.org/10.5880/GFZ.2.4.2019.002)
+> Zaccarelli, Riccardo (2018): Stream2segment: a tool to download, process and visualize event-based seismic waveform data. GFZ Data Services.  [http://doi.org/10.5880/GFZ.2.4.2019.002](http://doi.org/10.5880/GFZ.2.4.2019.002)
 
 
 **Citation (Research article):**
-> Riccardo Zaccarelli, Dino Bindi, Angelo Strollo, Javier Quinteros and Fabrice Cotton. Stream2segment: An Open‐Source Tool for Downloading, Processing, and Visualizing Massive Event‐Based Seismic Waveform Datasets. *Seismological Research Letters* (2019)
-
-[https://doi.org/10.1785/0220180314](https://doi.org/10.1785/0220180314)
+> Riccardo Zaccarelli, Dino Bindi, Angelo Strollo, Javier Quinteros and Fabrice Cotton. Stream2segment: An Open‐Source Tool for Downloading, Processing, and Visualizing Massive Event‐Based Seismic Waveform Datasets. *Seismological Research Letters* (2019). [https://doi.org/10.1785/0220180314](https://doi.org/10.1785/0220180314)
 -->
 
 
@@ -61,7 +59,7 @@ after installation via the command `s2s` on the terminal (type `s2s --help` to s
 	</tr>
 	<tr>
 		<td>The <code>s2s show ...</code> command opens a GUI in the browser where downloaded data and customizable plots are shown</td>
-		<td> The <code>s2s dl dstats</code> command openas a HTML page in the browser where download statistics can be shown</td>
+		<td> The <code>s2s dl dstats ...</code> command openas a HTML page in the browser where download statistics can be shown</td>
 	</tr>
 </table>
 
@@ -217,7 +215,10 @@ cd stream2segment
 
 We strongly recommend to use Python virtual environment,
 because by isolating all Python packages we are about to install,
-we won't create conflicts with already installed packages. 
+we won't create conflicts with already installed packages (if you already
+have a virtual environment, just activate it and go to the next section).
+
+Conda users (e.g. Anaconda, Miniconda) can skip this section and check the [Conda documentation](https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html) instead.
 
 Python (from version 3.3) has a built-in support for virtual environments - venv
 (On Ubuntu, you might need to install it first
@@ -242,31 +243,6 @@ or `source env/bin/activate.csh` (depending on your shell)
   pointing inside the env folder</sub>
 
 
-<details>
-	<summary>Installation and activation with Anaconda (click to expand)</summary>
-
-**disclaimer: the lines below might be outdated.
-Please refer to the [Conda documentation](https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html)
-for details**
-
-Create a virtual environment for your project
-
-  - In the terminal client enter the following where yourenvname (like « env ») is the
-    name you want to call your environment, and replace x.x with the Python version you
-    wish to use. (To see a list of available Python versions first, type conda search
-    "^python$" and press enter.)
-	```
-	Conda create –n yourenvname python=x.x anaconda
-	```
-  - Press « y » to proceed
-
-Activate your virtual environment
-
-  - ```$source activate env```
-  - To deactivate this environment, use ```$source deactivate```
-
-</details>
-
 ### 4 Install Stream2segment
 
 **Important reminders before installing**: 
@@ -274,7 +250,10 @@ Activate your virtual environment
      (where you cloned the repository) with your Python virtualenv activated
   - In case of errors, check the [Installation notes below](#installation-Notes)
 
-Install required packages with tested versions listed in `requirements.txt`:
+Install required packages with tested versions listed in `requirements.txt` 
+(if you are working on an existing environment, with stuff 
+already installed in it, **please read the [first installation note](#installation-notes) below** 
+before proceeding):
 ```console
 pip install --upgrade pip setuptools wheel && pip install -r ./requirements.txt
 ```
@@ -305,9 +284,9 @@ In any case, before reporting a problem remember to check first the
   ```  
   This will install packages satisfying a *minimum* required 
   version (listed in  `setup.py`), and not the *exact* version passing tests, letting
-  `pip` handling the best version to use. **You can choose this strategy
-  in case of mismatching distributions, or while installing stream2segment 
-  in a virtual environment with already installed extra packages, if you want to avoid 
+  `pip` handling the best versions to use. **You can choose this strategy
+  not only in case of mismatching distributions, but also while working on a
+  virtual environment with already installed Python packages, if you want to avoid 
   breaking existing code.**
 
 - In older ObsPy version, numpy needs to be installed first. If you see an error 
