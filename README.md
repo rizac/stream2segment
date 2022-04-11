@@ -80,7 +80,7 @@ In a nutshell:
  3. **A Python module with relative configuration in YAML syntax illustrating how
     to process downloaded data, or visualize it in your browser**. By default, the processing produces
     a tabular output (one row per segment) in either CSV or HDF format, and the visualization
-    several plots such as cumulative and spectrum. The files can be edited with no restrictions as 
+    creates several plots such as cumulative and spectrum. The files can be edited with no restrictions as 
     any other YAML or Python file (all documentation is provided in the files as block comments) in order to:
  
     1. process downloaded data by executing the Python module as script (see code block after `if __name__ == "__main__"` in the module):
@@ -120,7 +120,7 @@ In case of installation problems, we suggest you to proceed in this order:
  3. [Ask for help](https://github.com/rizac/stream2segment/issues)
 
 
-### 1 Requirements (external software)
+### 1 Requirements
 
 In this section we assume that you already have Python (**3.5 or later**) 
 and the required database software. The latter should not needed if you use
@@ -184,33 +184,29 @@ sudo apt-get install libpng-dev libfreetype6-dev \
 
 </details>
 
-### 2 Cloning repository
+### 2 Clone repository
 
 Git-clone (basically: download) this repository to a specific folder of your choice:
 ```
-git clone https://github.com/rizac/stream2segment.git
+git clone https://github.com/rizac/stream2segment.git ./stream2segment
 ```
-and move into package folder:
+and move into the repository root:
 ```
 cd stream2segment
 ```
 
 ### 3 Install and activate Python virtualenv
 
-We strongly recommend to use Python virtual environment,
-because by isolating all Python packages we are about to install,
-we won't create conflicts with already installed packages (if you already
+We strongly recommend to use Python virtual environment to avoid conflicts
+with already installed packages on your operating system (if you already
 have a virtual environment, just activate it and go to the next section).
 
 Conda users (e.g. Anaconda, Miniconda) can skip this section and check the [Conda documentation](https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html) instead.
 
-Python (from version 3.3) has a built-in support for virtual environments - venv
-(On Ubuntu, you might need to install it first
-via `sudo apt-get install python3-venv`).
-
-Make virtual environment in an stream2segment/env directory (env is a convention,
-but it's ignored by git commits so better keeping it. You can also use ".env"
-which makes it usually hidden in Ubuntu).
+Make virtual environment in an "stream2segment/env" directory (env is a convention,
+but it's ignored by `git commit` so better keeping it. You can also use ".env"
+which makes it usually hidden in Ubuntu. Also on Ubuntu, you might need to install
+`venv` first via `sudo apt-get install python3-venv`)
 ```
 python3 -m venv ./env
 ```
@@ -234,8 +230,8 @@ or `source env/bin/activate.csh` (depending on your shell)
      (where you cloned the repository) with your Python virtualenv activated
   - In case of errors, check the [Installation notes below](#installation-Notes)
 
-Install required packages with tested versions listed in `requirements.txt` 
-(if you are working on an existing environment, with stuff 
+Install the required packages with the tested versions listed in `requirements.txt` 
+(if you are working on an existing environment with stuff 
 already installed in it, **please read the [first installation note](#installation-notes) below** 
 before proceeding):
 ```console
@@ -267,11 +263,11 @@ In any case, before reporting a problem remember to check first the
   pip install --upgrade pip setuptools wheel && pip install -e .
   ```  
   This will install packages satisfying a *minimum* required 
-  version (listed in  `setup.py`), and not the *exact* version passing tests, letting
-  `pip` handling the best versions to use. **You can choose this strategy
-  not only in case of mismatching distributions, but also while working on a
-  virtual environment with already installed Python packages, if you want to avoid 
-  breaking existing code.**
+  version instead of the *exact* version passing tests: while less safe in general, this approach
+  lets `pip` handle the best versions to use, with more chance of
+  success in this case. **You can choose this strategy not only in case of mismatching distributions, 
+  but also while working on a virtual environment with already installed packages, 
+  because it has less chance of breaking existing code.**
 
 - In older ObsPy version, numpy needs to be installed first. If you see an error 
   like "you need to install numpy first", open "requirements.txt" and copy the 
