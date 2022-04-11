@@ -26,12 +26,6 @@ def no_connection():
         return True
 
 
-@pytest.mark.skipif(no_connection(),
-                    reason="no internet connection")
-
-@pytest.mark.skipif(sys.version_info < (3,7),
-                    reason="requires python3.7+")
-
 class patches:
     # paths container for class-level patchers used below. Hopefully
     # will mek easier debug when refactoring/move functions
@@ -47,6 +41,10 @@ class patches:
     mock_merge_event_stations = 'stream2segment.download.main.merge_events_stations'
 
 
+@pytest.mark.skipif(no_connection(),
+                    reason="no internet connection")
+@pytest.mark.skipif(sys.version_info < (3,7),
+                    reason="requires python3.7+")
 @patch(patches.get_session)
 @patch(patches.close_session)
 @patch(patches.configlog4download)
@@ -121,6 +119,10 @@ def test_real_run_old_buggy_network_filter(mock_get_post_data,
     assert 'No station found' in result.output
 
 
+@pytest.mark.skipif(no_connection(),
+                    reason="no internet connection")
+@pytest.mark.skipif(sys.version_info < (3,7),
+                    reason="requires python3.7+")
 @patch(patches.get_session)
 @patch(patches.close_session)
 @patch(patches.configlog4download)
