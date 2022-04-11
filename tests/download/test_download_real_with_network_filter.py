@@ -3,6 +3,7 @@ Created on Feb 4, 2016
 
 @author: riccardo
 """
+import sys
 from stream2segment.download.exc import NothingToDownload
 from io import StringIO
 from unittest.mock import patch
@@ -43,6 +44,8 @@ class patches:
     mock_merge_event_stations = 'stream2segment.download.main.merge_events_stations'
 
 
+@pytest.mark.skipif(sys.version_info < (3,7),
+                    reason="requires python3.7+")
 @patch(patches.get_session)
 @patch(patches.close_session)
 @patch(patches.configlog4download)
