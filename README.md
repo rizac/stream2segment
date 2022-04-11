@@ -1,7 +1,7 @@
 # <img align="left" height="30" src="https://www.gfz-potsdam.de/fileadmin/gfz/medien_kommunikation/Infothek/Mediathek/Bilder/GFZ/GFZ_Logo/GFZ-Logo_eng_RGB.svg"> Stream2segment <img align="right" height="50" src="https://www.gfz-potsdam.de/fileadmin/gfz/GFZ_Wortmarke_SVG_klein_en_edit.svg">
 
-|Jump to: | [Usage](#usage) | [Installation](#installation) | [Development and Maintenance](#development-and-maintenance) |
-| - | - | - | - |
+|Jump to: | [Usage](#usage) | [Installation](#installation) | [Development and Maintenance](#development-and-maintenance) | [Citation](#citation) |
+| - | - | - | - | - |
 
 A Python library and command line application to download, process and visualize 
 event-based seismic waveform  segments, specifically designed to manage big 
@@ -31,26 +31,17 @@ metadata. The main advantages of this approach are:
   from broadband channels only and a given specific network"*
  
 
-
+<!--
 | <sub>Citation (Software)</sub> | <sub>Citation (Research article)</sub> |
 | - | - |
 | <sub>Zaccarelli, Riccardo (2018): Stream2segment: a tool to download, process and visualize event-based seismic waveform data. GFZ Data Services. [http://doi.org/10.5880/GFZ.2.4.2019.002](http://doi.org/10.5880/GFZ.2.4.2019.002)</sub> | <sub>Riccardo Zaccarelli, Dino Bindi, Angelo Strollo, Javier Quinteros and Fabrice Cotton. Stream2segment: An Open‐Source Tool for Downloading, Processing, and Visualizing Massive Event‐Based Seismic Waveform Datasets. *Seismological Research Letters* (2019). [https://doi.org/10.1785/0220180314](https://doi.org/10.1785/0220180314)</sub> |
-
-
-<!--	
-**Citation (Software):**
-> Zaccarelli, Riccardo (2018): Stream2segment: a tool to download, process and visualize event-based seismic waveform data. GFZ Data Services.  [http://doi.org/10.5880/GFZ.2.4.2019.002](http://doi.org/10.5880/GFZ.2.4.2019.002)
-
-
-**Citation (Research article):**
-> Riccardo Zaccarelli, Dino Bindi, Angelo Strollo, Javier Quinteros and Fabrice Cotton. Stream2segment: An Open‐Source Tool for Downloading, Processing, and Visualizing Massive Event‐Based Seismic Waveform Datasets. *Seismological Research Letters* (2019). [https://doi.org/10.1785/0220180314](https://doi.org/10.1785/0220180314)
 -->
 
 
 ## Usage
 
 Stream2segment is a Python library and command line application available 
-after installation via the command `s2s` on the terminal (type `s2s --help` to show all subcommands). `s2s` subcommands perform all sort of operations, from downloading and managing data, launch Python processing functions, create class labels for annotation or produce graphical output, as shown below:
+after installation via the command `s2s` on the terminal (type `s2s --help` to show all subcommands). `s2s` subcommands perform all sort of operations, from downloading and managing data, launching Python processing functions, creating class labels for segments annotation, or producing graphical output, as shown below:
 
 <table>
 	<tr>
@@ -499,3 +490,14 @@ Once the notebook is created and executed:
 
 - Create the markdown file and commit to the wiki (see points 2-3 above under
      `To update one of those existing notebooks`)
+
+
+## Citation
+
+**Software:**
+> Zaccarelli, Riccardo (2018): Stream2segment: a tool to download, process and visualize event-based seismic waveform data. GFZ Data Services.  [http://doi.org/10.5880/GFZ.2.4.2019.002](http://doi.org/10.5880/GFZ.2.4.2019.002)
+
+
+**Research article:**
+> Riccardo Zaccarelli, Dino Bindi, Angelo Strollo, Javier Quinteros and Fabrice Cotton. Stream2segment: An Open‐Source Tool for Downloading, Processing, and Visualizing Massive Event‐Based Seismic Waveform Datasets. *Seismological Research Letters* (2019). [https://doi.org/10.1785/0220180314](https://doi.org/10.1785/0220180314)
+
