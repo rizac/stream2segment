@@ -29,13 +29,7 @@ metadata. The main advantages of this approach are:
   complex database queries such as e.g., *"get all downloaded segments within a 
   given magnitude range, with well-formed data and no gaps, 
   from broadband channels only and a given specific network"*
- 
 
-<!--
-| <sub>Citation (Software)</sub> | <sub>Citation (Research article)</sub> |
-| - | - |
-| <sub>Zaccarelli, Riccardo (2018): Stream2segment: a tool to download, process and visualize event-based seismic waveform data. GFZ Data Services. [http://doi.org/10.5880/GFZ.2.4.2019.002](http://doi.org/10.5880/GFZ.2.4.2019.002)</sub> | <sub>Riccardo Zaccarelli, Dino Bindi, Angelo Strollo, Javier Quinteros and Fabrice Cotton. Stream2segment: An Open‐Source Tool for Downloading, Processing, and Visualizing Massive Event‐Based Seismic Waveform Datasets. *Seismological Research Letters* (2019). [https://doi.org/10.1785/0220180314](https://doi.org/10.1785/0220180314)</sub> |
--->
 
 
 ## Usage
@@ -490,6 +484,7 @@ Once the notebook is created and executed:
 
 - Create the markdown file and commit to the wiki (see points 2-3 above under
      `To update one of those existing notebooks`)
+
 
 
 ## Citation
