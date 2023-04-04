@@ -12,7 +12,7 @@ a Relational database management system (RDBMS) to store downloaded data and
 metadata. The main advantages of this approach are: 
 
 * **Storage efficiency**: no huge amount of files, no complex, virtually 
-  unusable directory structures. Moreover, a database prevents data and metatada 
+  unusable directory structures. Moreover, a database prevents data and metadata 
   inconsistency by design, and allows more easily to track what has already 
   been downloaded in order to customize and improve further downloads
 
@@ -47,7 +47,7 @@ annotation, or producing graphical output, as shown below:
 	</tr>
 	<tr>
 		<td>The <code>s2s show ...</code> command opens a GUI in the browser where downloaded data and customizable plots are shown</td>
-		<td> The <code>s2s dl dstats ...</code> command openas a HTML page in the browser where download statistics can be shown</td>
+		<td> The <code>s2s dl dstats ...</code> command opens an HTML page in the browser where download statistics can be shown</td>
 	</tr>
 </table>
 
@@ -56,7 +56,7 @@ annotation, or producing graphical output, as shown below:
 You start the program via the command `init` ( 
 `s2s init --help` for details) to create several fully documented
 examples files that you can immediately start to configure and modify
-(see the **[github wiki page](https://github.com/rizac/stream2segment/wiki)** for details).
+(see the **[gitHub wiki page](https://github.com/rizac/stream2segment/wiki)** for details).
 In a nutshell: 
 
  1. **A download configuration file** in YAML syntax. Edit the file 
@@ -67,7 +67,7 @@ In a nutshell:
     s2s download -c <config_file> ...
     ```
    
-    > **Note** the path of the database where to store the downlaoded data
+    > **Note** the path of the database where to store the downloaded data
       must be input in the config file. The supported database types are SQLite 
       and Postgres: for massive downloads (as a rule of thumb: &ge; 1 million segments)
       we suggest to use Postgres. In any case, we **strongly** suggest running the program 
@@ -115,7 +115,7 @@ This program has been installed and tested on Ubuntu (14 and later) and macOS
 In case of installation problems, we suggest you to proceed in this order:
 
  1. Look at [Installation Notes](#installation-notes) to check if the problem
-    has already ben observed and a solution proposed
+    has already been observed and a solution proposed
  2. Google for the solution (as always)
  3. [Ask for help](https://github.com/rizac/stream2segment/issues)
 
@@ -123,7 +123,7 @@ In case of installation problems, we suggest you to proceed in this order:
 ### 1 Requirements
 
 In this section we assume that you already have Python (**3.5 or later**) 
-and the required database software. The latter should not needed if you use
+and the required database software. The latter should not be needed if you use
 [SQLite](https://docs.python.org/3/library/sqlite3.html) or if the
 database is already installed remotely, so basically you are concerned only if you
 need to download data locally (on your computer) on a Postgres database.
@@ -131,10 +131,10 @@ need to download data locally (on your computer) on a Postgres database.
 
 #### 1.1 macOS
 
-On MacOS (El Capitan and later) all required software is generally already
+On macOS (El Capitan and later) all required software is generally already
 preinstalled. We suggest you to go to the next step and look at the
 [Installation Notes](#installation-notes) in case of problems
-(to install software on MacOS, we recommend to use [brew](https://brew.sh/)).
+(to install software on macOS, we recommend to use [brew](https://brew.sh/)).
 
 <details>
 <summary>Details</summary>
@@ -203,7 +203,7 @@ have a virtual environment, just activate it and go to the next section).
 
 Conda users (e.g. Anaconda, Miniconda) can skip this section and check the [Conda documentation](https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html) instead.
 
-Make virtual environment in an "stream2segment/env" directory (env is a convention,
+Make virtual environment in a "stream2segment/env" directory (env is a convention,
 but it's ignored by `git commit` so better keeping it. You can also use ".env"
 which makes it usually hidden in Ubuntu. Also on Ubuntu, you might need to install
 `venv` first via `sudo apt-get install python3-venv`)
@@ -249,7 +249,7 @@ pip install -e .
 pip install jupyter
 ```
 
-The program is now installed. To double check the program functionalities,
+The program is now installed. To double-check the program functionalities,
 you can run tests (see below) and report the problem in case of failure.
 In any case, before reporting a problem remember to check first the
 [Installation Notes](#installation-notes)
@@ -280,16 +280,16 @@ In any case, before reporting a problem remember to check first the
   changes immediately available, without re-installing the package. This is useful 
   when, e.g., `git pull`-ing new versions frequently.
   
-- (update January 2021) On MacOS (version 11.1, with Python 3.8 and 3.9):
+- (update January 2021) On macOS (version 11.1, with Python 3.8 and 3.9):
 
-  - if the installation fails with a lot of printout and you spot a
+  - if the installation fails with a lot of printout, and you spot a
     "Failed building wheel for psycopg2", try to execute:
     ```
     export LIBRARY_PATH=$LIBRARY_PATH:/usr/local/opt/openssl/lib/ && pip ./installme-dev
     ```
     (you might need to change the path of openssl below). Credits
     [here](https://stackoverflow.com/a/61159643/3526777) and
-    [here](https://stackoverflow.com/a/39800677/3526777))
+    [here](https://stackoverflow.com/a/39800677/3526777)
  
   - If the error message is "Failed building wheel for tables",
     then `brew install c-blosc` and re-run `installme-dev` installation command
@@ -347,7 +347,7 @@ to common problems you might have and that we collected from several Ubuntu inst
 Stream2segment has been highly tested (current test coverage is above 90%)
 on Python version >= 3.5+. Although automatic continuous integration (CI) systems are not
 in place, we do our best to regularly tests under new Python and package versions. 
-Remember that tests are time consuming (some minutes currently).
+Remember that tests are time-consuming (some minutes currently).
 Here some examples depending on your needs:
 
 ```
@@ -378,7 +378,7 @@ Where the options denote:
   message. Alternatively, try `-W once` - warn once per process - and `-W module` -warn
   once per calling module.
 - `--cov`: track code coverage, to know how much code has been executed during tests, and
-  `--cov-report`: type of report (if html, you will have to opend 'index.html' in the
+  `--cov-report`: type of report (if html, you will have to opened 'index.html' in the
   project directory 'htmlcov')
 - `--dburl`: Additional database to use.
   The default database is an in-memory sqlite database (e.g., no file will be created),
@@ -407,7 +407,7 @@ In the absence of Continuous Integration in place, from times to times, it is ne
 	pip freeze > ./requirements.dev.tmp
   ```
 **Remember to comment the line of stream2segment
-  from each requirements** (as it should be installed as argument of pip:
+  from all requirements** (as it should be installed as argument of pip:
   `pip install <options> .`, and not inside the requirements file).
 
   Run tests (see above) with warnings on: fix what might go wrong, and eventually you can
@@ -447,7 +447,7 @@ usually hosts the table of contents with links to other markdown files `.md`
    (repeat for every notebook file, e.g. `The-Segment-object`. Note only the file name,
    no file extension needed)
    
-3. Commit and push to the stream2segment.wiki repo:
+3. Commit and push to the `stream2segment.wiki` repo:
    `cd ../stream2segment.wiki`, then as usual `git commit` and `git push`. One line command:
    `(cd ../stream2segment.wiki && git commit -am 'updating wiki' && git push)`
     
@@ -466,16 +466,15 @@ Once the notebook is created and executed:
      and run tests to check everything works.
   
 - Make the notebook visible in the wiki by adding a reference to it
-     (the notebook URL is the file name with no extension, I guess case
-     insensitive). A reference can be added in
-     several places:
+     (the notebook URL is the file name with no extension, I guess case- insensitive). 
+     A reference can be added in several places:
      - In the file `_Sidebar.md` (in the wiki repository)
        which will show it in the sidebar on GitHub
-    - In `Home.md`
-    - In some other notebook (see example in
-      `Using-stream2segment-in-you-Python-code.ipynb`). In this case, note that
-      you might need to update also the referencing notebook
-      (see points 2-3 [above](#to-update-one-of-those-existing-notebooks))
+     - In `Home.md`
+     - In some other notebook (see example in
+       `Using-stream2segment-in-you-Python-code.ipynb`). In this case, note that
+       you might need to update also the referencing notebook
+       (see points 2-3 [above](#to-update-one-of-those-existing-notebooks))
 
 - Create the markdown file and commit to the wiki (see points 2-3 above under
      `To update one of those existing notebooks`)
