@@ -139,7 +139,7 @@ def main(segment, config):
 
     # cumulative times:
     for _cumlabel in [0.05, 0.5, 0.95]:
-        ret['time_of_cumulative_%f' % _cumlabel] = cumtime[_cumlabel]
+        ret['cumtime__%.2f' % _cumlabel] = cumtime[_cumlabel].datetime
 
     ret['dist_deg'] = segment.event_distance_deg        # dist
     ret['dist_km'] = d2km(segment.event_distance_deg)  # dist_km
