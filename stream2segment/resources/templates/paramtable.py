@@ -24,7 +24,7 @@ from stream2segment.process import gui, SkipSegment
 # straem2segment functions for processing obspy Traces. This is just a list of possible
 # functions to show how to import them:
 from stream2segment.process.funclib.traces import bandpass, cumsumsq,\
-    fft, maxabs, ampspec, powspec, timeof, sn_split
+    fft, ampspec, powspec, timeof, sn_split
 # stream2segment function for processing numpy arrays:
 from stream2segment.process.funclib.ndarrays import triangsmooth, snr
 
@@ -94,11 +94,24 @@ def main(segment, config):
 
     # calculate PGA and times of occurrence (t_PGA):
     # note: you can also provide tstart tend for slicing
-    t_PGA, PGA = maxabs(trace, cum_times[1], cum_times[-2])
-    trace_int = trace.copy()
-    trace_int.integrate()
-    t_PGV, PGV = maxabs(trace_int, cum_times[1], cum_times[-2])
-    meanoff = meanslice(trace_int, 100, cum_times[-1], trace_int.stats.endtime)
+    trace_cut = trace.slice(cum_times[1], cum_times[-2])
+    try:
+        _argmax = np.nanargmax(np.abs(trace_cut.data))
+    except ValueError as verr:
+        raise SkipSegment('Unable to compute PGA: ' + str(verr))
+    t_PGA = timeof(trace_cut, _argmax)
+    PGA = trace_cut.data[_argmax]
+
+    # PGV:
+    trace_cut_vel = trace_cut.copy()
+    trace_cut_vel.integrate()
+    try:
+        _argmax = np.nanargmax(np.abs(trace_cut_vel.data))
+    except ValueError as verr:
+        raise SkipSegment('Unable to compute PGV: ' + str(verr))
+    t_PGV = timeof(trace_cut_vel, _argmax)
+    PGV = trace_cut_vel.data[_argmax]
+    meanoff = meanslice(trace_cut_vel, 100, cum_times[-1], trace_cut_vel.stats.endtime)
 
     # calculates amplitudes at the frequency bins given in the config file:
     required_freqs = config['freqs_interp']
@@ -109,7 +122,12 @@ def main(segment, config):
 
     # compute synthetic WA.
     trace_wa = synth_wood_anderson(segment, config, trace.copy())
-    t_WA, maxWA = maxabs(trace_wa)
+    try:
+        _argmax = np.nanargmax(np.abs(trace_wa.data))
+    except ValueError as verr:
+        raise SkipSegment('Unable to compute max WoodAnderson: ' + str(verr))
+    t_WA = timeof(trace_wa, _argmax)
+    maxWA = trace_wa.data[_argmax]
 
     # write stuff to csv:
     ret = OrderedDict()

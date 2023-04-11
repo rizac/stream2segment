@@ -101,44 +101,6 @@ def bandpass(trace, freq_min, freq_max, max_nyquist_ratio=0.9,
     return tra
 
 
-def maxabs(trace, starttime=None, endtime=None):
-    """Convert the values of the given trace to their absolute values, find the time
-    occurrence of the maximum ('time_of_max_abs'), and returns the tuple
-    `(time_of_max_abs, trace_value)`  where `trace_value` is the trace value at
-    `time_of_max_abs`. Note that `trace_value` might be negative. However, this function
-    assures that `abs(trace_value) = max(abs(trace.data))`
-
-    :param trace: the input obspy.core.Trace
-    :param starttime: (`obspy.UTCDateTime`, or None) the maximum will be searched from
-        this time on the trace (None or missing defaults to the trace
-        start): This argument, if provided, does not affect the
-        returned `time` which will be always relative to the trace passed as argument
-    :param endtime: (`obspy.UTCDateTime`, or None) the maximum will be searched up to
-        this time on the trace (None or missing defaults to the trace end)
-
-    :return: the tuple `(time_of_max_abs, trace_value)`. If the trace has no point
-        (possibly after providing `starttime` or `endtime` out of bounds), returns
-        the tuple (starttime, numpy.nan), where starttime is UTDDateTime(0)
-        (1st January 1970)
-    """
-    original_stime = None if starttime is None else trace.stats.starttime
-    if starttime is not None or endtime is not None:
-        # from the docs: "this returns a New Trace object
-        # Does not copy data but just passes a reference to it"
-        trace = trace.slice(starttime, endtime)
-    if trace.stats.npts < 1:
-        # We return UTDCadeTime(0) because we want a consistent type (thus,
-        # None, pd.NaT, numpy.datetime64('NaT') are all not good choices) AND
-        # because we want a trace-independent value for all cases where the trace
-        # has no points
-        return UTCDateTime(0), np.nan
-    idx = np.nanargmax(np.abs(trace.data))
-    val = trace.data[idx]
-    tdelta = 0 if original_stime is None else trace.stats.starttime - original_stime
-    time = timeof(trace, idx) + tdelta
-    return (time, val)
-
-
 def sn_split(trace, arrival_time, win_length, return_windows=False):
     """Signal-noise split: return the traces obtained by trimming `trace` on its
     signal and noise time windows, respectively. If `return_windows=True`,
