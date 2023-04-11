@@ -23,7 +23,7 @@ from obspy.geodetics import degrees2kilometers as d2km
 from stream2segment.process import gui, SkipSegment
 # straem2segment functions for processing obspy Traces. This is just a list of possible
 # functions to show how to import them:
-from stream2segment.process.funclib.traces import ampratio, bandpass, cumsumsq,\
+from stream2segment.process.funclib.traces import bandpass, cumsumsq,\
     fft, maxabs, ampspec, powspec, timeof, sn_split
 # stream2segment function for processing numpy arrays:
 from stream2segment.process.funclib.ndarrays import triangsmooth, snr
@@ -37,7 +37,7 @@ def main(segment, config):
     trace = stream[0]  # work with the (surely) one trace now
 
     # discard saturated signals (according to the threshold set in the config file):
-    amp_ratio = ampratio(trace)
+    amp_ratio = np.true_divide(np.nanmax(np.abs(trace.data)), 2**23)
     if amp_ratio >= config['amp_ratio_threshold']:
         raise SkipSegment('possibly saturated (amp. ratio exceeds)')
 

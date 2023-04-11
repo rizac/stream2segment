@@ -294,18 +294,6 @@ def powspec(trace, starttime=None, endtime=None, taper_max_percentage=0.05,
     return _, _powspec(dft, signal_is_fft=True)
 
 
-def ampratio(trace, threshold=2**23):
-    """Return the amplitude ratio: `numpy.nanmax(numpy.abs(trace.data)) / threshold`.
-    With the default threshold, the trace has not to be in physical units but in counts
-
-    :param trace: a given obspy Trace
-    :param threshold: float, defaults to `2**23`: the denominator of the returned ratio
-
-    :return: float indicating the amplitude ratio value
-    """
-    return np.true_divide(np.nanmax(np.abs(trace.data)), threshold)
-
-
 def timeof(trace, index):
     """Return the time occurrence of the `index`-th point of `trace`. Note that the index
     does not need to be inside the trace indices, the corresponding time will be computed
