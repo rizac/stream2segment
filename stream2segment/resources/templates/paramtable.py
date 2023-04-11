@@ -24,7 +24,7 @@ from stream2segment.process import gui, SkipSegment
 # straem2segment functions for processing obspy Traces. This is just a list of possible
 # functions to show how to import them:
 from stream2segment.process.funclib.traces import ampratio, bandpass, cumsumsq,\
-    timeswhere, fft, maxabs, utcdatetime, ampspec, powspec, timeof, sn_split
+    timeswhere, fft, maxabs, ampspec, powspec, timeof, sn_split
 # stream2segment function for processing numpy arrays:
 from stream2segment.process.funclib.ndarrays import triangsmooth, snr
 
@@ -282,8 +282,10 @@ def get_multievent_sg(cum_trace, tmin, tmax, sg_params, multievent_thresholds):
     If score is 2 or 3, the second argument is the UTCDateTime denoting the occurrence of
     the first sample triggering the double event after tmax
     """
-    tmin = utcdatetime(tmin)
-    tmax = utcdatetime(tmax)
+    if tmin is not None:
+        tmin = UTCDateTime(tmin)
+    if tmax is not None:
+        tmax = UTCDateTime(tmax)
 
     # split traces between tmin and tmax and after tmax
     traces = [cum_trace.slice(tmin, tmax), cum_trace.slice(tmax, None)]

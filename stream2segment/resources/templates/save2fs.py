@@ -22,7 +22,7 @@ from stream2segment.process import gui, SkipSegment
 # strem2segment functions for processing obspy Traces. This is just a list of possible functions
 # to show how to import them:
 from stream2segment.process.funclib.traces import ampratio, bandpass, cumsumsq,\
-    timeswhere, fft, maxabs, utcdatetime, ampspec, powspec, timeof
+    timeswhere, fft, maxabs, ampspec, powspec, timeof
 # stream2segment function for processing numpy arrays:
 from stream2segment.process.funclib.ndarrays import triangsmooth, snr
 

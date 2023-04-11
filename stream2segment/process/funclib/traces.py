@@ -174,7 +174,7 @@ def sn_split(trace, arrival_time, win_length, return_windows=False):
         window, the latter to the noise one
     """
     s_windows = _parse_sn_windows(win_length)
-    a_time = utcdatetime(arrival_time)
+    a_time = arrival_time if arrival_time is None else UTCDateTime(arrival_time)
     if hasattr(s_windows, '__len__'):
         trim_trace = trace.copy().trim(starttime=a_time)
         mi_data = _cumsumsq(trim_trace.data, normalize=True)
@@ -261,9 +261,16 @@ def fft(trace, starttime=None, endtime=None, taper_max_percentage=0.05,
         array), and `freq` is the frequency resolution DeltaF (if `return_freqs=False`)
         or the numpy array of the frequencies (if `return_freqs=True`)
     """
-    if starttime is not None or endtime is not None or taper_max_percentage > 0:
+    _copy_trace = False
+    if starttime is not None:
+        starttime = UTCDateTime(starttime)
+        _copy_trace = True
+    if endtime is not None:
+        endtime = UTCDateTime(endtime)
+        _copy_trace = True
+
+    if _copy_trace or taper_max_percentage > 0:
         trace = trace.copy()
-    starttime, endtime = utcdatetime(starttime), utcdatetime(endtime)
 
     if starttime is not None or endtime is not None:
         trace.trim(starttime=starttime, endtime=endtime, pad=True, fill_value=0)
@@ -325,24 +332,6 @@ def timeof(trace, index):
         `trace`
     """
     return trace.stats.starttime + index * trace.stats.delta
-
-
-def utcdatetime(time, return_if_none=None):
-    """Normalize `time` into an `UTCDateTime`. Utility function for working consistently
-    with different date-time-like inputs and convert them to the same object type.
-
-    :param time: numeric (int, float), `datetime.datetime` object, `UtcDateTime`.
-        If `UtcDateTime`, then `time` is returned with no processing. If None, then None
-        (or `return_if_none`, if supplied) is returned. Otherwise, `UTCDateTime(time)` is
-        returned (see :class:`obspy.core.utcdatetime.UTCDateTime` for info).
-    :param return_if_none: None by default (when missing), indicates the value to return
-        if time` is None
-
-    :return: an :class:`obspy.core.utcdatetime.UTCDateTime` from the given time argument
-    """
-    if not isinstance(time, UTCDateTime):
-        time = return_if_none if time is None else UTCDateTime(time)
-    return time
 
 
 class ResponseSpectrum(_ResponseSpectrum):
