@@ -10,7 +10,7 @@ parametric table.
 # they are inserted. Prior to that version, to preserve insertion order you needed to
 # use OrderedDict:
 from collections import OrderedDict
-from datetime import datetime, timedelta  # always useful
+from datetime import datetime, timedelta
 from math import factorial  # for savitzky_golay function
 
 # import numpy for efficient computation:
@@ -72,18 +72,18 @@ def main(segment, config):
 
     # calculate cumulative
 
-    cum_labels = [0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99]
     cum_trace = cumsumsq(trace, normalize=True, copy=True)
     # Note above: copy=True prevent original trace from being modified
-    # get occurrence times of cum_labels (cum_trace is monotonic ascending):
-    cum_times = tuple(timeof(cum_trace, i) for i in np.searchsorted(cum_trace.data,
-                                                                    cum_labels))
+    # get times where cumulative reaches specific values/labels
+    _cumlabels = [0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99]
+    _cumtimes = (timeof(cum_trace, i) for i in np.searchsorted(cum_trace.data, _cumlabels))
+    cumtime = {c: t for c, t in zip(_cumlabels, _cumtimes)}
 
     # double event (heuristic algorithm to filter out malformed data)
     try:
         (score, t_double, tt1, tt2) = \
             get_multievent_sg(
-                cum_trace, cum_times[1], cum_times[-2],
+                cum_trace, cumtime[0.05], cumtime[0.95],
                 config['savitzky_golay'], config['multievent_thresholds']
             )
     except IndexError as _ierr:
@@ -94,7 +94,7 @@ def main(segment, config):
 
     # calculate PGA and times of occurrence (t_PGA):
     # note: you can also provide tstart tend for slicing
-    trace_cut = trace.slice(cum_times[1], cum_times[-2])
+    trace_cut = trace.slice(cumtime[0.05], cumtime[0.95])
     try:
         _argmax = np.nanargmax(np.abs(trace_cut.data))
     except ValueError as verr:
@@ -111,7 +111,7 @@ def main(segment, config):
         raise SkipSegment('Unable to compute PGV: ' + str(verr))
     t_PGV = timeof(trace_cut_vel, _argmax)
     PGV = trace_cut_vel.data[_argmax]
-    meanoff = meanslice(trace_cut_vel, 100, cum_times[-1], trace_cut_vel.stats.endtime)
+    meanoff = meanslice(trace_cut_vel, 100, cumtime[0.99], trace_cut_vel.stats.endtime)
 
     # calculates amplitudes at the frequency bins given in the config file:
     required_freqs = config['freqs_interp']
@@ -136,8 +136,10 @@ def main(segment, config):
     ret['snr1'] = snr1_
     ret['snr2'] = snr2_
     ret['snr3'] = snr3_
-    for cum_lbl, cum_t in zip(cum_labels[slice(1, 8, 3)], cum_times[slice(1, 8, 3)]):
-        ret['cum_t%f' % cum_lbl] = float(cum_t)  # convert cum_times to float for saving
+
+    # cumulative times:
+    for _cumlabel in [0.05, 0.5, 0.95]:
+        ret['time_of_cumulative_%f' % _cumlabel] = cumtime[_cumlabel]
 
     ret['dist_deg'] = segment.event_distance_deg        # dist
     ret['dist_km'] = d2km(segment.event_distance_deg)  # dist_km
