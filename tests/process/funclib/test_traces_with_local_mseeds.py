@@ -7,10 +7,9 @@ import pytest
 import numpy as np
 from unittest.mock import patch
 from obspy.core import Trace
-from obspy.core.utcdatetime import UTCDateTime
 
 from stream2segment.process.funclib.ndarrays import fft as orig_fft
-from stream2segment.process.funclib.traces import fft, bandpass, dfreq, maxabs, timeof
+from stream2segment.process.funclib.traces import fft, bandpass, dfreq
 
 
 @pytest.mark.parametrize('arr, arr_len_after_trim, fft_npts',
@@ -56,28 +55,3 @@ def test_bandpass(_data):
     assert trace.stats.endtime == res.stats.endtime
     assert trace.stats.npts == res.stats.npts
     assert len(trace.data) == len(res.data)
-
-
-def testmaxabs(_data):
-    mseed = _data['mseed']
-    trace = mseed[0]
-
-    t, g = maxabs(trace)
-
-    assert np.max(np.abs(trace.data)) == g
-    idx = np.argmax(np.abs(trace.data))
-
-    assert timeof(trace, idx) == t
-
-    # assert by slicing times of max are different:
-    td = 2 * trace.stats.delta
-    assert maxabs(trace, None, t-td)[0] < t < maxabs(trace, t+td, None)[0]
-
-    data = trace.data
-    npts = trace.stats.npts
-    t, g = maxabs(trace, None, trace.stats.starttime-td)
-    assert t == UTCDateTime(0) and np.isnan(g)
-    # check that data has not been changed by trace.slice (called by maxabs)
-    # this is for safety:
-    assert data is trace.data
-    assert len(trace.data) == npts  # further safety check

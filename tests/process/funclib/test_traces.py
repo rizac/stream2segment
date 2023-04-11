@@ -6,7 +6,7 @@ Created on May 12, 2017
 import pytest
 import numpy as np
 
-from stream2segment.process.funclib.traces import cumsumsq, timeswhere
+from stream2segment.process.funclib.traces import cumsumsq
 
 
 class Test:
@@ -46,56 +46,9 @@ class Test:
         assert cumsumsq.__name__ in c3.stats.processing[0]
 
 
-    def test_timeswhere(self):
-        c1 = cumsumsq(self.mseed[0], normalize=True)
-        t0, t1 = timeswhere(c1, 0, 1)
-        assert t0 == c1.stats.starttime
-        assert t1 == c1.stats.endtime
-        assert c1[0] == 0
-        assert c1[-1] == 1
-        
-        c2 = cumsumsq(self.mseed[0], normalize=False)
-        t0, t1 = timeswhere(c2, 0, 1)
-        assert t0 == c2.stats.starttime
-        assert t1 < c2.stats.endtime
-        assert c2[0] > 0
-        assert c2[-1] > 1
-
-        t0, t1 = timeswhere(c1, 0.1, .9)
-        assert t0 > c1.stats.starttime
-        assert t1 < c1.stats.endtime
-        # test the old implementation, and check that values are the same:
-        starttime = c1.stats.starttime
-        delta = c1.stats.delta
-        tracedata = c1.data
-        tt0, tt1 = [starttime + delta * np.searchsorted(tracedata, v) for v in (0.1, .9)]
-        assert t0 == tt0 and t1 == tt1
-
-        # padding with nans does not change the result:
-        # left pad with nan
-        tmp_pt = c1.data[0]
-        c1.data[0] = np.nan
-        t0, t1 = timeswhere(c1, 0, 1)
-        assert t0 == c1.stats.starttime
-        assert t1 == c1.stats.endtime
-        c1.data[0] = tmp_pt
-        # right pad with nan:
-        tmp_pt = c1.data[-1]
-        c1.data[-1] = np.nan
-        t0, t1 = timeswhere(c1, 0, 1)
-        assert t0 == c1.stats.starttime
-        assert t1 == c1.stats.endtime
-        c1.data[-1] = tmp_pt
-
-        # test what happens if all are nans
-        c1.data = np.array([np.nan] * len(c1.data))
-        t0, t1 = timeswhere(c1, 0, 1)
-        assert t0 == t1 == c1.stats.starttime
-
-
 def test_searchsorted():
-    '''this test is just a check to assure that the new implementation of timeswhere
-    works as the original code'''
+    """this test is just a check to assure that the new implementation of timeswhere
+    works as the original code"""
     arr = [1, 4.5, 6]
     tosearch = [-1, 3, 4.5, 6.0, 8.1]
     assert (np.array([np.searchsorted(arr, v) for v in tosearch]) \

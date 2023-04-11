@@ -10,7 +10,7 @@ parametric table.
 # they are inserted. Prior to that version, to preserve insertion order you needed to
 # use OrderedDict:
 from collections import OrderedDict
-from datetime import datetime, timedelta  # always useful
+from datetime import datetime, timedelta
 from math import factorial  # for savitzky_golay function
 
 # import numpy for efficient computation:
@@ -23,8 +23,8 @@ from obspy.geodetics import degrees2kilometers as d2km
 from stream2segment.process import gui, SkipSegment
 # straem2segment functions for processing obspy Traces. This is just a list of possible
 # functions to show how to import them:
-from stream2segment.process.funclib.traces import ampratio, bandpass, cumsumsq,\
-    timeswhere, fft, maxabs, utcdatetime, ampspec, powspec, timeof, sn_split
+from stream2segment.process.funclib.traces import bandpass, cumsumsq,\
+    fft, ampspec, powspec, timeof, sn_split
 # stream2segment function for processing numpy arrays:
 from stream2segment.process.funclib.ndarrays import triangsmooth, snr
 
@@ -37,7 +37,7 @@ def main(segment, config):
     trace = stream[0]  # work with the (surely) one trace now
 
     # discard saturated signals (according to the threshold set in the config file):
-    amp_ratio = ampratio(trace)
+    amp_ratio = np.true_divide(np.nanmax(np.abs(trace.data)), 2**23)
     if amp_ratio >= config['amp_ratio_threshold']:
         raise SkipSegment('possibly saturated (amp. ratio exceeds)')
 
@@ -72,16 +72,18 @@ def main(segment, config):
 
     # calculate cumulative
 
-    cum_labels = [0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99]
     cum_trace = cumsumsq(trace, normalize=True, copy=True)
     # Note above: copy=True prevent original trace from being modified
-    cum_times = timeswhere(cum_trace, *cum_labels)
+    # get times where cumulative reaches specific values/labels
+    _cumlabels = [0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99]
+    _cumtimes = (timeof(cum_trace, i) for i in np.searchsorted(cum_trace.data, _cumlabels))
+    cumtime = {c: t for c, t in zip(_cumlabels, _cumtimes)}
 
     # double event (heuristic algorithm to filter out malformed data)
     try:
         (score, t_double, tt1, tt2) = \
             get_multievent_sg(
-                cum_trace, cum_times[1], cum_times[-2],
+                cum_trace, cumtime[0.05], cumtime[0.95],
                 config['savitzky_golay'], config['multievent_thresholds']
             )
     except IndexError as _ierr:
@@ -92,11 +94,24 @@ def main(segment, config):
 
     # calculate PGA and times of occurrence (t_PGA):
     # note: you can also provide tstart tend for slicing
-    t_PGA, PGA = maxabs(trace, cum_times[1], cum_times[-2])
-    trace_int = trace.copy()
-    trace_int.integrate()
-    t_PGV, PGV = maxabs(trace_int, cum_times[1], cum_times[-2])
-    meanoff = meanslice(trace_int, 100, cum_times[-1], trace_int.stats.endtime)
+    trace_cut = trace.slice(cumtime[0.05], cumtime[0.95])
+    try:
+        _argmax = np.nanargmax(np.abs(trace_cut.data))
+    except ValueError as verr:
+        raise SkipSegment('Unable to compute PGA: ' + str(verr))
+    t_PGA = timeof(trace_cut, _argmax)
+    PGA = trace_cut.data[_argmax]
+
+    # PGV:
+    trace_cut_vel = trace_cut.copy()
+    trace_cut_vel.integrate()
+    try:
+        _argmax = np.nanargmax(np.abs(trace_cut_vel.data))
+    except ValueError as verr:
+        raise SkipSegment('Unable to compute PGV: ' + str(verr))
+    t_PGV = timeof(trace_cut_vel, _argmax)
+    PGV = trace_cut_vel.data[_argmax]
+    meanoff = meanslice(trace_cut_vel, 100, cumtime[0.99], trace_cut_vel.stats.endtime)
 
     # calculates amplitudes at the frequency bins given in the config file:
     required_freqs = config['freqs_interp']
@@ -107,7 +122,12 @@ def main(segment, config):
 
     # compute synthetic WA.
     trace_wa = synth_wood_anderson(segment, config, trace.copy())
-    t_WA, maxWA = maxabs(trace_wa)
+    try:
+        _argmax = np.nanargmax(np.abs(trace_wa.data))
+    except ValueError as verr:
+        raise SkipSegment('Unable to compute max WoodAnderson: ' + str(verr))
+    t_WA = timeof(trace_wa, _argmax)
+    maxWA = trace_wa.data[_argmax]
 
     # write stuff to csv:
     ret = OrderedDict()
@@ -116,8 +136,10 @@ def main(segment, config):
     ret['snr1'] = snr1_
     ret['snr2'] = snr2_
     ret['snr3'] = snr3_
-    for cum_lbl, cum_t in zip(cum_labels[slice(1, 8, 3)], cum_times[slice(1, 8, 3)]):
-        ret['cum_t%f' % cum_lbl] = float(cum_t)  # convert cum_times to float for saving
+
+    # cumulative times:
+    for _cumlabel in [0.05, 0.5, 0.95]:
+        ret['time_of_cumulative_%f' % _cumlabel] = cumtime[_cumlabel]
 
     ret['dist_deg'] = segment.event_distance_deg        # dist
     ret['dist_km'] = d2km(segment.event_distance_deg)  # dist_km
@@ -282,8 +304,10 @@ def get_multievent_sg(cum_trace, tmin, tmax, sg_params, multievent_thresholds):
     If score is 2 or 3, the second argument is the UTCDateTime denoting the occurrence of
     the first sample triggering the double event after tmax
     """
-    tmin = utcdatetime(tmin)
-    tmax = utcdatetime(tmax)
+    if tmin is not None:
+        tmin = UTCDateTime(tmin)
+    if tmax is not None:
+        tmax = UTCDateTime(tmax)
 
     # split traces between tmin and tmax and after tmax
     traces = [cum_trace.slice(tmin, tmax), cum_trace.slice(tmax, None)]
