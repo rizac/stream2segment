@@ -224,20 +224,6 @@ def cumsumsq(trace, normalize=True, copy=True):
     return trace
 
 
-def timeswhere(mi_trace, *values):
-    """Calculate the time(s) where `mi_trace` reaches the given value(s)
-    **`mi_trace.data` need to be monotonically increasing**, e.g., as resulting from
-    :func:`stream2segment.process.funclib.traces.cumsumsq`.
-
-    :param mi_trace: a **monotonically increasing** trace
-    :param values: the values whose time occurrence has to be calculated
-
-    :return: a tuple of N `UtcDateTime`s (N = len(percentages)) denoting the occurrence
-        of the given percentages of the total signal in `mi_trace`
-    """
-    return tuple(timeof(mi_trace, i) for i in np.searchsorted(mi_trace.data, values))
-
-
 def fft(trace, starttime=None, endtime=None, taper_max_percentage=0.05,
         taper_type='hann', return_freqs=False):
     """Compute the Fast Fourier transform of the given trace. If `return_freqs=False`

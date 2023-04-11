@@ -24,7 +24,7 @@ from stream2segment.process import gui, SkipSegment
 # straem2segment functions for processing obspy Traces. This is just a list of possible
 # functions to show how to import them:
 from stream2segment.process.funclib.traces import ampratio, bandpass, cumsumsq,\
-    timeswhere, fft, maxabs, ampspec, powspec, timeof, sn_split
+    fft, maxabs, ampspec, powspec, timeof, sn_split
 # stream2segment function for processing numpy arrays:
 from stream2segment.process.funclib.ndarrays import triangsmooth, snr
 
@@ -75,7 +75,9 @@ def main(segment, config):
     cum_labels = [0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99]
     cum_trace = cumsumsq(trace, normalize=True, copy=True)
     # Note above: copy=True prevent original trace from being modified
-    cum_times = timeswhere(cum_trace, *cum_labels)
+    # get occurrence times of cum_labels (cum_trace is monotonic ascending):
+    cum_times = tuple(timeof(cum_trace, i) for i in np.searchsorted(cum_trace.data,
+                                                                    cum_labels))
 
     # double event (heuristic algorithm to filter out malformed data)
     try:
