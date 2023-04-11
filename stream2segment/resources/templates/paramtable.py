@@ -111,7 +111,7 @@ def main(segment, config):
         raise SkipSegment('Unable to compute PGV: ' + str(verr))
     t_PGV = timeof(trace_cut_vel, _argmax)
     PGV = trace_cut_vel.data[_argmax]
-    meanoff = meanslice(trace_cut_vel, 100, cumtime[0.99], trace_cut_vel.stats.endtime)
+    meanoff = meanslice(trace_cut_vel, 100, cumtime[0.05], trace_cut_vel.stats.endtime)
 
     # calculates amplitudes at the frequency bins given in the config file:
     required_freqs = config['freqs_interp']
