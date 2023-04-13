@@ -30,7 +30,7 @@ THE_SEGMENT_OBJECT_WIKI_URL = 'https://github.com/rizac/stream2segment/wiki/the-
 _THE_SEGMENT_OBJECT_ATTRS_AND_METHS = THE_SEGMENT_OBJECT_WIKI_URL + '#attributes-and-methods'
 
 
-_THE_SEGMENT_OBJECT_SEGSEL = THE_SEGMENT_OBJECT_WIKI_URL + '#segments-selection'
+THE_SEGMENT_OBJECT_WIKI_URL_SEGMENT_SELECTION = THE_SEGMENT_OBJECT_WIKI_URL + '#segments-selection'
 
 #
 # PROCESS_PY_MAIN = """

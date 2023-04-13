@@ -11,6 +11,7 @@ See section `if __name__ == "__main__"` at the end of the module for details
 For a general overview on segment processing (applicable e.g., in custom code, Jupyter
 Notebook), see {{ USING_S2S_IN_YOUR_PYTHON_CODE_WIKI_URL }}
 """
+import os.path
 # From Python >= 3.6, dicts keys are returned (and thus, written to file) in the order
 # they are inserted. Prior to that version, to preserve insertion order you needed to
 # use OrderedDict:
@@ -530,20 +531,23 @@ if __name__ == "__main__":
     # (python <this_file_path>)
 
     # Remove the following line and edit the remaining code
-    raise ValueError('The module is not implemented to be run as script. '
+    raise ValueError('The module is not yet implemented to be run as script. '
                      'Please open the file and edit the code in the script '
                      'section at the end of the module ')
 
-    # Example code TO BE EDITED before run
+    # Example code: Check and customize before run
     # ------------------------------------
-    # load config:
-    from stream2segment.process import yaml_load
-    config = yaml_load('enter_your_processing_config_filepath_here')
-    # get the database URL. Do NOT TYPE anywhere URLs with passwords (e.g. postgres).
-    # A good solution is to read the db URL used for downloading the data from its config:
-    dburl = yaml_load('enter_the_path_of_the_download_config_used_here')['dburl']
+    from stream2segment.process import yaml_load  # similar to yaml.safe_load
+    # Load config (below we assume to be a YAML file with the same name as this module):
+    config_path = os.path.splitext(os.path.abspath(__file__))[0] + '.yaml'
+    config = yaml_load(config_path)
+    # get the database URL. Do NOT TYPE anywhere URLs with passwords (e.g. postgres), or
+    # if you do, do not COMMIT the file and keep it local. A good solution is to read
+    # the db URL used for downloading the data from its config. Example:
+    download_path = os.path.join(os.path.dirname(__file__), 'download.yaml')
+    dburl = yaml_load(download_path)['dburl']
     # segments to process (modify according to your needs).
-    # For details, see {{ THE_SEGMENT_OBJECT_WIKI_URL }}
+    # For details, see {{ THE_SEGMENT_OBJECT_WIKI_URL_SEGMENT_SELECTION }}
     # The variable below can also be a numeric list/numpy array of integers denoting the
     # database IDs of the segments to process (e.g., a previous or external routine saved
     # IDs somewhere)
