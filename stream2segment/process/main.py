@@ -74,7 +74,7 @@ def process(pyfunc, dburl, segments_selection=None, config=None, outfile=None,
         (the last two keys assure segments with no gaps, and with data.
         'has_data': 'true' is basically a default to be provided in most cases). If None
         or missing, it defaults to the dict `{'has_data`: True}`
-    :param config: dict or YAML file. Optional argument to be passed to `pyfunc`.
+    :param config: dict. Optional argument to be passed to `pyfunc`.
         Populate it with user-defined parameter needed in your processing function. If
         you implemented a YAML file following the guidelines of the available templates
         (see command `s2s init`), then you can load the config as dict and other function
@@ -89,11 +89,11 @@ def process(pyfunc, dburl, segments_selection=None, config=None, outfile=None,
         If no output file is given, the returned values of the processing function will
         be ignored
     :param append: bool (default False) ignored if the output file is not given
-        or non existing, otherwise: if False, overwrite the existing output
+        or non-existing, otherwise: if False, overwrite the existing output
         file. If True, process unprocessed segments only (checking the segment
         id), and append to the given file, without replacing existing data.
     :param writer_options: dict of options for the writer. When None or missing, it
-        defaults to the empty dict (no options). As option you can pass any kwyword
+        defaults to the empty dict (no options). As option, you can pass any keyword
         argument of the functions linked below.
         For CSV output:
         https://docs.python.org/3/library/csv.html#csv.writer     (any CSV)

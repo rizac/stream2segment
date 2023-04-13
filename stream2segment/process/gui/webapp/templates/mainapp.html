@@ -225,8 +225,9 @@
 	
 	<!-- <script src="https://pagecdn.io/lib/ace/1.4.8/ace.min.js" crossorigin="anonymous"
 			integrity="sha256-2vrgUWyhDF1A6gCwYj0YcNWMoEdeJNuj0G3MHPLP9RE=" ></script> -->
-	<script src="https://pagecdn.io/lib/ace/1.4.8/ace.js" crossorigin="anonymous"
-		    integrity="sha256-+svOVB1WmhKhTy7N21gWvtyXn91qF0r52P2hIArRRug=" ></script>
+	<!-- <script src="https://pagecdn.io/lib/ace/1.4.8/ace.js" crossorigin="anonymous"
+		    integrity="sha256-+svOVB1WmhKhTy7N21gWvtyXn91qF0r52P2hIArRRug=" ></script> -->
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.17.0/ace.min.js"></script>
 
 	<script type="text/javascript">
 		var configEditor = ace.edit("configEditor");
@@ -236,9 +237,10 @@
 		// configEditor.session.setMode("ace/mode/yaml");
 		// we set everything in the options dict
 		// (for infor see: https://codepen.io/ryancat/pen/mMyvpx)
+		var _fs = parseFloat(window.getComputedStyle(document.body).getPropertyValue('font-size'));
 		configEditor.setOptions({
 			wrap: true,
-			fontSize: 12,
+			fontSize: isNaN(_fs) ? 15 : _fs,
 			mode: "ace/mode/yaml",
 			theme: "ace/theme/idle_fingers",
 			showLineNumbers: true,

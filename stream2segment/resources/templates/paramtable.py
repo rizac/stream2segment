@@ -1,10 +1,15 @@
 """
-=========================================================================
-Stream2segment processing+visualization module generating a segment-based
-parametric table.
-=========================================================================
+============================================================================
+Stream2segment processing module generating a segment-based parametric table
+============================================================================
 
-{{ PROCESS_PY_MAIN }}
+This file exemplifies how to process downloaded data and can be run as Python script
+from the terminal:
+`python <this_file_path>`
+See section `if __name__ == "__main__"` at the end of the module for details
+
+For a general overview on segment processing (applicable e.g., in custom code, Jupyter
+Notebook), see {{ USING_S2S_IN_YOUR_PYTHON_CODE_WIKI_URL }}
 """
 # From Python >= 3.6, dicts keys are returned (and thus, written to file) in the order
 # they are inserted. Prior to that version, to preserve insertion order you needed to
@@ -20,7 +25,7 @@ import numpy as np
 from obspy import Trace, Stream, UTCDateTime
 from obspy.geodetics import degrees2kilometers as d2km
 # decorators needed to setup this module @gui.preprocess @gui.plot:
-from stream2segment.process import gui, SkipSegment
+from stream2segment.process import SkipSegment
 # straem2segment functions for processing obspy Traces. This is just a list of possible
 # functions to show how to import them:
 from stream2segment.process.funclib.traces import bandpass, cumsumsq,\
@@ -30,7 +35,84 @@ from stream2segment.process.funclib.ndarrays import triangsmooth, snr
 
 
 def main(segment, config):
-    """{{ PROCESS_PY_MAINFUNC | indent }}
+    """Main processing function, called iteratively for any segment selected from `imap`
+    or `process` functions of stream2segment. See section `if __name__ == "__main__"`
+    at the end of the module for details.
+
+    IMPORTANT: any exception raised here or from any sub-function will interrupt the
+    whole processing routine with one special case: `stream2segment.process.SkipSegment`
+    will resume from the next segment. Raise it to programmatically skip a segment, e.g.:
+    ```
+    if segment.sample_rate < 60:
+        raise SkipSegment("segment sample rate too low")`
+    ```
+    Hint: Because handling exceptions at any point of a time-consuming processing is
+    complex, we recommend to try to run your code on a smaller and possibly
+    heterogeneous dataset first: change temporarily the segment selection (See section
+    `if __name__ == "__main__"` at the end of the module), and inspect the logfile:
+    for any exception that is not a bug and should simply be ignored, wrap only
+    the part of code affected in a "try ... except" statement, and raise a `SkipSegment`.
+    Also, please spend some time on refining the selection of segments: you might
+    find that your code runs smoothly and faster by simply skipping certain segments in
+    the first place.
+
+    :param: segment: the object describing a downloaded waveform segment and its metadata,
+        with a full set of useful attributes and methods detailed here:
+        {{ THE_SEGMENT_OBJECT_WIKI_URL }}
+
+    :param: config: a dictionary representing the configuration parameters
+        accessible globally by all processed segments. The purpose of the `config`
+        is to encourage decoupling of code and configuration for better and more
+        maintainable code, avoiding, e.g., many similar processing functions differing
+        by few hard-coded parameters (this is one of the reasons why the config is
+        given as separate YAML file to be passed to the `s2s process` command)
+
+    :return: If the processing routine calling this function needs not to generate a
+        file output, the returned value of this function, if given, will be ignored.
+        Otherwise:
+
+        * For CSV output, this function must return an iterable that will be written
+          as a row of the resulting file (e.g. list, tuple, numpy array, dict. You must
+          always return the same type of object, e.g. not lists or dicts conditionally).
+
+          Returning None or nothing is also valid: in this case the segment will be
+          silently skipped
+
+          The CSV file will have a row header only if `dict`s are returned (the dict
+          keys will be the CSV header columns). For Python version < 3.6, if you want
+          to preserve in the CSV the order of the dict keys as the were inserted, use
+          `OrderedDict`.
+
+          A column with the segment database id (an integer uniquely identifying the
+          segment) will be automatically inserted as first element of the iterable,
+          before writing it to file.
+
+          SUPPORTED TYPES as elements of the returned iterable: any Python object, but
+          we suggest to use only strings or numbers: any other object will be converted
+          to string via `str(object)`: if this is not what you want, convert it to the
+          numeric or string representation of your choice. E.g., for Python `datetime`s
+          you might want to set `datetime.isoformat()` (string), for ObsPy `UTCDateTime`s
+          `float(utcdatetime)` (numeric)
+
+       * For HDF output, this function must return a dict, pandas Series or pandas
+         DataFrame that will be written as a row of the resulting file (or rows, in case
+         of DataFrame).
+
+         Returning None or nothing is also valid: in this case the segment will be
+         silently skipped.
+
+         A column named '{{ SEGMENT_ID_COLNAME }}' with the segment database id (an integer
+         uniquely identifying the segment) will be automatically added to the dict /
+         Series, or to each row of the DataFrame, before writing it to file.
+
+         SUPPORTED TYPES as elements of the returned dict/Series/DataFrame: all types
+         supported by pandas:
+         https://pandas.pydata.org/pandas-docs/stable/getting_started/basics.html#dtypes
+
+         For info on hdf and the pandas library (included in the package), see:
+         https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.read_hdf.html
+         https://pandas.pydata.org/pandas-docs/stable/user_guide/io.html#io-hdf5
+
     """
     stream = segment.stream()
     assert1trace(stream)  # raise and return if stream has more than one trace
@@ -121,7 +203,7 @@ def main(segment, config):
                                     normal_spe) / segment.sample_rate
 
     # compute synthetic WA.
-    trace_wa = synth_wood_anderson(segment, config, trace.copy())
+    trace_wa = synth_wood_anderson(trace.copy(), trace.inventory(), config)
     try:
         _argmax = np.nanargmax(np.abs(trace_wa.data))
     except ValueError as verr:
@@ -129,8 +211,8 @@ def main(segment, config):
     t_WA = timeof(trace_wa, _argmax)
     maxWA = trace_wa.data[_argmax]
 
-    # write stuff to csv:
-    ret = OrderedDict()
+    # write stuff to csv / hdf:
+    ret = {}
 
     ret['snr'] = snr_
     ret['snr1'] = snr1_
@@ -191,7 +273,6 @@ def assert1trace(stream):
         raise SkipSegment("%d traces (probably gaps/overlaps)" % len(stream))
 
 
-@gui.preprocess
 def bandpass_remresp(segment, config):
     """{{ PROCESS_PY_BANDPASSFUNC | indent }}
     """
@@ -214,7 +295,7 @@ def bandpass_remresp(segment, config):
 
 
 def mag2freq(magnitude):
-    """returns a magnitude dependent frequency (in Hz)"""
+    """return a magnitude dependent frequency (in Hz)"""
     if magnitude <= 4.5:
         freq_min = 0.4
     elif magnitude <= 5.5:
@@ -359,7 +440,7 @@ def get_multievent_sg(cum_trace, tmin, tmax, sg_params, multievent_thresholds):
     return result, deltatime, starttime, endtime
 
 
-def synth_wood_anderson(segment, config, trace):
+def synth_wood_anderson(trace, inventory, config):
     """Low-level function to calculate the synthetic wood-anderson of `trace`. The dict
     `config['simulate_wa']` must be implemented and houses the Wood-Anderson parameters:
     'sensitivity', 'zeros', 'poles' and 'gain'. Modifies the trace in place
@@ -382,7 +463,7 @@ def synth_wood_anderson(segment, config, trace):
 
     if trace_input_type is None:
         pre_filt = (0.005, 0.006, 40.0, 45.0)
-        trace.remove_response(inventory=segment.inventory(), output="DISP",
+        trace.remove_response(inventory=inventory, output="DISP",
                               pre_filt=pre_filt,
                               water_level=conf['remove_response_water_level'])
 
@@ -444,74 +525,6 @@ def meanslice(trace, nptmin=100, starttime=None, endtime=None):
     return val
 
 
-######################################
-# GUI functions for displaying plots #
-######################################
-
-
-@gui.plot
-def cumulative(segment, config):
-    """Compute the cumulative of the squares of the segment's trace in the form of a
-    Plot object. Normalizes the returned trace values in [0,1]
-
-    :return: an obspy.Trace
-    """
-    stream = segment.stream()
-    assert1trace(stream)  # raise and return if stream has more than one trace
-    return cumsumsq(stream[0], normalize=True, copy=False)
-
-
-@gui.plot('r', xaxis={'type': 'log'}, yaxis={'type': 'log'})
-def sn_spectra(segment, config):
-    """Compute the signal and noise spectra, as dict of strings mapped to tuples
-    (x0, dx, y).
-
-    :return: a dict with two keys, 'Signal' and 'Noise', mapped respectively to the
-        tuples (f0, df, frequencies)
-    """
-    stream = segment.stream()
-    assert1trace(stream)  # raise and return if stream has more than one trace
-    return signal_noise_spectra(segment, config)
-
-
-@gui.plot
-def velocity(segment, config):
-    stream = segment.stream()
-    assert1trace(stream)  # raise and return if stream has more than one trace
-    trace = stream[0]
-    trace_int = trace.copy()
-    return trace_int.integrate()
-
-
-@gui.plot
-def derivcum2(segment, config):
-    """Compute the second derivative of the cumulative function using savitzy-golay.
-
-    :return: the tuple (starttime, timedelta, values)
-    """
-    stream = segment.stream()
-    assert1trace(stream)  # raise and return if stream has more than one trace
-    cum = cumsumsq(stream[0], normalize=True, copy=False)
-    cfg = config['savitzky_golay']
-    sec_der = savitzky_golay(cum.data, cfg['wsize'], cfg['order'], cfg['deriv'])
-    sec_der_abs = np.abs(sec_der)
-    sec_der_abs /= np.nanmax(sec_der_abs)
-    # the stream object has surely only one trace (see 'cumulative')
-    return segment.stream()[0].stats.starttime, segment.stream()[0].stats.delta, \
-           sec_der_abs
-
-
-@gui.plot
-def synth_wa(segment, config):
-    """Compute synthetic WA. See ``synth_wood_anderson``.
-
-    :return: an ObsPy Trace
-    """
-    stream = segment.stream()
-    assert1trace(stream)  # raise and return if stream has more than one trace
-    return synth_wood_anderson(segment, config, stream[0])
-
-
 if __name__ == "__main__":
     # execute the code below only if this module is run as a script
     # (python <this_file_path>)
@@ -523,22 +536,26 @@ if __name__ == "__main__":
 
     # Example code TO BE EDITED before run
     # ------------------------------------
+    # load config:
+    from stream2segment.process import yaml_load
     config = yaml_load('enter_your_processing_config_filepath_here')
+    # get the database URL. Do NOT TYPE anywhere URLs with passwords (e.g. postgres).
+    # A good solution is to read the db URL used for downloading the data from its config:
     dburl = yaml_load('enter_the_path_of_the_download_config_used_here')['dburl']
-    # segments to process (modify according to your needs). The variable
-    # can also be a numeric list/numpy array of integers denoting the ID of
-    # the segments to process. You can also read the selection from file or extract it
-    # from the config above, if implemented therein
+    # segments to process (modify according to your needs).
+    # For details, see {{ THE_SEGMENT_OBJECT_WIKI_URL }}
+    # The variable below can also be a numeric list/numpy array of integers denoting the
+    # database IDs of the segments to process (e.g., a previous or external routine saved
+    # IDs somewhere)
     segments_selection = {
-        'has_data': 'true',
+        'has_valid_data': 'true',
         'maxgap_numsamples': '[-0.5, 0.5]',
-        'event_distance_deg': '[70, 80]'
     }
     # output file
     outfile = 'enter_your_csv_or_hdf_path_here'
     # provide a log file path to track all skipped segment (SkipSegment exceptions).
     # Here we input the boolean True, which automatically creates a log file in the
-    # same directory 'outfile' above. To skip logging, provide an empty string
+    # same directory 'outfile' above. To skip logging, type "" or False
     logfile = True
     # show progressbar on the terminal and additional info
     verbose = True
@@ -549,10 +566,13 @@ if __name__ == "__main__":
     writer_options = {}
     # use sub-processes to speed up the routine
     multiprocess = True
+    # segment chunk size to load. Type help(process) on terminal or notebook for details.
+    chunksize = None
 
     from stream2segment.process import imap, process
 
     # run imap or process here. Example with process:
     process(main, dburl, segments_selection=segments_selection, config=config,
-            outfile=outfile, append=False, writer_options=writer_options,
-            logfile=logfile, verbose=verbose, multi_process=multiprocess, chunksize=None)
+            outfile=outfile, append=append, writer_options=writer_options,
+            logfile=logfile, verbose=verbose, multi_process=multiprocess,
+            chunksize=chunksize)

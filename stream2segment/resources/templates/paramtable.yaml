@@ -1,22 +1,25 @@
-# {{ PROCESS_YAML_MAIN }}
+# ====================================================================
+# Configuration file example for the Stream2segment processing routine
+# ====================================================================
+#
+# This is an example configuration file for the stream2segment `imap` and
+# `process` functions. See associated Python module for details
+#
+# NOTE: This file is written in YAML syntax, which uses Python-style indentation to
+# indicate nesting, keep it in mind when editing. You can also use a more compact format
+# that uses [] for lists and {} for maps/objects. For info see:
+# http://docs.ansible.com/ansible/latest/YAMLSyntax.html
 
 
-# {{ PROCESS_YAML_SEGMENTSELECT }}
-segments_selection:
-  has_data: 'true'
-  maxgap_numsamples: '[-0.5, 0.5]'
-  # missing_data_sec: '<120'
-  # missing_data_ratio: '<0.5'
-  # id: '<300'
-  # event.time: "(2014-01-01T00:00:00, 2014-12-31T23:59:59)"
-  # event.latitude: "[24, 70]"
-  # event.longitude: "[-11, 24]"
-
-# {{ PROCESS_YAML_SNWINDOWS }}
+# settings for computing the 'signal' and 'noise' time windows on a segment waveform
 sn_windows:
-  arrival_time_shift: -2.0  # programmatically shifts the arrival time for every segment (in seconds)
-  signal_window: [0.1, 0.9]  # either a number (in seconds) or interval relative to the % of the cumulative
-
+  # set the separator between noise part and signal part, in seconds relative to each
+  # segment arrival time:
+  arrival_time_shift: -2.0
+  # define the signal window [start, end] within the signal part (see above). Each number
+  # is given as ratio of the total signal sum of squares (so 0.1 is the time when the
+  # signal cumulative reaches 10% of the total)
+  signal_window: [0.1, 0.9]
 
 # settings for the sn (signal-to-noise) spectra implemented in the associated python module
 sn_spectra:
@@ -25,7 +28,7 @@ sn_spectra:
     type: 'hann'
   smoothing_wlen_ratio: 0.05  # 0 for no smoothing
   type: 'amp'  # if 'pow', then power spectra are computed, otherwise if 'amp', amplitude spectra are computed
-  
+
 # settings for the pre-process function implemented in the associated python module
 preprocess:
   remove_response_water_level: 60
@@ -160,5 +163,3 @@ freqs_interp:
  - 39.7752
  - 42.307
  - 45.
-
-# {{ PROCESS_YAML_ADVANCEDSETTINGS }}

@@ -4,6 +4,7 @@ html, body, div.main{
 html, body{
 	margin: 0;
 	padding: 0;
+	font-size: 15px;
 }
 *{
 	box-sizing: border-box; /* this is the default if using bootstrap. Otherwise, better having it */

@@ -21,7 +21,11 @@ def _extract_segments_selection(config):
     :param config: the config `dict` (e.g. resulting from a YAML config file used for
         processing, or visualization)
     """
-    return pop_param(config, SEGMENT_SELECT_PARAM_NAMES, {})[1]
+    _default = {
+        'has_valid_data': 'true',
+        'maxgap_numsamples': '[-0.5, 0.5]'
+    }
+    return pop_param(config, SEGMENT_SELECT_PARAM_NAMES, _default)[1]
 
 
 def load_p_config(config=None, **param_overrides):

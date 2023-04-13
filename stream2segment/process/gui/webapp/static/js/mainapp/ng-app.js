@@ -7,18 +7,18 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	$scope.metadata = []; // array of 2-element arrays [key, type] (all elements as string):
 						  // example: [('has_data', 'bool'), ('id', 'int'), ...]
 	$scope.classes = []; // Array of dicts. Each dict represents a class and is:
-	                     // {segments: <int>, id: <int>, label:<string>}
+						 // {segments: <int>, id: <int>, label:<string>}
 
 	// selection "window" handling:
 	$scope.selection = {
-	    showForm: false,
-	    selExpr: {}  // will be populated when clicking the Select button
+		showForm: false,
+		selExpr: {}  // will be populated when clicking the Select button
 	};
 	$scope.closeSelectionForm = function(){$scope.setWarning('');$scope.selection.showForm=false;}
 
 	// config "window" handling:
 	$scope.config = {
-	    showForm: false
+		showForm: false
 	};
 	$scope.closeConfigForm = function(){$scope.setWarning('');$scope.config.showForm=false;}
 	
@@ -27,9 +27,9 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 
 	$window.__SETTINGS.bottomPlots.forEach(function(element, idx){
 		var data = {
-		    visible: idx == 0,
-		    zoom: [null, null],
-		    div: document.getElementById('plot-'+element.index),
+			visible: idx == 0,
+			zoom: [null, null],
+			div: document.getElementById('plot-'+element.index),
 			xaxis: element.xaxis,
 			yaxis: element.yaxis,
 			position: element.position
@@ -39,9 +39,9 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 
 	$window.__SETTINGS.rightPlots.forEach(function(element, idx){
 		var data = {
-		    visible: idx == 0,
-		    zoom: [null, null],
-		    div: document.getElementById('plot-'+element.index),
+			visible: idx == 0,
+			zoom: [null, null],
+			div: document.getElementById('plot-'+element.index),
 			xaxis: element.xaxis,
 			yaxis: element.yaxis,
 			position: element.position
@@ -50,11 +50,11 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	});
 
 	$scope.plots[0] = {
-	    visible: true,
-	    zoom: [null, null],
-	    div: document.getElementById('plot-0'),
-	    xaxis:{},
-	    yaxis:{},
+		visible: true,
+		zoom: [null, null],
+		div: document.getElementById('plot-0'),
+		xaxis:{},
+		yaxis:{},
 		position:''  // position is not currently set for main plot
 	};
 
@@ -66,7 +66,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		plotData: new Array($scope.plots.length), //array of plot data (each element represents a plot)
 		snWindows: [] // array of two elements calculated from the server for the current segment:
 					  // [signal_window, noise_window] each
-			          // window is in turn a 2 element array of integers representing timestamps: [t1, t2]
+					  // window is in turn a 2 element array of integers representing timestamps: [t1, t2]
 	};
 	
 	$scope.hasPreprocessFunc = $window.__SETTINGS.hasPreprocessFunc;
@@ -74,20 +74,20 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	$scope.showAllComponents = false;
 
 	$scope.setLoading = function(msg){
-        // a non empty `msg` shows up the progress bar and `msg`
-        // an empty `msg` hides both. Set $scope.warnMsg = string and
-        // $scope.loading=true|false to control message and progress bar separately
-        // see also 'setWarning' below
-        $scope.loading = !!msg;
-        $scope.warnMsg = msg;
-    };
+		// a non empty `msg` shows up the progress bar and `msg`
+		// an empty `msg` hides both. Set $scope.warnMsg = string and
+		// $scope.loading=true|false to control message and progress bar separately
+		// see also 'setWarning' below
+		$scope.loading = !!msg;
+		$scope.warnMsg = msg;
+	};
 
-    $scope.setWarning = function(msg){
-    	$scope.setLoading('');
-    	$scope.warnMsg = msg;
-    };
+	$scope.setWarning = function(msg){
+		$scope.setLoading('');
+		$scope.warnMsg = msg;
+	};
 
-    $scope.setLoading("Initializing ...");
+	$scope.setLoading("Initializing ...");
 
 	$scope.snColors = ['#2ca02c', '#d62728']  // signal, noise
 	// if more than two lines are present, it's undefined and handled by plotly (not tested)
@@ -98,10 +98,10 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		// note on data dict above: the server expects also 'metadata' and 'classes' keys which we do provide otherwise
 		// they are false by default
 		$http.post("/init", data, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
-	        $scope.classes = response.data.classes;
-	        $scope.metadata = response.data.metadata;
-	        $scope.selectSegments();
-	    });
+			$scope.classes = response.data.classes;
+			$scope.metadata = response.data.metadata;
+			$scope.selectSegments();
+		});
 	};
 	
 	$scope.selectSegments = function(selExprObject){
@@ -118,27 +118,27 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		}
 		$scope.setLoading("Selecting segments (please wait, it might take a while for large databases)");
 		$http.post("/set_selection", data, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
-		    $scope.setLoading("");
-		    var segmentsCount = response.data.num_segments;
-		    var errMsg = '';
-		    if (response.data.error_msg){
-		        errMsg = response.data.error_msg + ". Check the segment selection (if the problem persists, contact the software maintainers) ";
-		    }
-		    if (!errMsg && segmentsCount <= 0){
-		        if (selectionEmpty){
-		            errMsg = "No segment found, empty database";
-		        }else{
-		            errMsg = "No segment found with the current segment selection";
-		        }
-		    }
-		    if (errMsg){
-		    	$scope.setWarning(errMsg);
-		        return;
-		    }
-		    $scope.segmentsCount = segmentsCount;
-            $scope.setSegment(0);
-	        $scope.selection.showForm = false;  // close window popup, if any
-	    });
+			$scope.setLoading("");
+			var segmentsCount = response.data.num_segments;
+			var errMsg = '';
+			if (response.data.error_msg){
+				errMsg = response.data.error_msg + ". Check the segment selection (if the problem persists, contact the software maintainers) ";
+			}
+			if (!errMsg && segmentsCount <= 0){
+				if (selectionEmpty){
+					errMsg = "No segment found, empty database";
+				}else{
+					errMsg = "No segment found with the current segment selection";
+				}
+			}
+			if (errMsg){
+				$scope.setWarning(errMsg);
+				return;
+			}
+			$scope.segmentsCount = segmentsCount;
+			$scope.setSegment(0);
+			$scope.selection.showForm = false;  // close window popup, if any
+		});
 	};
 	
 	$scope.setNextSegment = function(){
@@ -148,7 +148,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	
 	$scope.setPreviousSegment = function(){
 		var currentIndex = $scope.segIdx == 0 ? $scope.segmentsCount - 1 : $scope.segIdx - 1;
-        $scope.setSegment(currentIndex);
+		$scope.setSegment(currentIndex);
 	};
 	
 	$scope.setSegment = function(index){
@@ -162,19 +162,19 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		}
 		$scope.setLoading("Fetching selection");
 		$http.post("/get_selection", {}, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
-		    $scope.setLoading("");
-		    var errMsg = response.data.error_msg || '';
-		    if (errMsg){
-		    	$scope.setWarning(errMsg);
-		        return false;
-		    }
-		    $scope.selection.selExpr = {};
-		    var segSelect = response.data.data;
-		    for (var key of Object.keys(segSelect || {})){
-		    	$scope.selection.selExpr[key] = segSelect[key];
-		    }
-		    $scope.selection.showForm = true;
-	    });
+			$scope.setLoading("");
+			var errMsg = response.data.error_msg || '';
+			if (errMsg){
+				$scope.setWarning(errMsg);
+				return false;
+			}
+			$scope.selection.selExpr = {};
+			var segSelect = response.data.data;
+			for (var key of Object.keys(segSelect || {})){
+				$scope.selection.selExpr[key] = segSelect[key];
+			}
+			$scope.selection.showForm = true;
+		});
 	}
 	
 	$scope.showConfigForm = function(){
@@ -183,29 +183,29 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		}
 		$scope.setLoading("Fetching config");
 		$http.post("/get_config", {asstr: true}, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
-		    $scope.setLoading("");
-		    var errMsg = response.data.error_msg || '';
-		    if (errMsg){
-		        $scope.setWarning(errMsg);
-		        return false;
-		    }
-		    $window.configEditor.setValue(response.data.data);
+			$scope.setLoading("");
+			var errMsg = response.data.error_msg || '';
+			if (errMsg){
+				$scope.setWarning(errMsg);
+				return false;
+			}
+			$window.configEditor.setValue(response.data.data);
 		 	$window.configEditor.clearSelection();
 		 	$scope.config.showForm = true;
-	    });
+		});
 	}
 
 	$scope.updateConfig = function(){
 		$http.post("/validate_config_str", {data: $window.configEditor.getValue()}, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
-		    $scope.setLoading("");
-		    var errMsg = response.data.error_msg || '';
-		    if (errMsg){
-		        $scope.setWarning(errMsg);
-		        return false;
-		    }
+			$scope.setLoading("");
+			var errMsg = response.data.error_msg || '';
+			if (errMsg){
+				$scope.setWarning(errMsg);
+				return false;
+			}
 		 	$scope.config.showForm = false;
 		 	$scope.refreshView(undefined, false,  response.data.data);
-	    });
+		});
 	};
 
 	$scope.setPlotVisible = function(index){
@@ -241,10 +241,10 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		}
 		var zooms = $scope.getAndClearZooms();
 		var param = {
-		    seg_index: $scope.segIdx,
-		    seg_count: $scope.segmentsCount,
-		    pre_processed: $scope.showPreProcessed,
-		    zooms:zooms,
+			seg_index: $scope.segIdx,
+			seg_count: $scope.segmentsCount,
+			pre_processed: $scope.showPreProcessed,
+			zooms:zooms,
 			plot_indices: indices,
 			all_components: $scope.showAllComponents
 		};
@@ -256,8 +256,8 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		}
 		$scope.setLoading("Fetching and calculating segment plots (it might take a while) ...");
 		$http.post("/get_segment", param, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
-		    $scope.segId = response.data.seg_id;
-		    response.data.plots.forEach(function(elm, idx){
+			$scope.segId = response.data.seg_id;
+			response.data.plots.forEach(function(elm, idx){
 				$scope.segData.plotData[indices[idx]] = elm;
 			});
 			$scope.segData.snWindows = response.data.sn_windows || [];  // to be safe
@@ -267,8 +267,8 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 			}
 			// update plots:
 			$scope.setLoading("");
-	        $scope.redrawPlots(indices);
-	    });
+			$scope.redrawPlots(indices);
+		});
 	}
 	
 	$scope._refreshMetadata = function(response){
@@ -277,10 +277,10 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		// the variable has to be parsed in order to order keys and values according to
 		// our choice:
 		var segMetadata = {
-		    segment: {},
-		    event: {},
-		    channel: {},
-		    station: {}
+			segment: {},
+			event: {},
+			channel: {},
+			station: {}
 		};
 		// note that metadata is an array of 2-element arrays: [[key, value], ...]
 		metadata.forEach(function(elm, index){
@@ -301,10 +301,10 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 			classIds[classId] = response.data.classes.indexOf(classId) > -1;
 		});
 		$scope.segData.mainInfo = {
-		    seedId: segMetadata['segment']['data_seed_id'] || "unknown",
-		    arrivalTime: segMetadata['segment']['arrival_time'] || "unknown",
-		    eventMag: segMetadata['event']['magnitude'] || " unknown",
-		    eventDistanceKm: parseInt(segMetadata['segment']['event_distance_km']) || "unknown"
+			seedId: segMetadata['segment']['data_seed_id'] || "unknown",
+			arrivalTime: segMetadata['segment']['arrival_time'] || "unknown",
+			eventMag: segMetadata['event']['magnitude'] || " unknown",
+			eventDistanceKm: parseInt(segMetadata['segment']['event_distance_km']) || "unknown"
 		};
 		$scope.segData.metadata = segMetadata;
 		$scope.segData.classIds = classIds;  // dict created above
@@ -315,7 +315,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	$scope.getAndClearZooms = function(){
 		return $scope.plots.map(function(elm){
 			zoom = [$scope.convertAxisValue(elm.zoom[0], elm.div, 'xaxis'),
-			        $scope.convertAxisValue(elm.zoom[1], elm.div, 'xaxis')];
+					$scope.convertAxisValue(elm.zoom[1], elm.div, 'xaxis')];
 			//set zoom to zero, otherwise these value are persistent and affect further plots:
 			elm.zoom = [null, null];
 			return zoom;
@@ -339,7 +339,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		}
 		return value;
 	}
-	
+
 	// this function returns the currently visible plot indices
 	$scope.getVisiblePlotIndices = function(){
 		var plotIndices = [];
@@ -352,7 +352,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		});
 		return plotIndices;
 	};
-	
+
 	/** redraws the plots currently downloaded (data is in $scope.segData.plotData) **/
 	$scope.redrawPlots = function(indices){
 		var plotsData = $scope.segData.plotData;
@@ -379,10 +379,10 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 					y: line[2],
 					name: line[3],
 					type: 'scatter',
-		            opacity: 0.95,  // set to zero and uncomment the "use animations" below if you wish,
-		            line: {
-		            	  width: 2
-		            }
+					opacity: 0.95,  // set to zero and uncomment the "use animations" below if you wish,
+					line: {
+						width: 2
+					}
 				};
 				// push data:
 				data.push(elmData);
@@ -396,11 +396,11 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 				layout.xaxis.type = 'date';
 			}
 			if (i==0){  // default plot
-			    // Add background shaded areas and arrival time:
+				// Add background shaded areas and arrival time:
 				// https://plot.ly/javascript/shapes/#vertical-and-horizontal-lines-positioned-relative-to-the-axes
 				layout.shapes = $scope.segData.snWindows.map(function(elm, idx){
 					return {
-					    type: 'rect',
+						type: 'rect',
 						xref: 'x', // x-reference is assigned to the x-values
 						yref: 'paper', // y-reference is assigned to the plot paper [0,1]
 						x0: elm[0],
@@ -410,7 +410,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 						fillcolor: $scope.snColors[idx],
 						opacity: 0.1,
 						line: {
-						    width: 0
+							width: 0
 						}
 					};
 				});
@@ -421,19 +421,19 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 					// see section "Differences in assumed time zone" in
 					// https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/parse
 					layout.shapes.push({
-					    type: 'line',
-					    xref: 'x', // x-reference is assigned to the x-values
-					    yref: 'paper', // y-reference is assigned to the plot paper [0,1]
-					    x0: layout.shapes[1].x1,
-					    x1: layout.shapes[1].x1,
-					    y0: 0,
-					    y1: 1,
-					    opacity: 1,
-					    line: {
-					        width: 1,
-					        dash: 'dot',
-					        color: $scope.snColors.arrivalTimeLine
-					    }
+						type: 'line',
+						xref: 'x', // x-reference is assigned to the x-values
+						yref: 'paper', // y-reference is assigned to the plot paper [0,1]
+						x0: layout.shapes[1].x1,
+						x1: layout.shapes[1].x1,
+						y0: 0,
+						y1: 1,
+						opacity: 1,
+						line: {
+							width: 1,
+							dash: 'dot',
+							color: $scope.snColors.arrivalTimeLine
+						}
 					});
 				}
 				// the noise / signal windows (rectangles in the background) might overflow
@@ -450,12 +450,12 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 					layout.xaxis.autorange = true;
 				}
 			}else{ // custom plots (i != 0)
-			    // check if we have only one trace, and if it has a name set and non-empty.
-			    // In this case, the user wants a legend but set `showlegend: true` because plotly does not show
-			    // legend by default
-			    if (data.length == 1 && data[0].name){
-                    layout.showlegend = true;
-			    }
+				// check if we have only one trace, and if it has a name set and non-empty.
+				// In this case, the user wants a legend but set `showlegend: true` because plotly does not show
+				// legend by default
+				if (data.length == 1 && data[0].name){
+					layout.showlegend = true;
+				}
 			}
 			plotStuff.push({div: div, data: data, layout:layout, index:i});
 		}
@@ -464,15 +464,15 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		// sizes, which is needed to lay out plots. This is not anymore necessary, but
 		// we leave this functionality for safety:
 		$timeout(function(){
-		    $scope.setLoading("");
+			$scope.setLoading("");
 			plotStuff.forEach(function(elm){
 				var uninit = !(elm.div.data);
 				if (uninit){
-				    var config = {
-				        displaylogo: false,
-				        showLink: false,
-				        modeBarButtonsToRemove: ['sendDataToCloud']
-				    };
+					var config = {
+						displaylogo: false,
+						showLink: false,
+						modeBarButtonsToRemove: ['sendDataToCloud']
+					};
 					plotly.plot(elm.div, elm.data, elm.layout, config);
 					$scope.initPlotEvents(elm.index);
 				}else{
@@ -506,20 +506,20 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	$scope.toggleSegmentClassLabel = function(classId){
 		var value = $scope.segData.classIds[classId];
 		var param = {class_id: classId, segment_id: $scope.segId, value:value};
-	    $http.post("/set_class_id", param, {headers: {'Content-Type': 'application/json'}}).then(
-		    function(response) {
-		    	$scope.classes.forEach(function(elm, index){
-		    		if (elm.id == classId){
-		    			elm.segments += (value ? 1 : -1);  //update count
-		    		}
-		    	});
-		    },
-		    function(response) {
-		    	$scope.segData.classIds[classId] = !value; // restore old value
-		    	// called asynchronously if an error occurs
-		        // or server returns response with an error status.
-		    	$window.alert('Server error setting the class');
-		    }
+		$http.post("/set_class_id", param, {headers: {'Content-Type': 'application/json'}}).then(
+			function(response) {
+				$scope.classes.forEach(function(elm, index){
+					if (elm.id == classId){
+						elm.segments += (value ? 1 : -1);  //update count
+					}
+				});
+			},
+			function(response) {
+				$scope.segData.classIds[classId] = !value; // restore old value
+				// called asynchronously if an error occurs
+				// or server returns response with an error status.
+				$window.alert('Server error setting the class');
+			}
 		);
 	};
 	
@@ -539,7 +539,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	
 	$scope.setSnWindows = function(){
 		$scope.refreshView([0, 1]);// simply update plots, the changed flags will be set therein:
-	         // refresh current segment and spectra only
+			 // refresh current segment and spectra only
 	};
 	
 	// init our app:
@@ -554,44 +554,45 @@ function getPlotLayout(title, warningMessage, ...layoutOverrides){
 	var annotations = [];
 	if (title){
 		annotations.push({  // https://plot.ly/javascript/reference/#layout-annotations
-		    xref: 'paper',
-		    yref: 'paper',
-		    x: 0,
-		    xanchor: 'left',
-		    y: 1.01, //.98,
-		    yanchor: 'bottom',
-		    text: title,
-		    showarrow: false,
-		    font: {
-		        color: '#000000'
-		    },
+			xref: 'paper',
+			yref: 'paper',
+			x: 0,
+			xanchor: 'left',
+			y: 1.01, //.98,
+			yanchor: 'bottom',
+			text: title,
+			showarrow: false,
+			font: {
+				color: '#000000'
+			},
 		});
 	}
 	if(warningMessage){
 		annotations.push({
-		    xref: 'paper',
-		    yref: 'paper',
-		    x: 0.5,  // 0.01,
-		    xanchor: 'center',
-		    y: 0.5, //.98,
-		    yanchor: 'middle',
-		    text: warningMessage,
-		    showarrow: false,
-		    bordercolor: '#ffffff', // '#c7c7c7',
-		    bgcolor: '#C0392B',
-		    font: {
-		        color: '#FFFFFF'
-		    },
+			xref: 'paper',
+			yref: 'paper',
+			x: 0.5,  // 0.01,
+			xanchor: 'center',
+			y: 0.5, //.98,
+			yanchor: 'middle',
+			text: warningMessage,
+			showarrow: false,
+			bordercolor: '#ffffff', // '#c7c7c7',
+			bgcolor: '#C0392B',
+			font: {
+				color: '#FFFFFF'
+			},
 		});
 	}
+	var _fs = parseFloat(window.getComputedStyle(document.body).getPropertyValue('font-size'));
 	var PLOTLY_DEFAULT_LAYOUT = { //https://plot.ly/javascript/axes/
 		margin:{'l':55, 't':36, 'b':45, 'r':15},
 		pad: 0,
 		autosize: true,
 		paper_bgcolor: 'rgba(0,0,0,0)',
 		font: {
-		    family: 'Montserrat',
-		    size: 13
+			family: 'Montserrat',
+			size: isNaN(_fs) ? 15 : _fs
 		},
 		xaxis: {
 			autorange: true,
@@ -603,8 +604,8 @@ function getPlotLayout(title, warningMessage, ...layoutOverrides){
 		yaxis: {
 			autorange: true,
 			linecolor: '#aaa',  // should be consistent with div.metadata (see mainapp.css)
-		    linewidth: 1,
-		    mirror: true
+			linewidth: 1,
+			mirror: true
 			//fixedrange: true
 		},
 		annotations: annotations,

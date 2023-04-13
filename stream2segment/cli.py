@@ -298,23 +298,30 @@ def init(outdir):
     """Create template files for launching download,
     processing and visualization. OUTDIR will be created if it does not exist
     """
-    helpdict = OrderedDict([
+    filenames = OrderedDict([
         ("download.yaml",
-         "Download configuration settings (option -c of 's2s download')"),
-        ("paramtable.py",
-         "Processing module for creating a parametric table (HDF, CSV). "
-         "Option -p of 's2s process' and 's2s show'"),
-        ("paramtable.yaml",
-         "Processing configuration settings used in the associated module. "
-         "Option -c of 's2s process' and 's2s show'"),
+         "Download configuration settings.\n"
+         "Edit and execute: s2s download -c download.yaml"),
+        ("gui.py",
+         "Python module for displaying plots of downloaded data in the web browser.\n"
+         "Edit and execute: s2s -p gui.py -d download.yaml"),
+        ("gui.yaml",
+         "Configuration settings in YAML syntax used in the associated module"),
         # ("save2fs.py",
         #  "Processing python file for saving waveform to filesystem. "
         #  "Option -p of 's2s process' and 's2s show'"),
         # ("save2fs.yaml",
         #  "Processing configuration used in the associated Python file. "
         #  "Option -c of 's2s process' and 's2s show'"),
+        ("paramtable.py",
+         "Python module (runnable as script) illustrating how to produce\n"
+         "a parametric table (HDF, CSV) from downloaded data.\n"
+         "Edit and execute: python paramtable.py"),
+        ("paramtable.yaml",
+         "Configuration settings in YAMl syntax used in the associated module"),
         ("Using-Stream2segment-in-your-Python-code.ipynb",
-         "Jupyter notebook illustrating how to work with downloaded data "
+         "Jupyter notebook illustrating\n"
+         "how to work with downloaded data\n"
          "(requires the installation of jupyter)"),
         ("example.db.sqlite",
          "Example database used in the associated notebook")
@@ -323,17 +330,18 @@ def init(outdir):
     # https://www.tomrochette.com/problems/2020/03/07
 
     try:
-        copied_files = copy_example_files(outdir, True, *helpdict)
+        copied_files = copy_example_files(outdir, True, *filenames)
         if not copied_files:
             print("No file copied")
         else:
             print("%d file(s) copied in '%s':" % (len(copied_files), outdir))
-            frmt = "- {:<%d} {}" % max(len(f) for f in helpdict.keys())
             for i, fcopied in enumerate(copied_files):
-                if i in (0, 1, 5):
-                    print("")
-                bname = os.path.basename(fcopied)
-                print(frmt.format(bname, helpdict.get(bname, "")))
+                base_name = os.path.basename(fcopied)
+                desc = filenames.get(base_name, "")
+                print()
+                print(base_name)
+                for dsc in desc.split("\n"):
+                    print(dsc)
             print("")
             sys.exit(0)
     except Exception as exc:  # pylint: disable=broad-except
@@ -360,13 +368,14 @@ def copy_example_files(outpath, prompt=True, *filenames):
         if not os.path.isdir(outpath):
             raise Exception("Unable to create '%s'" % outpath)
 
+    existing_files = []
     if prompt:
         existing_files = [f for f in filenames
                           if os.path.isfile(os.path.join(outpath, f))]
         non_existing_files = [f for f in filenames if f not in existing_files]
         if existing_files:
             suffix = ("Type:\n1: overwrite all files\n2: write only non-existing\n"
-                      "0 or any other value: do nothing (exit)")
+                      "0 or any other value: do nothing (exit)\n")
             msg = ("The following file(s) "
                    "already exist on '%s':\n%s"
                    "\n\n%s") % (outpath, "\n".join([_ for _ in existing_files]), suffix)
@@ -383,12 +392,15 @@ def copy_example_files(outpath, prompt=True, *filenames):
             except ValueError:
                 return []
 
+    if existing_files:
+        print()  # leave blank line between prompt and next printout
+
     srcfilepaths = get_templates_fpaths(*filenames)
+    copied_files = []
     if srcfilepaths:
         basedir = os.path.dirname(srcfilepaths[0])
         env = jinja2.Environment(loader=jinja2.FileSystemLoader(basedir),
                                  keep_trailing_newline=True)
-        copied_files = []
         for srcfilepath in srcfilepaths:
             filename = os.path.basename(srcfilepath)
             outfilepath = os.path.join(outpath, filename)
@@ -627,14 +639,16 @@ def process(dburl, config, pyfile, funcname, append, no_prompt, multi_process,
 
 @cli.command(short_help='Show waveform plots and metadata in the browser')
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
+@click.option("-p", "--pyfile", help="Optional: The path to the Python module "
+                                     "implementing the GUI custom plots",
+              type=clickutils.ExistingPath, required=False)
 @click.option("-c", "--configfile",
               help="Optional: The path to the configuration file in yaml "
-                   "format (https://learn.getgrav.org/advanced/yaml).",
+                   "format (https://learn.getgrav.org/advanced/yaml). "
+                   "If missing and the Python module is given, it defaults to "
+                   "the module name with file extension .yaml instead of .py",
               type=clickutils.ExistingPath, required=False)
-@click.option("-p", "--pyfile", help="Optional: The path to the Python file "
-                                     "with the plot functions implemented",
-              type=clickutils.ExistingPath, required=False)
-def show(dburl, configfile, pyfile):
+def show(dburl, pyfile, configfile):
     """Show waveform plots and metadata in the browser,
     customizable with user-defined configuration and custom Plots
     """
@@ -646,6 +660,9 @@ def show(dburl, configfile, pyfile):
         ret = 0
         with warnings.catch_warnings():  # capture (ignore) warnings
             warnings.simplefilter("ignore")
+            if pyfile and not configfile and \
+                    os.path.isfile(os.path.splitext(pyfile)[0] + '.yaml'):
+                configfile = os.path.splitext(pyfile)[0] + '.yaml'
             show_gui(dburl, pyfile, configfile)
     except BadParam as err:
         _print_badparam_and_exit(err)
