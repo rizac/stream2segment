@@ -23,8 +23,7 @@ from stream2segment.process.db.sqlevalexpr import exprquery
 from stream2segment.io.log import logfilepath, close_logger, elapsed_time
 from stream2segment.io.cli import get_progressbar, ascii_decorate
 from stream2segment.io.inputvalidation import validate_param
-from stream2segment.process.inputvalidation import (load_p_config,
-                                                    valid_filewritable,
+from stream2segment.process.inputvalidation import (valid_filewritable,
                                                     valid_pyfile, valid_pyfunc)
 from stream2segment.process.db import get_session
 from stream2segment.process.db.models import Segment, Station, SkipSegment

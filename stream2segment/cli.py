@@ -594,8 +594,8 @@ def process(dburl, config, pyfile, funcname, append, no_prompt, multi_process,
     _locals = dict(locals()) # <- THIS MUST BE THE FIRST STATEMENT OF THIS FUNCTION!
 
     # import in function body to speed up the main module import:
-    from stream2segment.process.main import (process as _process, load_p_config,
-                                             validate_param, valid_pyfile)
+    from stream2segment.process.main import (process as _process, validate_param,
+                                             valid_pyfile)
 
     try:
         if not append and outfile and os.path.isfile(outfile) \

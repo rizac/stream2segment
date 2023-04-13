@@ -5,8 +5,7 @@ import os
 import inspect
 
 from stream2segment.io import yaml_load
-from stream2segment.io.inputvalidation import (validate_param, get_param,
-                                               pop_param, valid_between)
+from stream2segment.io.inputvalidation import validate_param, pop_param
 from stream2segment.process.inspectimport import load_source
 
 
@@ -26,58 +25,6 @@ def _extract_segments_selection(config):
         'maxgap_numsamples': '[-0.5, 0.5]'
     }
     return pop_param(config, SEGMENT_SELECT_PARAM_NAMES, _default)[1]
-
-
-def load_p_config(config=None, **param_overrides):
-    """Loads a YAML configuration file for processing, returning a tuple of 5 elements:
-
-    config:dict
-    segments_selection:dict
-    multi_process:Union[bool, int]
-    chunksize:Union[None, int]
-    writer_options:Union[None, dict]
-
-    :param config: file path to a YAMl file or dict
-    :param param_overrides: additional parameter(s) for the YAML `config`. The
-        value of existing config parameters will be overwritten, e.g. if
-        `config` is {'a': 1} and `param_overrides` is `a=2`, the result is
-        {'a': 2}. **Note however that when both parameters are dictionaries, the
-        result will be merged**. E.g. if `config` is {'a': {'b': 1, 'c': 1}} and
-        `param_overrides` is `a={'c': 2, 'd': 2}`, the result is
-        {'a': {'b': 1, 'c': 2, 'd': 2}}
-    """
-    config = validate_param("config", config or {}, yaml_load, **param_overrides)
-    seg_sel = _extract_segments_selection(config)
-    multi_process, chunksize = _get_process_advanced_settings(config,
-                                                              'advanced_settings')
-    writer_options = config.get('advanced_settings', {}).get('writer_options', {})
-    return config, seg_sel, multi_process, chunksize, writer_options
-
-
-def _get_process_advanced_settings(config, adv_settings_key):
-    """Return the tuple `(multi_process, chunksize)` validated from
-    `config[advanced)_settings_key]`. Raise :class:`BadParam` if any param is invalid
-    """
-    prefix = adv_settings_key + '.'  # 'advanced_settings.'
-
-    pname, multi_process = get_param(config, prefix + 'multi_process', default=False)
-    if multi_process is True:
-        # Backward compatibility: if multi_process is True, there
-        # was a separate parameter to set the Pool processes: num_processes.
-        # (now just set multi_process as int)
-        num_processes = get_param(config, prefix + 'num_processes',
-                                  default=multi_process)[1]
-        # the line below is no-op if num_process was not found (new config):
-        multi_process = num_processes
-    if multi_process not in (True, False):
-        multi_process = validate_param(pname, multi_process,
-                                       valid_between, 1, None)
-
-    pname, chunksize = get_param(config, prefix + 'segments_chunksize', None)
-    if chunksize is not None:
-        chunksize = validate_param(pname, chunksize, valid_between, 1, None)
-
-    return multi_process, chunksize
 
 
 def valid_filewritable(filepath):
@@ -137,16 +84,29 @@ def valid_pyfile(pyfile):
 def valid_pyfunc(pyfunc):
     """Checks if the argument is a valid processing Python function by inspecting its
     signature"""
-    for i, (pname, pval) in enumerate(inspect.signature(pyfunc).parameters.items(), 1):
-        if i > 2:
-            # ops, more than two arguments? maybe is variable length *args **kwargs?
-            if not pval.kind in (pval.VAR_POSITIONAL, pval.VAR_KEYWORD):
-                # it is not *args or **kwargs, does it have a default?
-                if not pval.default == pval.empty:
-                    raise ValueError('Python function argument "%s" should have a '
-                                     'default, or be removed' % pname)
-    if i < 2:
+    params = inspect.signature(pyfunc).parameters # dict[str, inspect.Parameter]
+    # less than two arguments? then function invalid:
+    if len(params) < 2:
         raise ValueError('Python function should have 2 arguments '
-                         '`(segment, config)`, %d found' % i)
+                         '`(segment, config)`, %d found' % len(params))
+    # more than 2 args? then we need to have them with a default set:
+    for pname, param in list(params.items())[2:]:
+        if not param.kind in (param.VAR_POSITIONAL, param.VAR_KEYWORD):
+            # it is not *args or **kwargs, does it have a default?
+            if not param.default == param.empty:
+                raise ValueError('Python function argument "%s" should have a '
+                                 'default, or be removed' % pname)
+    # i = 0
+    # for i, (pname, pval) in enumerate(inspect.signature(pyfunc).parameters.items(), 1):
+    #     if i > 2:
+    #         # ops, more than two arguments? maybe is variable length *args **kwargs?
+    #         if not pval.kind in (pval.VAR_POSITIONAL, pval.VAR_KEYWORD):
+    #             # it is not *args or **kwargs, does it have a default?
+    #             if not pval.default == pval.empty:
+    #                 raise ValueError('Python function argument "%s" should have a '
+    #                                  'default, or be removed' % pname)
+    # if i < 2:
+    #     raise ValueError('Python function should have 2 arguments '
+    #                      '`(segment, config)`, %d found' % i)
 
     return pyfunc

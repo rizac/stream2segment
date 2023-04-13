@@ -7,24 +7,22 @@ from unittest.mock import patch
 from click.testing import CliRunner
 import pytest
 
-from stream2segment.process.inputvalidation import load_p_config
 from stream2segment.cli import cli
 from stream2segment.process.main import (configlog4processing as o_configlog4processing,
                                          get_session as o_get_session)
 from stream2segment.process.main import process as o_process
-from stream2segment.io.inputvalidation import BadParam
 from stream2segment.resources import get_templates_fpaths, get_templates_fpath
 from stream2segment.io import yaml_load
 
 
 @pytest.fixture
 def run_cli_download(pytestdir, db):
-    '''returns a function(*arg, removals=None, **kw) where each arg is the
+    """return a function(*arg, removals=None, **kw) where each arg is the
     COMMAND LINE parameter to be overridden, removals is a list of pyaml
     parameters TO BE REMOVED, and **kw the YAML CONFIG PARAMETERS TO BE
     overridden.
     Uses fixture pytestdir defined in conftest
-    '''
+    """
     def func(*args, removals=None, **yaml_overrides):
         args = list(args)
         nodburl = False
@@ -279,43 +277,3 @@ def test_process_verbosity(mock_run_process, mock_configlog, mock_closesess, moc
     assert not out
     assert vars['logfilepath'] is None
     assert vars['numloggers'] == 0
-
-
-@pytest.mark.parametrize('adv_set, exp_multiprocess_value',
-                         [({'multi_process': True, 'num_processes': 4}, 4),
-                          ({'multi_process': False, 'num_processes': 4}, False),
-                          ({'multi_process': 3, 'num_processes': 4}, 3),
-                          ])
-def test_processing_advanced_settings_num_processes(adv_set,
-                                                    exp_multiprocess_value):
-    """Test old and new multi_process ploicy in advanced_settings
-    (before: two params, multi_process and num_propcesses, now single
-    param multi_process accepting bool or int
-    """
-    p_yaml_file, p_py_file = \
-        get_templates_fpaths("paramtable.yaml", "paramtable.py")
-
-    config, seg_sel, multi_process, chunksize, writer_options =\
-        load_p_config(config=p_yaml_file,
-                    advanced_settings=adv_set)
-    assert exp_multiprocess_value == multi_process
-
-
-def test_processing_advanced_settings_bad_params():
-    p_yaml_file, p_py_file = \
-        get_templates_fpaths("paramtable.yaml", "paramtable.py")
-    adv_set = {'multi_process': 'a'}
-    # (pytest.raises problems with PyCharm, simply try .. catch the old way):
-    try:
-        _ = load_p_config(config=p_yaml_file, advanced_settings=adv_set)
-        assert False, "should raise"
-    except BadParam as bp:
-        assert 'Invalid type for "advanced_settings.multi_process"' in str(bp)
-
-    adv_set = {'multi_process': True, "segments_chunksize": 'a'}
-    # (pytest.raises problems with PyCharm, simply try .. catch the old way):
-    try:
-        _ = load_p_config(config=p_yaml_file, advanced_settings=adv_set)
-        assert False, "should raise"
-    except BadParam as bp:
-        assert 'Invalid type for "advanced_settings.segments_chunksize"' in str(bp)
