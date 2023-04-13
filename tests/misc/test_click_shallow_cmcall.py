@@ -144,74 +144,6 @@ def test_click_download(mock_download, mock_create_sess, mock_new_db_download,
     assert not mock_download.called
 
 
-@patch("stream2segment.process.main.process", return_value=0)
-def test_click_process(mock_process):
-    runner = CliRunner()
-
-    d_conffile, conffile, pyfile = \
-        get_templates_fpaths("download.yaml", "paramtable.yaml", "paramtable.py")
-
-    def dic2comparabletuple(dic):
-        return [[_, dic[_]] for _ in sorted(dic)]
-
-    segsel = dic2comparabletuple(yaml_load(conffile)[SEGMENT_SELECT_PARAM_NAMES[0]])
-
-
-    # test no dburl supplied
-    mock_process.reset_mock()
-    result = runner.invoke(cli, ['process', '-c', conffile, '-p', pyfile, 'c'])
-    assert "Missing option" in result.output
-    assert result.exc_info
-    
-    # test dburl supplied
-    mock_process.reset_mock()
-    result = runner.invoke(cli, ['process', '-d', 'd', '-c', conffile, '-p', pyfile, 'c'])
-    lst = list(mock_process.call_args_list[0][0])
-    lst[2] = dic2comparabletuple(lst[2])  # convert segm. selection to a comparable tuple
-    assert lst == [pyfile, 'd', segsel, conffile, 'c']
-    assert result.exit_code == 0
-    
-    # test dburl supplied via config
-    mock_process.reset_mock()
-    result = runner.invoke(cli, ['process', '-d', d_conffile , '-c', conffile, '-p', pyfile, 'c'])
-    lst = list(mock_process.call_args_list[0][0])
-    lst[2] = dic2comparabletuple(lst[2])  # convert segm. selection to a comparable tuple
-    assert lst == [pyfile, yaml_load(d_conffile)['dburl'], segsel, conffile, 'c']
-    assert result.exit_code == 0
-
-    # test funcname supplied via cli. Wring (non existing) function:
-    mock_process.reset_mock()
-    result = runner.invoke(cli, ['process', '--funcname', 'wat?', '-d', d_conffile,
-                                 '-c', conffile, '-p', pyfile, 'c'])
-    assert not mock_process.call_args_list
-    assert 'Invalid value for "pyfile"' in result.output
-    assert '"wat?"' in result.output
-    assert result.exit_code != 0
-
-    # test funcname supplied via cli. Provide a function in paramtabl.py that has the
-    # expected signature:
-    mock_process.reset_mock()
-    result = runner.invoke(cli, ['process', '--funcname', 'signal_noise_spectra', '-d', d_conffile ,
-                                 '-c', conffile, '-p', pyfile, 'c'])
-    lst = list(mock_process.call_args_list[0][0])
-    lst[2] = dic2comparabletuple(lst[2])  # convert segm. selection to a comparable tuple
-    assert lst == [pyfile + '::signal_noise_spectra', yaml_load(d_conffile)['dburl'], segsel, conffile, 'c']
-    assert result.exit_code == 0
-
-    # test an error in params: -dburl instead of --dburl:
-    mock_process.reset_mock()
-    result = runner.invoke(cli, ['process', '-dburl', d_conffile , '-c', conffile,
-                                 '-p', pyfile, 'c'])
-    assert not mock_process.called
-    assert result.exit_code != 0
-
-    # assert help works:
-    mock_process.reset_mock()
-    result = runner.invoke(cli, ['process', '--help'])
-    assert not mock_process.called
-    assert result.exit_code == 0
-
-
 from stream2segment.process.gui.main import show_gui as orig_show
 
 
@@ -292,6 +224,7 @@ def test_click_template(mock_main_init, mock_input, pytestdir):
     assert result.exit_code == 0
 
     expected_files = ['download.yaml', 'paramtable.py', 'paramtable.yaml',
+                      'gui.py', 'gui.yaml',
                       # 'save2fs.py', 'save2fs.yaml',  # <- NOT ANYMORE
                       'Using-Stream2segment-in-your-Python-code.ipynb',
                       'example.db.sqlite']
@@ -324,9 +257,8 @@ def test_click_template(mock_main_init, mock_input, pytestdir):
             if os.path.basename(sourcepath) == 'download.yaml':
                 assert sorted(sourceconfig.keys()) == sorted(destconfig.keys())
             else:
-                # assert we have all keys. Note that 'advanced_settings' is not in
-                # sourceconfig (it is added via jinja2 templating system):
-                assert sorted(['advanced_settings'] + list(sourceconfig.keys())) \
+                # assert we have all keys:
+                assert sorted(list(sourceconfig.keys())) \
                     == sorted(destconfig.keys())
             for key in sourceconfig.keys():
                 assert type(sourceconfig[key]) == type(destconfig[key])
