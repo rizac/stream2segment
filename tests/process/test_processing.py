@@ -11,13 +11,15 @@ import numpy as np
 import pandas as pd
 import pytest
 import yaml
+from pandas._testing import assert_frame_equal
 from pandas.errors import EmptyDataError
+from tables import HDF5ExtError
 
 from stream2segment.process.db.models import Event, Segment
 from stream2segment.process import SkipSegment
 from stream2segment.resources import get_templates_fpath
 from stream2segment.process.main import _run_and_write as process_main_run, process
-from stream2segment.process.writers import SEGMENT_ID_COLNAME
+from stream2segment.process.writers import SEGMENT_ID_COLNAME, BaseWriter
 
 
 @pytest.fixture
@@ -496,3 +498,224 @@ segment (id=5): 4 traces (probably gaps/overlaps)
         for subs in ["Processing function: ", "Config. file: "]:
             idx = output.find(subs)
             assert idx > -1
+
+    # appending to file:
+
+    # Recall: we have 6 segments, issued from all combination of
+    # station_inventory in [true, false] and segment.data in [ok, with_gaps, empty]
+    # use db4process(with_inventory, with_data, with_gap) to return sqlalchemy query for
+    # those segments in case. For info see db4process in conftest.py
+    @pytest.mark.parametrize('hdf', [True, False])
+    @pytest.mark.parametrize("output_file_empty", [False, True])
+    @pytest.mark.parametrize('processing_py_return_list', [True, False])
+    def test_append_on_badly_formatted_outfile(self, processing_py_return_list,
+                                                     output_file_empty,
+                                                     hdf,
+                                                     # fixtures:
+                                                     capsys, pytestdir, db4process,
+                                                     config_dict):
+        """test a case where we append on an badly formatted output file
+        (no segment id column found)"""
+        if processing_py_return_list and hdf:
+            # hdf does not support returning lists
+            return
+        seg_sel = {'has_data': 'true'}
+        config = config_dict(snr_threshold=0)
+        options = {'append': True}
+
+        from stream2segment.resources.templates import paramtable
+        if processing_py_return_list:
+            def main(segment, config):
+                return list(paramtable.main(segment, config).values())
+        else:
+            main = paramtable.main
+
+        outfilepath = pytestdir.newfile('.hdf' if hdf else '.csv', create=True)
+        if not output_file_empty:
+            if hdf:
+                pd.DataFrame(columns=['-+-', '[[['], data=[[1, 'a']]).to_hdf(outfilepath,
+                                                                             format='t',
+                                                                             key='f')
+            else:
+                with open(outfilepath, 'wt') as _:
+                    _.write('asdasd')
+
+        logfile = pytestdir.newfile('.log')
+
+        # this are the cases where the append is ok:
+        should_be_ok = processing_py_return_list or \
+                       (not hdf and output_file_empty)
+        try:
+            _ = process(dburl=db4process.dburl, pyfunc=main,
+                        segments_selection=seg_sel,
+                        config=config,
+                        outfile=outfilepath,
+                        verbose=True, logfile=logfile, **options)
+            assert should_be_ok
+        except (HDF5ExtError, BaseWriter._SEGID_NOTFOUND_ERR.__class__) as exc:
+            if isinstance(exc, HDF5ExtError):
+                assert hdf
+            assert not should_be_ok
+
+        output, error = capsys.readouterr()
+
+        if not should_be_ok:
+            # if hdf and output file is empty, the error is a HDF error
+            # (because an emopty file cannot be opened as HDF, a CSV apparently
+            # can)
+            is_empty_hdf_file = hdf and output_file_empty
+            if not is_empty_hdf_file:
+                # otherwise, it's a s2s error where we could not find the
+                # segment id column:
+                assert ("TypeError: Cannot append to file, segment_id column " \
+                        "name not found") in output
+            return
+
+        with open(logfile) as _:
+            logtext = _.read()
+        assert len(logtext) > 0
+        assert "Appending results to existing file" in logtext
+
+    from stream2segment.process.writers import _SEGMENT_ID_COLNAMES
+
+    # Recall: we have 6 segments, issued from all combination of
+    # station_inventory in [true, false] and segment.data in [ok, with_gaps, empty]
+    # use db4process(with_inventory, with_data, with_gap) to return sqlalchemy query for
+    # those segments in case. For info see db4process in conftest.py
+    @pytest.mark.parametrize('hdf', [True, False])
+    @pytest.mark.parametrize("segment_id_colname", _SEGMENT_ID_COLNAMES)
+    @pytest.mark.parametrize('processing_py_return_list', [True, False])
+    # @patch('stream2segment.cli.click.confirm', return_value=True)
+    def test_append(self,
+                    processing_py_return_list, segment_id_colname, hdf,
+                    # fixtures:
+                    capsys, pytestdir, db4process, config_dict):
+        """test a typical case where we supply the append option"""
+        if processing_py_return_list and hdf:
+            # hdf does not support returning lists
+            pytest.skip("Python function cannot return lists when output is HDF")
+
+        with patch('stream2segment.process.writers.SEGMENT_ID_COLNAME',
+              segment_id_colname):
+            options = {'append': True}
+            config = config_dict(snr_threshold=0)
+
+            _seg = db4process.segments(with_inventory=True, with_data=True, with_gap=False).one()
+            expected_first_row_seg_id = _seg.id
+            station_id_whose_inventory_is_saved = _seg.station.id
+
+            session = db4process.session
+
+            outfilepath = pytestdir.newfile('.hdf' if hdf else '.csv')
+            logfile = pytestdir.newfile('.log')
+
+            from stream2segment.resources.templates import paramtable
+            main = paramtable.main
+            if processing_py_return_list:
+                def main(segment, config):
+                    return list(paramtable.main(segment, config).values())
+
+            _ = process(dburl=db4process.dburl, pyfunc=main,
+                        segments_selection={'has_data': 'true'},
+                        config=config,
+                        outfile=outfilepath,
+                        verbose=True, logfile=logfile, **options)
+
+            processing_df1 = read_processing_output(outfilepath,
+                                                    header=not processing_py_return_list)
+            assert len(processing_df1) == 1
+            segid_column = segment_id_colname if hdf else processing_df1.columns[0]
+            assert processing_df1.loc[0, segid_column] == expected_first_row_seg_id
+            with open(logfile) as _:
+                logtext1 = _.read()
+            assert "4 segment(s) found to process" in logtext1
+            assert "Skipping 1 already processed segment(s)" not in logtext1
+            assert "Ignoring `append` functionality: output file does not exist or not provided" \
+                in logtext1
+            assert "1 of 4 segment(s) successfully processed" in logtext1
+
+            # now test a second call, the same as before:
+            logfile = pytestdir.newfile('.log')
+            _ = process(dburl=db4process.dburl, pyfunc=main,
+                        segments_selection={'has_data': 'true'},
+                        config=config,
+                        outfile=outfilepath,
+                        verbose=True, logfile=logfile, **options)
+            # check file has been correctly written:
+            processing_df2 = read_processing_output(outfilepath,
+                                                    header=not processing_py_return_list)
+            assert len(processing_df2) == 1
+            segid_column = segment_id_colname if hdf else processing_df1.columns[0]
+            assert processing_df2.loc[0, segid_column] == expected_first_row_seg_id
+            with open(logfile) as _:
+                logtext2 = _.read()
+            assert "3 segment(s) found to process" in logtext2
+            assert "Skipping 1 already processed segment(s)" in logtext2
+            assert "Appending results to existing file" in logtext2
+            assert "0 of 3 segment(s) successfully processed" in logtext2
+            # assert two rows are equal:
+            assert_frame_equal(processing_df1, processing_df2, check_dtype=True)
+
+            # change the segment id of the written segment
+            seg = session.query(Segment).filter(Segment.id == expected_first_row_seg_id).\
+                first()
+            new_seg_id = seg.id * 100
+            seg.id = new_seg_id
+            session.commit()
+
+            # now test a second call, the same as before:
+            logfile = pytestdir.newfile('.log')
+            _ = process(dburl=db4process.dburl, pyfunc=main,
+                        segments_selection={'has_data': 'true'},
+                        config=config,
+                        outfile=outfilepath,
+                        verbose=True, logfile=logfile, **options)
+            # check file has been correctly written:
+            processing_df3 = read_processing_output(outfilepath,
+                                                    header=not processing_py_return_list)
+            assert len(processing_df3) == 2
+            segid_column = segment_id_colname if hdf else processing_df1.columns[0]
+            assert processing_df3.loc[0, segid_column] == expected_first_row_seg_id
+            assert processing_df3.loc[1, segid_column] == new_seg_id
+            with open(logfile) as _:
+                logtext3 = _.read()
+            assert "4 segment(s) found to process" in logtext3
+            assert "Skipping 1 already processed segment(s)" in logtext3
+            assert "Appending results to existing file" in logtext3
+            assert "1 of 4 segment(s) successfully processed" in logtext3
+            # assert two rows are equal:
+            assert_frame_equal(processing_df1, processing_df3[:1], check_dtype=True)
+
+            # last try: no append (also set no-prompt to test that we did not
+            # prompt the user)
+            logfile = pytestdir.newfile('.log')
+            options_ = {**options, 'append': False}
+            _ = process(dburl=db4process.dburl, pyfunc=main,
+                        segments_selection={'has_data': 'true'},
+                        config=config,
+                        outfile=outfilepath,
+                        verbose=True, logfile=logfile, **options_)
+            # check file has been correctly written:
+            processing_df4 = read_processing_output(outfilepath,
+                                                    header=not processing_py_return_list)
+            assert len(processing_df4) == 1
+            segid_column = segment_id_colname if hdf else processing_df1.columns[0]
+            assert processing_df4.loc[0, segid_column] == new_seg_id
+            with open(logfile) as _:
+                logtext4 = _.read()
+            assert "4 segment(s) found to process" in logtext4
+            assert "Skipping 1 already processed segment(s)" not in logtext4
+            assert "Appending results to existing file" not in logtext4
+            assert "1 of 4 segment(s) successfully processed" in logtext4
+            assert 'Overwriting existing output file' in logtext4
+
+
+def read_processing_output(filename, header=True):  # <- header only for csv
+    ext = os.path.splitext(filename)[1].lower()
+    if ext == '.hdf':
+        return pd.read_hdf(filename).reset_index(drop=True, inplace=False)
+    elif ext == '.csv':
+        return pd.read_csv(filename, header=None) if not header \
+            else pd.read_csv(filename)
+    else:
+        raise ValueError('Unrecognized extension %s' % ext)
