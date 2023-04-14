@@ -7,6 +7,7 @@ import os
 import re
 from itertools import product
 from unittest.mock import patch
+import numpy as np
 import pandas as pd
 import pytest
 import yaml
@@ -434,3 +435,64 @@ segment (id=5): 4 traces (probably gaps/overlaps)
                 assert re.search(str2check, logcontent)
             except AssertionError:
                 asd =9
+
+    @patch(patches.run_process, side_effect=process_main_run)
+    def test_save2file(self, mock_run,
+                       # fixtures:
+                       capsys, pytestdir, db4process, config_dict):
+        """test the save2file python module, and also test a case when
+        no output file is provided
+        """
+        # set values which will override the yaml config in templates folder:
+        dir_ = pytestdir.makedir()
+
+        from stream2segment.resources.templates import save2fs
+        options = {}
+        seg_sel = {'has_data': 'true'}
+        file_extension = ".csv"
+        # filename = pytestdir.newfile(file_extension)
+        logfile = pytestdir.newfile('.log')
+        _ = process(dburl=db4process.dburl, pyfunc=save2fs.main,
+                    segments_selection=seg_sel,
+                    config=config_dict(snr_threshold=0, root_dir=os.path.abspath(dir_)),
+                    outfile=None,
+                    verbose=True, logfile=logfile, **options)
+
+        # output, error = capsys.readouterr()
+        # with open(logfile) as _:
+        #     logcontent = _.read()
+
+        # query data for testing now as the program will expunge all data from the session
+        # and thus we want to avoid DetachedInstanceError(s):
+        expected_only_written_segment = \
+            db4process.segments(with_inventory=True, with_data=True, with_gap=False).one()
+        # get seiscomp path of OK segment before the session is closed:
+        path = os.path.join(dir_, expected_only_written_segment.sds_path())
+
+        output, error = capsys.readouterr()
+
+        filez = os.listdir(os.path.dirname(path))
+        assert len(filez) == 2
+        from obspy import read
+        stream1 = read(os.path.join(os.path.dirname(path), filez[0]), format='MSEED')
+        stream2 = read(os.path.join(os.path.dirname(path), filez[1]), format='MSEED')
+        assert len(stream1) == len(stream2) == 1
+        assert not np.allclose(stream1[0].data, stream2[0].data)
+
+        lst = mock_run.call_args_list
+        assert len(lst) == 1
+        args, kwargs = lst[0][0], lst[0][1]
+
+        # asssert passed outputfile is None:
+        assert args[4] is None
+        # assert "Output file:  n/a" in result output:
+        assert re.search('Output file:\\s+n/a', output)
+
+        # Note that apparently CliRunner() (see clirunner fixture) puts stderr and stdout
+        # together (https://github.com/pallets/click/pull/868)
+        # Reminder: previously, log erros where redirected to stderr
+        # This is dangerous as we use a redirect to avoid external libraries to pritn to stderr
+        # and logging to stderr might cause 'operation on closed file'.
+        for subs in ["Processing function: ", "Config. file: "]:
+            idx = output.find(subs)
+            assert idx > -1
