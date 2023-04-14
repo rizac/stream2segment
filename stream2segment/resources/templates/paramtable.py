@@ -204,7 +204,7 @@ def main(segment, config):
                                     normal_spe) / segment.sample_rate
 
     # compute synthetic WA.
-    trace_wa = synth_wood_anderson(trace.copy(), trace.inventory(), config)
+    trace_wa = synth_wood_anderson(trace.copy(), segment.inventory(), config)
     try:
         _argmax = np.nanargmax(np.abs(trace_wa.data))
     except ValueError as verr:

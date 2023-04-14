@@ -32,7 +32,7 @@ from stream2segment.resources import get_templates_fpath
 
 @pytest.fixture
 def yamlfile(pytestdir):
-    '''global fixture wrapping pytestdir.yamlfile'''
+    """global fixture wrapping pytestdir.yamlfile"""
     def func(**overridden_pars):
         return pytestdir.yamlfile(get_templates_fpath('download.yaml'), **overridden_pars)
 

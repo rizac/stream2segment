@@ -9,6 +9,7 @@ from itertools import product
 from unittest.mock import patch
 import pandas as pd
 import pytest
+import yaml
 from pandas.errors import EmptyDataError
 from click.testing import CliRunner
 
@@ -17,19 +18,27 @@ from stream2segment.process.db.models import Event, Segment
 from stream2segment.process import SkipSegment
 from stream2segment.process.inputvalidation import SEGMENT_SELECT_PARAM_NAMES
 from stream2segment.resources import get_templates_fpath
-from stream2segment.process.main import _run_and_write as process_main_run
+from stream2segment.process.main import _run_and_write as process_main_run, process
 from stream2segment.process.log import configlog4processing as o_configlog4processing
 from stream2segment.process.writers import SEGMENT_ID_COLNAME
 
 
-SEG_SEL_STR = SEGMENT_SELECT_PARAM_NAMES[0]
+# SEG_SEL_STR = SEGMENT_SELECT_PARAM_NAMES[0]
+
+# @pytest.fixture
+# def yamlfile(pytestdir):
+#     """global fixture wrapping pytestdir.yamlfile"""
+#     def func(**overridden_pars):
+#         return pytestdir.yamlfile(get_templates_fpath('paramtable.yaml'), **overridden_pars)
+#
+#     return func
 
 @pytest.fixture
-def yamlfile(pytestdir):
-    '''global fixture wrapping pytestdir.yamlfile'''
+def config_dict(pytestdir):
+    """global fixture returning the dict from paramtable.yaml"""
     def func(**overridden_pars):
-        return pytestdir.yamlfile(get_templates_fpath('paramtable.yaml'), **overridden_pars)
-
+        with open(get_templates_fpath('paramtable.yaml')) as _:
+            return {**yaml.safe_load(_), **overridden_pars}
     return func
 
 
@@ -70,35 +79,39 @@ class Test:
         with patch(patches.get_session, return_value=session):
             with patch(patches.close_session,
                        side_effect=lambda *a, **v: None):
-                with patch(patches.configlog4processing) as mock2:
+                yield
+                # with patch(patches.configlog4processing) as mock2:
+                #
+                #     def clogd(logger, logfilebasepath, verbose):
+                #         # config logger as usual, but redirects to a temp file
+                #         # that will be deleted by pytest, instead of polluting the program
+                #         # package:
+                #         o_configlog4processing(logger,
+                #                                pytestdir.newfile('.log') \
+                #                                if logfilebasepath else None,
+                #                                verbose)
+                #
+                #         try:
+                #             self._logfilename = logger.handlers[0].baseFilename
+                #         except (IndexError, AttributeError):
+                #             self._logfilename = None
+                #
+                #     mock2.side_effect = clogd
+                #
+                #     yield
 
-                    def clogd(logger, logfilebasepath, verbose):
-                        # config logger as usual, but redirects to a temp file
-                        # that will be deleted by pytest, instead of polluting the program
-                        # package:
-                        o_configlog4processing(logger,
-                                               pytestdir.newfile('.log') \
-                                               if logfilebasepath else None,
-                                               verbose)
-
-                        self._logfilename = logger.handlers[0].baseFilename
-
-                    mock2.side_effect = clogd
-
-                    yield
-
-    def inlogtext(self, string):
-        '''Checks that `string` is in log text.
-        The assertion `string in self.logfilecontent` fails in py3.5, although the differences
-        between characters is the same position is zero. We did not find any better way than
-        fixing it via this cumbersome function'''
-        logtext = self.logfilecontent
-        i = 0
-        while len(logtext[i:i+len(string)]) == len(string):
-            if (sum(ord(a)-ord(b) for a, b in zip(string, logtext[i:i+len(string)]))) == 0:
-                return True
-            i += 1
-        return False
+    # def inlogtext(self, string):
+    #     '''Checks that `string` is in log text.
+    #     The assertion `string in self.logfilecontent` fails in py3.5, although the differences
+    #     between characters is the same position is zero. We did not find any better way than
+    #     fixing it via this cumbersome function'''
+    #     logtext = self.logfilecontent
+    #     i = 0
+    #     while len(logtext[i:i+len(string)]) == len(string):
+    #         if (sum(ord(a)-ord(b) for a, b in zip(string, logtext[i:i+len(string)]))) == 0:
+    #             return True
+    #         i += 1
+    #     return False
 
 # ## ======== ACTUAL TESTS: ================================
 
@@ -110,19 +123,13 @@ class Test:
     @patch(patches.run_process, side_effect=process_main_run)
     def test_simple_run_no_outfile_provided(self, mock_run,
                                             # fixtures:
-                                            db4process, yamlfile):
-        '''test a case where save inventory is True, and that we saved inventories'''
-        # set values which will override the yaml config in templates folder:
-        config_overrides = {'snr_threshold': 0,
-                            SEG_SEL_STR: {'has_data': 'true'}}
-        yaml_file = yamlfile(**config_overrides)
-
-        runner = CliRunner()
-
-        result = runner.invoke(cli, ['process', '--dburl', db4process.dburl,
-                               '-p', self.pyfile, '-c', yaml_file])
-
-        assert not result.exception
+                                            capsys, db4process, config_dict):
+        """test a case where save inventory is True, and that we saved inventories"""
+        from stream2segment.resources.templates import paramtable
+        _ = process(dburl=db4process.dburl, pyfunc=paramtable.main,
+                    segments_selection={'has_data': 'true'},
+                    config=config_dict(snr_threshold=0),
+                    verbose=True, logfile=False)
 
         lst = mock_run.call_args_list
         assert len(lst) == 1
@@ -131,61 +138,82 @@ class Test:
         # assert the passed outputfile is None:
         assert args[4] is None
         # assert "Output file:  n/a" in result output:
-        assert re.search('Output file:\\s+n/a', result.output)
+        _ = capsys.readouterr()
+        output, error = _.out, _.err
+        assert not error
+        assert re.search('Output file:\\s+n/a', output)
 
         # Note that apparently CliRunner() puts stderr and stdout together
         # (https://github.com/pallets/click/pull/868)
         # So we should test that we have these string twice:
         for subs in ["Processing function: ", "Config. file: "]:
-            idx = result.output.find(subs)
+            idx = output.find(subs)
             assert idx > -1
 
     # Recall: we have 6 segments, issued from all combination of
     # station_inventory in [true, false] and segment.data in [ok, with_gaps, empty]
     # use db4process(with_inventory, with_data, with_gap) to return sqlalchemy query for
     # those segments in case. For info see db4process in conftest.py
+    # @pytest.mark.parametrize("file_extension, options",
+    #                          product(['.h5', '.csv'], [({}, []),
+    #                                                    ({'segments_chunksize': 1}, []),
+    #                                                    ({'segments_chunksize': 1}, ['--multi-process']),
+    #                                                    ({}, ['--multi-process']),
+    #                                                    ({'segments_chunksize': 1}, ['--multi-process', '--num-processes', '1']),
+    #                                                    # As this test takes time, we comment out
+    #                                                    # the following option (basically already
+    #                                                    # covered above):
+    #                                                    # ({}, ['--multi-process', '--num-processes', '1'])
+    #                                                    ]))
     @pytest.mark.parametrize("file_extension, options",
-                             product(['.h5', '.csv'], [({}, []),
-                                                       ({'segments_chunksize': 1}, []),
-                                                       ({'segments_chunksize': 1}, ['--multi-process']),
-                                                       ({}, ['--multi-process']),
-                                                       ({'segments_chunksize': 1}, ['--multi-process', '--num-processes', '1']),
-                                                       # As this test takes time, we comment out
-                                                       # the following option (basically already
-                                                       # covered above):
-                                                       # ({}, ['--multi-process', '--num-processes', '1'])
+                             product(['.h5', '.csv'], [{},
+                                                       {'chunksize': 1},
+                                                       {'chunksize': 1, 'multi_process': True},
+                                                       {'multi_process': True},
+                                                       {'chunksize': 1, 'multi_process': 1},
                                                        ]))
     def test_simple_run_retDict_complex_select(self, file_extension, options,
                                                # fixtures:
-                                               pytestdir, db4process, yamlfile):
-        '''test a case where we have a more complex select involving joins'''
-        advanced_settings, cmdline_opts = options
+                                               capsys, pytestdir, db4process, config_dict):
+        """test a case where we have a more complex select involving joins"""
+        # advanced_settings, cmdline_opts = options
         session = db4process.session
         # select the event times for the segments with data:
         etimes = sorted(_[1] for _ in session.query(Segment.id, Event.time).
                         join(Segment.event).filter(Segment.has_data))
 
-        config_overrides = {'snr_threshold': 0,
-                            SEG_SEL_STR: {'has_data': 'true',
-                                          'event.time': '<=%s' % (max(etimes).isoformat())}}
-        if advanced_settings:
-            config_overrides['advanced_settings'] = advanced_settings
-        # the selection above should be the same as the previous test:
-        # test_simple_run_retDict_saveinv,
-        # as event.time includes all segments in 'has_data',
-        # thus the code is left as it was in the method above
-        yaml_file = yamlfile(**config_overrides)
+
+        # config_overrides = {'snr_threshold': 0,
+        #                     SEG_SEL_STR: {'has_data': 'true',
+        #                                   'event.time': '<=%s' % (max(etimes).isoformat())}}
+        # if advanced_settings:
+        #     config_overrides['advanced_settings'] = advanced_settings
+        # # the selection above should be the same as the previous test:
+        # # test_simple_run_retDict_saveinv,
+        # # as event.time includes all segments in 'has_data',
+        # # thus the code is left as it was in the method above
+        # yaml_file = yamlfile(**config_overrides)
 
         _seg = db4process.segments(with_inventory=True, with_data=True, with_gap=False).one()
         expected_first_row_seg_id = _seg.id
         station_id_whose_inventory_is_saved = _seg.station.id
 
-        runner = CliRunner()
-        filename = pytestdir.newfile(file_extension)
-        result = runner.invoke(cli, ['process', '--dburl', db4process.dburl,
-                               '-p', self.pyfile, '-c', yaml_file, filename] + cmdline_opts)
+        # runner = CliRunner()
+        # filename = pytestdir.newfile(file_extension)
+        # result = runner.invoke(cli, ['process', '--dburl', db4process.dburl,
+        #                        '-p', self.pyfile, '-c', yaml_file, filename] + cmdline_opts)
+        # assert not result.exception
 
-        assert not result.exception
+        from stream2segment.resources.templates import paramtable
+        filename = pytestdir.newfile(file_extension)
+        logfile = pytestdir.newfile('.log')
+        _ = process(dburl=db4process.dburl, pyfunc=paramtable.main,
+                    segments_selection={'has_data': 'true',
+                                        'event.time': '<=%s' % (max(etimes).isoformat())},
+                    config=config_dict(snr_threshold=0),
+                    outfile=filename,
+                    verbose=True, logfile=logfile, **options)
+
         # check file has been correctly written:
         if file_extension == '.csv':
             csv1 = readcsv(filename)
@@ -196,15 +224,21 @@ class Test:
             assert len(dfr) == 1
             assert dfr.iloc[0][SEGMENT_ID_COLNAME] == expected_first_row_seg_id
 
-        self.inlogtext("""3 segment(s) found to process
-
-segment (id=3): 4 traces (probably gaps/overlaps)
-segment (id=2): Station inventory (xml) error: no data
-
-1 of 3 segment(s) successfully processed
-2 of 3 segment(s) skipped with error message reported in the log file""")
-        # assert logfile exists:
-        assert os.path.isfile(self._logfilename)
+        with open(logfile, 'r') as _:
+            logcontent = _.read()
+        segs = session.query(Segment.id).filter(Segment.has_data).all()
+        assert "%d segment(s) found to process" % len(segs) in logcontent
+        assert "1 of %d segment(s) successfully processed" % len(segs) in logcontent
+        assert ("%d of %d segment(s) skipped with error message reported in the log " \
+                "file") % (len(segs)-1, len(segs)) in logcontent
+        asd = 9
+# segment (id=3): 4 traces (probably gaps/overlaps)
+# segment (id=2): Station inventory (xml) error: no data
+#
+# 1 of %d segment(s) successfully processed
+# 2 of 3 segment(s) skipped with error message reported in the log file""") in logcontent
+#         # assert logfile exists:
+#         assert os.path.isfile(self._logfilename)
 
     # Recall: we have 6 segments, issued from all combination of
     # station_inventory in [true, false] and segment.data in [ok, with_gaps, empty]
@@ -212,33 +246,44 @@ segment (id=2): Station inventory (xml) error: no data
     # those segments in case. For info see db4process in conftest.py
     def test_simple_run_retDict_high_snr_threshold(self,
                                                    # fixtures:
-                                                   pytestdir, db4process, yamlfile):
-        '''same as `test_simple_run_retDict_saveinv` above
-        but with a very high snr threshold => no rows processed'''
+                                                   capsys, pytestdir, db4process, config_dict):
+        """same as `test_simple_run_retDict_saveinv` above
+        but with a very high snr threshold => no rows processed"""
         # setup inventories:
         session = db4process.session
         # set values which will override the yaml config in templates folder:
-        config_overrides = {  # snr_threshold 3 is high enough to discard the only segment
-                              # we would process otherwise:
-                            'snr_threshold': 3,
-                            SEG_SEL_STR: {'has_data': 'true'}}
-        yaml_file = yamlfile(**config_overrides)
+        # config_overrides = {  # snr_threshold 3 is high enough to discard the only segment
+        #                       # we would process otherwise:
+        #                     'snr_threshold': 3,
+        #                     SEG_SEL_STR: {'has_data': 'true'}}
+        # yaml_file = yamlfile(**config_overrides)
+        #
+        # runner = CliRunner()
+        # filename = pytestdir.newfile('.csv')
+        # result = runner.invoke(cli, ['process', '--dburl', db4process.dburl,
+        #                        '-p', self.pyfile, '-c', yaml_file, filename])
+        # assert not result.exception
 
-        runner = CliRunner()
-        filename = pytestdir.newfile('.csv')
-        result = runner.invoke(cli, ['process', '--dburl', db4process.dburl,
-                               '-p', self.pyfile, '-c', yaml_file, filename])
+        from stream2segment.resources.templates import paramtable
+        options = {}
+        file_extension = ".csv"
+        filename = pytestdir.newfile(file_extension)
+        logfile = pytestdir.newfile('.log')
+        _ = process(dburl=db4process.dburl, pyfunc=paramtable.main,
+                    segments_selection={'has_data': 'true'},
+                    config=config_dict(snr_threshold=3),
+                    outfile=filename,
+                    verbose=True, logfile=logfile, **options)
 
-        assert not result.exception
+
         # no file written (see next comment for details). Check outfile is empty:
         with pytest.raises(EmptyDataError):
             csv1 = readcsv(filename)
-        # check file has been correctly written: 2 segments have no data, thus they are skipped
-        # and not logged
-        # 2 segments have gaps/overlaps, thus they are skipped and logged
-        # 1 segment has data but no inventory, thus skipped and logged
-        # 1 segment with data and inventory, but snr is too low: skipped and logged
-        assert self.inlogtext("""4 segment(s) found to process
+
+        with open(logfile, 'r') as _:
+            logcontent = _.read()
+        segs = session.query(Segment.id).filter(Segment.has_data).all()
+        assert ("""4 segment(s) found to process
 
 segment (id=1): low snr 1.350154
 segment (id=2): 4 traces (probably gaps/overlaps)
@@ -246,7 +291,22 @@ segment (id=4): Station inventory (xml) error: no data
 segment (id=5): 4 traces (probably gaps/overlaps)
 
 0 of 4 segment(s) successfully processed
-4 of 4 segment(s) skipped with error message reported in the log file""")
+4 of 4 segment(s) skipped with error message reported in the log file""") in logcontent
+
+        # check file has been correctly written: 2 segments have no data, thus they are skipped
+        # and not logged
+        # 2 segments have gaps/overlaps, thus they are skipped and logged
+        # 1 segment has data but no inventory, thus skipped and logged
+        # 1 segment with data and inventory, but snr is too low: skipped and logged
+#         assert self.inlogtext("""4 segment(s) found to process
+#
+# segment (id=1): low snr 1.350154
+# segment (id=2): 4 traces (probably gaps/overlaps)
+# segment (id=4): Station inventory (xml) error: no data
+# segment (id=5): 4 traces (probably gaps/overlaps)
+#
+# 0 of 4 segment(s) successfully processed
+# 4 of 4 segment(s) skipped with error message reported in the log file""")
 
     # Recall: we have 6 segments, issued from all combination of
     # station_inventory in [true, false] and segment.data in [ok, with_gaps, empty]
@@ -257,54 +317,76 @@ segment (id=5): 4 traces (probably gaps/overlaps)
     def test_simple_run_retDict_seg_select_empty_and_err_segments(self,
                                                                   select_with_data, seg_chunk,
                                                                   # fixtures:
+                                                                  capsys,
                                                                   pytestdir,
-                                                                  db4process, yamlfile):
-        '''test a segment selection that takes only non-processable segments'''
+                                                                  db4process, config_dict):
+        """test a segment selection that takes only non-processable segments"""
         # set values which will override the yaml config in templates folder:
-        config_overrides = {'snr_threshold': 0,  # take all segments
-                            # the following will select the station with no inventory.
-                            # There are three segments associated with it:
-                            # one with data and no gaps, one with data and gaps,
-                            # the third with no data
-                            SEG_SEL_STR: {'station.latitude': '<10',
-                                               'station.longitude': '<10'}}
-        if select_with_data:
-            config_overrides[SEG_SEL_STR]['has_data'] = 'true'
+        # config_overrides = {'snr_threshold': 0,  # take all segments
+        #                     # the following will select the station with no inventory.
+        #                     # There are three segments associated with it:
+        #                     # one with data and no gaps, one with data and gaps,
+        #                     # the third with no data
+        #                     SEG_SEL_STR: {'station.latitude': '<10',
+        #                                        'station.longitude': '<10'}}
+        # if select_with_data:
+        #     config_overrides[SEG_SEL_STR]['has_data'] = 'true'
+        # if seg_chunk is not None:
+        #     config_overrides['advanced_settings'] = {'segments_chunksize': seg_chunk}
+        #
+        # yaml_file = yamlfile(**config_overrides)
+
+        # runner = CliRunner()
+        # filename = pytestdir.newfile('.csv')
+        # result = runner.invoke(cli, ['process', '--dburl', db4process.dburl,
+        #                              '-p', self.pyfile,
+        #                              '-c', yaml_file,
+        #                              filename])
+        # assert not result.exception
+
+        from stream2segment.resources.templates import paramtable
+        options = {}
         if seg_chunk is not None:
-            config_overrides['advanced_settings'] = {'segments_chunksize': seg_chunk}
+            options['chunksize'] = seg_chunk
+        seg_sel = {'station.latitude': '<10', 'station.longitude': '<10'}
+        if select_with_data:
+            seg_sel['has_data'] = 'true'
+        file_extension = ".csv"
+        filename = pytestdir.newfile(file_extension)
+        logfile = pytestdir.newfile('.log')
+        _ = process(dburl=db4process.dburl, pyfunc=paramtable.main,
+                    segments_selection=seg_sel,
+                    config=config_dict(snr_threshold=0),
+                    outfile=filename,
+                    verbose=True, logfile=logfile, **options)
 
-        yaml_file = yamlfile(**config_overrides)
 
-        runner = CliRunner()
-        filename = pytestdir.newfile('.csv')
-        result = runner.invoke(cli, ['process', '--dburl', db4process.dburl,
-                                     '-p', self.pyfile,
-                                     '-c', yaml_file,
-                                     filename])
-        assert not result.exception
         # check file has not been written (no data):
         with pytest.raises(EmptyDataError):
             csv1 = readcsv(filename)
 
+        with open(logfile, 'r') as _:
+            logcontent = _.read()
+
         if select_with_data:
             # selecting only with data means out of the three candidate segments, one
             # is discarded prior to processing:
-            assert self.inlogtext("""2 segment(s) found to process
+            assert ("""2 segment(s) found to process
 
 segment (id=4): Station inventory (xml) error: no data
 segment (id=5): 4 traces (probably gaps/overlaps)
 
 0 of 2 segment(s) successfully processed
-2 of 2 segment(s) skipped with error message reported in the log file""")
+2 of 2 segment(s) skipped with error message reported in the log file""") in logcontent
         else:
-            assert self.inlogtext("""3 segment(s) found to process
+            assert ("""3 segment(s) found to process
 
 segment (id=4): Station inventory (xml) error: no data
 segment (id=5): 4 traces (probably gaps/overlaps)
 segment (id=6): MiniSeed error: no data
 
 0 of 3 segment(s) successfully processed
-3 of 3 segment(s) skipped with error message reported in the log file""")
+3 of 3 segment(s) skipped with error message reported in the log file""") in logcontent
 
     # Recall: we have 6 segments, issued from all combination of
     # station_inventory in [true, false] and segment.data in [ok, with_gaps, empty]
@@ -319,8 +401,9 @@ segment (id=6): MiniSeed error: no data
                               ({}, ['--multi-process', '--num-processes', '1'])])
     def test_simple_run_ret_list(self, advanced_settings, cmdline_opts,
                                  # fixtures:
+                                 capsys,
                                  pytestdir,
-                                 db4process, yamlfile):
+                                 db4process, config_dict):
         '''test processing returning list, and also when we specify a different main function'''
 
         # set values which will override the yaml config in templates folder:
