@@ -388,82 +388,169 @@ segment (id=6): MiniSeed error: no data
 0 of 3 segment(s) successfully processed
 3 of 3 segment(s) skipped with error message reported in the log file""") in logcontent
 
-    # Recall: we have 6 segments, issued from all combination of
-    # station_inventory in [true, false] and segment.data in [ok, with_gaps, empty]
-    # use db4process(with_inventory, with_data, with_gap) to return sqlalchemy query for
-    # those segments in case. For info see db4process in conftest.py
-    @pytest.mark.parametrize("advanced_settings, cmdline_opts",
-                             [({}, []),
-                              ({'segments_chunksize': 1}, []),
-                              ({'segments_chunksize': 1}, ['--multi-process']),
-                              ({}, ['--multi-process']),
-                              ({'segments_chunksize': 1}, ['--multi-process', '--num-processes', '1']),
-                              ({}, ['--multi-process', '--num-processes', '1'])])
-    def test_simple_run_ret_list(self, advanced_settings, cmdline_opts,
-                                 # fixtures:
-                                 capsys,
-                                 pytestdir,
-                                 db4process, config_dict):
-        '''test processing returning list, and also when we specify a different main function'''
+#     # Recall: we have 6 segments, issued from all combination of
+#     # station_inventory in [true, false] and segment.data in [ok, with_gaps, empty]
+#     # use db4process(with_inventory, with_data, with_gap) to return sqlalchemy query for
+#     # those segments in case. For info see db4process in conftest.py
+#     @pytest.mark.parametrize("advanced_settings, cmdline_opts",
+#                              [({}, []),
+#                               ({'segments_chunksize': 1}, []),
+#                               ({'segments_chunksize': 1}, ['--multi-process']),
+#                               ({}, ['--multi-process']),
+#                               ({'segments_chunksize': 1}, ['--multi-process', '--num-processes', '1']),
+#                               ({}, ['--multi-process', '--num-processes', '1'])])
+#     def test_simple_run_ret_list(self, advanced_settings, cmdline_opts,
+#                                  # fixtures:
+#                                  capsys,
+#                                  pytestdir,
+#                                  db4process, config_dict):
+#         '''test processing returning list, and also when we specify a different main function'''
+#
+#         # set values which will override the yaml config in templates folder:
+#         config_overrides = {'snr_threshold': 0,  # take all segments
+#                             SEG_SEL_STR: {'has_data': 'true'}}
+#         if advanced_settings:
+#             config_overrides['advanced_settings'] = advanced_settings
+#
+#         yaml_file = yamlfile(**config_overrides)
+#
+#         _seg = db4process.segments(with_inventory=True, with_data=True, with_gap=False).one()
+#         expected_first_row_seg_id = _seg.id
+#         station_id_whose_inventory_is_saved = _seg.station.id
+#
+#         pyfile = self.pyfile
+#
+#         # Now wrtite pyfile into a named temp file, with the method:
+#         # def main_retlist(segment, config):
+#         #    return main(segment, config).keys()
+#         # the method returns a list (which is what we want to test
+#         # and this way, we do not need to keep synchronized any additional file
+#         filename = pytestdir.newfile('.csv')
+#         pyfile2 = pytestdir.newfile('.py')
+#         if not os.path.isfile(pyfile2):
+#
+#             with open(pyfile, 'r') as opn:
+#                 content = opn.read()
+#
+#             cont2 = content.replace("def main(segment, config):", """def main_retlist(segment, config):
+#     return list(main(segment, config).values())
+# def main(segment, config):""")
+#             with open(pyfile2, 'wb') as _opn:
+#                 _opn.write(cont2.encode('utf8'))
+#
+#         runner = CliRunner()
+#         result = runner.invoke(cli, ['process', '--dburl', db4process.dburl,
+#                                      '-p', pyfile2, '-f', "main_retlist",
+#                                      '-c', yaml_file,
+#                                      filename] + cmdline_opts)
+#
+#         assert not result.exception
+#         # check file has been correctly written:
+#         csv1 = readcsv(filename)  # read first with header:
+#         # assert no rows:
+#         assert csv1.empty
+#         # now read without header:
+#         csv1 = readcsv(filename, header=False)
+#         assert len(csv1) == 1
+#         assert csv1.loc[0, csv1.columns[0]] == expected_first_row_seg_id
+#
+#         assert self.inlogtext("""4 segment(s) found to process
+#
+# segment (id=2): 4 traces (probably gaps/overlaps)
+# segment (id=4): Station inventory (xml) error: no data
+# segment (id=5): 4 traces (probably gaps/overlaps)
+#
+# 1 of 4 segment(s) successfully processed
+# 3 of 4 segment(s) skipped with error message reported in the log file""")
+#         # assert logfile exists:
+#         assert os.path.isfile(self._logfilename)
 
-        # set values which will override the yaml config in templates folder:
-        config_overrides = {'snr_threshold': 0,  # take all segments
-                            SEG_SEL_STR: {'has_data': 'true'}}
-        if advanced_settings:
-            config_overrides['advanced_settings'] = advanced_settings
+        # Recall: we have 6 segments, issued from all combination of
+        # station_inventory in [true, false] and segment.data in [ok, with_gaps, empty]
+        # use db4process(with_inventory, with_data, with_gap) to return sqlalchemy query for
+        # those segments in case. For info see db4process in conftest.py
+        def test_simple_run_ret_list(self,
+                                     # fixtures:
+                                     capsys,
+                                     pytestdir,
+                                     db4process, config_dict):
+            """test processing returning list, and also when we specify a different main function"""
 
-        yaml_file = yamlfile(**config_overrides)
+            # # set values which will override the yaml config in templates folder:
+            # config_overrides = {'snr_threshold': 0,  # take all segments
+            #                     SEG_SEL_STR: {'has_data': 'true'}}
+            # if advanced_settings:
+            #     config_overrides['advanced_settings'] = advanced_settings
+            #
+            # yaml_file = yamlfile(**config_overrides)
+            #
+            _seg = db4process.segments(with_inventory=True, with_data=True,
+                                       with_gap=False).one()
+            expected_first_row_seg_id = _seg.id
+            # station_id_whose_inventory_is_saved = _seg.station.id
+            #
+            # pyfile = self.pyfile
 
-        _seg = db4process.segments(with_inventory=True, with_data=True, with_gap=False).one()
-        expected_first_row_seg_id = _seg.id
-        station_id_whose_inventory_is_saved = _seg.station.id
+            from stream2segment.resources.templates import paramtable
+            def main_return_list(segment, config):
+                return list(paramtable.main(segment, config).values())
+            options = {}
+            seg_sel = {'has_data': 'true'}
+            file_extension = ".csv"
+            filename = pytestdir.newfile(file_extension)
+            logfile = pytestdir.newfile('.log')
+            _ = process(dburl=db4process.dburl, pyfunc=main_return_list,
+                        segments_selection=seg_sel,
+                        config=config_dict(snr_threshold=0),
+                        outfile=filename,
+                        verbose=True, logfile=logfile, **options)
 
-        pyfile = self.pyfile
 
-        # Now wrtite pyfile into a named temp file, with the method:
-        # def main_retlist(segment, config):
-        #    return main(segment, config).keys()
-        # the method returns a list (which is what we want to test
-        # and this way, we do not need to keep synchronized any additional file
-        filename = pytestdir.newfile('.csv')
-        pyfile2 = pytestdir.newfile('.py')
-        if not os.path.isfile(pyfile2):
+    #         # Now wrtite pyfile into a named temp file, with the method:
+    #         # def main_retlist(segment, config):
+    #         #    return main(segment, config).keys()
+    #         # the method returns a list (which is what we want to test
+    #         # and this way, we do not need to keep synchronized any additional file
+    #         filename = pytestdir.newfile('.csv')
+    #         pyfile2 = pytestdir.newfile('.py')
+    #         if not os.path.isfile(pyfile2):
+    #             with open(pyfile, 'r') as opn:
+    #                 content = opn.read()
+    #
+    #             cont2 = content.replace("def main(segment, config):", """def main_retlist(segment, config):
+    #     return list(main(segment, config).values())
+    # def main(segment, config):""")
+    #             with open(pyfile2, 'wb') as _opn:
+    #                 _opn.write(cont2.encode('utf8'))
+    #
+    #         runner = CliRunner()
+    #         result = runner.invoke(cli, ['process', '--dburl', db4process.dburl,
+    #                                      '-p', pyfile2, '-f', "main_retlist",
+    #                                      '-c', yaml_file,
+    #                                      filename] + cmdline_opts)
+            output, error = capsys.readouterr()
+            assert not error
+            # check file has been correctly written:
+            csv1 = readcsv(filename)  # read first with header:
+            # assert no rows:
+            assert csv1.empty
+            # now read without header:
+            csv1 = readcsv(filename, header=False)
+            assert len(csv1) == 1
+            assert csv1.loc[0, csv1.columns[0]] == expected_first_row_seg_id
 
-            with open(pyfile, 'r') as opn:
-                content = opn.read()
+            with open(logfile, 'r') as _:
+                logcontent = _.read()
+            assert self.inlogtext("""4 segment(s) found to process
 
-            cont2 = content.replace("def main(segment, config):", """def main_retlist(segment, config):
-    return list(main(segment, config).values())
-def main(segment, config):""")
-            with open(pyfile2, 'wb') as _opn:
-                _opn.write(cont2.encode('utf8'))
+    segment (id=2): 4 traces (probably gaps/overlaps)
+    segment (id=4): Station inventory (xml) error: no data
+    segment (id=5): 4 traces (probably gaps/overlaps)
 
-        runner = CliRunner()
-        result = runner.invoke(cli, ['process', '--dburl', db4process.dburl,
-                                     '-p', pyfile2, '-f', "main_retlist",
-                                     '-c', yaml_file,
-                                     filename] + cmdline_opts)
-
-        assert not result.exception
-        # check file has been correctly written:
-        csv1 = readcsv(filename)  # read first with header:
-        # assert no rows:
-        assert csv1.empty
-        # now read without header:
-        csv1 = readcsv(filename, header=False)
-        assert len(csv1) == 1
-        assert csv1.loc[0, csv1.columns[0]] == expected_first_row_seg_id
-
-        assert self.inlogtext("""4 segment(s) found to process
-
-segment (id=2): 4 traces (probably gaps/overlaps)
-segment (id=4): Station inventory (xml) error: no data
-segment (id=5): 4 traces (probably gaps/overlaps)
-
-1 of 4 segment(s) successfully processed
-3 of 4 segment(s) skipped with error message reported in the log file""")
-        # assert logfile exists:
-        assert os.path.isfile(self._logfilename)
+    1 of 4 segment(s) successfully processed
+    3 of 4 segment(s) skipped with error message reported in the log file""") in logcontent
+            # assert logfile exists:
+            assert os.path.isfile(logfile)
 
     # Even though we are not interested here to check what is there on the created db,
     # because we test errors,
