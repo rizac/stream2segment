@@ -55,7 +55,6 @@ class Test:
     def init(self, request, pytestdir, db4process):
         db4process.create(to_file=True)
         session = db4process.session
-
         # sets up the mocked functions: db session handling (using the already
         # created session) and log file handling:
         with patch(patches.get_session, return_value=session):
