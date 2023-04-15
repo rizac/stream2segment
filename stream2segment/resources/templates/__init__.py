@@ -1,36 +1,27 @@
-"""This module holds doc strings to be injected via jinja2 into the templates when running
-`s2s init`.
+"""This module holds doc strings to be injected via jinja2 into the templates when
+running `s2s init`.
 Any NON PRIVATE variable name (i.e., without leading underscore '_') of this module
 can be injected in a template file in the usual way, e.g.:
 {{ PROCESS_PY_BANDPASSFUNC }}
-For any new variable name to be implemented here in the future, note also that:
-1. the variables values are stripped before being assigned to the global DOCVARS (the
-   dict passed to Jinja).
-2. By convention, *_PY_* variable names are for Python docs, *_YAML_* variable names for
-   YAML docs. In the latter case, YAML variables values do not need a leading '# ' on the
-   first line, as it is usually input in the template file, e.g.:
-   # {{ PROCESS_YAML_MAIN }}
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
 from stream2segment.download.modules.utils import EVENTWS_MAPPING
-# from stream2segment.process.main import _get_chunksize_defaults
-# from stream2segment.process.inputvalidation import SEGMENT_SELECT_PARAM_NAMES
-# SEGSEL_PARAMNAME = SEGMENT_SELECT_PARAM_NAMES[0]
+# DO NOT REMOVE IMPORT BELOW, IT IS USED IN TEMPLATES:
+from stream2segment.process.writers import SEGMENT_ID_COLNAME
 
-from stream2segment.process.writers import SEGMENT_ID_COLNAME  # <- DO NOT REMOVE, THIS VER IS USED IN TEMPLATES
+_WIKI_BASE_URL = 'https://github.com/rizac/stream2segment/wiki'
 
+USING_S2S_IN_YOUR_PYTHON_CODE_WIKI_URL = \
+    _WIKI_BASE_URL + '/using-stream2segment-in-your-python-code'
 
-USING_S2S_IN_YOUR_PYTHON_CODE_WIKI_URL = 'https://github.com/rizac/stream2segment/wiki/using-stream2segment-in-your-python-code'
+THE_SEGMENT_OBJECT_WIKI_URL = _WIKI_BASE_URL + '/the-segment-object'
 
+THE_SEGMENT_OBJECT_ATTRS_AND_METHS = \
+  THE_SEGMENT_OBJECT_WIKI_URL + '#attributes-and-methods'
 
-THE_SEGMENT_OBJECT_WIKI_URL = 'https://github.com/rizac/stream2segment/wiki/the-segment-object'
-
-
-# _THE_SEGMENT_OBJECT_ATTRS_AND_METHS = THE_SEGMENT_OBJECT_WIKI_URL + '#attributes-and-methods'
-
-
-THE_SEGMENT_OBJECT_WIKI_URL_SEGMENT_SELECTION = THE_SEGMENT_OBJECT_WIKI_URL + '#segments-selection'
+THE_SEGMENT_OBJECT_WIKI_URL_SEGMENT_SELECTION = \
+    THE_SEGMENT_OBJECT_WIKI_URL + '#segments-selection'
 
 
 PROCESS_PY_BANDPASSFUNC = """
