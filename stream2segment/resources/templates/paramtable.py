@@ -546,11 +546,10 @@ if __name__ == "__main__":
     # the db URL used for downloading the data from its config. Example:
     download_path = os.path.join(os.path.dirname(__file__), 'download.yaml')
     dburl = yaml_load(download_path)['dburl']
-    # segments to process (modify according to your needs).
+    # segments to process
     # For details, see {{ THE_SEGMENT_OBJECT_WIKI_URL_SEGMENT_SELECTION }}
-    # The variable below can also be a numeric list/numpy array of integers denoting the
-    # database IDs of the segments to process (e.g., a previous or external routine saved
-    # IDs somewhere)
+    # The variable below can also be a list/numpy array of integers denoting the
+    # database IDs of the segments to process (e.g., IDs read from a file)
     segments_selection = {
         'has_valid_data': 'true',
         'maxgap_numsamples': '[-0.5, 0.5]',

@@ -13,7 +13,7 @@ from stream2segment.process.gui.webapp.mainapp import core
 # Note that the template_folder and the static paths in the HTML are relative
 # to the path of the module WHERE we register this blueprint
 # (stream2segment.gui.main)
-from stream2segment.process.inputvalidation import SEGMENT_SELECT_PARAM_NAMES
+
 
 main_app = Blueprint('main_app', __name__, template_folder='templates')
 
@@ -71,10 +71,10 @@ def validate_config_str():
 def set_selection():
     try:
         data = request.get_json()
-        sel_conditions = data.get(SEGMENT_SELECT_PARAM_NAMES[0], None)
+        sel_conditions = data.get('segments_selection', None)
         # sel condition = None: do not update conditions but use already loaded one
         num_segments = core.set_select_conditions(sel_conditions)
-        return jsonify({'num_segments':num_segments, 'error_msg': ''})
+        return jsonify({'num_segments': num_segments, 'error_msg': ''})
 
     except Exception as exc:  # pylint: disable=broad-except
         return jsonify({'num_segments': 0, 'error_msg': str(exc)})

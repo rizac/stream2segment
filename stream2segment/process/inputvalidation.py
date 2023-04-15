@@ -4,27 +4,7 @@ Input validation for the process routine
 import os
 import inspect
 
-from stream2segment.io import yaml_load
-from stream2segment.io.inputvalidation import validate_param, pop_param
 from stream2segment.process.inspectimport import load_source
-
-
-SEGMENT_SELECT_PARAM_NAMES = ('segments_selection', 'segment_select')
-
-
-def _extract_segments_selection(config):
-    """Return the dict in `config` denoting the selection of segment. Validators
-    should all call this method so that the valid parameter names are implemented in
-    one place and can be easily modified.
-
-    :param config: the config `dict` (e.g. resulting from a YAML config file used for
-        processing, or visualization)
-    """
-    _default = {
-        'has_valid_data': 'true',
-        'maxgap_numsamples': '[-0.5, 0.5]'
-    }
-    return pop_param(config, SEGMENT_SELECT_PARAM_NAMES, _default)[1]
 
 
 def valid_filewritable(filepath):
@@ -91,7 +71,7 @@ def valid_pyfunc(pyfunc):
                          '`(segment, config)`, %d found' % len(params))
     # more than 2 args? then we need to have them with a default set:
     for pname, param in list(params.items())[2:]:
-        if not param.kind in (param.VAR_POSITIONAL, param.VAR_KEYWORD):
+        if param.kind not in (param.VAR_POSITIONAL, param.VAR_KEYWORD):
             # it is not *args or **kwargs, does it have a default?
             if not param.default == param.empty:
                 raise ValueError('Python function argument "%s" should have a '

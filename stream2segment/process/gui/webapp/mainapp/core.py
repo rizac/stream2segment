@@ -48,7 +48,7 @@ def _default_preprocessfunc(segment, config):
     for t in segment.stream():
         t.remove_response(inventory)
         s.append(t)
-    return t if len(s) == 1 else s
+    return s[0] if len(s) == 1 else s
     # raise Exception("No function decorated with '@gui.preprocess'")
 
 

@@ -15,10 +15,10 @@ For any new variable name to be implemented here in the future, note also that:
 """
 from stream2segment.download.modules.utils import EVENTWS_MAPPING
 # from stream2segment.process.main import _get_chunksize_defaults
-from stream2segment.process.writers import SEGMENT_ID_COLNAME # , HDF_DEFAULT_CHUNKSIZE
-from stream2segment.process.inputvalidation import SEGMENT_SELECT_PARAM_NAMES
+# from stream2segment.process.inputvalidation import SEGMENT_SELECT_PARAM_NAMES
+# SEGSEL_PARAMNAME = SEGMENT_SELECT_PARAM_NAMES[0]
 
-SEGSEL_PARAMNAME = SEGMENT_SELECT_PARAM_NAMES[0]
+from stream2segment.process.writers import SEGMENT_ID_COLNAME  # <- DO NOT REMOVE, THIS VER IS USED IN TEMPLATES
 
 
 USING_S2S_IN_YOUR_PYTHON_CODE_WIKI_URL = 'https://github.com/rizac/stream2segment/wiki/using-stream2segment-in-your-python-code'
