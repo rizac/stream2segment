@@ -229,7 +229,7 @@ def synth_wood_anderson(trace, inventory, config):
     config_wa['zeros'] = list(zeros_parsed)
     poles_parsed = map(complex, (c.replace(' ', '') for c in config_wa['poles']))
     config_wa['poles'] = list(poles_parsed)
-    # compute synthetic WA response. This modifies the trace in-place!
+    # compute synthetic WA response. This modifies the trace inplace!
 
     if trace_input_type in ('VEL', 'ACC'):
         trace.integrate()
@@ -247,8 +247,7 @@ def synth_wood_anderson(trace, inventory, config):
 
 def _spectrum(trace, config):
     """Calculate the spectrum of a trace. Returns the tuple (0, df, values), where
-    values depends on the config dict parameters.
-    Does not modify the trace in-place
+    values depends on the config dict parameters
     """
     taper_max_percentage = config['sn_spectra']['taper']['max_percentage']
     taper_type = config['sn_spectra']['taper']['type']
@@ -271,6 +270,16 @@ def _spectrum(trace, config):
     return 0, df_, spec_
 
 
+def signal_noise_traces(segment, config):
+    stream = segment.stream()
+    assert1trace(stream)  # raise and return if stream has more than one trace
+    arrival_time = UTCDateTime(segment.arrival_time) + \
+        config['sn_windows']['arrival_time_shift']
+    win_len = config['sn_windows']['signal_window']
+    # assumes stream has only one trace:
+    return sn_split(stream[0].copy(), arrival_time, win_len)
+
+
 ######################################
 # GUI functions for displaying plots #
 ######################################
@@ -289,23 +298,54 @@ def cumulative(segment, config):
 
 
 @gui.plot('r', xaxis={'type': 'log'}, yaxis={'type': 'log'})
-def signal_noise_spectra(segment, config):
+def sn_spectra(segment, config):
     """Compute the signal and noise spectra, as dict of strings mapped to tuples
-    (x0, dx, y). Does not modify the segment's stream or traces in-place
+    (x0, dx, y).
 
     :return: a dict with two keys, 'Signal' and 'Noise', mapped respectively to the
         tuples (f0, df, frequencies)
     """
-    stream = segment.stream()
-    assert1trace(stream)  # raise and return if stream has more than one trace
-    arrival_time = UTCDateTime(segment.arrival_time) + \
-                   config['sn_windows']['arrival_time_shift']
-    win_len = config['sn_windows']['signal_window']
     # assumes stream has only one trace:
-    signal_trace, noise_trace = sn_split(stream[0], arrival_time, win_len)
+    signal_trace, noise_trace = signal_noise_traces(segment, config)
     x0_sig, df_sig, sig = _spectrum(signal_trace, config)
     x0_noi, df_noi, noi = _spectrum(noise_trace, config)
-    return {'Signal': (x0_sig, df_sig, sig), 'Noise': (x0_noi, df_noi, noi)}
+    signal = {'x0': x0_sig, 'dx': df_sig, 'y': sig, 'name': 'Signal'}
+    noise = {'x0': x0_noi, 'dx': df_noi, 'y': noi, 'name': 'Noise'}
+    return [signal, noise]
+
+
+@gui.plot('r')
+def sn_windows(segment, config):
+    """Compute the signal and noise windows and return two traces
+
+    :return: a dict with two keys, 'Signal' and 'Noise', mapped respectively to the
+        tuples (f0, df, frequencies)
+    """
+    signal_trace, noise_trace = signal_noise_traces(segment, config)
+    trace = segment.stream()[0]
+    signal = {
+        'x0': signal_trace.stats.starttime,
+        'dx': signal_trace.stats.delta * 1000,  # dt in plots must be msec
+        'y': signal_trace.data,
+        'name': 'Signal'
+    }
+    noise = {
+        'x0': noise_trace.stats.starttime,
+        'dx': noise_trace.stats.delta * 1000,  # dt in plots must be msec
+        'y': noise_trace.data,
+        'name': 'Noise'
+    }
+    trace = {
+        'x0': trace.stats.starttime,
+        'dx': trace.stats.delta * 1000,  # delta is in msec
+        'y': trace.data,
+        'name': 'Full segment',
+        'line': {
+            'color': 'rgba(0,0,0,0.1)'  # avoid trace hiding windows
+        }
+    }
+    # note: order matters for colors and placement (last traces on top):
+    return [signal, noise, trace]
 
 
 @gui.plot
@@ -325,14 +365,14 @@ def derivcum2(segment, config):
     """
     stream = segment.stream()
     assert1trace(stream)  # raise and return if stream has more than one trace
-    cum = cumsumsq(stream[0], normalize=True, copy=False)
+    trace = stream[0]
+    cum = cumsumsq(trace, normalize=True, copy=False)
     cfg = config['savitzky_golay']
     sec_der = savitzky_golay(cum.data, cfg['wsize'], cfg['order'], cfg['deriv'])
     sec_der_abs = np.abs(sec_der)
     sec_der_abs /= np.nanmax(sec_der_abs)
-    # the stream object has surely only one trace (see 'cumulative')
-    return segment.stream()[0].stats.starttime, segment.stream()[0].stats.delta, \
-           sec_der_abs
+    trace.data = sec_der_abs
+    return trace
 
 
 @gui.plot

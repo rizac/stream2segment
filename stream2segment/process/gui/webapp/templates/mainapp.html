@@ -87,7 +87,7 @@
 					<div class='flex-direction-row toolbar'>
 						{% for obj in bottomPlots %}
 							<button  ng-class="plots[{{ obj.index }}].visible ? 'active btn-primary' : 'btn-default'" 
-								ng-click="setPlotVisible({{ obj.index }})"
+								ng-click="setPlotVisible({{ obj.index }})" style="margin-right:.5rem"
 								class='btn btn-sm' title="{{obj.doc}}">{{ obj.name }}</button>
 						{% endfor %}
 					</div>
@@ -110,7 +110,7 @@
 					<div class='flex-direction-col toolbar'>
 						{% for obj in rightPlots %}
 							<button ng-class="plots[{{ obj.index }}].visible ? 'active btn-primary' : 'btn-default'" 
-								ng-click="setPlotVisible({{ obj.index }})"
+								ng-click="setPlotVisible({{ obj.index }})" style="margin-bottom:.5rem"
 								class='btn btn-sm' title="{{obj.doc}}">{{ obj.name }}</button>
 						{% endfor %}
 					</div>
