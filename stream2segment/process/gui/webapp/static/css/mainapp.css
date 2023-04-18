@@ -54,9 +54,6 @@ div.plot{
     white-space: nowrap;
     overflow: auto;
 }
-.flex-direction-row.toolbar > *:not(:first-child){
-	margin-left: 10px;
-}
 
 .note {
     font-weight: normal;
@@ -159,10 +156,6 @@ div.metadata > div.panel-body{
 	padding-top: .5rem;
 	padding-left: 1rem;
 }
-
-/* .popup > div.center > table td:first-child{
-	text-align: right;
-} */
 
 .popup{
 	z-index: 100000;

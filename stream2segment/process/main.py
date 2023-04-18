@@ -14,6 +14,7 @@ import warnings
 from multiprocessing import Pool, cpu_count
 import signal
 from itertools import chain, repeat
+import inspect
 
 import numpy as np
 
@@ -23,8 +24,6 @@ from stream2segment.process.db.sqlevalexpr import exprquery
 from stream2segment.io.log import logfilepath, close_logger, elapsed_time
 from stream2segment.io.cli import get_progressbar, ascii_decorate
 from stream2segment.io.inputvalidation import validate_param
-from stream2segment.process.inputvalidation import (valid_filewritable,
-                                                    valid_pyfile, valid_pyfunc)
 from stream2segment.process.db import get_session
 from stream2segment.process.db.models import Segment, Station, SkipSegment
 from stream2segment.process.log import configlog4processing
@@ -54,10 +53,7 @@ def process(pyfunc, dburl, segments_selection=None, config=None, outfile=None,
     `config`).
 
     :param pyfunc: the processing function, i.e. a Python function with signature
-        (arguments) `(segment, config)`, or a path of a Python module with a function
-        "def main(segment, config) implemented therein, which will be imported and
-        executed. To specify a different function name, append the function name to
-        the path after two colons, e.g.: "/home/mymodule.py::myfunction"
+        (arguments) `(segment, config)`
     :param dburl: str. The URL of the database where data has been previously downloaded
     :param segments_selection: The segments to be processed. It can be a sequence of
         integers (tuple, list, numpy array) denoting the segment IDs, or a dict[str, str]
@@ -144,20 +140,8 @@ def process(pyfunc, dburl, segments_selection=None, config=None, outfile=None,
         cfg_file = config
         config = validate_param("config", config or {}, yaml_load)
 
-    if callable(pyfunc):
-        pyfile = pyfunc.__name__ or 'n/a'
-        validate_param('pyfunc', pyfunc, valid_pyfunc)
-    else:
-        pyfile = pyfunc
-        pyfunc = validate_param('pyfunc', pyfile, valid_pyfile)
-        if logfile is True and not outfile:
-            idx = pyfile.rfind('::')  # remove function name, if present
-            logfile = logfilepath(pyfile if idx < 0 else pyfile[:idx])
-        if multi_process:
-            # Note: pyfunc is imported with importlib -> pyfunc is not pickable -> it
-            # will not work within each child process (CP) FIXME: write a test?
-            # To fix it, swap back pyfile/pyfunc, delegating each CP to (re)import:
-            pyfunc = pyfile
+    pyfile = pyfunc.__name__ or 'n/a'
+    validate_param('pyfunc', pyfunc, _valid_pyfunc)
 
     if logfile is True:
         logfile = '' if not outfile else logfilepath(outfile)  # auto create log file
@@ -167,21 +151,39 @@ def process(pyfunc, dburl, segments_selection=None, config=None, outfile=None,
         info = [
             "Input database:      %s" % secure_dburl(dburl),
             "Processing function: %s" % pyfile or 'n/a',
-            "Config. file:        %s" % (abp(cfg_file) if cfg_file else 'n/a'),
             "Log file:            %s" % (abp(logfile) if logfile else 'n/a'),
             "Output file:         %s" % (abp(outfile) if outfile else 'n/a')
         ]
+        if cfg_file:
+            info.append("Config. file:        %s" % abp(cfg_file))
         logger.info(ascii_decorate("\n".join(info)))
 
         _run_and_write(pyfunc, dburl, segments_selection, config, outfile, append,
                        writer_options, verbose, multi_process, chunksize, None)
 
 
+def _valid_pyfunc(pyfunc):
+    """Checks if the argument is a valid processing Python function by inspecting its
+    signature"""
+    params = inspect.signature(pyfunc).parameters # dict[str, inspect.Parameter]
+    # less than two arguments? then function invalid:
+    if len(params) < 2:
+        raise ValueError('Python function should have 2 arguments '
+                         '`(segment, config)`, %d found' % len(params))
+    # more than 2 args? then we need to have them with a default set:
+    for pname, param in list(params.items())[2:]:
+        if param.kind not in (param.VAR_POSITIONAL, param.VAR_KEYWORD):
+            # it is not *args or **kwargs, does it have a default?
+            if not param.default == param.empty:
+                raise ValueError('Python function argument "%s" should have a '
+                                 'default, or be removed' % pname)
+
+
 def _run_and_write(pyfunc, dburl, segments_selection=None, config=None, outfile=None,
                    append=False, writer_options=None, show_progress=False,
                    multi_process=False, chunksize=None, skip_exceptions=None):
     if outfile is not None:
-        validate_param('outfile', outfile, valid_filewritable)
+        validate_param('outfile', outfile, _valid_filewritable)
 
     if config is None:
         config = {}
@@ -205,6 +207,18 @@ def _run_and_write(pyfunc, dburl, segments_selection=None, config=None, outfile=
 
     logger.info("%d of %d segment(s) successfully written to the provided output",
                 written, len(seg_ids))
+
+
+def _valid_filewritable(filepath):
+    """Check that the file is writable, i.e. that is a string and its
+    directory exists"""
+    if not isinstance(filepath, str):
+        raise TypeError('string required, found %s' % str(type(filepath)))
+
+    if not os.path.isdir(os.path.dirname(filepath)):
+        raise ValueError('cannot write file: parent directory does not exist')
+
+    return filepath
 
 
 def imap(pyfunc, dburl, segments_selection=None, config=None,
@@ -535,8 +549,7 @@ def process_segments_mp(args):
         (boolean) tells if `output` is NOT an Exception, and segment_id is the id of the
         segment processed
     """
-    seg_ids_chunk, dburl, config, func_or_pyfile, safe_exceptions_tuple = args
-    pyfunc = func_or_pyfile if callable(func_or_pyfile) else valid_pyfile(func_or_pyfile)
+    seg_ids_chunk, dburl, config, pyfunc, safe_exceptions_tuple = args
     session = get_session(dburl)
     ret = []
 

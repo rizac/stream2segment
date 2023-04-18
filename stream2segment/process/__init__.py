@@ -85,6 +85,13 @@ def get_classlabels(db):
             sess.close()
 
 
+def get_default_segments_selection():
+    return {
+        'has_valid_data': 'true',
+        'maxgap_numsamples': '[-0.5, 0.5]'
+    }
+
+
 def get_segment_help(format='html', maxwidth=79, **print_kwargs):
     """Return the :class:`Segment` help (attributes and methods) as string
 

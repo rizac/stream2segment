@@ -4,19 +4,22 @@ Stream2segment Graphical User Interface (GUI) Python module
 =========================================================================
 
 This Python module defines the plots to be displayed in a web browser GUI via
- the `show` command, e.g.: `s2s show -d download.yaml -p <this_file_path>`
+the `show` command, e.g.: `s2s show -d download.yaml -p <this_file_path>`
 
 
 GUI functions implementation
 ============================
 
-GUI functions are Python functions with specific decorators attached, and must have two
-arguments:
-- segment: the Segment object (for details, see {{ THE_SEGMENT_OBJECT_WIKI_URL }})
-- config: a Python `dict` representing the parameters set in the associated YAML file.
-In case of exception raised from a GUI function, the program will catch the exception
-and display the exception message on the corresponding plot area.
-GUI functions implementation details:
+GUI functions are Python functions with specific decorators attached. Regardless
+of the decorator type (described in details below), remember that all GUI functions:
+- must have two arguments:
+   - segment: the Segment object (for details, see {{ THE_SEGMENT_OBJECT_WIKI_URL }})
+   - config: a Python `dict` representing the parameters set in the associated YAML file.
+- can raise any Exception, in which case the exception message will be displayed
+  as text on the corresponding plot area
+- get a new copy of `segment.stream()` (the ObsPy Stream object holding the segment
+  waveform), which means you do not necessarily need to copy the Stream because any
+  inplace modification will not affect other GUI plots
 
 
 1. Pre-process function
@@ -52,35 +55,16 @@ def spectra(segment, config)
 The 'position' argument controls where the plot will be placed in the GUI ('b' means
 bottom, the default, 'r' means next to the main plot, on its right) and the other two,
 `xaxis` and `yaxis`, are dict (defaulting to the empty dict: {}) controlling the x and y
-axis of the plot (for info, see: https://plot.ly/python/axes/).
+axis of the plot (for info, see: https://plotly.com/javascript/axes/).
 
 When not given, axis types (e.g., date time vs numeric) will be inferred from the
-function's returned value which *must* be a numeric sequence (y values) taken at
-successive equally spaced points (x values) in any of these forms:
-
-- ObsPy Trace object
-
-- ObsPy Stream object
-
-- the tuple (x0, dx, y) or (x0, dx, y, label), where
-
-    - x0 (numeric, `datetime` or `UTCDateTime`) is the abscissa of the first point.
-      For time-series abscissas, UTCDateTime is quite flexible with several input
-      formats. For info see:
-      https://docs.obspy.org/packages/autogen/obspy.core.utcdatetime.UTCDateTime.html
-
-    - dx (numeric or `timedelta`) is the sampling period. If x0 has been given as
-      datetime or UTCDateTime object and 'dx' is numeric, its unit is in seconds
-      (e.g. 45.67 = 45 seconds and 670000 microseconds). If `dx` is a timedelta object
-      and x0 has been given as numeric, then x0 will be converted to UtcDateTime(x0).
-
-    - y (numpy array or numeric list) are the sequence values, numeric
-
-    - label (string, optional) is the sequence name to be displayed on the plot legend.
-
-- a dict of any of the above types, where the keys (string) will denote each sequence
-  name to be displayed on the plot legend (and will override the 'label' argument, if
-  provided)
+function's returned value which *must* be either:
+- an ObsPy Trace object
+- an ObsPy Stream object
+- a dict compatible with the plot browser library (usually, at least the 'y' key must
+  be present - see examples in this module. For a full list of keys, see
+  https://plotly.com/javascript/reference/)
+- a list of any object type described above
 """
 from datetime import datetime, timedelta
 from math import factorial  # for savitzky_golay function
@@ -229,7 +213,7 @@ def synth_wood_anderson(trace, inventory, config):
     config_wa['zeros'] = list(zeros_parsed)
     poles_parsed = map(complex, (c.replace(' ', '') for c in config_wa['poles']))
     config_wa['poles'] = list(poles_parsed)
-    # compute synthetic WA response. This modifies the trace in-place!
+    # compute synthetic WA response. This modifies the trace inplace!
 
     if trace_input_type in ('VEL', 'ACC'):
         trace.integrate()
@@ -247,8 +231,7 @@ def synth_wood_anderson(trace, inventory, config):
 
 def _spectrum(trace, config):
     """Calculate the spectrum of a trace. Returns the tuple (0, df, values), where
-    values depends on the config dict parameters.
-    Does not modify the trace in-place
+    values depends on the config dict parameters
     """
     taper_max_percentage = config['sn_spectra']['taper']['max_percentage']
     taper_type = config['sn_spectra']['taper']['type']
@@ -271,6 +254,16 @@ def _spectrum(trace, config):
     return 0, df_, spec_
 
 
+def signal_noise_traces(segment, config):
+    stream = segment.stream()
+    assert1trace(stream)  # raise and return if stream has more than one trace
+    arrival_time = UTCDateTime(segment.arrival_time) + \
+        config['sn_windows']['arrival_time_shift']
+    win_len = config['sn_windows']['signal_window']
+    # assumes stream has only one trace:
+    return sn_split(stream[0].copy(), arrival_time, win_len)
+
+
 ######################################
 # GUI functions for displaying plots #
 ######################################
@@ -289,23 +282,67 @@ def cumulative(segment, config):
 
 
 @gui.plot('r', xaxis={'type': 'log'}, yaxis={'type': 'log'})
-def signal_noise_spectra(segment, config):
+def sn_spectra(segment, config):
     """Compute the signal and noise spectra, as dict of strings mapped to tuples
-    (x0, dx, y). Does not modify the segment's stream or traces in-place
+    (x0, dx, y).
 
     :return: a dict with two keys, 'Signal' and 'Noise', mapped respectively to the
         tuples (f0, df, frequencies)
     """
-    stream = segment.stream()
-    assert1trace(stream)  # raise and return if stream has more than one trace
-    arrival_time = UTCDateTime(segment.arrival_time) + \
-                   config['sn_windows']['arrival_time_shift']
-    win_len = config['sn_windows']['signal_window']
     # assumes stream has only one trace:
-    signal_trace, noise_trace = sn_split(stream[0], arrival_time, win_len)
+    signal_trace, noise_trace = signal_noise_traces(segment, config)
     x0_sig, df_sig, sig = _spectrum(signal_trace, config)
     x0_noi, df_noi, noi = _spectrum(noise_trace, config)
-    return {'Signal': (x0_sig, df_sig, sig), 'Noise': (x0_noi, df_noi, noi)}
+    signal = {'x0': x0_sig, 'dx': df_sig, 'y': sig, 'name': 'Signal'}
+    noise = {'x0': x0_noi, 'dx': df_noi, 'y': noi, 'name': 'Noise'}
+    return [signal, noise]
+
+
+@gui.plot('r')
+def sn_windows(segment, config):
+    """Compute the signal and noise windows and return two traces
+
+    :return: a dict with two keys, 'Signal' and 'Noise', mapped respectively to the
+        tuples (f0, df, frequencies)
+    """
+    signal_trace, noise_trace = signal_noise_traces(segment, config)
+    signal = {
+        'x0': signal_trace.stats.starttime,
+        'dx': signal_trace.stats.delta * 1000,  # dt in plots must be msec
+        'y': signal_trace.data,
+        'name': 'Signal'
+    }
+    noise = {
+        'x0': noise_trace.stats.starttime,
+        'dx': noise_trace.stats.delta * 1000,  # dt in plots must be msec
+        'y': noise_trace.data,
+        'name': 'Noise'
+    }
+    all_traces = [signal, noise]
+    # add the underlying trace, but to avoid plotting overlapping points
+    # only the portion not included in signal and noise
+    original_trace = segment.stream()[0]
+    times = (
+        (original_trace.stats.starttime, noise_trace.stats.starttime),
+        (noise_trace.stats.endtime, signal_trace.stats.starttime),
+        (signal_trace.stats.endtime, original_trace.stats.endtime)
+    )
+    for stime, etime in times:
+        if etime <= stime:
+            continue
+        trace = original_trace.slice(stime, etime)
+        all_traces.append({
+            'x0': trace.stats.starttime,
+            'dx': trace.stats.delta * 1000,  # delta is in msec
+            'y': trace.data,
+            'name': 'Full segment',
+            'line': {
+                'color': 'rgba(0,0,0,0.1)'  # avoid trace hiding windows
+            }
+        })
+    return all_traces
+    # note: order matters for colors and placement (last traces on top):
+    # return [signal, noise, trace]
 
 
 @gui.plot
@@ -325,14 +362,14 @@ def derivcum2(segment, config):
     """
     stream = segment.stream()
     assert1trace(stream)  # raise and return if stream has more than one trace
-    cum = cumsumsq(stream[0], normalize=True, copy=False)
+    trace = stream[0]
+    cum = cumsumsq(trace, normalize=True, copy=False)
     cfg = config['savitzky_golay']
     sec_der = savitzky_golay(cum.data, cfg['wsize'], cfg['order'], cfg['deriv'])
     sec_der_abs = np.abs(sec_der)
     sec_der_abs /= np.nanmax(sec_der_abs)
-    # the stream object has surely only one trace (see 'cumulative')
-    return segment.stream()[0].stats.starttime, segment.stream()[0].stats.delta, \
-           sec_der_abs
+    trace.data = sec_der_abs
+    return trace
 
 
 @gui.plot

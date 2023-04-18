@@ -88,11 +88,6 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	};
 
 	$scope.setLoading("Initializing ...");
-
-	$scope.snColors = ['#2ca02c', '#d62728']  // signal, noise
-	// if more than two lines are present, it's undefined and handled by plotly (not tested)
-	$scope.snColors.arrivalTimeLine = '#777777';  // arrival time line
-	
 	$scope.init = function(){
 		var data = {classes: true, metadata: true};
 		// note on data dict above: the server expects also 'metadata' and 'classes' keys which we do provide otherwise
@@ -363,100 +358,15 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 			var i = indices[i_];
 			var div = $scope.plots[i].div;
 			var plotData = plotsData[i];
-			var title = plotData[0];
-			var elements = plotData[1];
-			var warnings = plotData[2] || "";
-			var isTimeSeries = plotData[3] || false;
-			//http://stackoverflow.com/questions/40673490/how-to-get-plotly-js-default-colors-list
-			// var colors = Plotly.d3.scale.category20();  // removed for the moment
 			var data = [];
-			for (var j=0; j<elements.length; j++){
-				//var color = colors(j % colors.length);  // removed for the moment
-				var line = elements[j];
-				var elmData = {
-					x0: line[0],
-					dx: isTimeSeries ? 1000 * line[1] : line[1],  // plotly for time-series wants milliseconds
-					y: line[2],
-					name: line[3],
-					type: 'scatter',
-					opacity: 0.95,  // set to zero and uncomment the "use animations" below if you wish,
-					line: {
-						width: 2
-					}
-				};
-				// push data:
-				data.push(elmData);
+			var warnings = "";
+			if (typeof plotData === 'string'){
+				warnings = plotData.replaceAll("\n", "<br>");
+			}else{
+				data = Array.from(plotData);
 			}
-			
+			var title = ""
 			var layout = getPlotLayout(title, warnings, {xaxis: $scope.plots[i].xaxis, yaxis: $scope.plots[i].yaxis});
-			// check the xaxis type. If present, we provided it from the function decorator, 
-			// otherwise check it from the plot data. If not timeseries, let plotly infer it
-			// (https://plot.ly/javascript/reference/#layout-xaxis-type)
-			if (!layout.xaxis.type && isTimeSeries){
-				layout.xaxis.type = 'date';
-			}
-			if (i==0){  // default plot
-				// Add background shaded areas and arrival time:
-				// https://plot.ly/javascript/shapes/#vertical-and-horizontal-lines-positioned-relative-to-the-axes
-				layout.shapes = $scope.segData.snWindows.map(function(elm, idx){
-					return {
-						type: 'rect',
-						xref: 'x', // x-reference is assigned to the x-values
-						yref: 'paper', // y-reference is assigned to the plot paper [0,1]
-						x0: elm[0],
-						y0: 0,
-						x1: elm[1],
-						y1: 1,
-						fillcolor: $scope.snColors[idx],
-						opacity: 0.1,
-						line: {
-							width: 0
-						}
-					};
-				});
-				// append arrival time:
-				if (layout.shapes && layout.shapes.length){ // test for non-empty array (is there a better way?)
-					// store arrival time as timestamp. The relative value in
-					// segData.metadata.segment.arrival_time cannot be used,
-					// see section "Differences in assumed time zone" in
-					// https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/parse
-					layout.shapes.push({
-						type: 'line',
-						xref: 'x', // x-reference is assigned to the x-values
-						yref: 'paper', // y-reference is assigned to the plot paper [0,1]
-						x0: layout.shapes[1].x1,
-						x1: layout.shapes[1].x1,
-						y0: 0,
-						y1: 1,
-						opacity: 1,
-						line: {
-							width: 1,
-							dash: 'dot',
-							color: $scope.snColors.arrivalTimeLine
-						}
-					});
-				}
-				// the noise / signal windows (rectangles in the background) might overflow
-				// this not only visually misleading, but might mess up zooms: if we
-				// zoomed in, then plotly tries to include also the n/s windows, thus
-				// changing the (desired) zoom. So:
-				var x00 = Date.parse(data[0].x0);  // timestamp in milliseconds
-				var x01 = x00 + data[0].dx * (data[0].y.length-1);
-				// set bounds manually in case of overflow:
-				if(layout.shapes.some(elm => Date.parse(elm.x0) < x00 || Date.parse(elm.x1) > x01)){
-					layout.xaxis.range= [new Date(x00).toISOString(), new Date(x01).toISOString()];
-					layout.xaxis.autorange = false;
-				}else{
-					layout.xaxis.autorange = true;
-				}
-			}else{ // custom plots (i != 0)
-				// check if we have only one trace, and if it has a name set and non-empty.
-				// In this case, the user wants a legend but set `showlegend: true` because plotly does not show
-				// legend by default
-				if (data.length == 1 && data[0].name){
-					layout.showlegend = true;
-				}
-			}
 			plotStuff.push({div: div, data: data, layout:layout, index:i});
 		}
 		
@@ -495,11 +405,11 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 			}
 			var zoom = [eventdata['xaxis.range[0]'], eventdata['xaxis.range[1]']];
 			$scope.plots[index].zoom = [zoom[0], zoom[1]];  // copy (for safety)
-			$scope.refreshView([index]);
+			// $scope.refreshView([index]);
 		});
 		
 		$scope.plots[index].div.on('plotly_doubleclick', function(eventdata){
-			$scope.refreshView([index]); // zooms are reset after use, so this redraw normal bounds
+			// $scope.refreshView([index]); // zooms are reset after use, so this redraw normal bounds
 		});
 	}
 	

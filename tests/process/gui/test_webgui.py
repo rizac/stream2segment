@@ -16,9 +16,9 @@ import pytest
 import numpy as np
 from obspy.core.stream import read
 
+from stream2segment.process import get_default_segments_selection
 from stream2segment.process.db.models import (Event, WebService, Channel, Station,
                                               DataCenter, Segment, Class, Download)
-from stream2segment.process.inputvalidation import SEGMENT_SELECT_PARAM_NAMES
 from stream2segment.process.inspectimport import load_source
 from stream2segment.process.db import get_session
 from stream2segment.resources import get_templates_fpaths
@@ -30,15 +30,15 @@ from stream2segment.process.gui.webapp.mainapp import core as core_module
 from stream2segment.process.gui.webapp.mainapp import db as db_module
 
 
-SEG_SEL_STR = SEGMENT_SELECT_PARAM_NAMES[0]
+SEG_SEL_STR = 'segments_selection'
 
 
 class Test:
-    pyfile, configfile = get_templates_fpaths("paramtable.py", "paramtable.yaml")
+    pyfile, configfile = get_templates_fpaths("gui.py", "gui.yaml")
 
     pymodule = load_source(pyfile)
     configdict = yaml_load(configfile)
-    segments_selection = configdict.pop(SEG_SEL_STR, {})
+    segments_selection = get_default_segments_selection()
 
      # execute this fixture always even if not provided as argument:
     # https://docs.pytest.org/en/documentation-restructure/how-to/fixture.html#autouse-fixtures-xunit-setup-on-steroids
@@ -79,10 +79,10 @@ class Test:
             session.commit()  # refresh datacenter id (alo flush works)
 
             d = datetime.utcnow()
-
+            inv_xml = data.read("GE.FLT1.xml")
             s = Station(network='network', station='station', datacenter_id=dc.id, latitude=90,
                         longitude=-45,
-                        start_time=d)
+                        start_time=d, inventory_xml=inv_xml)
             session.add(s)
 
             channels = [
@@ -156,9 +156,6 @@ class Test:
                 (Channel.channel == 'HHE') &
                 (Event.event_id == 'event1')
             ).one().id
-
-            # set inventory
-            self.inventory = data.read_inv("GE.FLT1.xml")
 
 
     def jsonloads(self, _data, encoding='utf8'):  
@@ -243,7 +240,7 @@ class Test:
             assert resp.status_code == 200
             # https: 
             data = self.jsonloads(resp.data)
-            assert ['classes', 'metadata', 'plot_types', 'plots',
+            assert ['classes', 'metadata', 'plots',
                     'seg_id', 'sn_windows'] == sorted(data.keys())
 
             # assert '"config": {}' in response_data or "'config': {}" in response_data
@@ -382,9 +379,11 @@ class Test:
             assert segment.classes[0].id == cid
 
             # toggle value (now False):
-            resp = app.post("/set_class_id", data=json.dumps({'segment_id':segid, 'class_id':cid,
-                                                               'value': False}),
-                                   headers={'Content-Type': 'application/json'})
+            resp = app.post("/set_class_id",
+                            data=json.dumps({
+                                'segment_id':segid, 'class_id': cid, 'value': False
+                            }),
+                            headers={'Content-Type': 'application/json'})
             # need to remove the session and query again from a new one (WHY?):
             self.session.remove()
             segment = self.session.query(Segment).filter(Segment.id == segid).first()
@@ -432,8 +431,9 @@ class Test:
             # maxgap_numsamples within (-0.5, 0.5) in the selection,
             # but we built a test dataset with all maxgap_numsamples = None,
             # thus keep only has_data':'true' in the selection):
-            app.post("/set_selection", data=json.dumps({SEG_SEL_STR: {'has_data':'true'}}),
-                               headers={'Content-Type': 'application/json'})
+            app.post("/set_selection",
+                     data=json.dumps({SEG_SEL_STR: {'has_data': 'true'}}),
+                     headers={'Content-Type': 'application/json'})
 
             # test some combinations of plots. Return always the same segment,
             # so mock the function returning a segment from a given index:
@@ -441,7 +441,7 @@ class Test:
                 return self.segment_id
             mock_get_segment_id.side_effect = _
 
-            # do not ue pytest parametrize, as it causes hundreds of db creation
+            # do not use pytest parametrize, as it causes hundreds of db creation
             # destruction (see init) and is inefficient. Also  postgres complains about
             # too many connections (but FIXME: this should never happen,
             # as the session should be removed after each request)
@@ -477,8 +477,9 @@ class Test:
                 assert bool(len(data['classes'])) == (classes and has_labellings)
 
                 if 0 in plot_indices:
-                    traces_in_first_plot = len(data['plots'][plot_indices.index(0)][1])
-                    assert (traces_in_first_plot == 1 and not all_components) or traces_in_first_plot >= 1
+                    traces_in_first_plot = len(data['plots'][plot_indices.index(0)])
+                    assert (traces_in_first_plot == 1 and not all_components) \
+                           or traces_in_first_plot >= 1
                 # we should add a a test for the pre_processed case also
                 # we should add a test for the zooms, too
                 db.session.remove()
@@ -488,7 +489,7 @@ class Test:
                                                                   mock_get_segment_id,
                                                                   # fixtures:
                                                                   db):
-        ''''''
+        """"""
 
         # test some combinations of plots. Return always the same segment,
         # so mock the function returning a segment from a given index:
@@ -509,7 +510,7 @@ class Test:
             # but we built a test dataset with all maxgap_numsamples = None,
             # thus keep only has_data':'true' in the selection):
             app.post("/set_selection",
-                     data=json.dumps({SEG_SEL_STR: {'has_data':'true'}}),
+                     data=json.dumps({SEG_SEL_STR: {'has_data': 'true'}}),
                      headers={'Content-Type': 'application/json'})
             
             d = dict(seg_index=1, # whatever, not used
@@ -520,32 +521,40 @@ class Test:
                      metadata=metadata,
                      classes=classes,
                      all_components=True)
-            resp = app.post("/get_segment", data=json.dumps(d),
-                               headers={'Content-Type': 'application/json'})
+            resp = app.post("/get_segment",
+                            data=json.dumps(d),
+                            headers={'Content-Type': 'application/json'})
             assert resp.status_code == 200
             plots = self.jsonloads(resp.data)['plots']
-            # each plot is the jsonified version of a plot, i.e. a list of
-            # [title, data, warnings, is_timeserie]
-            assert not any(len(p[2]) for p in plots)
+            assert all(len(p['y']) for p in plots[0])
 
         # Now we exited the session, we try with pre_processed=True
-        with self.app.test_request_context():
-            app = self.app.test_client()
-            d = dict(seg_index=1,  # whatever, not used
-                     seg_count=1,  # whatever, not used
-                     pre_processed=True,
-                     # zooms = data['zooms']
-                     plot_indices=plot_indices,  # data['plotIndices']
-                     metadata=metadata,
-                     classes=classes,
-                     all_components=True)
-            resp = app.post("/get_segment", data=json.dumps(d),
-                               headers={'Content-Type': 'application/json'})
-            assert resp.status_code == 200
-            plots = self.jsonloads(resp.data)['plots']
-            # each plot is the jsonified version of a plot, i.e. a list of
-            # [title, data, warnings, is_timeserie]
-            assert all("Station inventory (xml) error" in p[2] for p in plots)
+        # store empty inventory xml in segment
+        sess = db.session()
+        sta = sess.query(Segment).filter(Segment.id == self.segment_id).one().station
+        inv_xml = sta.inventory_xml
+        sta.inventory_xml = b''
+        sess.commit()
+        try:
+            with self.app.test_request_context():
+                app = self.app.test_client()
+                d = dict(seg_index=1,  # whatever, not used
+                         seg_count=1,  # whatever, not used
+                         pre_processed=True,
+                         # zooms = data['zooms']
+                         plot_indices=plot_indices,  # data['plotIndices']
+                         metadata=metadata,
+                         classes=classes,
+                         all_components=True)
+                resp = app.post("/get_segment",
+                                data=json.dumps(d),
+                                headers={'Content-Type': 'application/json'})
+                assert resp.status_code == 200
+                plots = self.jsonloads(resp.data)['plots']
+                assert len(plots) == 1 and "Station inventory (xml) error" in plots[0]
+        finally:
+            sta.inventory_xml = inv_xml
+            sess.commit()
 
     @pytest.mark.parametrize('calculate_sn_spectra', [True, False])
     @patch('stream2segment.process.gui.webapp.mainapp.views.core.get_segment_id')
@@ -631,8 +640,8 @@ class Test:
                 # each data is [x0, dx, y, label] all numeric except 'label'
                 # see class jsplot
                 # get each 'data' 
-                plot1data = plots1[index][1]
-                plot2data = plots2[index][1]
+                plot1data = plots1[index]  #  [1]
+                plot2data = plots2[index]  # [1]
                 plotindex = plot_indices[index]
                 expected_lineseries_num = 1 if plotindex != index_of_sn_spectra else 2
                 assert len(plot1data) == len(plot2data) == expected_lineseries_num
@@ -640,8 +649,14 @@ class Test:
                     # plots are returned as a list of lineseries:
                     # [name, [startime, step, data, ...]]
                     # ... is other stuff we do not test here (lineseries name)
-                    x0a, dxa, ya, labela = plot1data[lineseriesindex]
-                    x0b, dxb, yb, labelb = plot2data[lineseriesindex]
+                    x0a, dxa, ya, labela = plot1data[lineseriesindex]['x0'], \
+                        plot1data[lineseriesindex]['dx'], \
+                        plot1data[lineseriesindex]['y'], \
+                        plot1data[lineseriesindex]['name']
+                    x0b, dxb, yb, labelb = plot2data[lineseriesindex]['x0'], \
+                        plot2data[lineseriesindex]['dx'], \
+                        plot2data[lineseriesindex]['y'], \
+                        plot2data[lineseriesindex]['name']
                     assert x0a == x0b
                     # Consider that plotindices is either 0 or 2
                     # 0: time series plot

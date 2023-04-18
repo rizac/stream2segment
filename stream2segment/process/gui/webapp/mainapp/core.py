@@ -5,8 +5,10 @@ Core functionalities for the main GUI web application (show command)
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
+import math
 from itertools import cycle
 import contextlib
+from datetime import datetime, date, timedelta
 
 from io import StringIO
 import yaml
@@ -18,13 +20,8 @@ from stream2segment.process import gui
 from stream2segment.process.inspectimport import iterfuncs
 from stream2segment.process.funclib.traces import sn_split
 from stream2segment.io import yaml_safe_dump
-from stream2segment.process.gui.webapp.mainapp.jsplot import Plot, isoformat
 from stream2segment.process.gui.webapp.mainapp import db
 
-
-# number of points per plot. Used to resample points:
-NPTS_WIDE = 900  # FIXME: automatic retrieve from the GUI?
-NPTS_SHORT = 900  # FIXME: see above
 
 # Note that the use of global variables like this should be investigted
 # in production (which is not the intended goal of the web GUI for the moment):
@@ -48,7 +45,7 @@ def _default_preprocessfunc(segment, config):
     for t in segment.stream():
         t.remove_response(inventory)
         s.append(t)
-    return t if len(s) == 1 else s
+    return s[0] if len(s) == 1 else s
     # raise Exception("No function decorated with '@gui.preprocess'")
 
 
@@ -261,10 +258,11 @@ def get_segment_data(seg_id, plot_indices, all_components, preprocessed,
     :param preprocessed: boolean, whether or not the plot should be returned on
         the pre-processing function defined in the config (if any), or on the
         raw ObsPy Stream
-    :param zooms: the plot bounds, list or None. If list, each element is
-        either None,  or a tuple of [xmin, xmax] values (xmin and xmax can
-        be both None, to conform python slicing behaviour). If None, defaults
-        to a list of [None, None] elemeents (one for each plot)
+    :param zooms: the plot bounds, list or None. NOT used.
+        If list, each element is either None,  or a tuple of [xmin, xmax] values
+        (xmin and xmax can be both None, to conform python slicing behaviour).
+        If None, defaults
+        to a list of [None, None] elements (one for each plot)
     :param metadata: boolean, whether or not to return a list of the segment
         metadata. The list is a list of tuples ('column', value). A list is
         used to preserve order for client-side javascript parsing
@@ -280,11 +278,11 @@ def get_segment_data(seg_id, plot_indices, all_components, preprocessed,
         g_config.update(**config)
 
     if plot_indices:
-        plots = get_plots(seg_id, plot_indices, preprocessed, all_components)
+        plots = get_plots(seg_id, plot_indices, preprocessed, all_components, zooms_)
         try:
             # return always sn_windows, as we already calculated them. It is
             # better to call this method AFTER get_plots_func defined above
-            sn_windows = [sorted([isoformat(x[0]), isoformat(x[1])])
+            sn_windows = [sorted([_jsonify(x[0]), _jsonify(x[1])])
                           for x in exec_func(get_segment(seg_id),
                                              preprocessed,
                                              get_sn_windows)]
@@ -292,9 +290,10 @@ def get_segment_data(seg_id, plot_indices, all_components, preprocessed,
             sn_windows = []
 
     return {
-        'plots': [p.tojson(z, NPTS_WIDE) for p, z in zip(plots, zooms_)],
+        'plots': plots,
+        # 'plots': [p.tojson(z, NPTS_WIDE) for p, z in zip(plots, zooms_)],
         'seg_id': seg_id,
-        'plot_types': [p.is_timeseries for p in plots],
+        # 'plot_types': [p.is_timeseries for p in plots],
         'sn_windows': sn_windows,
         'metadata': [] if not metadata else db.get_metadata(seg_id),
         'classes': [] if not classes else db.get_classes(seg_id)
@@ -320,29 +319,32 @@ def parse_zooms(zooms, plot_indices):
     return _zooms  # set zooms to None if length is not enough
 
 
-def get_plots(seg_id, plot_indices, preprocessed, all_components):
+def get_plots(seg_id, plot_indices, preprocessed, all_components, zooms):
     """Return the plots
 
     :param all_components: if 0 is not in plot_indices, it is ignored.
         Otherwise returns in plot[I] all components
         (where I = argwhere(plot_indices == 0)
+    :param zooms: list of x bounds to zoom or None, one for each plot (not used)
     """
     segment = get_segment(seg_id)
-    plots = [get_plot(segment, preprocessed, i) for i in plot_indices]
-    if all_components and (0 in plot_indices):
-        plot = plots[plot_indices.index(0)]
-        qry = segment.siblings(include_self=False)  # .options(load_only(Segment.id))
-        for segment in qry:
-            # segment = get_segment(_seg.id)
-            plt = get_plot(segment, preprocessed, 0)
-            if plt.warnings:
-                plot.warnings += list(plt.warnings)
-            if plt.data:
-                plot.data.extend(plt.data)
+    plots = []
+    for i in plot_indices:
+        zoom = None
+        plot = get_plot(segment, preprocessed, i, zoom)
+        if i == 0 and all_components and isinstance(plot, list):
+            for seg in segment.siblings(include_self=False):
+                plt = get_plot(seg, preprocessed, i, zoom)
+                if isinstance(plt, str):
+                    plot = plt
+                    break
+                else:
+                    plot.extend(plt)
+        plots.append(plot)
     return plots
 
 
-def get_plot(segment, preprocessed, func_index):
+def get_plot(segment, preprocessed, func_index, zoom):
     """Return a jsplot.Plot object corresponding to the given function
     applied on the given segment
 
@@ -354,19 +356,10 @@ def get_plot(segment, preprocessed, func_index):
         have signature: func(segment, config)
     """
     try:
-        plt = convert2plot(exec_func(segment, preprocessed,
-                                     g_functions[func_index]))
-        # set title:
-        title = segment.seed_id
-        func_name = str('' if func_index == 0 else
-                        g_functions[func_index].__name__)
-        sep = ' - ' if title and func_name else ''
-        plt.title = '%s%s%s' % (title, sep, func_name)
-
-    except Exception as exc:  # pylint: disable=broad-except
-        # add dummy series (empty):
-        plt = Plot('', warnings=str(exc)).add(0, 1, [])
-    return plt
+        func = exec_func(segment, preprocessed, g_functions[func_index])
+        return convert2plotly(func, zoom)
+    except Exception as exc:
+        return 'Error ' + str(exc)
 
 
 def exec_func(segment, preprocessed, function):
@@ -420,51 +413,82 @@ def prepare_for_function(segment, preprocessed=False):
             segment._stream = tmpstream
 
 
-def convert2plot(funcres):
+def convert2plotly(funcres, zoom=None):
     """Convert the result of a function to a plot. Raises if `funcres` is not
     in any valid format
 
     :param funcres: the function result of :func:`exdc_func`
+    :param zoom: x bounds to zoom (not used)
     """
-    if isinstance(funcres, Plot):
-        plt = funcres
-    elif isinstance(funcres, Trace):
-        plt = Plot.fromtrace(funcres)
+    if isinstance(funcres, Trace):
+        return stream2plotly(Stream([funcres]))
     elif isinstance(funcres, Stream):
-        plt = Plot.fromstream(funcres)
-    else:
-        labels = cycle([None])
-        if isinstance(funcres, dict):
-            labels = iter(funcres.keys())
-            itr = iter(funcres.values())
-        elif isinstance(funcres, tuple):
-            itr = [funcres]  # (x0, dx, values, label_optional)
-        else:
-            itr = funcres  # list of mixed types above
+        return stream2plotly(funcres)
+    elif isinstance(funcres, dict):
+        funcres = [{k: _jsonify(v) for k, v in funcres.items()}]
+    elif isinstance(funcres, (list, tuple)):
+        old_funcres, funcres = funcres, []
+        for f in old_funcres:
+            funcres.extend(convert2plotly(f, zoom))
 
-        plt = Plot("", "")
+    err = not isinstance(funcres, (list, tuple))
+    if not err:
+        err = any(not isinstance(_, dict) for _ in funcres)
+    if not err:
+        err = any(('y' not in _ for _ in funcres))
+    if err:
+        raise ValueError('Plot function output must be an obspy Trace, Stream, dict '
+                         '(or any list of those objects).\nDicts must have at least the '
+                         'key "y"\n(full list of keys: '
+                         'https://plotly.com/javascript/reference/)')
+    return funcres
 
-        for label, obj in zip(labels, itr):
-            if isinstance(obj, tuple):
-                try:
-                    x0, dx, y, label = obj
-                except ValueError:
-                    try:
-                        x0, dx, y = obj
-                    except ValueError:
-                        raise ValueError(("Cannot create plot from tuple "
-                                          "(length=%d): Expected (x0, dx, y) "
-                                          "or (x0, dx, y, label)") % len(obj))
-                plt.add(x0, dx, y, label)
-            elif isinstance(obj, Trace):
-                plt.addtrace(obj, label)
-            elif isinstance(obj, Stream):
-                for trace in obj:
-                    plt.addtrace(trace, label)
-            else:
-                raise ValueError("Cannot create plot from %s: " %
-                                 str(type(obj)))
-    return plt
+
+def trace2plotly(trace):
+    return stream2plotly(Stream([trace]))
+
+
+def stream2plotly(stream):
+    """Return a list[dict] where each dict holds the trace data to be displayed
+    with plotly"""
+    labels = [t.get_id() for t in stream]
+    # add trace.get_id() + "[#1]", "[#2]" etcetera if some traces have
+    # same id:
+    for i, lbl in enumerate(labels):
+        chunk = 1
+        for j, lbl2 in enumerate(labels[i + 1:], i + 1):
+            if lbl == lbl2:
+                chunk += 1
+                labels[j] = lbl2 + ('[#%d]' % chunk)
+        if chunk > 1:
+            labels[i] = lbl + '[#1]'
+    return [
+        {
+            'x0': _jsonify(trace.stats.starttime),
+            'dx': _jsonify(trace.stats.delta) * 1000,  # *1000? plotly requires msec
+            'y': _jsonify(trace.data),
+            'name': name
+        } for name, trace in zip(labels, stream)
+    ]
+
+
+def _jsonify(obj):
+    """jsonify `obj`"""
+    if isinstance(obj, (UTCDateTime, date, datetime)):
+        ret = UTCDateTime(obj).isoformat(sep='T')
+        return ret + 'Z' if ret[-1] != 'Z' else ret
+    try:
+        is_ndarray = isinstance(obj, (np.ndarray, np.generic))
+        if is_ndarray or isinstance(obj, (list, tuple)):
+            obj2 = np.asarray(obj)
+            nonfinite = ~np.isfinite(obj2)
+            if nonfinite.any():
+                obj2 = obj2.astype(object)
+                obj2[nonfinite] = None
+            return obj2.tolist() if is_ndarray else obj
+        return None if obj != obj or obj in (-math.inf, math.inf) else obj
+    except (TypeError, ValueError):
+        return obj
 
 
 def get_sn_windows(segment, config):
