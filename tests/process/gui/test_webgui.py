@@ -243,7 +243,7 @@ class Test:
             assert resp.status_code == 200
             # https: 
             data = self.jsonloads(resp.data)
-            assert ['classes', 'metadata', 'plot_types', 'plots',
+            assert ['classes', 'metadata', 'plots',
                     'seg_id', 'sn_windows'] == sorted(data.keys())
 
             # assert '"config": {}' in response_data or "'config': {}" in response_data
