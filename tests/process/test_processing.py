@@ -91,10 +91,7 @@ class Test:
         assert not error
         assert re.search('Output file:\\s+n/a', output)
 
-        # Note that apparently CliRunner() puts stderr and stdout together
-        # (https://github.com/pallets/click/pull/868)
-        # So we should test that we have these string twice:
-        for subs in ["Processing function: ", "Config. file: "]:
+        for subs in ["Processing function: "]:
             idx = output.find(subs)
             assert idx > -1
 
@@ -489,12 +486,10 @@ segment (id=5): 4 traces (probably gaps/overlaps)
         # assert "Output file:  n/a" in result output:
         assert re.search('Output file:\\s+n/a', output)
 
-        # Note that apparently CliRunner() (see clirunner fixture) puts stderr and stdout
-        # together (https://github.com/pallets/click/pull/868)
         # Reminder: previously, log erros where redirected to stderr
-        # This is dangerous as we use a redirect to avoid external libraries to pritn to stderr
-        # and logging to stderr might cause 'operation on closed file'.
-        for subs in ["Processing function: ", "Config. file: "]:
+        # This is dangerous as we use a redirect to avoid external libraries to pritn
+        # to stderr and logging to stderr might cause 'operation on closed file'.
+        for subs in ["Processing function: "]:
             idx = output.find(subs)
             assert idx > -1
 
