@@ -41,7 +41,7 @@ class patches:
     get_session = 'stream2segment.process.main.get_session'
     close_session = 'stream2segment.process.main.close_session'
     run_process = 'stream2segment.process.main._run_and_write'
-    # configlog4processing = 'stream2segment.process.main.configlog4processing'
+    configlog4processing = 'stream2segment.process.main.configlog4processing'
 
 
 class Test:
@@ -709,10 +709,118 @@ segment (id=5): 4 traces (probably gaps/overlaps)
             assert 'Overwriting existing output file' in logtext4
 
 
+    def test_process_verbosity(self,
+                               # fixtures:
+                               capsys, pytestdir, db4process, config_dict):
+
+        if not db4process.is_sqlite:
+            pytest.skip("Skipping postgres test (only sqlite memory used)")
+
+        # mock configlog4processing:
+        from stream2segment.process.log import \
+            configlog4processing as original_config_log
+        # store stuff in this dict when running configlog below:
+        logvar = {'numloggers': 0, 'logfilepath': None}
+        # define mocking function configlog:
+        def configlog(logger, logfilebasepath, verbose):
+            for h in logger.handlers[:]:
+                logger.removeHandler(h)
+            # config logger as usual, but redirects to a temp file
+            # that will be deleted by pytest, instead of polluting the program
+            # package:
+            original_config_log(logger,
+                                pytestdir.newfile('.log') if logfilebasepath else None,
+                                verbose)
+
+            logvar['numloggers'] = len(logger.handlers)
+            logvar['logfilepath'] = None
+            try:
+                logvar['logfilepath'] = logger.handlers[0].baseFilename
+            except (IndexError, AttributeError):
+                pass
+
+        with patch(patches.configlog4processing, side_effect=configlog) as mock_configlog:
+
+            def main(segment, config):
+                """no-op processing function"""
+                return None
+
+            # run verbosity = True, with output file. This configures a logger
+            # to log file and a logger stdout
+            config = config_dict()
+            outfilepath = pytestdir.newfile()
+            _ = process(dburl=db4process.dburl, pyfunc=main,
+                        segments_selection={'has_data': 'true'},
+                        config=config,
+                        outfile=outfilepath,
+                        verbose=True, logfile=True)
+            out, err = capsys.readouterr()
+            assert len(out)
+            assert logvar['numloggers'] == 2
+            with open(logvar['logfilepath']) as _opn:  # noqa
+                expected_out = _opn.read()
+            # assert out ==- expected_out, but ignore spaces/newlines which might differ:
+            assert re.sub(r'\s+', ' ', expected_out.strip()) == \
+                   re.sub(r'\s+', ' ', out.strip())
+
+            # run verbosity = False, with output file. This configures a logger
+            # to log file
+            config = config_dict()
+            outfilepath = pytestdir.newfile()
+            _ = process(dburl=db4process.dburl, pyfunc=main,
+                        segments_selection={'has_data': 'true'},
+                        config=config,
+                        outfile=outfilepath,
+                        logfile=False, verbose=False)
+            out, err = capsys.readouterr()
+            assert not out
+            assert logvar['numloggers'] == 0
+
+            # run verbosity = False, with output file. This configures a logger
+            # to log file
+            config = config_dict()
+            outfilepath = pytestdir.newfile()
+            _ = process(dburl=db4process.dburl, pyfunc=main,
+                        segments_selection={'has_data': 'true'},
+                        config=config,
+                        outfile=outfilepath,
+                        logfile=True, verbose=False)
+            out, err = capsys.readouterr()
+            assert not out
+            assert logvar['numloggers'] == 1
+
+            # run verbosity = True, with no output file. This configures a
+            # logger stderr and a logger stdout
+            config = config_dict()
+            # outfilepath = pytestdir.newfile()
+            _ = process(dburl=db4process.dburl, pyfunc=main,
+                        segments_selection={'has_data': 'true'},
+                        config=config,
+                        outfile=None,
+                        logfile=True, verbose=True)
+            out, err = capsys.readouterr()
+            assert out
+            assert logvar['numloggers'] == 1
+
+            # run verbosity = False, with no output file. This configures a
+            # logger stderr but no logger
+            config = config_dict()
+            # outfilepath = pytestdir.newfile()
+            _ = process(dburl=db4process.dburl, pyfunc=main,
+                        segments_selection={'has_data': 'true'},
+                        config=config,
+                        outfile=None,
+                        logfile=False, verbose=False)
+            out, err = capsys.readouterr()
+            assert not out
+            assert logvar['logfilepath'] is None
+            assert logvar['numloggers'] == 0
+
+
 def read_processing_output(filename, header=True):  # <- header only for csv
     ext = os.path.splitext(filename)[1].lower()
     if ext == '.hdf':
-        return pd.read_hdf(filename).reset_index(drop=True, inplace=False)
+        return pd.read_hdf(filename).reset_index(drop=True, inplace=False)  # noqa
     elif ext == '.csv':
         return pd.read_csv(filename, header=None) if not header \
             else pd.read_csv(filename)

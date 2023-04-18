@@ -15,7 +15,9 @@ arguments:
 - segment: the Segment object (for details, see {{ THE_SEGMENT_OBJECT_WIKI_URL }})
 - config: a Python `dict` representing the parameters set in the associated YAML file.
 In case of exception raised from a GUI function, the program will catch the exception
-and display the exception message on the corresponding plot area.
+and display the exception message on the corresponding plot area. All functions will
+be called with a copy of the ObsPy Trace object, so any inplace modification made to
+segment.stream() can be safely done without modifying any other plot.
 GUI functions implementation details:
 
 
@@ -55,32 +57,13 @@ bottom, the default, 'r' means next to the main plot, on its right) and the othe
 axis of the plot (for info, see: https://plot.ly/python/axes/).
 
 When not given, axis types (e.g., date time vs numeric) will be inferred from the
-function's returned value which *must* be a numeric sequence (y values) taken at
-successive equally spaced points (x values) in any of these forms:
-
-- ObsPy Trace object
-
-- ObsPy Stream object
-
-- the tuple (x0, dx, y) or (x0, dx, y, label), where
-
-    - x0 (numeric, `datetime` or `UTCDateTime`) is the abscissa of the first point.
-      For time-series abscissas, UTCDateTime is quite flexible with several input
-      formats. For info see:
-      https://docs.obspy.org/packages/autogen/obspy.core.utcdatetime.UTCDateTime.html
-
-    - dx (numeric or `timedelta`) is the sampling period. If x0 has been given as
-      datetime or UTCDateTime object and 'dx' is numeric, its unit is in seconds
-      (e.g. 45.67 = 45 seconds and 670000 microseconds). If `dx` is a timedelta object
-      and x0 has been given as numeric, then x0 will be converted to UtcDateTime(x0).
-
-    - y (numpy array or numeric list) are the sequence values, numeric
-
-    - label (string, optional) is the sequence name to be displayed on the plot legend.
-
-- a dict of any of the above types, where the keys (string) will denote each sequence
-  name to be displayed on the plot legend (and will override the 'label' argument, if
-  provided)
+function's returned value which *must* be either:
+- an ObsPy Trace object
+- an ObsPy Stream object
+- a dict compatible with the plot browser library (Ideally, at least the 'y' key must
+  be present, usually mapped to a numeric list of values. For a full list of keys, see
+  https://plotly.com/javascript/reference/)
+- a list of any object type described above
 """
 from datetime import datetime, timedelta
 from math import factorial  # for savitzky_golay function
