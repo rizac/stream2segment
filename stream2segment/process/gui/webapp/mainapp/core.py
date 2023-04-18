@@ -330,10 +330,11 @@ def get_plots(seg_id, plot_indices, preprocessed, all_components, zooms):
     segment = get_segment(seg_id)
     plots = []
     for i in plot_indices:
-        plot = get_plot(segment, preprocessed, i, None)
+        zoom = None
+        plot = get_plot(segment, preprocessed, i, zoom)
         if i == 0 and all_components and isinstance(plot, list):
             for seg in segment.siblings(include_self=False):
-                plt = get_plot(seg, preprocessed, i)
+                plt = get_plot(seg, preprocessed, i, zoom)
                 if isinstance(plt, str):
                     plot = plt
                     break
