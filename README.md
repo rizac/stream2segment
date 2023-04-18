@@ -77,28 +77,21 @@ In a nutshell:
     for user who prefer this approach instead of the processing module described
     below (online version **[here](https://github.com/rizac/stream2segment/wiki/Using-Stream2segment-in-your-Python-code)**)
 
- 3. **A Python module with relative configuration in YAML syntax illustrating how
-    to process downloaded data, or visualize it in your browser**. By default, the processing produces
-    a tabular output (one row per segment) in either CSV or HDF format, and the visualization
-    creates several plots such as cumulative and spectrum. The files can be edited with no restrictions as 
-    any other YAML or Python file (all documentation is provided in the files as block comments) in order to:
+ 3. **Two Python modules (with relative configuration in YAML syntax)** illustrating how
+    to:
  
-    1. process downloaded data by executing the Python module as script (see code block after `if __name__ == "__main__"` in the module):
+    1. process downloaded data and produce a tabular output (CSV, HDF) by executing the module as script (see code block after `if __name__ == "__main__"` in the module):
        ```console
-       python <processing_module>
+       python paramtable.py
        ```
          
-    2. process downloaded data via the stream2segment `process` command (type `s2s process --help` for details):
+    2. visualize downloaded data in the user browser via the plots defined in the module:
        ```console
-       s2s process -c <config_file> -p <processing_module> ...
+       s2s show -d download.yaml -p gui.py
        ```
-         
-    3. visualize downloaded data:
-       ```console
-       s2s show -c <config_file> -p <processing_module> ...
-       ```
-       (`s2s show` can be run also without a custom module and config as arguments.
-       Type `s2s show --help` for details)
+       (Type `s2s show --help` for details)
+    
+    Both modules can be copied and edited to produce custom output or visualize custom plots.
     
     > Notes: the use of a YAML file is not mandatory but tries to enforce the good practice of
       separating options or settings (e.g. select the segment of interest)
