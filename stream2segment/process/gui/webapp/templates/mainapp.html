@@ -36,35 +36,35 @@
 				<div class="flex-direction-row toolbar" ng-show="segmentsCount>0">
 					<h4>Segment {{ segIdx + 1 }} of {{ segmentsCount.toLocaleString('en-US') }}</h4>
 					<button id="prev-segment-btn" class='btn btn-default center' ng-click="setPreviousSegment()"
-							title="previous segment (keyboard: left arrow)">
+							title="previous segment (keyboard: left arrow)" style="margin-left:.5rem">
 						<span class='arrow-left'></span>
 					</button>
 					<button id="next-segment-btn" class='btn btn-default center' ng-click="setNextSegment()"
-							title="next segment (keyboard: right arrow)">
+							title="next segment (keyboard: right arrow)" style="margin-left:.5rem">
 						<span class='arrow-right'></span>
 					</button>
 				</div>
 				
-				<button class='btn btn-default' ng-click="showSelectForm()">
+				<button class='btn btn-default' ng-click="showSelectForm()" style="margin-left:.5rem">
 					Select
 				</button>
 				
-				<div class="flex-direction-row toolbar" ng-show="segmentsCount>0">
+				<div class="flex-direction-row toolbar" ng-show="segmentsCount>0" style="margin-left:.5rem">
 					<h4>Plots:</h4>		
-					<label ng-show="hasPreprocessFunc" title="{% endraw %}{{ preprocessfunc_doc }}{% raw %}">
+					<label ng-show="hasPreprocessFunc" title="{% endraw %}{{ preprocessfunc_doc }}{% raw %}" style="margin-left:.5rem">
 						<input type="checkbox" ng-model="showPreProcessed" ng-change="togglePreProcess()"> Pre-process
 					</label>
-					<label>
+					<label  style="margin-left:.5rem">
 						<input type="checkbox" ng-model="showAllComponents" ng-change="toggleAllComponentView()"> Show all orientations
 					</label>
 				</div>
 	
-				<button class='btn btn-default' ng-click="showConfigForm()">
+				<button class='btn btn-default' ng-click="showConfigForm()" style="margin-left:.5rem">
 					Config
 				</button>
 
-				<div class="flexible text-right" ng-show="!warnMsg && !loading">DB: {% endraw %}{{ dburl }}{% raw %}</div>
-				<div class="flexible" ng-show='warnMsg || loading' ng-class="warnMsg && !loading ? 'select-highlighted-err' : ''">{{ warnMsg }} <div ng-show='loading' class='loader'></div></div>
+				<div class="flexible text-right" ng-show="!warnMsg && !loading" style="margin-left:.5rem">DB: {% endraw %}{{ dburl }}{% raw %}</div>
+				<div class="flexible" ng-show='warnMsg || loading' ng-class="warnMsg && !loading ? 'select-highlighted-err' : ''" style="margin-left:.5rem">{{ warnMsg }} <div ng-show='loading' class='loader'></div></div>
 			</div>
 		</div>
 		<div class="center flexible flex-direction-row">

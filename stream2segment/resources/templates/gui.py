@@ -4,21 +4,22 @@ Stream2segment Graphical User Interface (GUI) Python module
 =========================================================================
 
 This Python module defines the plots to be displayed in a web browser GUI via
- the `show` command, e.g.: `s2s show -d download.yaml -p <this_file_path>`
+the `show` command, e.g.: `s2s show -d download.yaml -p <this_file_path>`
 
 
 GUI functions implementation
 ============================
 
-GUI functions are Python functions with specific decorators attached, and must have two
-arguments:
-- segment: the Segment object (for details, see {{ THE_SEGMENT_OBJECT_WIKI_URL }})
-- config: a Python `dict` representing the parameters set in the associated YAML file.
-In case of exception raised from a GUI function, the program will catch the exception
-and display the exception message on the corresponding plot area. All functions will
-be called with a copy of the ObsPy Trace object, so any inplace modification made to
-segment.stream() can be safely done without modifying any other plot.
-GUI functions implementation details:
+GUI functions are Python functions with specific decorators attached. Regardless
+of the decorator type (described in details below), remember that all GUI functions:
+- must have two arguments:
+   - segment: the Segment object (for details, see {{ THE_SEGMENT_OBJECT_WIKI_URL }})
+   - config: a Python `dict` representing the parameters set in the associated YAML file.
+- can raise any Exception, in which case the exception message will be displayed
+  as text on the corresponding plot area
+- get a new copy of `segment.stream()` (the ObsPy Stream object holding the segment
+  waveform), which means you do not necessarily need to copy the Stream because any
+  inplace modification will not affect other GUI plots
 
 
 1. Pre-process function
@@ -54,14 +55,14 @@ def spectra(segment, config)
 The 'position' argument controls where the plot will be placed in the GUI ('b' means
 bottom, the default, 'r' means next to the main plot, on its right) and the other two,
 `xaxis` and `yaxis`, are dict (defaulting to the empty dict: {}) controlling the x and y
-axis of the plot (for info, see: https://plot.ly/python/axes/).
+axis of the plot (for info, see: https://plotly.com/javascript/axes/).
 
 When not given, axis types (e.g., date time vs numeric) will be inferred from the
 function's returned value which *must* be either:
 - an ObsPy Trace object
 - an ObsPy Stream object
-- a dict compatible with the plot browser library (Ideally, at least the 'y' key must
-  be present, usually mapped to a numeric list of values. For a full list of keys, see
+- a dict compatible with the plot browser library (usually, at least the 'y' key must
+  be present - see examples in this module. For a full list of keys, see
   https://plotly.com/javascript/reference/)
 - a list of any object type described above
 """
@@ -305,7 +306,6 @@ def sn_windows(segment, config):
         tuples (f0, df, frequencies)
     """
     signal_trace, noise_trace = signal_noise_traces(segment, config)
-    trace = segment.stream()[0]
     signal = {
         'x0': signal_trace.stats.starttime,
         'dx': signal_trace.stats.delta * 1000,  # dt in plots must be msec
@@ -318,17 +318,31 @@ def sn_windows(segment, config):
         'y': noise_trace.data,
         'name': 'Noise'
     }
-    trace = {
-        'x0': trace.stats.starttime,
-        'dx': trace.stats.delta * 1000,  # delta is in msec
-        'y': trace.data,
-        'name': 'Full segment',
-        'line': {
-            'color': 'rgba(0,0,0,0.1)'  # avoid trace hiding windows
-        }
-    }
+    all_traces = [signal, noise]
+    # add the underlying trace, but to avoid plotting overlapping points
+    # only the portion not included in signal and noise
+    original_trace = segment.stream()[0]
+    times = (
+        (original_trace.stats.starttime, noise_trace.stats.starttime),
+        (noise_trace.stats.endtime, signal_trace.stats.starttime),
+        (signal_trace.stats.endtime, original_trace.stats.endtime)
+    )
+    for stime, etime in times:
+        if etime <= stime:
+            continue
+        trace = original_trace.slice(stime, etime)
+        all_traces.append({
+            'x0': trace.stats.starttime,
+            'dx': trace.stats.delta * 1000,  # delta is in msec
+            'y': trace.data,
+            'name': 'Full segment',
+            'line': {
+                'color': 'rgba(0,0,0,0.1)'  # avoid trace hiding windows
+            }
+        })
+    return all_traces
     # note: order matters for colors and placement (last traces on top):
-    return [signal, noise, trace]
+    # return [signal, noise, trace]
 
 
 @gui.plot
