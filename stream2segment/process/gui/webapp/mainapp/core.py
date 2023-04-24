@@ -23,7 +23,7 @@ from stream2segment.io import yaml_safe_dump
 from stream2segment.process.gui.webapp.mainapp import db
 
 
-# Note that the use of global variables like this should be investigted
+# Note that the use of global variables like this should be investigated
 # in production (which is not the intended goal of the web GUI for the moment):
 
 g_config = {}  # global config
@@ -101,8 +101,9 @@ def init(app, session, pymodule=None, config=None, segments_selection=None):
     if config:
         g_config.update(config)
 
-    if segments_selection:
-        g_selection.update(segments_selection)
+    # if segments_selection:
+        # g_selection.update(segments_selection)
+    set_select_conditions(segments_selection)
 
 
 def _reset_global_vars():
@@ -487,7 +488,12 @@ def _jsonify(obj):
                 obj2[nonfinite] = None
             return obj2.tolist() if is_ndarray else obj
         return None if obj != obj or obj in (-math.inf, math.inf) else obj
-    except (TypeError, ValueError):
+    except TypeError:  # raised by np.isfinite
+        if isinstance(obj, (list, tuple)):
+            # (we might have e.g. a list of UTCDateTimes):
+            return [_jsonify(_) for _ in obj]
+        return obj
+    except ValueError:
         return obj
 
 

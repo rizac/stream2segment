@@ -15,7 +15,7 @@ from stream2segment.process.db.sqlevalexpr import exprquery, get_pytype, get_sql
 
 # import atexit
 
-_session = None  # pylint: disable=invalid-name
+_session = None  # noqa
 
 
 def init(app, session):

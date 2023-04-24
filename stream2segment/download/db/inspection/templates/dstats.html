@@ -1,11 +1,10 @@
 {% extends "base.html" %}
-{% set use_ng = false %}
-{% set use_esrileaflet = true %}
+{% set use_axios = false %}
 {% set use_plotly = false %}
 {% set use_bootstrap_css = false %}
 
 {% block head_scripts %}
-    {{ super() }}
+	{{ super() }}
 	<script type='text/javascript'>
 		GLOBALS={
 			sta_data:{{sta_data_json}},
@@ -21,19 +20,13 @@
 {% endblock %}
 
 {% block head_stylesheets %}
-    {{ super() }}
-    <style>
-    	{% include 'base.css' %}
+	{{ super() }}
+	<style>
 		{% include 'dstats.css' %}
 	</style>
 {% endblock %}
 
-{% block body_tag %}
-<body onload="updateMap()">
-{% endblock %}
-
 {% block body_content %}
-	
 	<div class="main flex-direction-col">
 		<div class='flexible' id="map"></div>
 		
@@ -51,29 +44,29 @@
 					</td>
 					<td>Triangles: stations with downloaded waveform data segments</td>
 				</tr>
-		    		<tr>
-		    			<td class='right nowrap'>
-		    				<span id='minval'>0%</span>
-		    				<span class='colorbar'></span>
-		    				<span id='maxval'>100%</span>
-		    			</td>
-		    			<td>Colors: % of segments in selected categories (see 'Options')</td>
-		    		</tr>
-		    		<tr>
-		    			<td class='right nowrap'>
-		    				<svg class='svg-tirangle' xmlns='http://www.w3.org/2000/svg' version='1.1' width='8' height='6.92'>
+					<tr>
+						<td class='right nowrap'>
+							<span id='minval'>0%</span>
+							<span class='colorbar'></span>
+							<span id='maxval'>100%</span>
+						</td>
+						<td>Colors: % of segments in selected categories (see 'Options')</td>
+					</tr>
+					<tr>
+						<td class='right nowrap'>
+							<svg class='svg-tirangle' xmlns='http://www.w3.org/2000/svg' version='1.1' width='8' height='6.92'>
 								<polygon points='0,6.92 4,0 8,6.92' style='fill:rgb(255, 255, 255);stroke:#333;stroke-width:1' />
 							</svg>
-		    				<svg class='svg-tirangle' xmlns='http://www.w3.org/2000/svg' version='1.1' width='10' height='8.65'>
+							<svg class='svg-tirangle' xmlns='http://www.w3.org/2000/svg' version='1.1' width='10' height='8.65'>
 								<polygon points='0,8.65 5,0 10,8.65' style='fill:rgb(255, 255, 255);stroke:#333;stroke-width:1' />
 							</svg>
 							<svg class='svg-tirangle' xmlns='http://www.w3.org/2000/svg' version='1.1' width='12' height='10.38'>
 								<polygon points='0,10.38 6,0 12,10.38' style='fill:rgb(255, 255, 255);stroke:#333;stroke-width:1' />
 							</svg>
-		    			</td>
-		    			<td>Sizes: total number of segments</td>
-		    		</tr>
-		    </table>
+						</td>
+						<td>Sizes: total number of segments</td>
+					</tr>
+			</table>
 		</div>
 		
 		<!-- this div will be removed and added as control to the map.
@@ -137,4 +130,8 @@
 
 {% block after_body %}
 <script type='text/javascript'>{% include 'leafletmap.js' %}</script>
+
+<script type='text/javascript'>
+window.addEventListener('DOMContentLoaded', updateMap, false);
+</script>
 {% endblock %}

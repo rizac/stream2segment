@@ -20,13 +20,13 @@
     left: 32.5vw;
 }
 
-
+/*
 div.plot-wrapper{ 
 	position:relative;
 }
-
+*/
 /*child of plot-wrapper defined above*/
-div.plot{ 
+/*div.plot{
 	position: absolute;
 	margin:0;
 	padding:0;
@@ -34,7 +34,7 @@ div.plot{
 	bottom:0px;
 	right:0px;
 	left:0px;
-}
+}*/
 
 .navbar{
 	padding: 5px;

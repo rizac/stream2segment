@@ -60,8 +60,34 @@ function createMap(){
 	// creates the leaflet map, setting its initial bounds. Call map.getBounds() to return them
 	GLOBALS.map = map = new L.Map('map');
 	// initialize the map if not already init'ed
-	L.esri.basemapLayer("Topographic").addTo(map);
-	// L.esri.basemapLayer("OceansLabels").addTo(map);
+	// provide two base layers. Keep it simple as many base layers are just to shof off
+	// and they do not need to be the main map concern
+	/*
+	// 1 MapBox Outdorrs (if you want more, sign in to mapbox. FIXME: why is it working with the token then?)
+	var geoportailLayer = L.tileLayer('https://wxs.ign.fr/{apikey}/geoportail/wmts?REQUEST=GetTile&SERVICE=WMTS&VERSION=1.0.0&STYLE={style}&TILEMATRIXSET=PM&FORMAT={format}&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}', {
+		attribution: '<a target="_blank" href="https://www.geoportail.gouv.fr/">Geoportail France</a>',
+		bounds: [[-75, -180], [81, 180]],
+		minZoom: 2,
+		maxZoom: 19,
+		apikey: 'choisirgeoportail',
+		format: 'image/jpeg',
+		style: 'normal'
+	}).addTo(map);
+	*/
+	// 2 CartoDB gray scale map (very good with overlays, as in our case)
+	// the added base layer added is set selected by default (do not add the others then)
+	var cartoLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+		attribution: '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+		subdomains: 'abcd',
+		maxZoom: 19
+	}).addTo(map);
+/*
+	// instantiate a layer control (the button on the top-right corner for showing/hiding overlays
+	// overlays will be added when setting the tr model
+	var layersControl = L.control.layers({
+		'Map: Geoportail': geoportailLayer, 'Map: Carto': cartoLayer
+			}, {}, {collapsed: false, position: 'bottomleft'}).addTo(map);  // https://gis.stackexchange.com/a/68243
+*/
 	createLegend(map);
 	createOptionsMenu(map);
 	// create bounds and fit now, otherwise the map mathods latlng will not work:
