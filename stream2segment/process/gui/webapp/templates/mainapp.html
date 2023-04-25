@@ -70,6 +70,11 @@ body{
 				   {% if preprocess_func_on -%}checked{%- endif %}
 				   onchange="refreshView(null, false, null)"> Pre-process
 		</label>
+		<label  style="margin-left:.5rem">
+			<input type="checkbox"
+				   id="show_all_components_input"
+				   onchange="refreshView(null, false, null)"> Show all orientations
+		</label>
 		<button class='btn btn-default' onchange="showConfigForm()" style="margin-left:.5rem">
 			Config
 		</button>
