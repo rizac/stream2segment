@@ -47,13 +47,17 @@ def main():
         metadata_chunk[0][-1] = 'border-top: 2px solid lightgray'
         metadata.extend(metadata_chunk)
 
+    r_plots = [{**p, 'name': n} for n, p in ud_plots.items() if p['position'] == 'r']
+    b_plots = [{**p, 'name': n} for n, p in ud_plots.items() if p['position'] == 'b']
+
     return render_template('mainapp.html',
                            num_segments=len(core.g_segment_ids),
                            title=core.get_db_url(safe=True),
-                           rightPlots=[_ for _ in ud_plots if _['position'] == 'r'],
-                           bottomPlots=[_ for _ in ud_plots if _['position'] == 'b'],
+                           rightPlots=r_plots,
+                           bottomPlots=b_plots,
                            metadata=metadata,
                            classes=classes,
+                           preprocess_func_on=False,
                            preprocessfunc_doc=core.get_func_doc(-1))
 
 
@@ -105,14 +109,14 @@ def set_selection():
         return jsonify({'num_segments': 0, 'error_msg': str(exc)})
 
 
-@main_app.route("/get_segment", methods=['POST'])
+@main_app.route("/get_segment_data", methods=['POST'])
 def get_segment_data():
     """Return the response for the segment data (and/or metadata)"""
     data = request.get_json()
     seg_index = data['seg_index']
     seg_count = data['seg_count']
     seg_id = core.get_segment_id(seg_index, seg_count)
-    plot_indices = data.get('plot_indices', [])
+    plot_names = data.get('plot_names', {})
     preprocessed = data.get('pre_processed', False)
     zooms = data.get('zooms', None)
     all_components = data.get('all_components', False)
@@ -120,7 +124,7 @@ def get_segment_data():
     classes = data.get('classes', False)
     config = data.get('config', {})
     return jsonify(core.get_segment_data(seg_id,
-                                         plot_indices, all_components,
+                                         plot_names, all_components,
                                          preprocessed, zooms,
                                          metadata, classes, config))
 

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html style="height:100%">
+<html>
 <head>
 	<title>{{ title }}</title>
 {% block head_meta %}
@@ -8,7 +8,14 @@
 {% endblock %}
 	<link href="https://fonts.googleapis.com/css?family=Montserrat" rel="stylesheet">
 	<style>
-		body, html{font-family: 'Montserrat', "Lucida Sans Unicode", Arial, Helvetica, sans-serif !important;}
+	{% block head_css %}
+		body, html{
+			font-family: 'Montserrat', "Lucida Sans Unicode", Arial, Helvetica, sans-serif !important;
+			margin:0;
+			padding:0;
+			height:100%;
+		}
+	{% endblock %}
 	</style>
 {% block head_scripts %}
 	{% if use_axios %}
@@ -31,7 +38,7 @@
 {% endblock %}
 </head>
 
-<body style="margin:0, padding:0; height:100%" >
+<body>
 	{% block body_content %}
 	{% endblock %}
 </body>

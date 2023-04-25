@@ -49,19 +49,24 @@ def _default_preprocessfunc(segment, config):
     # raise Exception("No function decorated with '@gui.preprocess'")
 
 
-_preprocessfunc = _default_preprocessfunc  # pylint: disable=invalid-name
+# global variables (will be initialized in _reset_global_functions, see below):
 
-g_functions = [lambda seg, cfg: seg.stream()]  # pylint: disable=invalid-name
-
-userdefined_plots = []  # pylint: disable=invalid-name
+_preprocessfunc = _default_preprocessfunc
+g_functions = {}
+userdefined_plots = {}
 
 
 def _reset_global_functions():
     """mainly used for testing purposes and within the init method"""
-    global _preprocessfunc  # pylint: disable=global-statement, invalid-name
+    global _preprocessfunc
     _preprocessfunc = _default_preprocessfunc
-    del g_functions[1:]
-    del userdefined_plots[:]
+    global g_functions
+    g_functions = {"": lambda seg, cfg: seg.stream()}
+    global userdefined_plots
+    userdefined_plots = {}
+
+
+_reset_global_functions()  # just initialize global vars
 
 
 def init(app, session, pymodule=None, config=None, segments_selection=None):
@@ -84,17 +89,18 @@ def init(app, session, pymodule=None, config=None, segments_selection=None):
                 global _preprocessfunc  # noqa
                 _preprocessfunc = function
             elif att == 'gui.plot':
-                userdefined_plots.append(
+                func_name = function.__name__
+                userdefined_plots[func_name] = (
                     {
-                        'name': function.__name__,
-                        'index': len(g_functions),  # index >=1
                         'position': pos,
-                        'xaxis': xaxis,
-                        'yaxis': yaxis,
+                        'layout': {  # layout object for the plotly library
+                            'xaxis': xaxis,
+                            'yaxis': yaxis
+                        },
                         'doc': _escapedoc(function.__doc__)
                     }
                 )
-                g_functions.append(function)
+                g_functions[func_name] = function
 
     _reset_global_vars()
 
@@ -116,16 +122,13 @@ def get_db_url(safe=True):
     return db.get_db_url(safe=safe)
 
 
-def get_func_doc(index=-1):
+def get_func_doc(function):
     """Return the documentation for the given custom function.
 
-    :param index: if negative, returns the doc for the preprocess function,
-        otherwise is the index of the i-th function (index 0 refers to the main
-        function plotting the segment stream)
+    :param function: a Ptyhon function. Usually, either the global variable
+        `_preprocessfunc` or the values of the global fict `g_functions`
     """
-    if index < 0:
-        return _escapedoc(getattr(_preprocessfunc, "__doc__", ''))
-    return userdefined_plots[index]['doc']
+    return _escapedoc(function.__doc__)
 
 
 def _escapedoc(string):
@@ -247,12 +250,13 @@ def set_class_id(seg_id, class_id, value):
     return {}
 
 
-def get_segment_data(seg_id, plot_indices, all_components, preprocessed,
+def get_segment_data(seg_id, plot_names, all_components, preprocessed,
                      zooms, metadata=False, classes=False, config=None):
     """Return the segment data, depending on the arguments
 
     :param seg_id: the segment id (int)
-    :param plot_indices: a list of plots to be calculated
+    :param plot_names: a list of plot names to be calculated. "" indicates the default
+        plot
     :param all_components: boolean, whether or not the returned plots should
         include all segments components (channel orientations). Ignored if 0 is
         not in `plot_indices`
@@ -273,22 +277,25 @@ def get_segment_data(seg_id, plot_indices, all_components, preprocessed,
         the config
     """
     plots = []
-    zooms_ = parse_zooms(zooms, plot_indices)
+    if zooms is None and plot_names:
+        zooms = [(None, None) for _ in plot_names]
     sn_windows = []
     if config:
         g_config.update(**config)
 
-    if plot_indices:
-        plots = get_plots(seg_id, plot_indices, preprocessed, all_components, zooms_)
-        try:
-            # return always sn_windows, as we already calculated them. It is
-            # better to call this method AFTER get_plots_func defined above
-            sn_windows = [sorted([_jsonify(x[0]), _jsonify(x[1])])
-                          for x in exec_func(get_segment(seg_id),
-                                             preprocessed,
-                                             get_sn_windows)]
-        except Exception:  # pylint: disable=broad-except
-            sn_windows = []
+    # if plot_indices:
+    #     plots = get_plots(seg_id, plot_indices, preprocessed, all_components, zooms_)
+    #     try:
+    #         # return always sn_windows, as we already calculated them. It is
+    #         # better to call this method AFTER get_plots_func defined above
+    #         sn_windows = [sorted([_jsonify(x[0]), _jsonify(x[1])])
+    #                       for x in exec_func(get_segment(seg_id),
+    #                                          preprocessed,
+    #                                          get_sn_windows)]
+    #     except Exception:  # pylint: disable=broad-except
+    #         sn_windows = []
+    if plot_names:
+        plots = get_plots(seg_id, plot_names, preprocessed, all_components, zooms)
 
     return {
         'plots': plots,
@@ -301,26 +308,7 @@ def get_segment_data(seg_id, plot_indices, all_components, preprocessed,
     }
 
 
-def parse_zooms(zooms, plot_indices):
-    """Parse the zoom received from the frontend.
-
-    :param zooms: a list of 2-element tuples, or None's. The elements of the
-        tuple can be number, Nones or strings (in datetime format)
-    :return: an iterator over zooms
-    """
-    if not zooms or not plot_indices:
-        zooms = cycle([None, None])  # to be safe in iterations
-    _zooms = []
-    for plot_index in plot_indices:
-        try:
-            zoom = zooms[plot_index]
-        except (IndexError, TypeError):
-            zoom = [None, None]
-        _zooms.append(zoom)
-    return _zooms  # set zooms to None if length is not enough
-
-
-def get_plots(seg_id, plot_indices, preprocessed, all_components, zooms):
+def get_plots(seg_id, plot_names, preprocessed, all_components, zooms):
     """Return the plots
 
     :param all_components: if 0 is not in plot_indices, it is ignored.
@@ -329,35 +317,36 @@ def get_plots(seg_id, plot_indices, preprocessed, all_components, zooms):
     :param zooms: list of x bounds to zoom or None, one for each plot (not used)
     """
     segment = get_segment(seg_id)
-    plots = []
-    for i in plot_indices:
+    plots = {}
+    for name in plot_names:
         zoom = None
-        plot = get_plot(segment, preprocessed, i, zoom)
-        if i == 0 and all_components and isinstance(plot, list):
+        plot = get_plot(segment, preprocessed, name, zoom)
+        if not name and all_components and isinstance(plot, list):
             for seg in segment.siblings(include_self=False):
-                plt = get_plot(seg, preprocessed, i, zoom)
+                plt = get_plot(seg, preprocessed, name, zoom)
                 if isinstance(plt, str):
                     plot = plt
                     break
                 else:
                     plot.extend(plt)
-        plots.append(plot)
+        plots[name] = plot
     return plots
 
 
-def get_plot(segment, preprocessed, func_index, zoom):
+def get_plot(segment, preprocessed, func_name, zoom):
     """Return a jsplot.Plot object corresponding to the given function
     applied on the given segment
 
     :param segment: a Segment instance
     :param preprocessed: boolean, whether the function has to be applied on
         the pre-processed trace of the segment
-    :param func_index: the index of the function to be called. It is one
+    :param func_name: the name of the function to be called. It is one
         implemented in the python module with the relative decorator, and must
-        have signature: func(segment, config)
+        have signature: func(segment, config). "" denotes the default function
+        (just print print the trace)
     """
     try:
-        func = exec_func(segment, preprocessed, g_functions[func_index])
+        func = exec_func(segment, preprocessed, g_functions[func_name])
         return convert2plotly(func, zoom)
     except Exception as exc:
         return 'Error ' + str(exc)

@@ -4,16 +4,49 @@
 {% set use_leaflet = false %}
 {% set use_bootstrap_css = true %}
 
-{% block head_stylesheets %}
+{% block head_css %}
 {{ super() }}
-<!--<link href="static/css/mainapp.css" rel="stylesheet" media="screen">-->
+body{
+	background-color: whitesmoke !important;
+	padding: .75rem !important;
+}
+.popup{
+	z-index: 100000;
+	background-color: #f5f5f5;
+	-webkit-background-clip: padding-box;
+	background-clip: padding-box;
+	border: 1px solid #ccc;
+	border: 1px solid rgba(0,0,0,.33);
+	border-radius: 4px;
+	-webkit-box-shadow: 0 6px 12px rgba(0,0,0,.175);
+	box-shadow: 0 6px 12px rgba(0,0,0,.175);
+	padding: 1rem;
+}
+.loader {
+	width: 48px;
+	height: 48px;
+	border: 5px solid #444;
+	border-bottom-color: transparent;
+	border-radius: 50%;
+	display: inline-block;
+	box-sizing: border-box;
+	animation: rotation 1s linear infinite;
+	}
+	@keyframes rotation {
+	0% {
+	    transform: rotate(0deg);
+	}
+	100% {
+	    transform: rotate(360deg);
+	}
+}
 {% endblock %}
 
 {% block body_content %}
 {{ super() }}
 <div class="main d-flex flex-column" style="height:100%">
 	<!-- TOOLBAR -->
-	<div class="d-flex flex-row">
+	<div class="d-flex flex-row align-items-baseline">
 		<h4 id="segment-info">Segment
 			<span id="current_segment_index">{%- if num_segments > 0 -%}1{%- else -%}0{%- endif -%}</span>
 			of
@@ -33,20 +66,14 @@
 		</button>
 		<h4>Plots:</h4>
 		<label title="{{ preprocessfunc_doc }}" style="margin-left:.5rem">
-			<input type="checkbox" onchange="togglePreProcess()"> Pre-process
-		</label>
-		<label  style="margin-left:.5rem">
-			<input type="checkbox" onchange="toggleAllComponentView()"> Show all orientations
+			<input type="checkbox" id="preprocess_func_input"
+				   {% if preprocess_func_on -%}checked{%- endif %}
+				   onchange="refreshView(null, false, null)"> Pre-process
 		</label>
 		<button class='btn btn-default' onchange="showConfigForm()" style="margin-left:.5rem">
 			Config
 		</button>
-		<div style="margin-left:.5rem">
-			<div id="info_message" style="display:none"></div>
-			<div id="error_message" style="display:none; color:red"></div>
-			<div id='loader' class='loader' style="display:none"></div>
-		</div>
-		<div id="db_url" style="margin-left:.5rem">
+		<div id="db_url" style="margin-left:.5rem;flex: 1 1 0;white-space:nowrap;overflow:auto">
 			DB: {{ title }}
 		</div>
 	</div>
@@ -55,20 +82,22 @@
 		<!--LEFT COLUMN PLOTS -->
 		<div class='d-flex flex-column' style="flex: 0 0 50%" >
 			<div style="flex: 1 1 50%; position:relative">
-				<div id='plot-0' style="position:absolute;top:0;right:0;bottom:0;left:0;overflow:hidden"></div>
+				<div id='main-plot' style="position:absolute;top:0;right:1rem;bottom:1rem;left:0;overflow:hidden"></div>
 			</div>
 			<div class="{%- if bottomPlots|length < 1 -%}d-none{%- else -%}d-flex{%- endif %} flex-column" style="flex:1 1 50%">
 				<div style="flex: 1 1 auto; position:relative">
-					<div id='plot-b' style="position:absolute;top:0;right:0;bottom:0;left:0;overflow:hidden"></div>
+					<div id='bottom-plot' style="position:absolute;top:0;right:1rem;bottom:1rem;left:0;overflow:hidden"></div>
 				</div>
 				<div class="d-flex flex-row">
-				 {% for obj in bottomPlots %}
-					<button onclick="S2S.setPlotVisible('{{ obj.name }}')"
-							style="margin-right:.5rem"
-							class='btn btn-sm' title="{{obj.doc}}">
-						{{ obj.name }}
-					</button>
-				{% endfor %}
+					{% for plot in bottomPlots %}
+					<input type="radio" class="btn-check"
+						   name="bottom-plot-option" id="bottom-plot-{{ plot.name }}"
+						   data-plot='["{{ plot.name }}", "bottom-plot", {{ plot.layout | tojson }}]'
+						   onclick="refreshView(JSON.parse(this.getAttribute('data-plot')), false, null)"
+						   {%- if loop.index0 == 0 %} checked {% endif %}
+						   title="{{plot.doc}}" autocomplete="off">
+					<label class="btn btn-sm btn-outline-secondary me-2" for="bottom-plot-{{ plot.name }}">{{ plot.name }}</label>
+					{% endfor %}
 				</div>
 		 	</div>
 		</div>
@@ -77,20 +106,22 @@
 			 <!-- RIGHT TOP PLOT PANEL (WITH BUTTONS) -->
 			<div class="{%- if rightPlots|length < 1 -%}d-none{%- else -%}d-flex{%- endif %} flex-row" style="flex:1 1 50%">
 				<div style="flex: 1 1 auto; position:relative">
-					<div id="plot-r" style="position:absolute;top:0;right:0;bottom:0;left:0;overflow:hidden"></div>
+					<div id="right-plot" style="position:absolute;top:0;right:1rem;bottom:1rem;left:0;overflow:hidden"></div>
 				</div>
 				<div class="d-flex flex-column">
-				{% for obj in rightPlots %}
-					<button onclick="S2S.setPlotVisible('{{ obj.name }}')"
-							style="margin-bottom:.5rem"
-							class='btn btn-sm' title="{{obj.doc}}">
-						{{ obj.name }}
-					</button>
-				{% endfor %}
+					{% for plot in rightPlots %}
+					<input type="radio" class="btn-check"
+						   name="right-plot-option" id="right-plot-{{ plot.name }}"
+						   data-plot='["{{ plot.name }}", "right-plot", {{ plot.layout | tojson }}]'
+						   onclick="refreshView(JSON.parse(this.getAttribute('data-plot')), false, null)"
+						   {%- if loop.index0 == 0 %} checked {% endif %}
+						   title="{{plot.doc}}" autocomplete="off">
+					<label class="btn btn-sm btn-outline-secondary mb-2" for="right-plot-{{ plot.name }}">{{ plot.name }}</label>
+					{% endfor %}
 				</div>
 			</div>
 			<!-- RIGHT BOTTOM PANEL (SEGMENT METADATA) -->
-			<div class="d-flex flex-column" style="flex: 1 1 50%">
+			<div class="d-flex flex-column" style="flex: 1 1 50%; margin-left:1rem">
 				<div>
 					&#9432; Segment id (net.sta.loc.cha code): <span style="font-weight:bold; color:black">{ segData.mainInfo.seedId}}</span>,
 					P-wave arrival: <span style="font-weight:bold; color:black">{ segData.mainInfo.arrivalTime}}</span>. Recorded
@@ -101,27 +132,27 @@
 				<div style="flex:1 1 auto; position:relative">
 					<div style="position:absolute;top:0;right:0;bottom:0;left:0;overflow:auto">
 						<table style="width:100%;">
-							{% for class in classes %}
+							{% for class in classes -%}
 							<tr><td>
 								<label style="white-space: nowrap;"
 									   title="{{ class.label }}{%- if class.description -%}: {{ class.description }}{%- endif -%}">
-									<input type="checkbox" onclick="toggleSegmentClassLabel(class.id)">
+									<input type="checkbox" data-segment-class-id="{{ class.id }}"
+										   onclick="setClassLabel(parseInt(this.getAttribute('data-segment-class-id')), this.hasAttribute('checked'))">
 									{{ class.label }}
 								</label>
 							</td><td title="{{ class.label }}{%- if class.description -%}: {{ class.description }}{%- endif -%}"
 									 style="text-overflow: ellipsis;white-space:nowrap;max-width:0;overflow:hidden" >
 								({{ class.segments }} segments labelled) {{ class.description }}
 							</td>
-							{% endfor %}
-
-							{% for mdata in metadata %}
+							{%- endfor -%}
+							{% for mdata in metadata -%}
 							{% set name = mdata[0] %}
 							{% set cssstyle = mdata[3] %}
 							<tr style="{{ cssstyle }}">
 								<td>{{ name }}</td>
 								<td data-segment-attr="{{ name }}" style='width:100%'>N/A</td>
 							</tr>
-							{% endfor %}
+							{%- endfor -%}
 						</table>
 					</div>
 				</div>
@@ -131,11 +162,13 @@
 </div>
 
 <!-- SELECTION FORM (move at the end so that it does not display long time, it's annoying otherwise) -->
-<div id="select-form" style="display:none" class="popup alert">
+<div id="select-form" style="display:none" class="popup">
 	<!-- Select segments where: -->
-	<a href="#" class="close" data-dismiss="alert" aria-label="close"
-		onclick="closeSelectionForm();return false" style="font-size: xx-large;">&times;</a>
-	<div class="center">
+	<div>
+		<button type="button" class="btn-close" aria-label="Close"
+				onclick="this.parentNode.parentNode.style.display='none'"></button>
+	</div>
+	<div>
 		<table id="table-select">
 			<tr>
 				<th>Attribute</th>
@@ -149,7 +182,7 @@
 					</table>
 				</th>
 			</tr>
-			{% for mdata in metadata %}
+			{% for mdata in metadata -%}
 			{% set name = mdata[0] %}
 			{% set type = mdata[1] %}
 			{% set selection_expression = mdata[2] %}
@@ -169,28 +202,41 @@
 					/>
 				</td>
 			</tr>
-			{% endfor %}
+			{%- endfor -%}
 		</table>
 	</div>
 	<div style='text-align:center'>
-		<button class='btn btn-default' ng-click="selectSegments(selection.selExpr)">Select</button>
+		<button class='btn btn-default' onclick="selectSegments(selection.selExpr)">Select</button>
 	</div>
 </div>
 
-<div id="config-form" class="popup alert" style="display:none">
+<div id="config-form" class="popup" style="display:none">
 	<!-- Config (.yaml file) -->
-	<a href="#" class="close" data-dismiss="alert" aria-label="close" onclick="return false;"
-		ng-click="closeConfigForm()" style="font-size: xx-large;">&times;</a>
+	<div>
+		<button type="button" class="btn-close" aria-label="Close"
+				onclick="this.parentNode.parentNode.style.display='none'"></button>
+	</div>
 	<div>
 	Configuration editor (YAML syntax):
 	</div>
-	<div class="center" id='configEditor'>
+	<div id='configEditor'>
 	</div>
 	<div style='text-align:center'>
-		<button class='btn btn-default' ng-click="updateConfig()">Update</button>
+		<button class='btn btn-default' onclick="updateConfig()">Update</button>
+	</div>
+</div>
+
+<div id="message_dialog" class="popup d-flex flex-column align-items-center"
+	 style="display:none; position: absolute; top:  50%; left: 50%;transform: translate(-50%,-50%);">
+	<span class="loader"></span>
+	<div class="d-flex flex-row align-items-end">
+		<div class="message" style="margin-top:.5rem"></div>
+		<button type="button" class="btn-close" aria-label="Close"
+				onclick="this.parentNode.parentNode.style.display='none'"></button>
 	</div>
 </div>
 {% endblock %}
+
 {% block after_body %}
 	{{ super() }}
 	<script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.17.0/ace.min.js"></script>
@@ -229,106 +275,12 @@
 			}
 		});
 	</script>
-	<script src="static/js/mainapp.js" defer></script>
-<!--	<script type="text/javascript">-->
-<!--		var S2S = new myApp(null, {{ bottomPlots|tojson }}, {{ rightPlots|tojson }});-->
-<!--	</script>-->
+	<script src="static/js/mainapp.js"></script>
 	<script>
-		function setInfoMessage(msg){
-			var elm = document.getElementById('info_message');
-			elm.style.display = msg ? '': 'none';
-			elm.innerHTML = msg || "";
-		}
-		function setErrorMessage(msg){
-			var elm = document.getElementById('error_message');
-			elm.style.display = msg ? '': 'none';
-			elm.innerHTML = msg || "";
-		}
-		function startRequest(){
-			document.getElementById('db_url').style.display = 'none';
-			document.getElementById('loader').style.display = '';
-		}
-		function endResponse(){
-			document.getElementById('db_url').style.display = '';
-			document.getElementById('loader').style.display = 'none';
-		}
-		axios.interceptors.request.use((config) => {
-			startRequest();
-			return config;
-		}, (error) => {
-			endResponse();
-			setErrorMessage("Error: " + error);
-			return Promise.reject(error);
-		});
-		axios.interceptors.response.use((response) => {
-			endResponse();
-			setErrorMessage("");
-			return response;
-		}, (error) => {
-			endResponse();
-			setErrorMessage("Error: " + error.message);
-			return Promise.reject(error.message);
-		});
-
-		function getSegmentSelection(){
-			var ret = {};
-			var attrName = 'data-segment-select-attr';
-			for (var elm of document.querySelectorAll(`input[${attrName}]`)){
-				var key = elm.getAttribute(attrName);
-				var value = elm.value;
-				if(value.trim()){
-					ret[key] = value.trim();
-				}
-			}
-			return ret;
-		}
-
-		function setSegmentsSelection(){
-			setInfoMessage("Selecting segments (please wait, it might take a while for large databases)");
-			axios.post("/set_selection", data, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
-				var segmentsCount = response.data.num_segments;
-				var errMsg = '';
-				if (response.data.error_msg){
-					errMsg = response.data.error_msg + ". Check the segment selection (if the problem persists, contact the software maintainers) ";
-				}
-				if (!errMsg && segmentsCount <= 0){
-					if (selectionEmpty){
-						errMsg = "No segment found, empty database";
-					}else{
-						errMsg = "No segment found with the current segment selection";
-					}
-				}
-				if (errMsg){
-					this.setWarning(errMsg);
-					return;
-				}
-				SEGMENTS_COUNT = segmentsCount;
-				setSegment(0);
-				document.querySelectorAll('div[class=form]').style.display='none';  // close all forms
-			});
-		}
-
-		const SEGMENTS_COUNT = {%- num_segments -%};
-		const SELECTED_SEGMENT = 0;
-
-		function setNextSegment(){
-			var currentIndex = (SELECTED_SEGMENT + 1) % SEGMENTS_COUNT;
-			setSegment(currentIndex);
-		};
-
-		function setPreviousSegment(){
-			var currentIndex = SELECTED_SEGMENT == 0 ? SEGMENTS_COUNT - 1 : SELECTED_SEGMENT - 1;
-			setSegment(currentIndex);
-		};
-
-		function setSegment(index){
-			SELECTED_SEGMENT = index;
-			refreshView(undefined, true);
-		};
-
-
+		const SEGMENTS_COUNT = {{ num_segments }};
+		const SELECTED_SEGMENT_INDEX = 0;
 		{%- if num_segments > 0 -%}
-		setSegment(0);
+		refreshView(null, true, null);  // see JS file
 		{%- endif -%}
 	</script>
 {% endblock %}
