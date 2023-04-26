@@ -4,8 +4,7 @@ function setInfoMessage(msg){
 	elm.querySelector('.loader').style.display='';
 	elm.querySelector('.btn-close').style.display='none';
 	elm.querySelector('.message').innerHTML = msg || "";
-	elm.classList.remove('d-flex', 'd-none');
-	elm.classList.add(msg ? 'd-flex': 'd-none');
+	setDivVisible(elm, !!msg);
 }
 
 function setErrorMessage(msg){
@@ -14,8 +13,21 @@ function setErrorMessage(msg){
 	elm.querySelector('.loader').style.display='none';
 	elm.querySelector('.btn-close').style.display='';
 	elm.querySelector('.message').innerHTML = msg || "";
-	elm.classList.remove('d-flex', 'd-none');
-	elm.classList.add(msg ? 'd-flex': 'd-none');
+	setDivVisible(elm, !!msg);
+}
+
+function isDivVisible(div){
+	if (typeof div === 'string') {div = document.getElementById(div); }
+	return !div.classList.contains('d-none');
+}
+
+function setDivVisible(div, value){
+	if (typeof div === 'string') {div = document.getElementById(div); }
+	if (value){
+		div.classList.remove('d-none');
+	}else{
+		div.classList.add('d-none');
+	}
 }
 
 axios.interceptors.response.use((response) => {
@@ -23,56 +35,19 @@ axios.interceptors.response.use((response) => {
 	return response;
 }, (error) => {
 	setErrorMessage("[!] " + ((error.message || '').trim() || 'Unknown error'));
-	return Promise.reject(error.message);
+	throw error
+	// return Promise.reject(error.message);
 });
 
-function getSegmentSelection(){
-	var ret = {};
-	var attrName = 'data-segment-select-attr';
-	for (var elm of document.querySelectorAll(`input[${attrName}]`)){
-		var key = elm.getAttribute(attrName);
-		var value = elm.value;
-		if(value.trim()){
-			ret[key] = value.trim();
-		}
-	}
-	return ret;
-}
-
-function setSegmentsSelection(){
+function setSegmentsSelection(segmentsSelection){
 	setInfoMessage("Selecting segments ... (it might take a while for large databases)");
-	axios.post("/set_selection", data, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
-		var segmentsCount = response.data.num_segments;
-		var errMsg = '';
-		if (response.data.error_msg){
-			errMsg = response.data.error_msg + ". Check the segment selection (if the problem persists, contact the software maintainers) ";
-		}
-		if (!errMsg && segmentsCount <= 0){
-			if (selectionEmpty){
-				errMsg = "No segment found, empty database";
-			}else{
-				errMsg = "No segment found with the current segment selection";
-			}
-		}
-		if (errMsg){
-			this.setWarning(errMsg);
-			return;
-		}
-		SEGMENTS_COUNT = segmentsCount;
-		setSegment(0);
-		document.querySelectorAll('div[class=form]').style.display='none';  // close all forms
+	return axios.post("/set_selection", segmentsSelection, {headers: {'Content-Type': 'application/json'}}).then(response => {
+		return response;
 	});
 }
 
-function tracesArePreprocessed(){
-	return document.getElementById('preprocess-plots-btn').checked;
-};
-
-function mainPlotShowsAllComponents(){
-	return document.getElementById('show-all-components-btn').checked;
-};
-
-function refreshView(plots, refreshMetadata, config){
+function get_segment_data(segmentIndex, segmentsCount, plots, tracesArePreprocessed, mainPlotShowsAllComponents,
+ 						  metadataElements, classElements, config){
 	/**
 	* Main function that updates the plots and optionally updates the segment metadata
 	* plots: Array of 3 elements denoting the plot to be redrawn. the 3 elements are:
@@ -81,14 +56,7 @@ function refreshView(plots, refreshMetadata, config){
 	* (redraw all visible plots)
 	* config: Object or null. If Object, it is the new config to be passed to plots
 	*/
-	if (!plots){
-		plots = [["", 'main-plot', {}]];
-		for(var elm of document.querySelectorAll('[data-plot][checked]')){
-			plots.push(JSON.parse(elm.getAttribute('data-plot')));
-		}
-	}else if (plots.some(e => !Array.isArray(e))){
-		plots = [plots];
-	}
+
 	var funcName2ID = {};
 	var funcName2Layout = {};
 	for (var [fName, divId, layout] of plots){
@@ -97,24 +65,35 @@ function refreshView(plots, refreshMetadata, config){
 	}
 	var zooms = null;  // NOT USED (here just in case)
 	var params = {
-		seg_index: SELECTED_SEGMENT_INDEX,
-		seg_count: SEGMENTS_COUNT,
-		pre_processed: tracesArePreprocessed(),
+		seg_index: segmentIndex,
+		seg_count: segmentsCount,
+		pre_processed: tracesArePreprocessed,
 		zooms: zooms,
 		plot_names: Object.keys(funcName2ID),
-		all_components: mainPlotShowsAllComponents()
+		all_components: mainPlotShowsAllComponents
 	};
 
 	params.config = config || {};
-	if(refreshMetadata){
+	if(metadataElements || classElements){
 		params.metadata = true;
 		params.classes = true
 	}
-	setInfoMessage("Fetching and calculating segment plots (it might take a while) ...");
-	return axios.post("/get_segment_data", params,
-			{headers: {'Content-Type': 'application/json'}}).then(response => {
+	setInfoMessage("Fetching and computing data (it might take a while) ...");
+	return axios.post("/get_segment_data", params, {headers: {'Content-Type': 'application/json'}}).then(response => {
 		for (var name of Object.keys(response.data.plots)){
 			redrawPlot(funcName2ID[name], response.data.plots[name], funcName2Layout[name]);
+		}
+		// update metadata if needed:
+		if (metadataElements){
+			for (var [attName, attVal] of response.data.metadata){
+				metadataElements[attName].innerHTML = attVal;
+			}
+		}
+		// update classes if needed:
+		if (classElements){
+			for (var classId of response.data.classes){
+				classElements[clsssId].checked=true;
+			}
 		}
 		return response;
 	});
@@ -198,6 +177,14 @@ function redrawPlot(divId, plotlyData, plotlyLayout){
 	}
 }
 
+function setConfig(aceEditor){
+	// query config and show form only upon successful response:
+	return axios.post("/get_config", {as_str: true}, {headers: {'Content-Type': 'application/json'}}).then(response => {
+		aceEditor.setValue(response.data);
+		aceEditor.clearSelection();
+		return response;
+	});
+}
 //function setClassLabel(classId, value){
 //	var segId = parseInt((document.querySelector(`[data-segment-attr="id"]`) || {}).innerHTML);
 //	if (isNaN(segId)){

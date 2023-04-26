@@ -59,7 +59,6 @@ def main():
                            metadata=metadata,
                            classes=classes,
                            preprocess_func_on=False,
-                           config_text_json=json.dumps(core.get_config(True)),
                            preprocessfunc_doc=core.get_func_doc(-1))
 
 
@@ -71,13 +70,14 @@ def main():
 #     return jsonify(dic)
 
 
-# @main_app.route("/get_config", methods=['POST'])
-# def get_config():
-#     asstr = (request.get_json() or {}).get('asstr', False)
-#     try:
-#         return jsonify({'error_msg': '', 'data': core.get_config(asstr)})
-#     except Exception as exc:  # pylint: disable=broad-except
-#         return jsonify({'error_msg': str(exc), 'data': {}})
+@main_app.route("/get_config", methods=['POST'])
+def get_config():
+    asstr = (request.get_json() or {}).get('as_str', False)
+    return jsonify(core.get_config(asstr))
+    # try:
+    #     return jsonify({'error_msg': '', 'data': core.get_config(asstr)})
+    # except Exception as exc:  # pylint: disable=broad-except
+    #     return jsonify({'error_msg': str(exc), 'data': {}})
 
 
 @main_app.route("/get_selection", methods=['POST'])

@@ -56,31 +56,33 @@ body{
 			of
 			<span id="segments_count">0</span>
 		</div>
-		<button id="prev-segment-btn" class='btn btn-outline-secondary text-center ms-2'
+		<button id="prev-segment-btn" class='btn btn-outline-secondary text-center ms-1'
 				onclick="setPreviousSegment()"
 				title="previous segment (you can also use the left arrow key)">
 			&larr;
 		</button>
-		<button id="next-segment-btn" class='btn btn-outline-secondary text-center ms-2'
+		<button id="next-segment-btn" class='btn btn-outline-secondary text-center ms-1'
 				onclick="setNextSegment()"
 				title="next segment (you can also use the right arrow key)">
 			&rarr;
 		</button>
-		<button class='btn btn-outline-secondary ms-2'
-				onclick="document.getElementById('segments-selection-dialog').classList.toggle('d-none')">
+		<button class='btn btn-outline-secondary ms-1'
+				onclick="toggleVisibility('segments-selection-dialog')">
 			Select
 		</button>
-		<button class='btn btn-outline-secondary ms-2'
-				onclick="document.getElementById('config-dialog').classList.toggle('d-none')">
-			Config
-		</button>
+		<div class="ms-2">Plots</div>
 		<input type="checkbox" class="btn-check"
 			   id="preprocess-plots-btn"
 			   {% if preprocess_func_on -%}checked{%- endif %}
-			   onclick="refreshView(null, false, null)">
-		<label class="btn btn-sm btn-outline-secondary ms-2" for="preprocess-plots-btn">Pre-process plots</label>
-		<div id="db_url" style="margin-left:.5rem;flex: 1 1 0;white-space:nowrap;overflow:auto">
-			DB: {{ title }}
+			   onclick="recomputeAllPlots()">
+		<label class="btn btn-sm btn-outline-secondary ms-1" for="preprocess-plots-btn">Pre-process</label>
+		<button class='btn btn-outline-secondary ms-1'
+				onclick="toggleVisibility('config-dialog')">
+			Config
+		</button>
+		<div class="ms-2">DB Url</div>
+		<div class="ms-1" style="flex: 1 1 0;white-space:nowrap;overflow:auto">
+			{{ title }}
 		</div>
 	</div>
 	<!-- PLOTS BUTTONS -->
@@ -89,7 +91,7 @@ body{
 			<span class='d-none me-2' id="seed_id"></span>
 			<input type="checkbox" class="btn-check"
 				   id="show-all-components-btn"
-				   onclick='refreshView(["", "main-plot", {}], false, null)'>
+				   onclick='recomputePlot("", "main-plot", {})'>
 			<label class="btn btn-sm btn-outline-secondary me-2" for="show-all-components-btn">Show all orientations</label>
 		</div>
 		<div class="d-flex flex-row align-items-baseline" style="flex: 1 1 50%">  <!-- right plot controls -->
@@ -97,7 +99,7 @@ body{
 			<input type="radio" class="btn-check"
 				   name="right-plot-option" id="right-plot-{{ plot.name }}"
 				   data-plot='["{{ plot.name }}", "right-plot", {{ plot.layout | tojson }}]'
-				   onclick="refreshView(JSON.parse(this.getAttribute('data-plot')), false, null)"
+				   onclick="recomputePlot(...JSON.parse(this.getAttribute('data-plot')))"
 				   {%- if loop.index0 == 0 %} checked {% endif %}
 				   title="{{plot.doc}}" autocomplete="off">
 			<label class="btn btn-sm btn-outline-secondary me-2" for="right-plot-{{ plot.name }}">{{ plot.name }}</label>
@@ -120,7 +122,7 @@ body{
 					<input type="radio" class="btn-check"
 						   name="bottom-plot-option" id="bottom-plot-{{ plot.name }}"
 						   data-plot='["{{ plot.name }}", "bottom-plot", {{ plot.layout | tojson }}]'
-						   onclick="refreshView(JSON.parse(this.getAttribute('data-plot')), false, null)"
+						   onclick="recomputePlot(...JSON.parse(this.getAttribute('data-plot')))"
 						   {%- if loop.index0 == 0 %} checked {% endif %}
 						   title="{{plot.doc}}" autocomplete="off">
 					<label class="btn btn-sm btn-outline-secondary me-2" for="bottom-plot-{{ plot.name }}">{{ plot.name }}</label>
@@ -181,7 +183,7 @@ body{
 	<!-- Select segments where: -->
 	<div>
 		<button type="button" class="btn-close" aria-label="Close"
-				onclick="document.getElementById('segments-selection-dialog').classList.toggle('d-none')"></button>
+				onclick="toggleVisibility('segments-selection-dialog')"></button>
 	</div>
 	<div style="flex: 1 1 auto; overflow:auto">
 		<table id="table-select">
@@ -222,7 +224,7 @@ body{
 	</div>
 	<div style='text-align:center'>
 		<button class='btn btn-outline-secondary'
-				onclick="selectSegments(selection.selExpr).then(document.getElementById('segments-selection-dialog').classList.toggle('d-none'))">
+				onclick="updateSegmentSelection().then(response => { toggleVisibility('segments-selection-dialog') }">
 			Select
 		</button>
 	</div>
@@ -233,13 +235,13 @@ body{
 	<!-- Config (.yaml file) -->
 	<div>
 		<button type="button" class="btn-close" aria-label="Close"
-				onclick="document.getElementById('config-dialog').classList.toggle('d-none')"></button>
+				onclick="toggleVisibility('config-dialog')"></button>
 	</div>
 	<div>Configuration editor (YAML syntax):</div>
 	<div id='config-editor' style="flex: 1 1 auto; overflow:auto; min-height:75vh; min-width:50vw;"></div>
 	<div style='text-align:center'>
 		<button class='btn btn-default'
-				onclick="updateConfig().then(document.getElementById('config-dialog').classList.toggle('d-none'))">
+				onclick="updateConfig().then(response => { toggleVisibility('config-dialog') }">
 			Update
 		</button>
 	</div>
@@ -251,7 +253,7 @@ body{
 	<div class="d-flex flex-row align-items-end">
 		<div class="message" style="margin-top:.5rem"></div>
 		<button type="button" class="btn-close ms-2" aria-label="Close"
-				onclick="document.getElementById('message-dialog').classList.toggle('d-none')">
+				onclick="toggleVisibility('message-dialog')">
 		</button>
 	</div>
 </div>
@@ -276,7 +278,6 @@ body{
 			theme: "ace/theme/idle_fingers",
 			showLineNumbers: true,
 	    });
-	    configEditor.setValue({{ config_text_json | safe }});
 
 		// adding keystrokes to segments selection:
 		document.addEventListener("keyup", e => {
@@ -298,48 +299,72 @@ body{
 	</script>
 	<script src="static/js/mainapp.js"></script>
 	<script>
-		const SEGMENTS_COUNT = {{ num_segments }};
-		document.getElementById('segments_count').innerHTML = SEGMENTS_COUNT.toLocaleString();
-
+		var SEGMENTS_COUNT = 0;
 		var SELECTED_SEGMENT_INDEX = 0;
 
 		function setNextSegment(){
-			var currentIndex = (SELECTED_SEGMENT_INDEX + 1) % SEGMENTS_COUNT;
-			setSegment(currentIndex);
+			setSegment(SELECTED_SEGMENT_INDEX + 1);
 		};
 
 		function setPreviousSegment(){
-			var currentIndex = SELECTED_SEGMENT_INDEX == 0 ? SEGMENTS_COUNT - 1 : SELECTED_SEGMENT_INDEX - 1;
-			setSegment(currentIndex);
+			setSegment(SELECTED_SEGMENT_INDEX - 1);
+		};
+
+		function tracesArePreprocessed(){
+			return document.getElementById('preprocess-plots-btn').checked;
+		};
+
+		function mainPlotShowsAllComponents(){
+			return document.getElementById('show-all-components-btn').checked;
 		};
 
 		function setSegment(index){
-			SELECTED_SEGMENT_INDEX = index; // see JS file
-			document.getElementById('current_segment_index').innerHTML = (SELECTED_SEGMENT_INDEX + 1).toLocaleString();
-			refreshView(null, true, null).then(response => {
-				// update metadata if needed:
-				if (response.data.metadata && response.data.metadata.length){
-					var seed_id_elm = document.getElementById('seed_id');
-					seed_id_elm.classList.add('d-none');
-					for (var [attName, attVal] of response.data.metadata){
-						document.querySelector(`[data-segment-attr="${attName}"]`).innerHTML = attVal;
-						if (attName == 'seed_id'){
-							seed_id_elm.classList.remove('d-none');
-							document.getElementById('seed_id').innerHTML = attVal;
-						}
-					}
-				}
-				// update classes if needed:
-				Array.from(document.querySelectorAll(`[data-segment-class-id]`)).forEach(elm => elm.checked=false);
-				for (var classId of (response.data.classes || [])){
-					document.querySelector(`[data-segment-class-id="${classId}"]`).checked=true);
-				}
+			if (SEGMENTS_COUNT < 1){ return; }
+			if (index < 0){
+				index = SEGMENTS_COUNT + index;
+			}else if (index >= SEGMENTS_COUNT){
+				index = index % SEGMENTS_COUNT;
+			}
+			var plots = [["", 'main-plot', {}]];
+			for(var elm of document.querySelectorAll('[data-plot][checked]')){
+				plots.push(JSON.parse(elm.getAttribute('data-plot')));
+			}
+			var metadataElements = {};
+			document.querySelectorAll(`[data-segment-attr]`).forEach(elm => {
+				metadataElements[elm.getAttribute('data-segment-attr')] = elm;
+			});
+			Array.from(document.querySelectorAll(`[data-segment-class-id]`)).forEach(elm => elm.checked=false);
+			var classElements = {};
+			document.querySelectorAll(`[data-segment-class-id]`).forEach(elm => {
+				metadataElements[elm.getAttribute('data-segment-class-id')] = elm;
+			});
+			get_segment_data(index, SEGMENTS_COUNT, plots, tracesArePreprocessed(), mainPlotShowsAllComponents(),
+	 						 metadataElements, classElements, null).then(response => {
+				SELECTED_SEGMENT_INDEX = index; // see JS file
+				document.getElementById('current_segment_index').innerHTML = (SELECTED_SEGMENT_INDEX + 1).toLocaleString('en-US');
+				var seed_id = response.data.metadata['seed_id'] || "";
+				var seed_id_elm = document.getElementById('seed_id');
+				seed_id ? seed_id_elm.classList.remove('d-none'): seed_id_elm.classList.add('d-none');
+				seed_id_elm.innerHTML = seed_id;
 			});
 		};
 
-		{%- if num_segments > 0 -%}
-		setSegment(0);
-		{%- endif -%}
+
+		function recomputeAllPlots(config){
+			var plots = [["", 'main-plot', {}]];
+			for(var elm of document.querySelectorAll('[data-plot][checked]')){
+				plots.push(JSON.parse(elm.getAttribute('data-plot')));
+			}
+			get_segment_data(SELECTED_SEGMENT_INDEX, SEGMENTS_COUNT,
+							 plots, tracesArePreprocessed(), mainPlotShowsAllComponents(),
+	 						 null, null, config);
+		}
+
+		function recomputePlot(funcName, divId, layout){
+			get_segment_data(SELECTED_SEGMENT_INDEX, SEGMENTS_COUNT,
+							 [[funcName, divId, layout]], tracesArePreprocessed(), mainPlotShowsAllComponents(),
+	 						 null, null, null);
+		}
 
 		function setClassLabel(classId, value){
 			var params = {
@@ -350,5 +375,48 @@ body{
 			};
 			axios.post("/set_class_id", params, {headers: {'Content-Type': 'application/json'}});
 		}
+
+		function updateSegmentSelection(){
+			var ret = {};
+			var attrName = 'data-segment-select-attr';
+			for (var elm of document.querySelectorAll(`input[${attrName}]`)){
+				var key = elm.getAttribute(attrName);
+				var value = elm.value;
+				if(value.trim()){
+					ret[key] = value.trim();
+				}
+			}
+			return setSegmentsSelection(ret).then(response => {
+				updateSegmentsCount(response.data.num_segments);
+				return response;
+			});
+		}
+
+		function toggleVisibility(divId){
+			var div = document.getElementById(divId);
+			var isVisible = isDivVisible(div);
+			if (!isVisible && divId == 'config-dialog'){
+				// query config and show form only upon successful response:
+				setConfig(configEditor).then(response => { setDivVisible(div, true) });
+			}else{
+				setDivVisible(div, !isVisible);
+			}
+		}
+
+		function updateConfig(){
+			return axios.post("/validate_config_str", {data: configEditor.getValue()}, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
+				recomputeAllPlots(response.data.data);
+				return response;
+			});
+		}
+
+		function updateSegmentsCount(num_segments){
+			SEGMENTS_COUNT = num_segments;
+			document.getElementById('segments_count').innerHTML = SEGMENTS_COUNT.toLocaleString('en-US');
+			setSegment(0);
+		}
+
+		updateSegmentsCount({{ num_segments }});
+
 	</script>
 {% endblock %}
