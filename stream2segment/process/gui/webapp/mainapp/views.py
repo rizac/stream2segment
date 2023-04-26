@@ -133,8 +133,10 @@ def get_segment_data():
 
 @main_app.route("/set_class_id", methods=['POST'])
 def set_class_id():
-    json_req = request.get_json()
-    core.set_class_id(json_req['segment_id'], json_req['class_id'],
-                      json_req['value'])
+    data = request.get_json()
+    seg_index = data['seg_index']
+    seg_count = data['seg_count']
+    seg_id = core.get_segment_id(seg_index, seg_count)
+    core.set_class_id(seg_id, data['class_id'], data['value'])
     # the above raises, otherwise return empty json to signal success:
     return jsonify({})

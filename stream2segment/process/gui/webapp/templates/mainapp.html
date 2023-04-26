@@ -149,7 +149,7 @@ body{
 								<td>
 									<label style="white-space: nowrap;">
 										<input type="checkbox" data-segment-class-id="{{ class.id }}"
-											   onclick="setClassLabel(parseInt(this.getAttribute('data-segment-class-id')), this.hasAttribute('checked'))">
+											   onclick="setClassLabel(parseInt(this.getAttribute('data-segment-class-id')), this.checked)">
 										{{ class.label }}
 									</label>
 								</td>
@@ -340,5 +340,15 @@ body{
 		{%- if num_segments > 0 -%}
 		setSegment(0);
 		{%- endif -%}
+
+		function setClassLabel(classId, value){
+			var params = {
+				seg_index: SELECTED_SEGMENT_INDEX,
+				seg_count: SEGMENTS_COUNT,
+				class_id: classId,
+				value: value
+			};
+			axios.post("/set_class_id", params, {headers: {'Content-Type': 'application/json'}});
+		}
 	</script>
 {% endblock %}

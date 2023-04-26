@@ -198,11 +198,11 @@ function redrawPlot(divId, plotlyData, plotlyLayout){
 	}
 }
 
-function setClassLabel(classId, value){
-	var segId = parseInt((document.querySelector(`[data-segment-attr="id"]`) || {}).innerHTML);
-	if (isNaN(segId)){
-		setErrorMessage('The segment ID could not be inferred');
-	}
-	var params = {class_id: classId, segment_id: segId, value: value};
-	axios.post("/set_class_id", params, {headers: {'Content-Type': 'application/json'}});
-}
+//function setClassLabel(classId, value){
+//	var segId = parseInt((document.querySelector(`[data-segment-attr="id"]`) || {}).innerHTML);
+//	if (isNaN(segId)){
+//		setErrorMessage('The segment ID could not be inferred');
+//	}
+//	var params = {class_id: classId, segment_id: segId, value: value};
+//	axios.post("/set_class_id", params, {headers: {'Content-Type': 'application/json'}});
+//}
