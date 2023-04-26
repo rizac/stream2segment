@@ -316,7 +316,25 @@ body{
 		function setSegment(index){
 			SELECTED_SEGMENT_INDEX = index; // see JS file
 			document.getElementById('current_segment_index').innerHTML = (SELECTED_SEGMENT_INDEX + 1).toLocaleString();
-			refreshView(null, true, null);
+			refreshView(null, true, null).then(response => {
+				// update metadata if needed:
+				if (response.data.metadata && response.data.metadata.length){
+					var seed_id_elm = document.getElementById('seed_id');
+					seed_id_elm.classList.add('d-none');
+					for (var [attName, attVal] of response.data.metadata){
+						document.querySelector(`[data-segment-attr="${attName}"]`).innerHTML = attVal;
+						if (attName == 'seed_id'){
+							seed_id_elm.classList.remove('d-none');
+							document.getElementById('seed_id').innerHTML = attVal;
+						}
+					}
+				}
+				// update classes if needed:
+				Array.from(document.querySelectorAll(`[data-segment-class-id]`)).forEach(elm => elm.checked=false);
+				for (var classId of (response.data.classes || [])){
+					document.querySelector(`[data-segment-class-id="${classId}"]`).checked=true);
+				}
+			});
 		};
 
 		{%- if num_segments > 0 -%}

@@ -111,28 +111,12 @@ function refreshView(plots, refreshMetadata, config){
 		params.classes = true
 	}
 	setInfoMessage("Fetching and calculating segment plots (it might take a while) ...");
-	axios.post("/get_segment_data", params,
+	return axios.post("/get_segment_data", params,
 			{headers: {'Content-Type': 'application/json'}}).then(response => {
 		for (var name of Object.keys(response.data.plots)){
 			redrawPlot(funcName2ID[name], response.data.plots[name], funcName2Layout[name]);
 		}
-		// update metadata if needed:
-		if (response.data.metadata && response.data.metadata.length){
-			var seed_id_elm = document.getElementById('seed_id');
-			seed_id_elm.classList.add('d-none');
-			for (var [attName, attVal] of response.data.metadata){
-				document.querySelector(`[data-segment-attr="${attName}"]`).innerHTML = attVal;
-				if (attName == 'seed_id'){
-					seed_id_elm.classList.remove('d-none');
-					document.getElementById('seed_id').innerHTML = attVal;
-				}
-			}
-		}
-		// update classes if needed:
-		Array.from(document.querySelectorAll(`[data-segment-class-id]`)).forEach(elm => elm.removeAttribute("checked"));
-		for (var classId of (response.data.classes || [])){
-			document.querySelector(`[data-segment-class-id="${classId}"]`).setAttribute("checked", "checked");
-		}
+		return response;
 	});
 }
 
