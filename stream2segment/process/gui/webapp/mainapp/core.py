@@ -151,13 +151,13 @@ def get_init_data(metadata=True, classes=True):
     return {'classes': classes, 'metadata': _metadata}
 
 
-def get_config(asstr=False):
+def get_config(as_str=False):
     """Returns the current config as YAML formatted string (if `asstr` is True)
     or as dict. The returned value does not include the segments selection,
     if given from the command line
     """
     config_dict = dict(g_config)
-    if not asstr:
+    if not as_str:
         return config_dict
     if not config_dict:  # if dict is empty,
         # avoid returning: "{}\n", instead return emtpy string:

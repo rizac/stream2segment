@@ -1,5 +1,5 @@
 function setInfoMessage(msg){
-	var elm = document.getElementById('message_dialog');
+	var elm = document.getElementById('message-dialog');
 	elm.style.color = 'inherit';
 	elm.querySelector('.loader').style.display='';
 	elm.querySelector('.btn-close').style.display='none';
@@ -9,7 +9,7 @@ function setInfoMessage(msg){
 }
 
 function setErrorMessage(msg){
-	var elm = document.getElementById('message_dialog');
+	var elm = document.getElementById('message-dialog');
 	elm.style.color = 'red';
 	elm.querySelector('.loader').style.display='none';
 	elm.querySelector('.btn-close').style.display='';
@@ -22,7 +22,7 @@ axios.interceptors.response.use((response) => {
 	setInfoMessage("");
 	return response;
 }, (error) => {
-	setErrorMessage("Error: " + error.message);
+	setErrorMessage("[!] " + ((error.message || '').trim() || 'Unknown error'));
 	return Promise.reject(error.message);
 });
 
@@ -64,27 +64,12 @@ function setSegmentsSelection(){
 	});
 }
 
-function setNextSegment(){
-	var currentIndex = (SELECTED_SEGMENT_INDEX + 1) % SEGMENTS_COUNT;
-	setSegment(currentIndex);
-};
-
-function setPreviousSegment(){
-	var currentIndex = SELECTED_SEGMENT_INDEX == 0 ? SEGMENTS_COUNT - 1 : SELECTED_SEGMENT_INDEX - 1;
-	setSegment(currentIndex);
-};
-
-function setSegment(index){
-	SELECTED_SEGMENT_INDEX = index;
-	refreshView(undefined, true, null);
-};
-
 function tracesArePreprocessed(){
-	return document.getElementById('preprocess_func_input').hasAttribute('checked');
+	return document.getElementById('preprocess-plots-btn').checked;
 };
 
 function mainPlotShowsAllComponents(){
-	return document.getElementById('show_all_components_input').hasAttribute('checked');
+	return document.getElementById('show-all-components-btn').checked;
 };
 
 function refreshView(plots, refreshMetadata, config){
@@ -132,8 +117,16 @@ function refreshView(plots, refreshMetadata, config){
 			redrawPlot(funcName2ID[name], response.data.plots[name], funcName2Layout[name]);
 		}
 		// update metadata if needed:
-		for (var [attName, attVal] of (response.data.metadata || [])){
-			document.querySelector(`[data-segment-attr="${attName}"]`).innerHTML = attVal;
+		if (response.data.metadata && response.data.metadata.length){
+			var seed_id_elm = document.getElementById('seed_id');
+			seed_id_elm.classList.add('d-none');
+			for (var [attName, attVal] of response.data.metadata){
+				document.querySelector(`[data-segment-attr="${attName}"]`).innerHTML = attVal;
+				if (attName == 'seed_id'){
+					seed_id_elm.classList.remove('d-none');
+					document.getElementById('seed_id').innerHTML = attVal;
+				}
+			}
 		}
 		// update classes if needed:
 		Array.from(document.querySelectorAll(`[data-segment-class-id]`)).forEach(elm => elm.removeAttribute("checked"));

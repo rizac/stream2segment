@@ -11,7 +11,7 @@ body{
 	padding: .75rem !important;
 }
 .popup{
-	z-index: 100000;
+	z-index: 100;
 	background-color: #f5f5f5;
 	-webkit-background-clip: padding-box;
 	background-clip: padding-box;
@@ -21,6 +21,10 @@ body{
 	-webkit-box-shadow: 0 6px 12px rgba(0,0,0,.175);
 	box-shadow: 0 6px 12px rgba(0,0,0,.175);
 	padding: 1rem;
+	display: flex;
+	position: fixed;
+	max-height: 90vh;
+	max-width: 90vw;
 }
 .loader {
 	width: 48px;
@@ -46,40 +50,58 @@ body{
 {{ super() }}
 <div class="main d-flex flex-column" style="height:100%">
 	<!-- TOOLBAR -->
-	<div class="d-flex flex-row align-items-baseline">
-		<h4 id="segment-info">Segment
-			<span id="current_segment_index">{%- if num_segments > 0 -%}1{%- else -%}0{%- endif -%}</span>
+	<div class="d-flex flex-row align-items-baseline mb-3">
+		<div>Segment
+			<span id="current_segment_index">0</span>
 			of
-			<span id="segments_count">{{ num_segments }}</span>
-		</h4>
-		<button id="prev-segment-btn" class='btn btn-default center' onclick="setPreviousSegment()"
-				title="previous segment (keyboard: left arrow)" style="margin-left:.5rem">
-			<span class='arrow-left'></span>
+			<span id="segments_count">0</span>
+		</div>
+		<button id="prev-segment-btn" class='btn btn-outline-secondary text-center ms-2'
+				onclick="setPreviousSegment()"
+				title="previous segment (you can also use the left arrow key)">
+			&larr;
 		</button>
-		<button id="next-segment-btn" class='btn btn-default center' onclick="setNextSegment()"
-				title="next segment (keyboard: right arrow)" style="margin-left:.5rem">
-			<span class='arrow-right'></span>
+		<button id="next-segment-btn" class='btn btn-outline-secondary text-center ms-2'
+				onclick="setNextSegment()"
+				title="next segment (you can also use the right arrow key)">
+			&rarr;
 		</button>
-
-		<button class='btn btn-default' onclick="showSelectForm()" style="margin-left:.5rem">
+		<button class='btn btn-outline-secondary ms-2'
+				onclick="document.getElementById('segments-selection-dialog').classList.toggle('d-none')">
 			Select
 		</button>
-		<h4>Plots:</h4>
-		<label title="{{ preprocessfunc_doc }}" style="margin-left:.5rem">
-			<input type="checkbox" id="preprocess_func_input"
-				   {% if preprocess_func_on -%}checked{%- endif %}
-				   onchange="refreshView(null, false, null)"> Pre-process
-		</label>
-		<label  style="margin-left:.5rem">
-			<input type="checkbox"
-				   id="show_all_components_input"
-				   onchange="refreshView(null, false, null)"> Show all orientations
-		</label>
-		<button class='btn btn-default' onchange="showConfigForm()" style="margin-left:.5rem">
+		<button class='btn btn-outline-secondary ms-2'
+				onclick="document.getElementById('config-dialog').classList.toggle('d-none')">
 			Config
 		</button>
+		<input type="checkbox" class="btn-check"
+			   id="preprocess-plots-btn"
+			   {% if preprocess_func_on -%}checked{%- endif %}
+			   onclick="refreshView(null, false, null)">
+		<label class="btn btn-sm btn-outline-secondary ms-2" for="preprocess-plots-btn">Pre-process plots</label>
 		<div id="db_url" style="margin-left:.5rem;flex: 1 1 0;white-space:nowrap;overflow:auto">
 			DB: {{ title }}
+		</div>
+	</div>
+	<!-- PLOTS BUTTONS -->
+	<div class="d-flex flex-row">
+		<div class="d-flex flex-row align-items-baseline" style="flex: 1 1 50%">  <!-- main plot controls -->
+			<span class='d-none me-2' id="seed_id"></span>
+			<input type="checkbox" class="btn-check"
+				   id="show-all-components-btn"
+				   onclick='refreshView(["", "main-plot", {}], false, null)'>
+			<label class="btn btn-sm btn-outline-secondary me-2" for="show-all-components-btn">Show all orientations</label>
+		</div>
+		<div class="d-flex flex-row align-items-baseline" style="flex: 1 1 50%">  <!-- right plot controls -->
+			{% for plot in rightPlots %}
+			<input type="radio" class="btn-check"
+				   name="right-plot-option" id="right-plot-{{ plot.name }}"
+				   data-plot='["{{ plot.name }}", "right-plot", {{ plot.layout | tojson }}]'
+				   onclick="refreshView(JSON.parse(this.getAttribute('data-plot')), false, null)"
+				   {%- if loop.index0 == 0 %} checked {% endif %}
+				   title="{{plot.doc}}" autocomplete="off">
+			<label class="btn btn-sm btn-outline-secondary me-2" for="right-plot-{{ plot.name }}">{{ plot.name }}</label>
+			{% endfor %}
 		</div>
 	</div>
 	<!-- PLOTS CONTAINER -->
@@ -113,42 +135,28 @@ body{
 				<div style="flex: 1 1 auto; position:relative">
 					<div id="right-plot" style="position:absolute;top:0;right:1rem;bottom:1rem;left:0;overflow:hidden"></div>
 				</div>
-				<div class="d-flex flex-column">
-					{% for plot in rightPlots %}
-					<input type="radio" class="btn-check"
-						   name="right-plot-option" id="right-plot-{{ plot.name }}"
-						   data-plot='["{{ plot.name }}", "right-plot", {{ plot.layout | tojson }}]'
-						   onclick="refreshView(JSON.parse(this.getAttribute('data-plot')), false, null)"
-						   {%- if loop.index0 == 0 %} checked {% endif %}
-						   title="{{plot.doc}}" autocomplete="off">
-					<label class="btn btn-sm btn-outline-secondary mb-2" for="right-plot-{{ plot.name }}">{{ plot.name }}</label>
-					{% endfor %}
-				</div>
 			</div>
 			<!-- RIGHT BOTTOM PANEL (SEGMENT METADATA) -->
 			<div class="d-flex flex-column" style="flex: 1 1 50%; margin-left:1rem">
 				<div>
-					&#9432; Segment id (net.sta.loc.cha code): <span style="font-weight:bold; color:black">{ segData.mainInfo.seedId}}</span>,
-					P-wave arrival: <span style="font-weight:bold; color:black">{ segData.mainInfo.arrivalTime}}</span>. Recorded
-					event of magnitude <span style="font-weight:bold; color:black">{ segData.mainInfo.eventMag}}</span> is located
-					&#8773; <span style="font-weight:bold; color:black">{ segData.mainInfo.eventDistanceKm}} Km</span> from the segment station.
-					Full Segment metadata:
+					&#9432; Full Segment metadata:
 				</div>
 				<div style="flex:1 1 auto; position:relative">
 					<div style="position:absolute;top:0;right:0;bottom:0;left:0;overflow:auto">
 						<table style="width:100%;">
 							{% for class in classes -%}
-							<tr><td>
-								<label style="white-space: nowrap;"
-									   title="{{ class.label }}{%- if class.description -%}: {{ class.description }}{%- endif -%}">
-									<input type="checkbox" data-segment-class-id="{{ class.id }}"
-										   onclick="setClassLabel(parseInt(this.getAttribute('data-segment-class-id')), this.hasAttribute('checked'))">
-									{{ class.label }}
-								</label>
-							</td><td title="{{ class.label }}{%- if class.description -%}: {{ class.description }}{%- endif -%}"
-									 style="text-overflow: ellipsis;white-space:nowrap;max-width:0;overflow:hidden" >
-								({{ class.segments }} segments labelled) {{ class.description }}
-							</td>
+							<tr title="{{ class.label }}{%- if class.description -%}: {{ class.description }}{%- endif -%}">
+								<td>
+									<label style="white-space: nowrap;">
+										<input type="checkbox" data-segment-class-id="{{ class.id }}"
+											   onclick="setClassLabel(parseInt(this.getAttribute('data-segment-class-id')), this.hasAttribute('checked'))">
+										{{ class.label }}
+									</label>
+								</td>
+								<td style="text-overflow: ellipsis;white-space:nowrap;max-width:0;overflow:hidden">
+									({{ class.segments }} segments labelled)
+								</td>
+							</tr>
 							{%- endfor -%}
 							{% for mdata in metadata -%}
 							{% set name = mdata[0] %}
@@ -166,14 +174,16 @@ body{
 	</div>
 </div>
 
+
+
 <!-- SELECTION FORM (move at the end so that it does not display long time, it's annoying otherwise) -->
-<div id="select-form" style="display:none" class="popup">
+<div id="segments-selection-dialog" class="d-none popup flex-column" style="top: 5vh; left:5vw; max-width:45vw">
 	<!-- Select segments where: -->
 	<div>
 		<button type="button" class="btn-close" aria-label="Close"
-				onclick="this.parentNode.parentNode.style.display='none'"></button>
+				onclick="document.getElementById('segments-selection-dialog').classList.toggle('d-none')"></button>
 	</div>
-	<div>
+	<div style="flex: 1 1 auto; overflow:auto">
 		<table id="table-select">
 			<tr>
 				<th>Attribute</th>
@@ -211,33 +221,38 @@ body{
 		</table>
 	</div>
 	<div style='text-align:center'>
-		<button class='btn btn-default' onclick="selectSegments(selection.selExpr)">Select</button>
+		<button class='btn btn-outline-secondary'
+				onclick="selectSegments(selection.selExpr).then(document.getElementById('segments-selection-dialog').classList.toggle('d-none'))">
+			Select
+		</button>
 	</div>
 </div>
 
-<div id="config-form" class="popup" style="display:none">
+<div id="config-dialog" class="popup d-none flex-column"
+	 style="top: 50%; left: 50%; transform: translate(-50%, -50%);">
 	<!-- Config (.yaml file) -->
 	<div>
 		<button type="button" class="btn-close" aria-label="Close"
-				onclick="this.parentNode.parentNode.style.display='none'"></button>
+				onclick="document.getElementById('config-dialog').classList.toggle('d-none')"></button>
 	</div>
-	<div>
-	Configuration editor (YAML syntax):
-	</div>
-	<div id='configEditor'>
-	</div>
+	<div>Configuration editor (YAML syntax):</div>
+	<div id='config-editor' style="flex: 1 1 auto; overflow:auto; min-height:75vh; min-width:50vw;"></div>
 	<div style='text-align:center'>
-		<button class='btn btn-default' onclick="updateConfig()">Update</button>
+		<button class='btn btn-default'
+				onclick="updateConfig().then(document.getElementById('config-dialog').classList.toggle('d-none'))">
+			Update
+		</button>
 	</div>
 </div>
 
-<div id="message_dialog" class="popup d-flex flex-column align-items-center"
-	 style="display:none; position: absolute; top:  50%; left: 50%;transform: translate(-50%,-50%);">
+<div id="message-dialog" class="popup d-none flex-column align-items-center"
+	 style="z-index:1000; top:50%; left: 50%; transform: translate(-50%, -50%);">
 	<span class="loader"></span>
 	<div class="d-flex flex-row align-items-end">
 		<div class="message" style="margin-top:.5rem"></div>
-		<button type="button" class="btn-close" aria-label="Close"
-				onclick="this.parentNode.parentNode.style.display='none'"></button>
+		<button type="button" class="btn-close ms-2" aria-label="Close"
+				onclick="document.getElementById('message-dialog').classList.toggle('d-none')">
+		</button>
 	</div>
 </div>
 {% endblock %}
@@ -246,7 +261,7 @@ body{
 	{{ super() }}
 	<script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.17.0/ace.min.js"></script>
 	<script type="text/javascript">
-		var configEditor = ace.edit("configEditor");
+		var configEditor = ace.edit("config-editor");
 		ace.config.set('basePath', 'https://pagecdn.io/lib/ace/1.4.8');
 		// instead of doing so:
 		// configEditor.setTheme("ace/theme/idle_fingers");
@@ -261,6 +276,7 @@ body{
 			theme: "ace/theme/idle_fingers",
 			showLineNumbers: true,
 	    });
+	    configEditor.setValue({{ config_text_json | safe }});
 
 		// adding keystrokes to segments selection:
 		document.addEventListener("keyup", e => {
@@ -283,9 +299,28 @@ body{
 	<script src="static/js/mainapp.js"></script>
 	<script>
 		const SEGMENTS_COUNT = {{ num_segments }};
-		const SELECTED_SEGMENT_INDEX = 0;
+		document.getElementById('segments_count').innerHTML = SEGMENTS_COUNT.toLocaleString();
+
+		var SELECTED_SEGMENT_INDEX = 0;
+
+		function setNextSegment(){
+			var currentIndex = (SELECTED_SEGMENT_INDEX + 1) % SEGMENTS_COUNT;
+			setSegment(currentIndex);
+		};
+
+		function setPreviousSegment(){
+			var currentIndex = SELECTED_SEGMENT_INDEX == 0 ? SEGMENTS_COUNT - 1 : SELECTED_SEGMENT_INDEX - 1;
+			setSegment(currentIndex);
+		};
+
+		function setSegment(index){
+			SELECTED_SEGMENT_INDEX = index; // see JS file
+			document.getElementById('current_segment_index').innerHTML = (SELECTED_SEGMENT_INDEX + 1).toLocaleString();
+			refreshView(null, true, null);
+		};
+
 		{%- if num_segments > 0 -%}
-		refreshView(null, true, null);  // see JS file
+		setSegment(0);
 		{%- endif -%}
 	</script>
 {% endblock %}
