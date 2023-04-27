@@ -162,8 +162,7 @@ body{
 							{%- endfor -%}
 							{% for mdata in metadata -%}
 							{% set name = mdata[0] %}
-							{% set cssstyle = mdata[3] %}
-							<tr style="{{ cssstyle }}">
+							<tr>
 								<td>{{ name }}</td>
 								<td data-segment-attr="{{ name }}" style='width:100%'>N/A</td>
 							</tr>
@@ -203,8 +202,7 @@ body{
 			{% set name = mdata[0] %}
 			{% set type = mdata[1] %}
 			{% set selection_expression = mdata[2] %}
-			{% set cssstyle = mdata[3] %}
-			<tr style="{{ cssstyle }}">
+			<tr>
 				<td>
 					<span id="sss-{{ name }}"
 						  class="{{ 'select-highlighted' if selection_expression.strip() else '' }}"

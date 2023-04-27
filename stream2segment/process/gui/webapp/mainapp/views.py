@@ -26,31 +26,9 @@ def main():
     ud_plots = core.userdefined_plots
     data = core.get_init_data(metadata=True, classes=True)
     classes = data['classes']
-    sel_conditions = core.get_select_conditions()
-    # build metadata (data['metadata'] but with customizing sorting):
-    metadata_dict = defaultdict(list)
-    for sel_key, sel_type in data['metadata']:
-        related_obj_name = "" if '.' not in sel_key else sel_key.split('.')[0]
-        # append each metadata element as list of 4 elements:
-        # attribute name, type, selection expression, css style for the relative TR
-        metadata_dict[related_obj_name].append([sel_key, sel_type,
-                                                sel_conditions.get(sel_key, ""),
-                                               ""])
-    # sort with custom logic: first Segment attributes, then event's, station's ...
-    sorted_keys = ["", "event", "station"]
-    sorted_keys += sorted(k for k in metadata_dict if k not in sorted_keys)
-    # now build the metadata list. Each list element is a list of 4 elements:
-    # attribute name, type, selection expression, css style for the relative TR
-    metadata = []
-    for key in sorted_keys:
-        metadata_chunk = sorted(metadata_dict[key], key=lambda k: k[0])
-        # add css style (to the first row only):
-        metadata_chunk[0][-1] = 'border-top: 2px solid lightgray'
-        metadata.extend(metadata_chunk)
-
+    metadata = data['metadata']
     r_plots = [{**p, 'name': n} for n, p in ud_plots.items() if p['position'] == 'r']
     b_plots = [{**p, 'name': n} for n, p in ud_plots.items() if p['position'] == 'b']
-
     return render_template('mainapp.html',
                            num_segments=len(core.g_segment_ids),
                            title=core.get_db_url(safe=True),
@@ -62,22 +40,10 @@ def main():
                            preprocessfunc_doc=core.get_func_doc(-1))
 
 
-# @main_app.route("/init", methods=['POST'])
-# def init():
-#     data = request.get_json()
-#     dic = core.get_init_data(data.get('metadata', False),
-#                              data.get('classes', False))
-#     return jsonify(dic)
-
-
 @main_app.route("/get_config", methods=['POST'])
 def get_config():
     asstr = (request.get_json() or {}).get('as_str', False)
     return jsonify(core.get_config(asstr))
-    # try:
-    #     return jsonify({'error_msg': '', 'data': core.get_config(asstr)})
-    # except Exception as exc:  # pylint: disable=broad-except
-    #     return jsonify({'error_msg': str(exc), 'data': {}})
 
 
 @main_app.route("/get_selection", methods=['POST'])

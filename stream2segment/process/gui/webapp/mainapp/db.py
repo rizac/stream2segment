@@ -7,6 +7,7 @@ Created on 16 Apr 2020
 """
 
 from sqlalchemy import func
+from sqlalchemy.orm import load_only
 
 from stream2segment.io.db import secure_dburl
 from stream2segment.io.db.inspection import attnames, get_related_models
@@ -155,52 +156,48 @@ def get_metadata(segment_id=None):
     (str, datetime,...), in the latter, it is the value of `segment` for that
     column
     """
-    related_models = get_related_models(Segment)
-
     segment = None
     if segment_id is not None:
-        # exclude all classes attributes (returned in get_classes):
-        related_models.pop('classes')
         segment = get_segment(segment_id)
         if not segment:
             return []
 
-    anames = _attnames(Segment, lambda attr: attr != Segment.data.key)
-
-    # map every related model to a function that will show only some of their attributes:
-    filter_funcs = {
-        'event': lambda attr: True,
+    # map every related model to a function that will show only some of their attributes.
+    # NOTE: this dict dictates also the ORDER of the related models
+    related_models_attrs = {
+        'event': lambda attr: attr not in {'contributor', 'contributor_id',
+                                           'mag_author'},
         'station': lambda attr: attr != Station.inventory_xml.key,
         'channel': lambda attr: True,
         'datacenter': lambda attr: attr in {'id', 'dataselect_url'},
-        'download': lambda attr: attr in {'id', 'run_time'},
-        'classes': lambda attr: False  # attr in {'id', 'label', 'description'},
+        'download': lambda attr: attr in {'id', 'run_time'}
     }
-
+    related_models = get_related_models(Segment)
+    seg_simple_att_names = _attnames(Segment, lambda attr: attr != Segment.data.key)
     if segment:
         # we have an instance, it is for showing data on the GUI. So:
-        anames = [(_, getattr(segment, _)) for _ in anames]
-        for relation_name, related_model in related_models.items():
-            related_model_attrs = _attnames(related_model,
-                                            filter_funcs.get(relation_name, None))
+        metadata = [(_, getattr(segment, _)) for _ in seg_simple_att_names]
+        for relation_name, attr_filter_func in related_models_attrs.items():
+            related_model = related_models[relation_name]
+            related_model_attrs = _attnames(related_model, attr_filter_func)
             # obj will load all related model attributes (except those that are deferred
             # by design, e.g. download.log. Any kind other optimization is premature)
             # Note that there is always a 1-1 related object, as we removed 'classes'
             obj = getattr(segment, relation_name)
-            anames.extend((relation_name + '.' + a, getattr(obj, a))
-                          for a in related_model_attrs)
+            metadata.extend((relation_name + '.' + a, getattr(obj, a))
+                            for a in related_model_attrs)
     else:
         # we have a model (instance class), it is for selecting data on the GUI. So:
-        anames = [(_, _get_pytype(Segment, _)) for _ in anames]
-        for relation_name, related_model in related_models.items():
-            related_model_attrs = _attnames(related_model,
-                                            filter_funcs.get(relation_name, None))
-            anames.extend((relation_name + '.' + a, _get_pytype(related_model, a))
-                          for a in related_model_attrs)
+        metadata = [(_, _get_pytype(Segment, _)) for _ in seg_simple_att_names]
+        for relation_name, attr_filter_func in related_models_attrs.items():
+            related_model = related_models[relation_name]
+            related_model_attrs = _attnames(related_model, attr_filter_func)
+            metadata.extend((relation_name + '.' + a, _get_pytype(related_model, a))
+                            for a in related_model_attrs)
         # remove None's (unknown type, no selection possible):
-        anames = [_ for _ in anames if _[1] is not None]
+        metadata = [_ for _ in metadata if _[1] is not None]
 
-    return anames
+    return metadata
 
 
 def _attnames(model, filter_func=None):

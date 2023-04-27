@@ -147,8 +147,11 @@ def _escapedoc(string):
 def get_init_data(metadata=True, classes=True):
     classes = db.get_classes() if classes else []
     _metadata = db.get_metadata() if metadata else []
+    # add sel condition string to metadata:
+    sel_conditions = get_select_conditions()
+    metadata = [[m[0], m[1], sel_conditions.get(m[0], "")] for m in _metadata]
     # qry = query4gui(session, conditions=conditions, orderby=None)
-    return {'classes': classes, 'metadata': _metadata}
+    return {'classes': classes, 'metadata': metadata}
 
 
 def get_config(as_str=False):
