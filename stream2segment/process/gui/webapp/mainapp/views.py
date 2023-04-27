@@ -48,33 +48,24 @@ def get_config():
 
 @main_app.route("/get_selection", methods=['POST'])
 def get_selection():
-    try:
-        return jsonify({'error_msg': '', 'data': core.get_select_conditions()})
-    except Exception as exc:  # pylint: disable=broad-except
-        return jsonify({'error_msg': str(exc), 'data': {}})
+    return jsonify(core.get_select_conditions())
 
 
 @main_app.route("/validate_config_str", methods=['POST'])
 def validate_config_str():
     data = request.get_json()
-    try:
-        return jsonify({'error_msg': '',
-                        'data': core.validate_config_str(data['data'])})
-    except Exception as exc:  # pylint: disable=broad-except
-        return jsonify({'error_msg': str(exc), 'data': {}})
+    return jsonify({'data': core.validate_config_str(data['data'])})
 
 
 @main_app.route("/set_selection", methods=['POST'])
 def set_selection():
-    try:
-        data = request.get_json()
-        sel_conditions = data.get('segments_selection', None)
-        # sel condition = None: do not update conditions but use already loaded one
-        num_segments = core.set_select_conditions(sel_conditions)
-        return jsonify({'num_segments': num_segments, 'error_msg': ''})
-
-    except Exception as exc:  # pylint: disable=broad-except
-        return jsonify({'num_segments': 0, 'error_msg': str(exc)})
+    sel_conditions = request.get_json() or None
+    # sel condition = None: do not update conditions but use already loaded one
+    if sel_conditions:
+        # remove space-only and empty strings in expressions:
+        sel_conditions = {k: v for k, v in sel_conditions.items() if v and v.strip()}
+    num_segments = core.set_select_conditions(sel_conditions)
+    return jsonify({'num_segments': num_segments, 'error_msg': ''})
 
 
 @main_app.route("/get_segment_data", methods=['POST'])

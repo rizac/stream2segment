@@ -6,9 +6,8 @@ Core functionalities for the main GUI web application (show command)
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
 import math
-from itertools import cycle
 import contextlib
-from datetime import datetime, date, timedelta
+from datetime import datetime, date
 
 from io import StringIO
 import yaml
@@ -146,11 +145,7 @@ def _escapedoc(string):
 
 def get_init_data(metadata=True, classes=True):
     classes = db.get_classes() if classes else []
-    _metadata = db.get_metadata() if metadata else []
-    # add sel condition string to metadata:
-    sel_conditions = get_select_conditions()
-    metadata = [[m[0], m[1], sel_conditions.get(m[0], "")] for m in _metadata]
-    # qry = query4gui(session, conditions=conditions, orderby=None)
+    metadata = db.get_metadata() if metadata else []
     return {'classes': classes, 'metadata': metadata}
 
 

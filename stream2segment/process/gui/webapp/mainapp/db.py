@@ -7,7 +7,7 @@ Created on 16 Apr 2020
 """
 
 from sqlalchemy import func
-from sqlalchemy.orm import load_only
+from datetime import datetime
 
 from stream2segment.io.db import secure_dburl
 from stream2segment.io.db.inspection import attnames, get_related_models
@@ -176,15 +176,13 @@ def get_metadata(segment_id=None):
     seg_simple_att_names = _attnames(Segment, lambda attr: attr != Segment.data.key)
     if segment:
         # we have an instance, it is for showing data on the GUI. So:
-        metadata = [(_, getattr(segment, _)) for _ in seg_simple_att_names]
+        metadata = [(_, _jsonify(getattr(segment, _))) for _ in seg_simple_att_names]
         for relation_name, attr_filter_func in related_models_attrs.items():
             related_model = related_models[relation_name]
             related_model_attrs = _attnames(related_model, attr_filter_func)
-            # obj will load all related model attributes (except those that are deferred
-            # by design, e.g. download.log. Any kind other optimization is premature)
-            # Note that there is always a 1-1 related object, as we removed 'classes'
-            obj = getattr(segment, relation_name)
-            metadata.extend((relation_name + '.' + a, getattr(obj, a))
+            related_inst = getattr(segment, relation_name)
+            metadata.extend((relation_name + '.' + a,
+                             _jsonify(getattr(related_inst, a)))
                             for a in related_model_attrs)
     else:
         # we have a model (instance class), it is for selecting data on the GUI. So:
@@ -213,3 +211,8 @@ def _get_pytype(model, attrname):
     sqltype = get_sqltype(getattr(model, attrname))
     pytype = None if sqltype is None else get_pytype(sqltype)
     return None if pytype is None else str(pytype.__name__)
+
+
+def _jsonify(obj):
+    """flask converts datetime(s) to Fri, 08 Sep 2017 05:03:10 GMT, let's keep UTC"""
+    return obj.isoformat(sep=' ') if isinstance(obj, datetime) else obj

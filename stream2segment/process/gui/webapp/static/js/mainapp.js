@@ -38,9 +38,35 @@ axios.interceptors.response.use((response) => {
 	return Promise.reject(error.message);
 });
 
-function setSegmentsSelection(segmentsSelection){
+function setSegmentsSelection(inputElements){
 	setInfoMessage("Selecting segments ... (it might take a while for large databases)");
+	var segmentsSelection = {};
+	for(var att of Object.keys(inputElements)){
+		var val = inputElements[att].value;
+		if (val && val.trim()){
+			segmentsSelection[att] = val;
+		}
+	}
 	return axios.post("/set_selection", segmentsSelection, {headers: {'Content-Type': 'application/json'}}).then(response => {
+		var numSegments = response.data.num_segments;
+		if (numSegments < 1 ){
+			errmsg = "No segments matching the current selection";
+			setErrorMessage(errmsg);
+			throw Error(msg);
+		}
+		return response;
+	});
+}
+
+function getSegmentsSelection(inputElements){
+	// queries the current segments selection and puts the selection expressions into the given input elements
+	return axios.post("/get_selection", {}, {headers: {'Content-Type': 'application/json'}}).then(response => {
+		var numSegments = response.data;
+		for(var attname of Object.keys(response.data)){
+			if (inputElements[attname]){
+				inputElements[attname].value = response.data[attname];
+			}
+		}
 		return response;
 	});
 }

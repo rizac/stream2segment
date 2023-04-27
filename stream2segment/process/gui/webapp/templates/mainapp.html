@@ -10,6 +10,13 @@ body{
 	background-color: whitesmoke !important;
 	padding: .75rem !important;
 }
+.select-highlighted{
+	border-radius: 5px;
+	background-color: #009688;
+	color: white;
+	font-weight: bold;
+	padding: 1px 5px;
+}
 .popup{
 	z-index: 100;
 	background-color: #f5f5f5;
@@ -201,16 +208,12 @@ body{
 			{% for mdata in metadata -%}
 			{% set name = mdata[0] %}
 			{% set type = mdata[1] %}
-			{% set selection_expression = mdata[2] %}
 			<tr>
 				<td>
-					<span id="sss-{{ name }}"
-						  class="{{ 'select-highlighted' if selection_expression.strip() else '' }}"
-					>{{ name }}</span>
+					<span id="sss-{{ name }}">{{ name }}</span>
 				</td>
 				<td style='width:100%'>
 					<input style='width:100%' type=text
-						   value="{{ selection_expression }}"
 						   data-segment-select-attr="{{ name }}"
 						   oninput="this.value ? document.getElementById('sss-{{ name }}').classList.add('select-highlighted') : document.getElementById('sss-{{ name }}').classList.remove('select-highlighted')"
 						   placeholder="{{ type }}"
@@ -222,7 +225,7 @@ body{
 	</div>
 	<div style='text-align:center'>
 		<button class='btn btn-outline-secondary'
-				onclick="updateSegmentSelection().then(response => { toggleVisibility('segments-selection-dialog') }">
+				onclick="updateSegmentSelection().then(response => { toggleVisibility('segments-selection-dialog') })">
 			Select
 		</button>
 	</div>
@@ -239,7 +242,7 @@ body{
 	<div id='config-editor' style="flex: 1 1 auto; overflow:auto; min-height:75vh; min-width:50vw;"></div>
 	<div style='text-align:center'>
 		<button class='btn btn-default'
-				onclick="updateConfig().then(response => { toggleVisibility('config-dialog') }">
+				onclick="updateConfig().then(response => { toggleVisibility('config-dialog') })">
 			Update
 		</button>
 	</div>
@@ -336,10 +339,15 @@ body{
 	 						 attrElements, classElements, null).then(response => {
 				SELECTED_SEGMENT_INDEX = index;
 				document.getElementById('current_segment_index').innerHTML = (SELECTED_SEGMENT_INDEX + 1).toLocaleString('en-US');
-				var seed_id = response.data.attributes['seed_id'] || "";
 				var seed_id_elm = document.getElementById('seed_id');
-				seed_id ? seed_id_elm.classList.remove('d-none') : seed_id_elm.classList.add('d-none');
-				seed_id_elm.innerHTML = seed_id;
+				seed_id_elm.classList.add('d-none')
+				for (var [attname, attval] of response.data.attributes){
+					if (attname == 'seed_id'){
+						seed_id_elm.innerHTML = attval;
+						seed_id_elm.classList.remove('d-none')
+						break;
+					}
+				}
 			});
 		};
 
@@ -373,16 +381,19 @@ body{
 			axios.post("/set_class_id", params, {headers: {'Content-Type': 'application/json'}});
 		}
 
-		function updateSegmentSelection(){
+		function getSegmentSelectionInputElements(){
 			var ret = {};
 			var attr = 'data-segment-select-attr';
 			document.querySelectorAll(`input[${attr}]`).forEach(elm => {
-				if (elm.value && elm.value.trim()){
-					ret[elm.getAttribute(attr)] = value.trim();
-				}
+				ret[elm.getAttribute(attr)] = elm;
 			});
-			return setSegmentsSelection(ret).then(response => {
-				updateSegmentsCount(response.data.num_segments);
+			return ret;
+		}
+
+		function updateSegmentSelection(){
+			return setSegmentsSelection(getSegmentSelectionInputElements()).then(response => {
+				var numSegments = response.data.num_segments;  // surely > 0
+				updateSegmentsCount(numSegments);
 				return response;
 			});
 		}
@@ -393,6 +404,9 @@ body{
 			if (!isVisible && divId == 'config-dialog'){
 				// query config and show form only upon successful response:
 				setConfig(configEditor).then(response => { setDivVisible(div, true) });
+			}else if (!isVisible && divId == 'segments-selection-dialog'){
+				// query segment selection and show form only upon successful response:
+				getSegmentsSelection(getSegmentSelectionInputElements()).then(response => { setDivVisible(div, true) });
 			}else{
 				setDivVisible(div, !isVisible);
 			}
