@@ -35,8 +35,7 @@ axios.interceptors.response.use((response) => {
 	return response;
 }, (error) => {
 	setErrorMessage("[!] " + ((error.message || '').trim() || 'Unknown error'));
-	throw error
-	// return Promise.reject(error.message);
+	return Promise.reject(error.message);
 });
 
 function setSegmentsSelection(segmentsSelection){
@@ -47,72 +46,83 @@ function setSegmentsSelection(segmentsSelection){
 }
 
 function get_segment_data(segmentIndex, segmentsCount, plots, tracesArePreprocessed, mainPlotShowsAllComponents,
- 						  metadataElements, classElements, config){
+ 						  attrElements, classElements, config){
 	/**
-	* Main function that updates the plots and optionally updates the segment metadata
-	* plots: Array of 3 elements denoting the plot to be redrawn. the 3 elements are:
-	* [Python function name (string), destination <div> id (string), plotlty layout (Object)]
-	* plots can ba also an Array of Arrays above (redraw more than one plot), or undefined
-	* (redraw all visible plots)
-	* config: Object or null. If Object, it is the new config to be passed to plots
+	* Main function to update the GUI from a given segment.
+	* plots: Array of 3-elements Arrays, where the 3 elements are:
+	* 	[Python function name (string), destination <div> id (string), plotlty layout (Object)]
+	* tracesArePreprocessed: boolean denoting if the traces should be pre-processed
+	* mainPlotShowsAllComponents: boolean denoting if the main trace should plot all 3 components / orientations
+	* attrElements: Object of segment attributes (string) mapped to the HTML element whose
+	*	innerHTML should be set to the relative segment attr value. If null / undefined, segment
+	* 	attr are not fetched and nothing is set
+	* classElements: Object of DB classes ids (integer) mapped to the input[type=checkbox]
+	* 	element whose checked state should be set true or false depending on whether the segment
+	* 	has the relative class label assigned or not. If null / undefined, segment classes are not fetched
+	* 	and nothing happens
+	* config: Object or null denoting the new config to be used to compute the plots.
+	* 	If null, the default config is used
 	*/
-
 	var funcName2ID = {};
 	var funcName2Layout = {};
 	for (var [fName, divId, layout] of plots){
 		funcName2ID[fName] = divId;
 		funcName2Layout[fName] = layout;
 	}
-	var zooms = null;  // NOT USED (here just in case)
 	var params = {
 		seg_index: segmentIndex,
 		seg_count: segmentsCount,
 		pre_processed: tracesArePreprocessed,
-		zooms: zooms,
+		zooms: null,  // not used
 		plot_names: Object.keys(funcName2ID),
-		all_components: mainPlotShowsAllComponents
-	};
-
-	params.config = config || {};
-	if(metadataElements || classElements){
-		params.metadata = true;
-		params.classes = true
+		all_components: mainPlotShowsAllComponents,
+		config: config || {},
+		attributes: !!attrElements,
+		classes: !!classElements
 	}
+
 	setInfoMessage("Fetching and computing data (it might take a while) ...");
 	return axios.post("/get_segment_data", params, {headers: {'Content-Type': 'application/json'}}).then(response => {
 		for (var name of Object.keys(response.data.plots)){
 			redrawPlot(funcName2ID[name], response.data.plots[name], funcName2Layout[name]);
 		}
 		// update metadata if needed:
-		if (metadataElements){
-			for (var [attName, attVal] of response.data.metadata){
-				metadataElements[attName].innerHTML = attVal;
+		if (attrElements){
+			for (var [attName, attVal] of response.data.attributes){
+				attrElements[attName].innerHTML = attVal;
 			}
 		}
 		// update classes if needed:
 		if (classElements){
 			for (var classId of response.data.classes){
-				classElements[clsssId].checked=true;
+				classElements[classId].checked=true;
 			}
 		}
 		return response;
 	});
 }
 
+function getPageFontInfo(){
+	var style = window.getComputedStyle(document.body);
+	var fsize = parseFloat(style.getPropertyValue('font-size'));
+	var ffamily = style.getPropertyValue('font-family');
+	return {
+		'size': isNaN(fsize) ? 15 : fsize,
+		'family': ffamily || 'sans-serif'
+	}
+}
+
 function redrawPlot(divId, plotlyData, plotlyLayout){
 	var div = document.getElementById(divId);
 	var initialized = !!div.layout;
-	var _fs = parseFloat(window.getComputedStyle(document.body).getPropertyValue('font-size'));
+	var font = getPageFontInfo();
 	var _ff = window.getComputedStyle(document.body).getPropertyValue('font-family');
 	var layout = {  // set default layout (and merge later with plotlyLayout, if given)
 		margin:{'l': 10, 't':10, 'b':10, 'r':10},
 		pad: 0,
 		autosize: true,
 		paper_bgcolor: 'rgba(0,0,0,0)',
-		font: {
-			family: _ff || "sans-serif",
-			size: isNaN(_fs) ? 15 : _fs
-		},
+		font: font,
 		xaxis: {
 			autorange: true,
 			automargin: true,
@@ -130,7 +140,14 @@ function redrawPlot(divId, plotlyData, plotlyLayout){
 			//fixedrange: true
 		},
 		annotations: [],
-		legend: {xanchor:'right', font:{size:10}, x:0.99}
+		legend: {
+			xanchor:'right',
+			font: {
+				size: font.size *.9,
+				family: font.family,
+			},
+			x:0.99
+		}
 	};
 	// deep merge plotlyLayout into layout
 	var objs = [[plotlyLayout, layout]];  // [src, dest]
@@ -159,6 +176,8 @@ function redrawPlot(divId, plotlyData, plotlyLayout){
 			bordercolor: '#ffffff', // '#c7c7c7',
 			bgcolor: '#C0392B',
 			font: {
+				size: font.size *.9,
+				family: font.family,
 				color: '#FFFFFF'
 			}
 		});
@@ -185,11 +204,3 @@ function setConfig(aceEditor){
 		return response;
 	});
 }
-//function setClassLabel(classId, value){
-//	var segId = parseInt((document.querySelector(`[data-segment-attr="id"]`) || {}).innerHTML);
-//	if (isNaN(segId)){
-//		setErrorMessage('The segment ID could not be inferred');
-//	}
-//	var params = {class_id: classId, segment_id: segId, value: value};
-//	axios.post("/set_class_id", params, {headers: {'Content-Type': 'application/json'}});
-//}

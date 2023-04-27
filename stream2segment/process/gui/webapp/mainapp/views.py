@@ -122,13 +122,13 @@ def get_segment_data():
     preprocessed = data.get('pre_processed', False)
     zooms = data.get('zooms', None)
     all_components = data.get('all_components', False)
-    metadata = data.get('metadata', False)
+    attributes = data.get('attributes', False)
     classes = data.get('classes', False)
     config = data.get('config', {})
     return jsonify(core.get_segment_data(seg_id,
                                          plot_names, all_components,
                                          preprocessed, zooms,
-                                         metadata, classes, config))
+                                         attributes, classes, config))
 
 
 @main_app.route("/set_class_id", methods=['POST'])

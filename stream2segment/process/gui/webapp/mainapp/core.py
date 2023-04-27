@@ -251,7 +251,7 @@ def set_class_id(seg_id, class_id, value):
 
 
 def get_segment_data(seg_id, plot_names, all_components, preprocessed,
-                     zooms, metadata=False, classes=False, config=None):
+                     zooms, attributes=False, classes=False, config=None):
     """Return the segment data, depending on the arguments
 
     :param seg_id: the segment id (int)
@@ -268,7 +268,7 @@ def get_segment_data(seg_id, plot_names, all_components, preprocessed,
         (xmin and xmax can be both None, to conform python slicing behaviour).
         If None, defaults
         to a list of [None, None] elements (one for each plot)
-    :param metadata: boolean, whether or not to return a list of the segment
+    :param attributes: boolean, whether or not to return a list of the segment
         metadata. The list is a list of tuples ('column', value). A list is
         used to preserve order for client-side javascript parsing
     :param classes: boolean, whether to return the integers classes ids (if
@@ -303,7 +303,7 @@ def get_segment_data(seg_id, plot_names, all_components, preprocessed,
         'seg_id': seg_id,
         # 'plot_types': [p.is_timeseries for p in plots],
         'sn_windows': sn_windows,
-        'metadata': [] if not metadata else db.get_metadata(seg_id),
+        'attributes': [] if not attributes else db.get_metadata(seg_id),
         'classes': [] if not classes else db.get_classes(seg_id)
     }
 

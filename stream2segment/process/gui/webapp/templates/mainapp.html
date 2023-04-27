@@ -141,7 +141,7 @@ body{
 			<!-- RIGHT BOTTOM PANEL (SEGMENT METADATA) -->
 			<div class="d-flex flex-column" style="flex: 1 1 50%; margin-left:1rem">
 				<div>
-					&#9432; Full Segment metadata:
+					&#9432; Segment metadata:
 				</div>
 				<div style="flex:1 1 auto; position:relative">
 					<div style="position:absolute;top:0;right:0;bottom:0;left:0;overflow:auto">
@@ -261,6 +261,7 @@ body{
 
 {% block after_body %}
 	{{ super() }}
+	<script src="static/js/mainapp.js"></script>
 	<script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.17.0/ace.min.js"></script>
 	<script type="text/javascript">
 		var configEditor = ace.edit("config-editor");
@@ -270,10 +271,9 @@ body{
 		// configEditor.session.setMode("ace/mode/yaml");
 		// we set everything in the options dict
 		// (for infor see: https://codepen.io/ryancat/pen/mMyvpx)
-		var _fs = parseFloat(window.getComputedStyle(document.body).getPropertyValue('font-size'));
 		configEditor.setOptions({
 			wrap: true,
-			fontSize: isNaN(_fs) ? 15 : _fs,
+			fontSize: getPageFontInfo().size,  // see custom js
 			mode: "ace/mode/yaml",
 			theme: "ace/theme/idle_fingers",
 			showLineNumbers: true,
@@ -297,9 +297,8 @@ body{
 			}
 		});
 	</script>
-	<script src="static/js/mainapp.js"></script>
 	<script>
-		var SEGMENTS_COUNT = 0;
+		var SEGMENTS_COUNT = 0;  // real value will be set at the end of this script tag
 		var SELECTED_SEGMENT_INDEX = 0;
 
 		function setNextSegment(){
@@ -325,39 +324,39 @@ body{
 			}else if (index >= SEGMENTS_COUNT){
 				index = index % SEGMENTS_COUNT;
 			}
-			var plots = [["", 'main-plot', {}]];
-			for(var elm of document.querySelectorAll('[data-plot][checked]')){
-				plots.push(JSON.parse(elm.getAttribute('data-plot')));
-			}
-			var metadataElements = {};
+			var attrElements = {};
 			document.querySelectorAll(`[data-segment-attr]`).forEach(elm => {
-				metadataElements[elm.getAttribute('data-segment-attr')] = elm;
+				attrElements[elm.getAttribute('data-segment-attr')] = elm;
 			});
-			Array.from(document.querySelectorAll(`[data-segment-class-id]`)).forEach(elm => elm.checked=false);
 			var classElements = {};
 			document.querySelectorAll(`[data-segment-class-id]`).forEach(elm => {
-				metadataElements[elm.getAttribute('data-segment-class-id')] = elm;
+				elm.checked = false;
+				classElements[parseInt(elm.getAttribute('data-segment-class-id'))] = elm;
 			});
-			get_segment_data(index, SEGMENTS_COUNT, plots, tracesArePreprocessed(), mainPlotShowsAllComponents(),
-	 						 metadataElements, classElements, null).then(response => {
-				SELECTED_SEGMENT_INDEX = index; // see JS file
+			get_segment_data(index, SEGMENTS_COUNT,
+							 getPlotDataToRecompute(), tracesArePreprocessed(), mainPlotShowsAllComponents(),
+	 						 attrElements, classElements, null).then(response => {
+				SELECTED_SEGMENT_INDEX = index;
 				document.getElementById('current_segment_index').innerHTML = (SELECTED_SEGMENT_INDEX + 1).toLocaleString('en-US');
-				var seed_id = response.data.metadata['seed_id'] || "";
+				var seed_id = response.data.attributes['seed_id'] || "";
 				var seed_id_elm = document.getElementById('seed_id');
-				seed_id ? seed_id_elm.classList.remove('d-none'): seed_id_elm.classList.add('d-none');
+				seed_id ? seed_id_elm.classList.remove('d-none') : seed_id_elm.classList.add('d-none');
 				seed_id_elm.innerHTML = seed_id;
 			});
 		};
 
-
 		function recomputeAllPlots(config){
-			var plots = [["", 'main-plot', {}]];
-			for(var elm of document.querySelectorAll('[data-plot][checked]')){
-				plots.push(JSON.parse(elm.getAttribute('data-plot')));
-			}
 			get_segment_data(SELECTED_SEGMENT_INDEX, SEGMENTS_COUNT,
-							 plots, tracesArePreprocessed(), mainPlotShowsAllComponents(),
+							 getPlotDataToRecompute(), tracesArePreprocessed(), mainPlotShowsAllComponents(),
 	 						 null, null, config);
+		}
+
+		function getPlotDataToRecompute(){
+			var plots = [["", 'main-plot', {}]];
+			document.querySelectorAll('[data-plot][checked]').forEach(elm => {
+				plots.push(JSON.parse(elm.getAttribute('data-plot')));
+			});
+			return plots;
 		}
 
 		function recomputePlot(funcName, divId, layout){
@@ -378,14 +377,12 @@ body{
 
 		function updateSegmentSelection(){
 			var ret = {};
-			var attrName = 'data-segment-select-attr';
-			for (var elm of document.querySelectorAll(`input[${attrName}]`)){
-				var key = elm.getAttribute(attrName);
-				var value = elm.value;
-				if(value.trim()){
-					ret[key] = value.trim();
+			var attr = 'data-segment-select-attr';
+			document.querySelectorAll(`input[${attr}]`).forEach(elm => {
+				if (elm.value && elm.value.trim()){
+					ret[elm.getAttribute(attr)] = value.trim();
 				}
-			}
+			});
 			return setSegmentsSelection(ret).then(response => {
 				updateSegmentsCount(response.data.num_segments);
 				return response;
