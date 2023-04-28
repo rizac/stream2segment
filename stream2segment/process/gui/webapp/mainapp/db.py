@@ -11,7 +11,7 @@ from datetime import datetime
 
 from stream2segment.io.db import secure_dburl
 from stream2segment.io.db.inspection import attnames, get_related_models
-from stream2segment.process.db.models import (Segment, Station, get_classlabels)
+from stream2segment.process.db.models import (Segment, Station, ClassLabelling, get_classlabels)
 from stream2segment.process.db.sqlevalexpr import exprquery, get_pytype, get_sqltype
 
 # import atexit
@@ -142,6 +142,10 @@ def get_classes(segment_id=None):
     return get_classlabels(get_session(), segments=True)
 
 
+def get_classlabelling_count(class_id):
+    return get_session().query(func.count(ClassLabelling.id).
+                               filter(ClassLabelling.class_id == class_id)).scalar()
+
 def get_metadata(segment_id=None):
     """Return a list of tuples (column, column_type) if `segment_id` is None or
     (column, column_value) if segment is not None. In the first case,
@@ -159,34 +163,48 @@ def get_metadata(segment_id=None):
     # NOTE: this dict dictates also the ORDER of the related models
     related_models_attrs = {
         'event': lambda attr: attr not in {'contributor', 'contributor_id',
-                                           'mag_author'},
+                                           'mag_author', 'event_type', 'author'},
         'station': lambda attr: attr != Station.inventory_xml.key,
         'channel': lambda attr: True,
         'datacenter': lambda attr: attr in {'id', 'dataselect_url'},
         'download': lambda attr: attr in {'id', 'run_time'}
     }
-    related_models = get_related_models(Segment)
+    # rel(ated) models (establishing relationships with the Segment class):
+    rel_model_classes = get_related_models(Segment)
     seg_simple_att_names = _attnames(Segment, lambda attr: attr != Segment.data.key)
     if segment:
         # we have an instance, it is for showing data on the GUI. So:
-        metadata = [(_, _jsonify(getattr(segment, _))) for _ in seg_simple_att_names]
+        metadata = [{
+            'label': _,
+            'value': _jsonify(getattr(segment, _)),
+            'dbmodel': Segment.__name__
+        } for _ in seg_simple_att_names]
+
         for relation_name, attr_filter_func in related_models_attrs.items():
-            related_model = related_models[relation_name]
-            related_model_attrs = _attnames(related_model, attr_filter_func)
-            related_inst = getattr(segment, relation_name)
-            metadata.extend((relation_name + '.' + a,
-                             _jsonify(getattr(related_inst, a)))
-                            for a in related_model_attrs)
+            rel_model_class = rel_model_classes[relation_name]
+            rel_model_attrs = _attnames(rel_model_class, attr_filter_func)
+            rel_model_inst = getattr(segment, relation_name)
+            metadata.extend({
+                'label': relation_name + '.' + a,
+                'value': _jsonify(getattr(rel_model_inst, a)),
+                'dbmodel': rel_model_class.__name__
+            } for a in rel_model_attrs)
     else:
         # we have a model (instance class), it is for selecting data on the GUI. So:
-        metadata = [(_, _get_pytype(Segment, _)) for _ in seg_simple_att_names]
+        metadata = [{
+            'label': _,
+            'dtype': _get_pytype(Segment, _),
+            'dbmodel': Segment.__name__
+        } for _ in seg_simple_att_names]
+
         for relation_name, attr_filter_func in related_models_attrs.items():
-            related_model = related_models[relation_name]
-            related_model_attrs = _attnames(related_model, attr_filter_func)
-            metadata.extend((relation_name + '.' + a, _get_pytype(related_model, a))
-                            for a in related_model_attrs)
-        # remove None's (unknown type, no selection possible):
-        metadata = [_ for _ in metadata if _[1] is not None]
+            rel_model_class = rel_model_classes[relation_name]
+            rel_model_attrs = _attnames(rel_model_class, attr_filter_func)
+            metadata.extend({
+                'label': relation_name + '.' + a,
+                'dtype': _get_pytype(rel_model_class, a),
+                'dbmodel': rel_model_class.__name__
+            } for a in rel_model_attrs if _get_pytype(rel_model_class, a) is not None)
 
     return metadata
 

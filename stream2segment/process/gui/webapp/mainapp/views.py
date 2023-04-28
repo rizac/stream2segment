@@ -110,6 +110,5 @@ def set_class_id():
     seg_index = data['seg_index']
     seg_count = data['seg_count']
     seg_id = core.get_segment_id(seg_index, seg_count)
-    core.set_class_id(seg_id, data['class_id'], data['value'])
-    # the above raises, otherwise return empty json to signal success:
-    return jsonify({})
+    return jsonify(core.set_class_id(seg_id, data['class_id'], data['value']))
+

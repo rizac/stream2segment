@@ -223,7 +223,7 @@ def set_class_id(seg_id, class_id, value):
         segment.add_classlabel(class_id, annotator=annotator)
     else:
         segment.del_classlabel(class_id)
-    return {}
+    return db.get_classlabelling_count(class_id)
 
 
 def get_segment_data(seg_id, plot_names, all_components, preprocessed,

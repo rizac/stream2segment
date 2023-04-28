@@ -80,12 +80,13 @@ function get_segment_data(segmentIndex, segmentsCount, plots, tracesArePreproces
 	* tracesArePreprocessed: boolean denoting if the traces should be pre-processed
 	* mainPlotShowsAllComponents: boolean denoting if the main trace should plot all 3 components / orientations
 	* attrElements: Object of segment attributes (string) mapped to the HTML element whose
-	*	innerHTML should be set to the relative segment attr value. If null / undefined, segment
+	*	innerHTML should be set to the relative segment attr value (each element innerHTML is assumed
+	*   to be empty). If null / undefined, segment
 	* 	attr are not fetched and nothing is set
 	* classElements: Object of DB classes ids (integer) mapped to the input[type=checkbox]
 	* 	element whose checked state should be set true or false depending on whether the segment
-	* 	has the relative class label assigned or not. If null / undefined, segment classes are not fetched
-	* 	and nothing happens
+	* 	has the relative class label assigned or not (each input.checked property is assumed to be false).
+	*   If null / undefined, segment classes are not fetched and nothing happens
 	*/
 	var funcName2ID = {};
 	var funcName2Layout = {};
@@ -111,8 +112,8 @@ function get_segment_data(segmentIndex, segmentsCount, plots, tracesArePreproces
 		}
 		// update metadata if needed:
 		if (attrElements){
-			for (var [attName, attVal] of response.data.attributes){
-				attrElements[attName].innerHTML = attVal;
+			for (var att of response.data.attributes){
+				attrElements[att.label].innerHTML = att.value;
 			}
 		}
 		// update classes if needed:
