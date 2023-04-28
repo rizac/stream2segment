@@ -102,6 +102,9 @@ body{
 			<label class="btn btn-sm btn-outline-secondary me-2" for="show-all-components-btn">Show all orientations</label>
 		</div>
 		<div class="d-flex flex-row align-items-baseline" style="flex: 1 1 50%">  <!-- right plot controls -->
+			{%- if rightPlots|length < 1 -%}
+			{{ seg_metadata_caption }}
+			{%- else -%}
 			{% for plot in rightPlots %}
 			<input type="radio" class="btn-check"
 				   name="right-plot-option" id="right-plot-{{ plot.name }}"
@@ -111,6 +114,7 @@ body{
 				   title="{{plot.doc}}" autocomplete="off">
 			<label class="btn btn-sm btn-outline-secondary me-2" for="right-plot-{{ plot.name }}">{{ plot.name }}</label>
 			{% endfor %}
+			{%- endif %}
 		</div>
 	</div>
 	<!-- PLOTS CONTAINER -->
@@ -147,9 +151,9 @@ body{
 			</div>
 			<!-- RIGHT BOTTOM PANEL (SEGMENT METADATA) -->
 			<div class="d-flex flex-column" style="flex: 1 1 50%; margin-left:1rem">
-				<div>
-					&#9432; Segment metadata:
-				</div>
+				{%- if rightPlots|length > 0 -%}
+				<div>{{ seg_metadata_caption }}</div>
+				{%- endif %}
 				<div style="flex:1 1 auto; position:relative">
 					<div style="position:absolute;top:0;right:0;bottom:0;left:0;overflow:auto">
 						<table style="width:100%;">
@@ -192,16 +196,15 @@ body{
 				onclick="toggleVisibility('segments-selection-dialog')"></button>
 	</div>
 	<div style="flex: 1 1 auto; overflow:auto">
-		<table id="table-select">
+		<table>
 			<tr>
 				<th>Attribute</th>
-				<th><i>Select</i> expression <a href="#" onclick="this.nextElementSibling.classList.toggle('d-none')">click for details</a>
-					<table class='small secondary d-none'>
-						<tr><th>Type:</th><th>in order to:</th></tr>
-						<tr><td>a b c</td><td>select segments whose attribute value is a, b or c</td></tr>
-						<tr><td>[a, b]</td><td>select segments whose attribute value is between a and b (including endpoints)</td></tr>
-						<tr><td>(a, b)</td><td>select segments whose attribute value is between a and b (excluding endpoints)</td></tr>
-						<tr><td>!=a</td><td>select segments whose attribute value is not a (likewise, you can use the operators: =a &gt;a &gt;=a &lt;a &lt;=a)</td></tr>
+				<th><i>Select</i> expression <a href="#" onclick="this.nextElementSibling.classList.toggle('d-none')">click for examples</a>
+					<table class='small secondary d-none' style="font-weight: normal">
+						<tr><td class="pe-2 text-nowrap">a b c</td><td>select segments whose attribute value is a, b or c</td></tr>
+						<tr><td class="pe-2 text-nowrap">[a, b]</td><td>select segments whose attribute value is between a and b (including endpoints)</td></tr>
+						<tr><td class="pe-2 text-nowrap">(a, b)</td><td>select segments whose attribute value is between a and b (excluding endpoints)</td></tr>
+						<tr><td class="pe-2 text-nowrap">!=a</td><td>select segments whose attribute value is not a (likewise, you can use the operators: =a &gt;a &gt;=a &lt;a &lt;=a)</td></tr>
 						<tr><td colspan="2">
 							<a target="_blank" href="https://github.com/rizac/stream2segment/wiki/The-Segment-object#segments-selection">Click here for more details</a>
 						</td></tr>
