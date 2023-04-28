@@ -103,7 +103,7 @@ body{
 		</div>
 		<div class="d-flex flex-row align-items-baseline" style="flex: 1 1 50%">  <!-- right plot controls -->
 			{%- if rightPlots|length < 1 -%}
-			{{ seg_metadata_caption }}
+			{{ seg_metadata_caption | safe }}
 			{%- else -%}
 			{% for plot in rightPlots %}
 			<input type="radio" class="btn-check"
@@ -122,11 +122,11 @@ body{
 		<!--LEFT COLUMN PLOTS -->
 		<div class='d-flex flex-column' style="flex: 0 0 50%" >
 			<div style="flex: 1 1 50%; position:relative">
-				<div id='main-plot' style="position:absolute;top:0;right:1rem;bottom:1rem;left:0;overflow:hidden"></div>
+				<div id='main-plot' style="position:absolute;top:0;right:1rem;bottom:1rem;left:0;overflow:auto"></div>
 			</div>
 			<div class="{%- if bottomPlots|length < 1 -%}d-none{%- else -%}d-flex{%- endif %} flex-column" style="flex:1 1 50%">
 				<div style="flex: 1 1 auto; position:relative">
-					<div id='bottom-plot' style="position:absolute;top:0;right:1rem;bottom:1rem;left:0;overflow:hidden"></div>
+					<div id='bottom-plot' style="position:absolute;top:0;right:1rem;bottom:1rem;left:0;overflow:auto"></div>
 				</div>
 				<div class="d-flex flex-row">
 					{% for plot in bottomPlots %}
@@ -146,17 +146,17 @@ body{
 			 <!-- RIGHT TOP PLOT PANEL (WITH BUTTONS) -->
 			<div class="{%- if rightPlots|length < 1 -%}d-none{%- else -%}d-flex{%- endif %} flex-row" style="flex:1 1 50%">
 				<div style="flex: 1 1 auto; position:relative">
-					<div id="right-plot" style="position:absolute;top:0;right:1rem;bottom:1rem;left:0;overflow:hidden"></div>
+					<div id="right-plot" style="position:absolute;top:0;right:1rem;bottom:1rem;left:0;overflow:auto"></div>
 				</div>
 			</div>
 			<!-- RIGHT BOTTOM PANEL (SEGMENT METADATA) -->
 			<div class="d-flex flex-column" style="flex: 1 1 50%; margin-left:1rem">
 				{%- if rightPlots|length > 0 -%}
-				<div>{{ seg_metadata_caption }}</div>
+				<div>{{ seg_metadata_caption | safe }}</div>
 				{%- endif %}
 				<div style="flex:1 1 auto; position:relative">
 					<div style="position:absolute;top:0;right:0;bottom:0;left:0;overflow:auto">
-						<table style="width:100%;">
+						<table class='table' style="width:100%;">
 							{% for class in classes -%}
 							<tr title="{{ class.label }}{%- if class.description -%}: {{ class.description }}{%- endif -%}">
 								<td>
@@ -196,7 +196,7 @@ body{
 				onclick="toggleVisibility('segments-selection-dialog')"></button>
 	</div>
 	<div style="flex: 1 1 auto; overflow:auto">
-		<table>
+		<table class="table">
 			<tr>
 				<th>Attribute</th>
 				<th><i>Select</i> expression <a href="#" onclick="this.nextElementSibling.classList.toggle('d-none')">click for examples</a>
