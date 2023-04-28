@@ -303,6 +303,23 @@ body{
 				elm.click();
 			}
 		});
+
+		// arrange tables:
+		for (var table of document.querySelectorAll('table.table')){
+			var previousType = null;
+			for (var tr of table.querySelectorAll('tr')){
+				var type = Array.from(tr.querySelectorAll('td'))[0].innerHTML;
+				if (previousType !== null){
+					var t1 = type.includes(".") ? type.split(".")[0] : "";
+					var t2 = previousType.includes(".") ? previousType.split(".")[0] : "";
+					if (t1 != t2 || (type.includes("<") != previousType.includes("<"))){
+						tr.style.borderTopWidth="3rem";
+						tr.style.borderTopColor="transparent";
+					}
+				}
+				previousType = type;
+			}
+		}
 	</script>
 	<script>
 		var SEGMENTS_COUNT = 0;  // real value will be set at the end of this script tag
