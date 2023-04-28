@@ -17,7 +17,6 @@ from obspy.core.utcdatetime import UTCDateTime
 
 from stream2segment.process import gui
 from stream2segment.process.inspectimport import iterfuncs
-from stream2segment.process.funclib.traces import sn_split
 from stream2segment.io import yaml_safe_dump
 from stream2segment.process.gui.webapp.mainapp import db
 
@@ -101,24 +100,27 @@ def init(app, session, pymodule=None, config=None, segments_selection=None):
                 )
                 g_functions[func_name] = function
 
-    _reset_global_vars()
+    reset_global_vars(config or {}, segments_selection or {})
 
-    if config:
-        g_config.update(config)
-
-    # if segments_selection:
-        # g_selection.update(segments_selection)
-    set_select_conditions(segments_selection)
+    return get_segments_count(g_selection)
 
 
-def _reset_global_vars():
-    """mainly used for testing purposes and within the init method"""
-    g_config.clear()
-    g_selection.clear()
+def reset_global_vars(config=None, segments_selection = None):
+    """Reset global variables (both dicts). None means: skip"""
+    if config is not None:
+        global g_config
+        g_config = dict(config)
+    if segments_selection is not None:
+        global g_selection
+        g_selection = dict(segments_selection)
 
 
 def get_db_url(safe=True):
     return db.get_db_url(safe=safe)
+
+
+def get_preprocess_function():
+    return _preprocessfunc
 
 
 def get_func_doc(function):
@@ -179,38 +181,14 @@ def get_select_conditions():
     return dict(g_selection)
 
 
-def set_select_conditions(sel_conditions=None):
-    """Set a new a dict representing the current select conditions (parameter
-    'segments_selection' of the YAML file)
+def get_segments_count(select_conditions):
+    return db.get_segments_count(select_conditions)
 
-    :param sel_conditions: a dict of new select expressions all in str format,
-        or None to keep the dict as it is and just (re)compute the total number of
-        segments to select. Note that if this parameter is None the internal array
-        of segment ids might be updated anyway
 
-    :return: the total number of segments to select
-    """
+def reset_segment_ids_array(segments_count):
     # Array caching the segment ids to select (or None if no selection condition is set):
     global g_segment_ids
-
-    if sel_conditions is not None:
-        g_selection.clear()
-        g_selection.update(sel_conditions)
-        update_segment_ids = True
-    else:
-        update_segment_ids = (not g_selection) != (g_segment_ids is None)
-
-    if update_segment_ids:
-        segments_count = db.get_segments_count(g_selection)
-        if not g_selection:
-            g_segment_ids = None
-        else:
-            # float32 max: np.finfo(np.float32).max
-            g_segment_ids = np.full((segments_count,), np.nan, dtype=np.float32)
-        return segments_count
-
-    return len(g_segment_ids) if g_segment_ids is not None else \
-        db.get_segments_count(g_selection)
+    g_segment_ids = np.full((segments_count,), np.nan, dtype=np.float32)
 
 
 def get_segment(segment_id):
@@ -249,16 +227,16 @@ def set_class_id(seg_id, class_id, value):
 
 
 def get_segment_data(seg_id, plot_names, all_components, preprocessed,
-                     zooms, attributes=False, classes=False, config=None):
+                     zooms, attributes=False, classes=False):
     """Return the segment data, depending on the arguments
 
     :param seg_id: the segment id (int)
     :param plot_names: a list of plot names to be calculated. "" indicates the default
         plot
-    :param all_components: boolean, whether or not the returned plots should
+    :param all_components: boolean, whether the returned plots should
         include all segments components (channel orientations). Ignored if 0 is
         not in `plot_indices`
-    :param preprocessed: boolean, whether or not the plot should be returned on
+    :param preprocessed: boolean, whether the plot should be returned on
         the pre-processing function defined in the config (if any), or on the
         raw ObsPy Stream
     :param zooms: the plot bounds, list or None. NOT used.
@@ -271,15 +249,13 @@ def get_segment_data(seg_id, plot_names, all_components, preprocessed,
         used to preserve order for client-side javascript parsing
     :param classes: boolean, whether to return the integers classes ids (if
         any) of the given segment
-    :param config: a dict of new config values. Can be falsy to skip updating
-        the config
     """
     plots = []
     if zooms is None and plot_names:
         zooms = [(None, None) for _ in plot_names]
-    sn_windows = []
-    if config:
-        g_config.update(**config)
+    # sn_windows = []
+    # if config:
+    #     g_config.update(**config)
 
     # if plot_indices:
     #     plots = get_plots(seg_id, plot_indices, preprocessed, all_components, zooms_)
@@ -298,9 +274,9 @@ def get_segment_data(seg_id, plot_names, all_components, preprocessed,
     return {
         'plots': plots,
         # 'plots': [p.tojson(z, NPTS_WIDE) for p, z in zip(plots, zooms_)],
-        'seg_id': seg_id,
+        # 'seg_id': seg_id,
         # 'plot_types': [p.is_timeseries for p in plots],
-        'sn_windows': sn_windows,
+        # 'sn_windows': sn_windows,
         'attributes': [] if not attributes else db.get_metadata(seg_id),
         'classes': [] if not classes else db.get_classes(seg_id)
     }
@@ -484,18 +460,18 @@ def _jsonify(obj):
         return obj
 
 
-def get_sn_windows(segment, config):
-    """Return returns the two tuples (s_start, s_end), (n_start, n_end)
-    where all arguments are `UTCDateTime`s and the first tuple refers to the
-    signal window, the latter to the noise window. Both windows are
-    calculated on the given segment, according to the given config
-    (dict)
-    """
-    if len(segment.stream()) != 1:
-        raise ValueError(("Unable to get sn-windows: %d traces in stream "
-                          "(possible gaps/overlaps)") % len(segment.stream()))
-    wndw = config['sn_windows']
-    arrival_time = \
-        UTCDateTime(segment.arrival_time) + wndw['arrival_time_shift']
-    return sn_split(segment.stream()[0], arrival_time, wndw['signal_window'],
-                    return_windows=True)
+# def get_sn_windows(segment, config):
+#     """Return returns the two tuples (s_start, s_end), (n_start, n_end)
+#     where all arguments are `UTCDateTime`s and the first tuple refers to the
+#     signal window, the latter to the noise window. Both windows are
+#     calculated on the given segment, according to the given config
+#     (dict)
+#     """
+#     if len(segment.stream()) != 1:
+#         raise ValueError(("Unable to get sn-windows: %d traces in stream "
+#                           "(possible gaps/overlaps)") % len(segment.stream()))
+#     wndw = config['sn_windows']
+#     arrival_time = \
+#         UTCDateTime(segment.arrival_time) + wndw['arrival_time_shift']
+#     return sn_split(segment.stream()[0], arrival_time, wndw['signal_window'],
+#                     return_windows=True)

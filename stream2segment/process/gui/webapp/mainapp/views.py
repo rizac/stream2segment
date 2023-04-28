@@ -5,10 +5,8 @@ Views for the web app (processing)
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
-from collections import defaultdict
-import json
-
 from flask import (render_template, request, jsonify, Blueprint)
+from werkzeug.exceptions import HTTPException
 
 from stream2segment.process.gui.webapp.mainapp import core
 
@@ -21,6 +19,17 @@ from stream2segment.process.gui.webapp.mainapp import core
 main_app = Blueprint('main_app', __name__, template_folder='templates')
 
 
+@main_app.errorhandler(HTTPException)
+def handle_exception(e):
+    """Return JSON instead of HTML for HTTP errors."""
+    import sys
+    exc_i = sys.exc_info()
+    return jsonify({
+        'message': str(exc_i[1].__class__.__name__) + ": " + str(exc_i[1]),
+        'traceback': ''  # do not rpovide it for the moment
+    }), 500
+
+
 @main_app.route("/")
 def main():
     ud_plots = core.userdefined_plots
@@ -29,6 +38,7 @@ def main():
     metadata = data['metadata']
     r_plots = [{**p, 'name': n} for n, p in ud_plots.items() if p['position'] == 'r']
     b_plots = [{**p, 'name': n} for n, p in ud_plots.items() if p['position'] == 'b']
+    preprocessfunc_doc = core.get_func_doc(core.get_preprocess_function())
     return render_template('mainapp.html',
                            num_segments=len(core.g_segment_ids),
                            title=core.get_db_url(safe=True),
@@ -37,7 +47,7 @@ def main():
                            metadata=metadata,
                            classes=classes,
                            preprocess_func_on=False,
-                           preprocessfunc_doc=core.get_func_doc(-1))
+                           preprocessfunc_doc=preprocessfunc_doc)
 
 
 @main_app.route("/get_config", methods=['POST'])
@@ -51,10 +61,12 @@ def get_selection():
     return jsonify(core.get_select_conditions())
 
 
-@main_app.route("/validate_config_str", methods=['POST'])
-def validate_config_str():
+@main_app.route("/set_config", methods=['POST'])
+def set_config():
     data = request.get_json()
-    return jsonify({'data': core.validate_config_str(data['data'])})
+    new_config = core.validate_config_str(data['data'])
+    core.reset_global_vars(new_config, None)
+    return jsonify(new_config)
 
 
 @main_app.route("/set_selection", methods=['POST'])
@@ -64,8 +76,12 @@ def set_selection():
     if sel_conditions:
         # remove space-only and empty strings in expressions:
         sel_conditions = {k: v for k, v in sel_conditions.items() if v and v.strip()}
-    num_segments = core.set_select_conditions(sel_conditions)
-    return jsonify({'num_segments': num_segments, 'error_msg': ''})
+    num_segments = core.get_segments_count(sel_conditions)
+    if num_segments < 1:
+        raise ValueError('No segment matching the current selection')
+    core.reset_global_vars(None, sel_conditions)
+    core.reset_segment_ids_array(num_segments)
+    return jsonify(num_segments)
 
 
 @main_app.route("/get_segment_data", methods=['POST'])
@@ -81,11 +97,10 @@ def get_segment_data():
     all_components = data.get('all_components', False)
     attributes = data.get('attributes', False)
     classes = data.get('classes', False)
-    config = data.get('config', {})
     return jsonify(core.get_segment_data(seg_id,
                                          plot_names, all_components,
                                          preprocessed, zooms,
-                                         attributes, classes, config))
+                                         attributes, classes))
 
 
 @main_app.route("/set_class_id", methods=['POST'])

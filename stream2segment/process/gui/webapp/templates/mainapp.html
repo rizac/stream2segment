@@ -66,12 +66,12 @@ body{
 		<button id="prev-segment-btn" class='btn btn-outline-secondary text-center ms-1'
 				onclick="setPreviousSegment()"
 				title="previous segment (you can also use the left arrow key)">
-			&larr;
+			&lang; <!--&larr; -->
 		</button>
 		<button id="next-segment-btn" class='btn btn-outline-secondary text-center ms-1'
 				onclick="setNextSegment()"
 				title="next segment (you can also use the right arrow key)">
-			&rarr;
+			&rang; <!--&rarr; -->
 		</button>
 		<button class='btn btn-outline-secondary ms-1'
 				onclick="toggleVisibility('segments-selection-dialog')">
@@ -336,7 +336,7 @@ body{
 			});
 			get_segment_data(index, SEGMENTS_COUNT,
 							 getPlotDataToRecompute(), tracesArePreprocessed(), mainPlotShowsAllComponents(),
-	 						 attrElements, classElements, null).then(response => {
+	 						 attrElements, classElements).then(response => {
 				SELECTED_SEGMENT_INDEX = index;
 				document.getElementById('current_segment_index').innerHTML = (SELECTED_SEGMENT_INDEX + 1).toLocaleString('en-US');
 				var seed_id_elm = document.getElementById('seed_id');
@@ -351,16 +351,18 @@ body{
 			});
 		};
 
-		function recomputeAllPlots(config){
+		function recomputeAllPlots(){
 			get_segment_data(SELECTED_SEGMENT_INDEX, SEGMENTS_COUNT,
 							 getPlotDataToRecompute(), tracesArePreprocessed(), mainPlotShowsAllComponents(),
-	 						 null, null, config);
+	 						 null, null);
 		}
 
 		function getPlotDataToRecompute(){
 			var plots = [["", 'main-plot', {}]];
-			document.querySelectorAll('[data-plot][checked]').forEach(elm => {
-				plots.push(JSON.parse(elm.getAttribute('data-plot')));
+			document.querySelectorAll('[data-plot]').forEach(elm => {
+				if (elm.checked){
+					plots.push(JSON.parse(elm.getAttribute('data-plot')));
+				}
 			});
 			return plots;
 		}
@@ -368,7 +370,7 @@ body{
 		function recomputePlot(funcName, divId, layout){
 			get_segment_data(SELECTED_SEGMENT_INDEX, SEGMENTS_COUNT,
 							 [[funcName, divId, layout]], tracesArePreprocessed(), mainPlotShowsAllComponents(),
-	 						 null, null, null);
+	 						 null, null);
 		}
 
 		function setClassLabel(classId, value){
@@ -392,7 +394,7 @@ body{
 
 		function updateSegmentSelection(){
 			return setSegmentsSelection(getSegmentSelectionInputElements()).then(response => {
-				var numSegments = response.data.num_segments;  // surely > 0
+				var numSegments = response.num_segments;  // surely > 0
 				updateSegmentsCount(numSegments);
 				return response;
 			});
@@ -413,8 +415,8 @@ body{
 		}
 
 		function updateConfig(){
-			return axios.post("/validate_config_str", {data: configEditor.getValue()}, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
-				recomputeAllPlots(response.data.data);
+			return axios.post("/set_config", {data: configEditor.getValue()}, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
+				recomputeAllPlots();
 				return response;
 			});
 		}

@@ -34,7 +34,15 @@ axios.interceptors.response.use((response) => {
 	setInfoMessage("");
 	return response;
 }, (error) => {
-	setErrorMessage("[!] " + ((error.message || '').trim() || 'Unknown error'));
+	var msg = 'Internal Server Error';
+	var response = error.response;
+	if(response.data && response.data.message){
+		msg = response.data.message.replaceAll("\n", "<br>");
+		if (response.data.traceback){
+			msg += "<div class='small'>Traceback: " + response.data.traceback + '</div>'
+		}
+	}
+	setErrorMessage(msg);
 	return Promise.reject(error.message);
 });
 
@@ -48,12 +56,6 @@ function setSegmentsSelection(inputElements){
 		}
 	}
 	return axios.post("/set_selection", segmentsSelection, {headers: {'Content-Type': 'application/json'}}).then(response => {
-		var numSegments = response.data.num_segments;
-		if (numSegments < 1 ){
-			errmsg = "No segments matching the current selection";
-			setErrorMessage(errmsg);
-			throw Error(msg);
-		}
 		return response;
 	});
 }
@@ -61,18 +63,16 @@ function setSegmentsSelection(inputElements){
 function getSegmentsSelection(inputElements){
 	// queries the current segments selection and puts the selection expressions into the given input elements
 	return axios.post("/get_selection", {}, {headers: {'Content-Type': 'application/json'}}).then(response => {
-		var numSegments = response.data;
-		for(var attname of Object.keys(response.data)){
-			if (inputElements[attname]){
-				inputElements[attname].value = response.data[attname];
-			}
+		for(var attname of Object.keys(inputElements)){
+			inputElements[attname].value = response.data[attname] || "";
+			inputElements[attname].dispatchEvent(new Event("input")); // notify listeners
 		}
 		return response;
 	});
 }
 
 function get_segment_data(segmentIndex, segmentsCount, plots, tracesArePreprocessed, mainPlotShowsAllComponents,
- 						  attrElements, classElements, config){
+ 						  attrElements, classElements){
 	/**
 	* Main function to update the GUI from a given segment.
 	* plots: Array of 3-elements Arrays, where the 3 elements are:
@@ -86,8 +86,6 @@ function get_segment_data(segmentIndex, segmentsCount, plots, tracesArePreproces
 	* 	element whose checked state should be set true or false depending on whether the segment
 	* 	has the relative class label assigned or not. If null / undefined, segment classes are not fetched
 	* 	and nothing happens
-	* config: Object or null denoting the new config to be used to compute the plots.
-	* 	If null, the default config is used
 	*/
 	var funcName2ID = {};
 	var funcName2Layout = {};
@@ -102,7 +100,6 @@ function get_segment_data(segmentIndex, segmentsCount, plots, tracesArePreproces
 		zooms: null,  // not used
 		plot_names: Object.keys(funcName2ID),
 		all_components: mainPlotShowsAllComponents,
-		config: config || {},
 		attributes: !!attrElements,
 		classes: !!classElements
 	}

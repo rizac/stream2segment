@@ -103,13 +103,6 @@ def get_segment(segment_id):  # , cols2load=None):
     # this should never happen, but just in case.
 
     session = get_session()
-    # for obj in session.identity_map.values():
-    #     if isinstance(obj, Segment) and obj.id == segment_id:
-    #         break
-    # else:  # no break found (see above)
-    #     # clear the session and release all connections, we have in any case
-    #     # to query the database:
-    #     session.remove()
     seg = session.query(Segment).get(segment_id)
     # session.add(seg)
     return seg

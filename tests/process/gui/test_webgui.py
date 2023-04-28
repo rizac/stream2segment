@@ -198,7 +198,7 @@ class Test:
         # ------------------------
         # TEST NOW WITH NO CONFIG:
         # ------------------------
-        core_module._reset_global_vars()
+        core_module.reset_global_vars({}, {})
         core_module._reset_global_functions()
 
         # assure this function is run once for each given dburl
