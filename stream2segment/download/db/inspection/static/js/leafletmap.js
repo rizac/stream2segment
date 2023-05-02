@@ -145,7 +145,11 @@ function updateMap(){
 	// updates the map in a timeout in case of poor perfs
 	var loader = document.getElementById("loadingDiv");
 	loader.style.display = "block";
-	setTimeout(function(){ _updateMap(); loader.style.display = "none";}, 25);
+	setTimeout(function(){
+		var map = _updateMap();
+		map.invalidateSize();
+		loader.style.display = "none";
+	}, 25);
 }
 
 function _updateMap(){
@@ -238,6 +242,7 @@ function _updateMap(){
 	}
 	// set the mapLayer so that we will know what to clear the next time we call this method:
 	GLOBALS.mapLayer = new L.featureGroup(allMarkers).addTo(map);
+	return map;
 }
 
 function processStation(staName, staData, selectedCodes, selectedDownloads, selectedDatacenters){

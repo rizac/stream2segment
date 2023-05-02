@@ -20,16 +20,16 @@
 	</script>
 {% endblock %}
 
+<!--
 {% block head_stylesheets %}
 	{{ super() }}
-	<style>
-		{% include 'dstats.css' %}
-	</style>
+	<style>{% include 'dstats.css' %}</style>
 {% endblock %}
+-->
 
 {% block body_content %}
-	<div class="main flex-direction-col">
-		<div class='flexible' id="map"></div>
+	<div style="height:100%">
+		<div id="map" style="height:100%"></div>
 		
 		<!--  ALL DIVS BELOW WILL BE REMOVED AND ADDED TO LEAFLET CONTROLS.
 		Cumbersome, but we want to keep view code in the view (and exploit jinja2 rendering) -->
@@ -74,7 +74,7 @@
 		Cumbersome, but we want to exploit jinja2 rendering -->
 		<div id='options'>
 
-			<h3 class='underline'>Selected categories</h3>
+			<h3 class='underline'>Segments categories</h3>
 			<table>
 				<tr><th>Category</th><th>Description</th></tr>
 				{% for code in codes %}
@@ -133,6 +133,14 @@
 <script type='text/javascript'>{% include 'leafletmap.js' %}</script>
 
 <script type='text/javascript'>
-window.addEventListener('DOMContentLoaded', updateMap, false);
+document.fonts.ready.then(function () {
+	if (document.readyState === "complete") {  // https://stackoverflow.com/a/59220393
+		updateMap();
+	}else{
+		window.addEventListener('DOMContentLoaded', updateMap, false);
+	}
+});
+
+
 </script>
 {% endblock %}
