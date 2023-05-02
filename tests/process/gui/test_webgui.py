@@ -684,3 +684,30 @@ class Test:
                         diffs = np.abs(ya - yb) / np.abs(yb)
                         assert np.nanmedian(diffs) < 0.1
                         assert np.nanmean(diffs) < 0.1
+
+
+def test_all_basehtml_are_the_same():
+    """Test that the base.html in all template directories is the same. We could put
+    a single base.html file in the "resources" dir but this would mean beoing able to
+    load HTML templates from several directories, which is not supported in flask
+    """
+    import os
+    name = 'stream2segment'
+    root = os.path.abspath(__file__)
+    while os.path.basename(root) != name:
+        root2 = os.path.dirname(root)
+        if not root2 or root2 == root:
+            raise ValueError('%s directory not found' % name)
+        root = root2
+
+    root = os.path.join(root, name)
+    if not os.path.isdir(root):
+        raise ValueError('%s directory not found' % root)
+
+    from pathlib import Path
+    html_content = None
+    for fle in Path(root).rglob('templates/base.html'):
+        with open(fle, 'r') as _:
+            _html_content = _.read()
+        assert html_content is None or _html_content == html_content
+        html_content = _html_content
