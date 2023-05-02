@@ -146,6 +146,7 @@ def get_classlabelling_count(class_id):
     return get_session().query(func.count(ClassLabelling.id).
                                filter(ClassLabelling.class_id == class_id)).scalar()
 
+
 def get_metadata(segment_id=None):
     """Return a list of tuples (column, column_type) if `segment_id` is None or
     (column, column_value) if segment is not None. In the first case,

@@ -87,6 +87,9 @@ function get_segment_data(segmentIndex, segmentsCount, plots, tracesArePreproces
 	* 	element whose checked state should be set true or false depending on whether the segment
 	* 	has the relative class label assigned or not (each input.checked property is assumed to be false).
 	*   If null / undefined, segment classes are not fetched and nothing happens
+	* this method returns a Promise with argument an Object of metadata (e.g. 'id', 'event.latiture')
+	* mapped to their value. The Object 'class.id' is mapped to an Array of ids. If attrElements and
+	* classElements are null, the returned Object is empty
 	*/
 	var funcName2ID = {};
 	var funcName2Layout = {};
@@ -110,19 +113,23 @@ function get_segment_data(segmentIndex, segmentsCount, plots, tracesArePreproces
 		for (var name of Object.keys(response.data.plots)){
 			redrawPlot(funcName2ID[name], response.data.plots[name], funcName2Layout[name]);
 		}
+		var ret = {};
 		// update metadata if needed:
 		if (attrElements){
 			for (var att of response.data.attributes){
 				attrElements[att.label].innerHTML = att.value;
+				ret[att.label] = att.value;
 			}
 		}
+		ret['class.id'] = [];
 		// update classes if needed:
 		if (classElements){
 			for (var classId of response.data.classes){
+				ret['class.id'].push(classId);
 				classElements[classId].checked=true;
 			}
 		}
-		return response;
+		return ret;
 	});
 }
 

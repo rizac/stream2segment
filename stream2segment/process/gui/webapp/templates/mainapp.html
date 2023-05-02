@@ -8,7 +8,10 @@
 {{ super() }}
 body{
 	background-color: whitesmoke !important;
-	padding: .75rem !important;
+}
+.js-plotly-plot .plotly .modebar-btn svg {
+	top: 0px !important;  /* replace 2px to fix plotly modebar buttons too "low" */
+	margin: 8px 0;  /* add vertical space (better changing the padding on the parent, but done here for clarity) */
 }
 .select-highlighted{
 	border-radius: 5px;
@@ -59,7 +62,7 @@ td{ padding: .2rem 0 .2rem .2rem; }
 {{ super() }}
 <div class="main d-flex flex-column" style="height:100%">
 	<!-- TOOLBAR -->
-	<div class="d-flex flex-row align-items-baseline mb-3">
+	<div class="d-flex flex-row align-items-baseline p-2 mb-3 shadow">
 		<div>Segment
 			<span id="current_segment_index">0</span>
 			of
@@ -95,7 +98,7 @@ td{ padding: .2rem 0 .2rem .2rem; }
 		</div>
 	</div>
 	<!-- PLOTS BUTTONS -->
-	<div class="d-flex flex-row">
+	<div class="d-flex flex-row px-2">
 		<div class="d-flex flex-row align-items-baseline" style="flex: 1 1 50%">  <!-- main plot controls -->
 			<span class='d-none me-2' id="seed_id"></span>
 			<input type="checkbox" class="btn-check"
@@ -120,7 +123,7 @@ td{ padding: .2rem 0 .2rem .2rem; }
 		</div>
 	</div>
 	<!-- PLOTS CONTAINER -->
-	<div class="d-flex flex-row" style="flex: 1 1 auto">
+	<div class="d-flex flex-row px-2 pb-2" style="flex: 1 1 auto">
 		<!--LEFT COLUMN PLOTS -->
 		<div class='d-flex flex-column' style="flex: 0 0 50%" >
 			<div style="flex: 1 1 50%; position:relative">
@@ -355,18 +358,12 @@ td{ padding: .2rem 0 .2rem .2rem; }
 			});
 			get_segment_data(index, SEGMENTS_COUNT,
 							 getPlotDataToRecompute(), tracesArePreprocessed(), mainPlotShowsAllComponents(),
-	 						 attrElements, classElements).then(response => {
+	 						 attrElements, classElements).then(segmentAttrs => {
 				SELECTED_SEGMENT_INDEX = index;
 				document.getElementById('current_segment_index').innerHTML = (SELECTED_SEGMENT_INDEX + 1).toLocaleString('en-US');
-				var seed_id_elm = document.getElementById('seed_id');
-				seed_id_elm.classList.add('d-none')
-				for (var att of response.data.attributes){
-					if (att.label == 'seed_id'){
-						seed_id_elm.innerHTML = att.value;
-						seed_id_elm.classList.remove('d-none')
-						break;
-					}
-				}
+				var seedIdElm = document.getElementById('seed_id');
+				seedIdElm.innerHTML = segmentAttrs.seed_id || "";
+				seedIdElm.innerHTML ? seedIdElm.classList.remove('d-none') : seedIdElm.classList.add('d-none');
 			});
 		};
 
