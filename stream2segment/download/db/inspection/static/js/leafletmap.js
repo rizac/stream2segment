@@ -58,7 +58,9 @@ function createOptionsMenu(map){
 
 function createMap(){
 	// creates the leaflet map, setting its initial bounds. Call map.getBounds() to return them
-	GLOBALS.map = map = new L.Map('map');
+	GLOBALS.map = map = new L.Map('map', {
+		scrollWheelZoom: false
+	});
 	// initialize the map if not already init'ed
 	// provide two base layers. Keep it simple as many base layers are just to shof off
 	// and they do not need to be the main map concern
@@ -158,8 +160,30 @@ function _updateMap(){
 	 * This function is called on zoom to resize the markers, as they are of type Leaflet.ploygon,
 	 * which are much more lightweight than svgicons but with sizes relative to the map coordinates,
 	 * thus zoom dependent, whereas we want them zoom independent
-	 */
-	var {datacenters, seldatacenters, networks, codes, selcodes, downloads, seldownloads} = GLOBALS;
+	*/
+
+	// var {datacenters, seldatacenters, networks, codes, selcodes, downloads, seldownloads} = GLOBALS;
+
+	var attr = 'data-seldownload-id';
+	var seldownloads = new Set(
+		 Array.from(document.querySelectorAll(`input[${attr}]`)).
+		 filter(elm => elm.checked).
+		 map(elm => parseInt(elm.getAttribute(attr)))
+	);
+
+	var attr = 'data-seldatacenter-id';
+	var seldatacenters = new Set(
+		 Array.from(document.querySelectorAll(`input[${attr}]`)).
+		 filter(elm => elm.checked).
+		 map(elm => parseInt(elm.getAttribute(attr)))
+	);
+
+	var attr = 'data-selcode-id';
+	var selcodes = new Set(
+		 Array.from(document.querySelectorAll(`input[${attr}]`)).
+		 filter(elm => elm.checked).
+		 map(elm => parseInt(elm.getAttribute(attr)))
+	);
 
 	var map = GLOBALS.map;
 	if(!map){
@@ -212,8 +236,8 @@ function _updateMap(){
 			}
 		}
 		if(insert){
-			var netName = networks[netIndex];
-			visibleMarkers[key] = [staName, netName, staId, latLng, dcId, datacenters[dcId], ok, malformed, total];
+			var netName = GLOBALS.networks[netIndex];
+			visibleMarkers[key] = [staName, netName, staId, latLng, dcId, GLOBALS.datacenters[dcId], ok, malformed, total];
 			stazz += 1;
 		}else{
 			below +=1;
@@ -233,7 +257,7 @@ function _updateMap(){
 	allMarkers.sort(function(m1, m2){return m1.options.zIndexOffset - m2.options.zIndexOffset;});
 	
 	// print stats for datacenters:
-	for (var dcId in datacenters){
+	for (var dcId in GLOBALS.datacenters){  // iterate over Object keys (datacenter id)
 		var {ok, total} = (dcId in dcStats) ? dcStats[dcId] : {'ok': 0, 'total': 0};
 		//update stats in the dropdown menu Options:
 		htmlElement(`dc${dcId}total`).innerHTML = total;

@@ -29,9 +29,10 @@ def get_session(dbpath, scoped=False, check_db_existence=True, **engine_args):
 
     try:
         # set max timeout if not set
-        timeout = 30  # in seconds
-        engine_args.setdefault('connect_args', {})
-        engine_args['connect_args'].setdefault('connect_timeout', timeout)
+        if is_postgres(dbpath):
+            timeout = 30  # in seconds
+            engine_args.setdefault('connect_args', {})
+            engine_args['connect_args'].setdefault('connect_timeout', timeout)
         engine = create_engine(dbpath, **engine_args)
     except (SQLAlchemyError, ValueError) as _:
         # ValueError: 'postgresql://4:a6gfds' (cannot create port)

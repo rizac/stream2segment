@@ -8,14 +8,16 @@
 	{{ super() }}
 	<script type='text/javascript'>
 		GLOBALS={
+			/* sta_data = [
+				sta_name,  [staid, stalat, stalon, sta_dcid, sta_net_index,
+							d_id1, [code1, num_seg1 , ..., codeN, num_seg],
+							d_id2, [code1, num_seg1 , ..., codeN, num_seg]
+							...],
+				...
+			]*/
 			sta_data:{{sta_data_json}},
-			codes:{{codes | tojson}},
 			datacenters:{{datacenters | tojson}},
-			downloads:{{downloads | tojson}},
 			networks:{{networks | tojson}},
-			selcodes:new Set({{selcodes | tojson}}),
-			seldownloads:new Set({{seldownloads | tojson}}),
-			seldatacenters: new Set({{seldatacenters | tojson}})
 		};
 	</script>
 {% endblock %}
@@ -28,105 +30,128 @@
 -->
 
 {% block body_content %}
-	<div style="height:100%">
-		<div id="map" style="height:100%"></div>
-		
-		<!--  ALL DIVS BELOW WILL BE REMOVED AND ADDED TO LEAFLET CONTROLS.
-		Cumbersome, but we want to keep view code in the view (and exploit jinja2 rendering) -->
-		
-		<!--  1. LEGEND: -->
-		<div id='legend'>
-			<table>
-				<tr>
-					<td class='right'>
-						<svg class='svg-tirangle' xmlns='http://www.w3.org/2000/svg' version='1.1' width='10' height='8.65'>
-							<polygon points='0,8.65 5,0 10,8.65' style='fill:rgb(255, 255, 255);stroke:#333;stroke-width:1' />
-						</svg>
-					</td>
-						<td>Station (triangle size: total number of requested segments)</td>
-				</tr>
-				<tr>
-					<td class='right nowrap'>
-						<span id='minval'>0%</span>
-						<span class='colorbar'></span>
-						<span id='maxval'>100%</span>
-					</td>
-					<td>Colors: % of requested segments in selected categories (see 'Options' to customize)</td>
-				</tr>
-				<!--<tr>
-					<td class='right nowrap'>
-						<svg class='svg-tirangle' xmlns='http://www.w3.org/2000/svg' version='1.1' width='8' height='6.92'>
-							<polygon points='0,6.92 4,0 8,6.92' style='fill:rgb(255, 255, 255);stroke:#333;stroke-width:1' />
-						</svg>
-						<svg class='svg-tirangle' xmlns='http://www.w3.org/2000/svg' version='1.1' width='10' height='8.65'>
-							<polygon points='0,8.65 5,0 10,8.65' style='fill:rgb(255, 255, 255);stroke:#333;stroke-width:1' />
-						</svg>
-						<svg class='svg-tirangle' xmlns='http://www.w3.org/2000/svg' version='1.1' width='12' height='10.38'>
-							<polygon points='0,10.38 6,0 12,10.38' style='fill:rgb(255, 255, 255);stroke:#333;stroke-width:1' />
-						</svg>
-					</td>
-					<td>Sizes: total number of segments</td>
-				</tr> -->
-			</table>
-		</div>
-		
-		<!-- this div will be removed and added as control to the map.
-		Cumbersome, but we want to exploit jinja2 rendering -->
-		<div id='options'>
+<div style="height:100%">
+	<div id="map" style="height:100%"></div>
 
-			<h3 class='underline'>Segments categories</h3>
-			<table>
-				<tr><th>Category</th><th>Description</th></tr>
-				{% for code in codes %}
-				<tr>
-					<td class='nowrap'>
-						<label><input type='checkbox' {{ 'checked' if loop.index0 in selcodes_set else '' }}
-							onclick='if(this.checked){ GLOBALS.selcodes.add({{loop.index0}}); }else{ GLOBALS.selcodes.delete({{loop.index0}}); }; updateMap()' />
-						{{code[0]}}</label>
-					</td>
-					<td>{{code[1]}}</td>
-				</tr>
-				{% endfor %}
-				</table>
+	<!--  ALL DIVS BELOW WILL BE REMOVED AND ADDED TO LEAFLET CONTROLS.
+	Cumbersome, but we want to keep view code in the view (and exploit jinja2 rendering) -->
 
-			<h3 class='underline'>Data-centers</h3>
-			<table>
-				<tr><th>Domain url</th><th class='right'>Total segments</th><th class='right'>Selected categories segments</th><th class='right'></th></tr>
-				{% for id, url in datacenters.items() %}
-				<tr>
-					<td class='nowrap'>
-						<label><input type='checkbox' {{ 'checked' if id in seldatacenters else '' }}
-							onclick='if(this.checked){ GLOBALS.seldatacenters.add({{id}}); }else{ GLOBALS.seldatacenters.delete({{id}}); }; updateMap()' />
-						{{ url }}</label>
-					</td>
-					<td id="dc{{ id }}total" class='right'></td>
-					<td id="dc{{ id }}sel" class='right'></td>
-					<td id="dc{{ id }}selperc" class='right'></td>
-				</tr>
-				{% endfor %}
-			</table>
-
-			<h3 class='underline'>Downloads</h3>
-			<table>
-				<tr><th>Id</th><th>Executed</th><th>Event query parameters</th></tr>
-				{% for id, values in downloads.items() %}
-				<tr>
-					<td class='nowrap'>
-						<label><input type='checkbox' {{ 'checked' if id in seldownloads else '' }}
-							onclick='if(this.checked){ GLOBALS.seldownloads.add({{id}}); }else{ GLOBALS.seldownloads.delete({{id}}); }; updateMap()' />
-						{{id}}</label>
+	<!--  1. LEGEND: -->
+	<div id='legend'>
+		<table>
+			<tr>
+				<td class='right'>
+					<svg class='svg-tirangle' xmlns='http://www.w3.org/2000/svg' version='1.1' width='10' height='8.65'>
+						<polygon points='0,8.65 5,0 10,8.65' style='fill:rgb(255, 255, 255);stroke:#333;stroke-width:1' />
+					</svg>
 				</td>
-				<td class='nowrap'>{{values[0]}}</td>
-				<td>{{values[1] | tojson if values[1] else 'N/A'}}</td>
-				</tr>
-				{% endfor %}
+					<td>Station (triangle size: total number of requested segments)</td>
+			</tr>
+			<tr>
+				<td class='right nowrap'>
+					<span id='minval'>0%</span>
+					<span class='colorbar'></span>
+					<span id='maxval'>100%</span>
+				</td>
+				<td>Colors: % of requested segments in selected categories (see 'Options' to customize)</td>
+			</tr>
+			<!--<tr>
+				<td class='right nowrap'>
+					<svg class='svg-tirangle' xmlns='http://www.w3.org/2000/svg' version='1.1' width='8' height='6.92'>
+						<polygon points='0,6.92 4,0 8,6.92' style='fill:rgb(255, 255, 255);stroke:#333;stroke-width:1' />
+					</svg>
+					<svg class='svg-tirangle' xmlns='http://www.w3.org/2000/svg' version='1.1' width='10' height='8.65'>
+						<polygon points='0,8.65 5,0 10,8.65' style='fill:rgb(255, 255, 255);stroke:#333;stroke-width:1' />
+					</svg>
+					<svg class='svg-tirangle' xmlns='http://www.w3.org/2000/svg' version='1.1' width='12' height='10.38'>
+						<polygon points='0,10.38 6,0 12,10.38' style='fill:rgb(255, 255, 255);stroke:#333;stroke-width:1' />
+					</svg>
+				</td>
+				<td>Sizes: total number of segments</td>
+			</tr> -->
+		</table>
+	</div>
+
+	<!-- this div will be removed and added as control to the map.
+	Cumbersome, but we want to exploit jinja2 rendering -->
+	<div id='options'>
+
+		<h3 class='underline'>
+			Segments categories
+			<button type="button" onclick="document.querySelectorAll('input[data-selcode-id]').forEach(e => { e.checked=true; }); updateMap()">Select all</button>
+			<button type="button" onclick="document.querySelectorAll('input[data-selcode-id]').forEach(e => { e.checked=false; }); updateMap()">Unselect all</button>
+		</h3>
+		<table>
+			<tr><th>Category</th><th>Description</th></tr>
+			{% for code in codes %}
+			<tr>
+				<td class='nowrap'>
+					<input type='checkbox'
+						   id="selcode-id-{{loop.index0}}"
+						   data-selcode-id="{{loop.index0}}"
+						   onclick="updateMap()"
+						   {{ 'checked' if loop.index0 in selcodes_set else '' }}
+					/>
+					<label for="selcode-id-{{loop.index0}}">{{code[0]}}</label>
+				</td>
+				<td>{{code[1]}}</td>
+			</tr>
+			{% endfor %}
 			</table>
-		</div>
+
+		<h3 class='underline'>
+			Data-centers
+			<button type="button" onclick="document.querySelectorAll('input[data-seldatacenter-id]').forEach(e => { e.checked=true; }); updateMap()">Select all</button>
+			<button type="button" onclick="document.querySelectorAll('input[data-seldatacenter-id]').forEach(e => { e.checked=false; }); updateMap()">Unselect all</button>
+		</h3>
+		<table>
+			<tr><th>Domain url</th><th class='right'>Total segments</th><th class='right'>Selected categories segments</th><th class='right'></th></tr>
+			{% for id, url in datacenters.items() %}
+			<tr>
+				<td class='nowrap'>
+					<input type='checkbox'
+						   id="seldatacenter-id-{{id}}"
+						   data-seldatacenter-id="{{id}}"
+						   onclick='updateMap()'
+						   {{ 'checked' if id in seldatacenters else '' }} />
+					<label for="seldatacenter-id-{{id}}">{{ url }}</label>
+				</td>
+				<td id="dc{{ id }}total" class='right'></td>
+				<td id="dc{{ id }}sel" class='right'></td>
+				<td id="dc{{ id }}selperc" class='right'></td>
+			</tr>
+			{% endfor %}
+		</table>
+
+		<h3 class='underline'>
+			Downloads
+			<button type="button" onclick="document.querySelectorAll('input[data-seldownload-id]').forEach(e => { e.checked=true; }); updateMap()">Select all</button>
+			<button type="button" onclick="document.querySelectorAll('input[data-seldownload-id]').forEach(e => { e.checked=false; }); updateMap()">Unselect all</button>
+		</h3>
+		<table>
+			<tr><th>Id</th><th>Executed</th><th>Event query parameters</th></tr>
+			{% for id, values in downloads.items() %}
+			<tr>
+				<td class='nowrap'>
+					<input type='checkbox'
+						   id="seldownload-{{id}}"
+						   data-seldownload-id="{{id}}"
+						   onclick="updateMap()"
+						   {{ 'checked' if id in seldownloads else '' }}
+					/>
+					<label for="seldownload-{{id}}">{{id}}</label>
+			</td>
+			<td style="text-align:right" class='nowrap'>{{ values[0] | replace("T", "<br/>") | safe }}</td>  <!-- download time -->
+			<td>{{values[1] | tojson if values[1] else 'N/A'}}</td>
+			</tr>
+			{% endfor %}
+		</table>
 	</div>
-	
-	<div id='loadingDiv'>
-		UPDATING MAP ...
-	</div>
+</div>
+
+<div id='loadingDiv'>
+	UPDATING MAP ...
+</div>
 {% endblock %}
 
 {% block after_body %}
