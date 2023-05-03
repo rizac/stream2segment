@@ -173,7 +173,7 @@ td{ padding: .2rem 0 .2rem .2rem; }
 									</label>
 								</td>
 								<td style="text-overflow: ellipsis;white-space:nowrap;max-width:0;overflow:hidden">
-									(<span id="class-{{class.id}}-segments-count">{{ class.segments }}</span> total segment(s) labelled)
+									(DB segments labelled: <span id="class-{{class.id}}-segments-count">{{ class.segments }}</span>)
 								</td>
 							</tr>
 							{%- endfor -%}
@@ -198,7 +198,7 @@ td{ padding: .2rem 0 .2rem .2rem; }
 <!-- SELECTION FORM (move at the end so that it does not display long time, it's annoying otherwise) -->
 <div id="segments-selection-dialog" class="d-none popup flex-column" style="top: 5vh; left:5vw; max-width:45vw">
 	<!-- Select segments where: -->
-	<div>
+	<div class="bg-secondary-subtle text-end small mb-2">
 		<button type="button" class="btn-close" aria-label="Close"
 				onclick="toggleVisibility('segments-selection-dialog')"></button>
 	</div>
@@ -235,7 +235,7 @@ td{ padding: .2rem 0 .2rem .2rem; }
 			{%- endfor -%}
 		</table>
 	</div>
-	<div style='text-align:center'>
+	<div class='text-center pt-2'>
 		<button class='btn btn-outline-secondary'
 				onclick="updateSegmentSelection().then(response => { toggleVisibility('segments-selection-dialog') })">
 			Select
@@ -246,14 +246,14 @@ td{ padding: .2rem 0 .2rem .2rem; }
 <div id="config-dialog" class="popup d-none flex-column"
 	 style="top: 50%; left: 50%; transform: translate(-50%, -50%);">
 	<!-- Config (.yaml file) -->
-	<div>
+	<div class="text-end small bg-secondary-subtle mb-2">
 		<button type="button" class="btn-close" aria-label="Close"
 				onclick="toggleVisibility('config-dialog')"></button>
 	</div>
 	<div>Configuration editor (YAML syntax):</div>
 	<div id='config-editor' style="flex: 1 1 auto; overflow:auto; min-height:75vh; min-width:50vw;"></div>
-	<div style='text-align:center'>
-		<button class='btn btn-default'
+	<div class='text-center pt-2'>
+		<button class='btn btn-outline-secondary'
 				onclick="updateConfig().then(response => { toggleVisibility('config-dialog') })">
 			Update
 		</button>
