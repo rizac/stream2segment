@@ -2,7 +2,7 @@
 {% set use_leaflet = true %}
 {% set use_axios = false %}
 {% set use_plotly = false %}
-{% set use_bootstrap_css = false %}
+{% set use_bootstrap_css = true %}
 
 {% block head_scripts %}
 	{{ super() }}
@@ -22,12 +22,18 @@
 	</script>
 {% endblock %}
 
-<!--
-{% block head_stylesheets %}
-	{{ super() }}
-	<style>{% include 'dstats.css' %}</style>
+{% block head_css %}
+{{ super() }}
+.leaflet-container{ font-family: inherit !important; }
+.colorbar{
+	background: linear-gradient(to right, rgba(255, 190, 190, 1) , red);
+	height: 1em;
+	width: 2em;
+	display: inline-block;
+	border: 1px solid #666;
+	vertical-align: middle;
+}
 {% endblock %}
--->
 
 {% block body_content %}
 <div style="height:100%">
@@ -37,55 +43,60 @@
 	Cumbersome, but we want to keep view code in the view (and exploit jinja2 rendering) -->
 
 	<!--  1. LEGEND: -->
-	<div id='legend'>
-		<table>
+	<div id='legend' class="shadow rounded p-3" style="background-color:rgba(255,255,255,0.75)">
+		<table class="table mb-0">
+			<tr><th colspan="2">Legend</th></tr>
 			<tr>
-				<td class='right'>
-					<svg class='svg-tirangle' xmlns='http://www.w3.org/2000/svg' version='1.1' width='10' height='8.65'>
+				<td>
+					<svg xmlns='http://www.w3.org/2000/svg' version='1.1' width='10' height='9'>
 						<polygon points='0,8.65 5,0 10,8.65' style='fill:rgb(255, 255, 255);stroke:#333;stroke-width:1' />
 					</svg>
 				</td>
-					<td>Station (triangle size: total number of requested segments)</td>
+				<td>Station (click for details)</td>
 			</tr>
 			<tr>
-				<td class='right nowrap'>
-					<span id='minval'>0%</span>
-					<span class='colorbar'></span>
-					<span id='maxval'>100%</span>
-				</td>
-				<td>Colors: % of requested segments in selected categories (see 'Options' to customize)</td>
-			</tr>
-			<!--<tr>
-				<td class='right nowrap'>
-					<svg class='svg-tirangle' xmlns='http://www.w3.org/2000/svg' version='1.1' width='8' height='6.92'>
+				<td class="text-nowrap text-right">
+					<svg xmlns='http://www.w3.org/2000/svg' version='1.1' width='8' height='7'>
 						<polygon points='0,6.92 4,0 8,6.92' style='fill:rgb(255, 255, 255);stroke:#333;stroke-width:1' />
 					</svg>
-					<svg class='svg-tirangle' xmlns='http://www.w3.org/2000/svg' version='1.1' width='10' height='8.65'>
+					<svg xmlns='http://www.w3.org/2000/svg' version='1.1' width='10' height='9'>
 						<polygon points='0,8.65 5,0 10,8.65' style='fill:rgb(255, 255, 255);stroke:#333;stroke-width:1' />
 					</svg>
-					<svg class='svg-tirangle' xmlns='http://www.w3.org/2000/svg' version='1.1' width='12' height='10.38'>
+					<svg xmlns='http://www.w3.org/2000/svg' version='1.1' width='12' height='11'>
 						<polygon points='0,10.38 6,0 12,10.38' style='fill:rgb(255, 255, 255);stroke:#333;stroke-width:1' />
 					</svg>
 				</td>
-				<td>Sizes: total number of segments</td>
-			</tr> -->
+				<td>Station size: number of requested segments</td>
+			</tr>
+			<tr>
+				<td class='text-right text-nowrap'>
+					<span>0%</span>
+					<span class='colorbar'></span>
+					<span>100%</span>
+				</td>
+				<td>Station color: % of requested segments in the selected categories</td>
+			</tr>
 		</table>
 	</div>
 
 	<!-- this div will be removed and added as control to the map.
 	Cumbersome, but we want to exploit jinja2 rendering -->
-	<div id='options'>
+	<div id='options' class="shadow rounded p-3"
+		 style="background-color:rgba(255,255,255,0.9);max-width: 33vw;overflow:auto;">
 
-		<h3 class='underline'>
-			Segments categories
-			<button type="button" onclick="document.querySelectorAll('input[data-selcode-id]').forEach(e => { e.checked=true; }); updateMap()">Select all</button>
-			<button type="button" onclick="document.querySelectorAll('input[data-selcode-id]').forEach(e => { e.checked=false; }); updateMap()">Unselect all</button>
-		</h3>
-		<table>
+		<div class="d-flex flex-row align-items-baseline">
+			<h5>Segments (categories)</h5>
+			<div class="ms-2 text-end" style="flex:1 1 auto">select: </div>
+			<button type="button" onclick="document.querySelectorAll('input[data-selcode-id]').forEach(e => { e.checked=true; }); updateMap()"
+					class="ms-2 btn btn-sm btn-outline-secondary">all</button>
+			<button type="button" onclick="document.querySelectorAll('input[data-selcode-id]').forEach(e => { e.checked=false; }); updateMap()"
+					class="ms-2 btn btn-sm btn-outline-secondary">none</button>
+		</div>
+		<table class="table mb-4">
 			<tr><th>Category</th><th>Description</th></tr>
 			{% for code in codes %}
 			<tr>
-				<td class='nowrap'>
+				<td class='text-nowrap'>
 					<input type='checkbox'
 						   id="selcode-id-{{loop.index0}}"
 						   data-selcode-id="{{loop.index0}}"
@@ -99,16 +110,23 @@
 			{% endfor %}
 			</table>
 
-		<h3 class='underline'>
-			Data-centers
-			<button type="button" onclick="document.querySelectorAll('input[data-seldatacenter-id]').forEach(e => { e.checked=true; }); updateMap()">Select all</button>
-			<button type="button" onclick="document.querySelectorAll('input[data-seldatacenter-id]').forEach(e => { e.checked=false; }); updateMap()">Unselect all</button>
-		</h3>
-		<table>
-			<tr><th>Domain url</th><th class='right'>Total segments</th><th class='right'>Selected categories segments</th><th class='right'></th></tr>
+		<div class="d-flex flex-row align-items-baseline">
+			<h5>Data-centers</h5>
+			<div class="ms-2 text-end" style="flex:1 1 auto">select: </div>
+			<button type="button" onclick="document.querySelectorAll('input[data-seldatacenter-id]').forEach(e => { e.checked=true; }); updateMap()"
+					class="ms-2 btn btn-sm btn-outline-secondary">all</button>
+			<button type="button" onclick="document.querySelectorAll('input[data-seldatacenter-id]').forEach(e => { e.checked=false; }); updateMap()"
+					class="ms-2 btn btn-sm btn-outline-secondary">none</button>
+		</div>
+		<table class="table mb-4">
+			<tr>
+				<th>URL</th>
+				<th class="text-end">Requested segments</th>
+				<th colspan="2">Selected<br>segments</th>
+			</tr>
 			{% for id, url in datacenters.items() %}
 			<tr>
-				<td class='nowrap'>
+				<td class='text-nowrap'>
 					<input type='checkbox'
 						   id="seldatacenter-id-{{id}}"
 						   data-seldatacenter-id="{{id}}"
@@ -116,23 +134,30 @@
 						   {{ 'checked' if id in seldatacenters else '' }} />
 					<label for="seldatacenter-id-{{id}}">{{ url }}</label>
 				</td>
-				<td id="dc{{ id }}total" class='right'></td>
-				<td id="dc{{ id }}sel" class='right'></td>
-				<td id="dc{{ id }}selperc" class='right'></td>
+				<td id="dc{{ id }}total" class="text-end"></td>
+				<td id="dc{{ id }}sel" class="text-end"></td>
+				<td id="dc{{ id }}selperc" class="text-end"></td>
 			</tr>
 			{% endfor %}
 		</table>
 
-		<h3 class='underline'>
-			Downloads
-			<button type="button" onclick="document.querySelectorAll('input[data-seldownload-id]').forEach(e => { e.checked=true; }); updateMap()">Select all</button>
-			<button type="button" onclick="document.querySelectorAll('input[data-seldownload-id]').forEach(e => { e.checked=false; }); updateMap()">Unselect all</button>
-		</h3>
-		<table>
-			<tr><th>Id</th><th>Executed</th><th>Event query parameters</th></tr>
+		<div class="d-flex flex-row align-items-baseline">
+			<h5>Downloads</h5>
+			<div class="ms-2 text-end" style="flex:1 1 auto">select: </div>
+			<button type="button" onclick="document.querySelectorAll('input[data-seldownload-id]').forEach(e => { e.checked=true; }); updateMap()"
+					class="ms-2 btn btn-sm btn-outline-secondary">all</button>
+			<button type="button" onclick="document.querySelectorAll('input[data-seldownload-id]').forEach(e => { e.checked=false; }); updateMap()"
+					class="ms-2 btn btn-sm btn-outline-secondary">none</button>
+		</div>
+		<table class="table mb-0">
+			<tr>
+				<th>Id</th>
+				<th>Executed</th>
+				<th>Event query parameters</th>
+			</tr>
 			{% for id, values in downloads.items() %}
 			<tr>
-				<td class='nowrap'>
+				<td class='text-nowrap'>
 					<input type='checkbox'
 						   id="seldownload-{{id}}"
 						   data-seldownload-id="{{id}}"
@@ -141,8 +166,19 @@
 					/>
 					<label for="seldownload-{{id}}">{{id}}</label>
 			</td>
-			<td style="text-align:right" class='nowrap'>{{ values[0] | replace("T", "<br/>") | safe }}</td>  <!-- download time -->
-			<td>{{values[1] | tojson if values[1] else 'N/A'}}</td>
+			<td>{{ values[0] | replace("T", "<br/>") | safe }}</td>  <!-- download time -->
+			<td>
+			{%- if values[1] -%}
+				{% for key, value in values[1].items() %}
+					{% if loop.index0 > 0 %}
+					<br>
+					{% endif %}
+					{{ key }}: {{ value | tojson }}
+				{% endfor %}
+			{%- else -%}
+			N/A
+			{%- endif -%}
+			</td>
 			</tr>
 			{% endfor %}
 		</table>
