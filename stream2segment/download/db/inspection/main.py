@@ -100,8 +100,9 @@ def _get_download_info(info_generator, dburl, download_indices=None, download_id
             openbrowser = False
             if not outfile:
                 openbrowser = True
-                outfile = os.path.join(gettempdir(), "s2s_%s.html" %
-                                       info_generator.__class__.__name__.lower())
+                outfile = os.path.join(gettempdir(), "s2s_%s_%s.html" %
+                                       (info_generator.__class__.__name__.lower(),
+                                        os.path.basename(dburl)))
             with open(outfile, 'w', encoding='utf8', errors='replace') as opn:
                 opn.write(info_generator.html(session, download_ids))
             if openbrowser:
@@ -204,14 +205,14 @@ class _InfoGenerator:
     def html(self, session, download_ids=None):
         """Return a string with the html representation of this object"""
         args = self.html_template_arguments(session, download_ids)
-        args.setdefault('title', self.__class__.__name__)
+        # args.setdefault('title', self.__class__.__name__)
         return self.get_template().render(**args)
 
     def html_template_arguments(self, session, download_ids=None):
         """Subclasses should return here a dict to be passed as arguments to
         the jinja2 template`
         """
-        return {}
+        return {'title': os.path.basename(str(session.bind.engine.url))}
 
     @classmethod
     def get_template(cls):
@@ -327,8 +328,10 @@ class DStats(_InfoGenerator):
     def html_template_arguments(self, session, download_ids=None):
         """Returns a dict to be passed as arguments to
         the jinja2 template"""
-        return get_dstats_html_template_arguments(session, download_ids,
-                                                  self.maxgap_threshold)
+        ret = super().html_template_arguments(session, download_ids)
+        ret.update(get_dstats_html_template_arguments(session, download_ids,
+                                                      self.maxgap_threshold))
+        return ret
 
 
 def get_dstats_str_iter(session, download_ids=None, maxgap_threshold=0.5):

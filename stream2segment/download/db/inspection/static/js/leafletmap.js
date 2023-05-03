@@ -25,8 +25,8 @@ function createOptionsMenu(map){
 		div.appendChild(child);
 		// mouse wheel on the div should scroll it, not zoom the underlying map
 		// (Info here https://gis.stackexchange.com/a/111888):
-		L.DomEvent.on(div, 'mouseenter', () => { map.scrollWheelZoom.disable(); });
-		L.DomEvent.on(div, 'mouseleave', () => { map.scrollWheelZoom.enable(); });
+		L.DomEvent.on(div, 'mouseenter', () => { map.scrollWheelZoom.disable(); map.dragging.disable(); });
+		L.DomEvent.on(div, 'mouseleave', () => { map.scrollWheelZoom.enable(); map.dragging.enable(); });
 		return div;
 	};
 	options.addTo(map);
