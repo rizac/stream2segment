@@ -144,7 +144,7 @@ def test_writer_hdf(
 
 
 @pytest.mark.parametrize('sep', [None, ' ', '\t', '\n'])
-def test_read_from_file(sep, #fixtures:
+def test_read_from_file(sep,  # fixtures:
                         pytestdir):
     import os
     outfile = os.path.join(pytestdir.makedir(), "ids.txt")
