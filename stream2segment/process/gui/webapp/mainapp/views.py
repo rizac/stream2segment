@@ -6,6 +6,7 @@ Views for the web app (processing)
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
 from flask import (render_template, request, jsonify, Blueprint)
+from werkzeug.exceptions import HTTPException
 
 from stream2segment.process.gui.webapp.mainapp import core
 
@@ -18,92 +19,96 @@ from stream2segment.process.gui.webapp.mainapp import core
 main_app = Blueprint('main_app', __name__, template_folder='templates')
 
 
+@main_app.errorhandler(HTTPException)
+def handle_exception(e):
+    """Return JSON instead of HTML for HTTP errors."""
+    import sys
+    exc_i = sys.exc_info()
+    return jsonify({
+        'message': str(exc_i[1].__class__.__name__) + ": " + str(exc_i[1]),
+        'traceback': ''  # do not rpovide it for the moment
+    }), 500
+
+
 @main_app.route("/")
 def main():
     ud_plots = core.userdefined_plots
-    # FIXME: remove hasPreProcessFunc below (legacy code, now there is
-    # always a preprocess function, also when no mopdule is provided):
-    settings = {'hasPreprocessFunc': True}
+    data = core.get_init_data(metadata=True, classes=True)
+    classes = data['classes']
+    metadata = data['metadata']
+    r_plots = [{**p, 'name': n} for n, p in ud_plots.items() if p['position'] == 'r']
+    b_plots = [{**p, 'name': n} for n, p in ud_plots.items() if p['position'] == 'b']
+    preprocessfunc_doc = core.get_func_doc(core.get_preprocess_function())
     return render_template('mainapp.html',
-                           dburl=core.get_db_url(safe=True),
-                           settings=settings,
-                           rightPlots=[_ for _ in ud_plots if _['position'] == 'r'],
-                           bottomPlots=[_ for _ in ud_plots if _['position'] == 'b'],
-                           preprocessfunc_doc=core.get_func_doc(-1))
-
-
-@main_app.route("/init", methods=['POST'])
-def init():
-    data = request.get_json()
-    dic = core.get_init_data(data.get('metadata', False),
-                             data.get('classes', False))
-    return jsonify(dic)
+                           num_segments=len(core.g_segment_ids),
+                           title=core.get_db_url(safe=True),
+                           rightPlots=r_plots,
+                           bottomPlots=b_plots,
+                           metadata=metadata,
+                           classes=classes,
+                           preprocess_func_on=False,
+                           seg_metadata_caption="&#9432; Segment metadata:",
+                           preprocessfunc_doc=preprocessfunc_doc)
 
 
 @main_app.route("/get_config", methods=['POST'])
 def get_config():
-    asstr = (request.get_json() or {}).get('asstr', False)
-    try:
-        return jsonify({'error_msg': '', 'data': core.get_config(asstr)})
-    except Exception as exc:  # pylint: disable=broad-except
-        return jsonify({'error_msg': str(exc), 'data': {}})
+    asstr = (request.get_json() or {}).get('as_str', False)
+    return jsonify(core.get_config(asstr))
 
 
 @main_app.route("/get_selection", methods=['POST'])
 def get_selection():
-    try:
-        return jsonify({'error_msg': '', 'data': core.get_select_conditions()})
-    except Exception as exc:  # pylint: disable=broad-except
-        return jsonify({'error_msg': str(exc), 'data': {}})
+    return jsonify(core.get_select_conditions())
 
 
-@main_app.route("/validate_config_str", methods=['POST'])
-def validate_config_str():
+@main_app.route("/set_config", methods=['POST'])
+def set_config():
     data = request.get_json()
-    try:
-        return jsonify({'error_msg': '',
-                        'data': core.validate_config_str(data['data'])})
-    except Exception as exc:  # pylint: disable=broad-except
-        return jsonify({'error_msg': str(exc), 'data': {}})
+    new_config = core.validate_config_str(data['data'])
+    core.reset_global_vars(new_config, None)
+    return jsonify(new_config)
 
 
 @main_app.route("/set_selection", methods=['POST'])
 def set_selection():
-    try:
-        data = request.get_json()
-        sel_conditions = data.get('segments_selection', None)
-        # sel condition = None: do not update conditions but use already loaded one
-        num_segments = core.set_select_conditions(sel_conditions)
-        return jsonify({'num_segments': num_segments, 'error_msg': ''})
+    sel_conditions = request.get_json() or None
+    # sel condition = None: do not update conditions but use already loaded one
+    if sel_conditions:
+        # remove space-only and empty strings in expressions:
+        sel_conditions = {k: v for k, v in sel_conditions.items() if v and v.strip()}
+    num_segments = core.get_segments_count(sel_conditions)
+    if num_segments < 1:
+        raise ValueError('No segment matching the current selection')
+    core.reset_global_vars(None, sel_conditions)
+    core.reset_segment_ids_array(num_segments)
+    return jsonify(num_segments)
 
-    except Exception as exc:  # pylint: disable=broad-except
-        return jsonify({'num_segments': 0, 'error_msg': str(exc)})
 
-
-@main_app.route("/get_segment", methods=['POST'])
+@main_app.route("/get_segment_data", methods=['POST'])
 def get_segment_data():
     """Return the response for the segment data (and/or metadata)"""
     data = request.get_json()
     seg_index = data['seg_index']
     seg_count = data['seg_count']
     seg_id = core.get_segment_id(seg_index, seg_count)
-    plot_indices = data.get('plot_indices', [])
+    plot_names = data.get('plot_names', {})
     preprocessed = data.get('pre_processed', False)
     zooms = data.get('zooms', None)
     all_components = data.get('all_components', False)
-    metadata = data.get('metadata', False)
+    attributes = data.get('attributes', False)
     classes = data.get('classes', False)
-    config = data.get('config', {})
     return jsonify(core.get_segment_data(seg_id,
-                                         plot_indices, all_components,
+                                         plot_names, all_components,
                                          preprocessed, zooms,
-                                         metadata, classes, config))
+                                         attributes, classes))
 
 
 @main_app.route("/set_class_id", methods=['POST'])
 def set_class_id():
-    json_req = request.get_json()
-    core.set_class_id(json_req['segment_id'], json_req['class_id'],
-                      json_req['value'])
-    # the above raises, otherwise return empty json to signal success:
-    return jsonify({})
+    data = request.get_json()
+    seg_index = data['seg_index']
+    seg_count = data['seg_count']
+    seg_id = core.get_segment_id(seg_index, seg_count)
+    return jsonify(core.set_class_id(seg_id, data['class_id'], data['value']))
+

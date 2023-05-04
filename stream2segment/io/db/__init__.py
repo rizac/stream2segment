@@ -28,6 +28,11 @@ def get_session(dbpath, scoped=False, check_db_existence=True, **engine_args):
         raise TypeError('string required, %s found' % str(type(dbpath)))
 
     try:
+        # set max timeout if not set
+        if is_postgres(dbpath):
+            timeout = 30  # in seconds
+            engine_args.setdefault('connect_args', {})
+            engine_args['connect_args'].setdefault('connect_timeout', timeout)
         engine = create_engine(dbpath, **engine_args)
     except (SQLAlchemyError, ValueError) as _:
         # ValueError: 'postgresql://4:a6gfds' (cannot create port)
@@ -69,7 +74,7 @@ class DbNotFound(ValueError):
         # Warning: if you change the message below, check also the message raised in
         # `stream2segment.download.db::valid_session` that relies upon it
         return 'Database not accessible. Possible reason: wrong user/password/host ' \
-               'in the URL, or the db does not exist'
+               'in the URL, timeout (do you use VPN?) or the db does not exist'
 
 
 def is_sqlite(dburl):

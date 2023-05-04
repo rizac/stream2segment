@@ -320,13 +320,14 @@ def sn_windows(segment, config):
     }
     all_traces = [signal, noise]
     # add the underlying trace, but to avoid plotting overlapping points
-    # only the portion not included in signal and noise
+    # and show only the chunks not in signal and noise
     original_trace = segment.stream()[0]
     times = (
         (original_trace.stats.starttime, noise_trace.stats.starttime),
         (noise_trace.stats.endtime, signal_trace.stats.starttime),
         (signal_trace.stats.endtime, original_trace.stats.endtime)
     )
+    showlegend = True
     for stime, etime in times:
         if etime <= stime:
             continue
@@ -335,11 +336,14 @@ def sn_windows(segment, config):
             'x0': trace.stats.starttime,
             'dx': trace.stats.delta * 1000,  # delta is in msec
             'y': trace.data,
-            'name': 'Full segment',
             'line': {
-                'color': 'rgba(0,0,0,0.1)'  # avoid trace hiding windows
-            }
+                'color': 'rgba(100,100,100,1)'
+            },
+            'name': 'segment remainder',
+            'legendgroup': 'segment remainder',
+            'showlegend': showlegend
         })
+        showlegend = False  # show only one legend for all chunks
     return all_traces
     # note: order matters for colors and placement (last traces on top):
     # return [signal, noise, trace]

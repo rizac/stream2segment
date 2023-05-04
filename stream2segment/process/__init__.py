@@ -1,4 +1,5 @@
 from sqlalchemy import orm
+import numpy as np
 
 from stream2segment.process.db import get_session
 from stream2segment.io import yaml_load  # utility functions for users: yaml_load(file)
@@ -6,7 +7,8 @@ from stream2segment.io.db import close_session
 from stream2segment.process.db.models import (Segment, Channel, Event, Station,
                                               DataCenter, Download, Class)
 from stream2segment.process.db.sqlevalexpr import exprquery
-from stream2segment.process.main import process, imap, SkipSegment
+from stream2segment.process.main import (process, imap, SkipSegment,
+                                         get_default_segments_selection)
 from stream2segment.process.funclib import traces
 
 
@@ -85,11 +87,36 @@ def get_classlabels(db):
             sess.close()
 
 
-def get_default_segments_selection():
-    return {
-        'has_valid_data': 'true',
-        'maxgap_numsamples': '[-0.5, 0.5]'
-    }
+def load_ints_from_txt(path, sep='\n', as_list=True):
+    """Return a list of integers from a given file in text format.
+    See also `save_ints_to_txt`
+
+    :param path: string denoting the file path
+    :param sep: the separator (default: "\n", i.e., one integer per line). No
+        separator (e.g. "") is not allowed and will be replaced with "\n"
+    :param as_list: boolean (default True). Return a Python list (otherwise numpy int
+        array)
+    """
+    # note: the method below is faster than reading and casting line by line with Python,
+    # and MUCH faster than np.loadtxt
+    with open(path, 'r') as _:
+        lst = np.fromstring(_.read(), sep=sep or '\n', dtype=int)
+        if as_list:
+            return lst.tolist()
+        return lst
+
+
+def save_ints_to_txt(path, integers, sep="\n"):
+    """Return a list of integers from a given file in text format.
+    See also `load_ints_from_txt`
+
+    :param path: string denoting the file path
+    :param integers: numpy int array or Python list of integers to be saved.
+    :param sep: the number separator. Default to "\n" (one integer per line). No
+        separator (e.g. "") is not allowed and will be replaced with "\n"
+    """
+    np.savetxt(path, np.asarray(integers, dtype=int),  # noqa
+               delimiter=sep or "\n", newline=sep or "\n", fmt='%i')
 
 
 def get_segment_help(format='html', maxwidth=79, **print_kwargs):
@@ -97,9 +124,11 @@ def get_segment_help(format='html', maxwidth=79, **print_kwargs):
 
     :param format: Not supported yet, only html allopwed
     """
-    import re, inspect, textwrap
+    import re
+    import inspect
+    import textwrap
     from itertools import chain
-    from stream2segment.io.db.inspection import attnames, get_related_models
+    from stream2segment.io.db.inspection import attnames
 
     # ==================================================================================
     # Set Segment attributes documentation as list of `[attname, description]` items.

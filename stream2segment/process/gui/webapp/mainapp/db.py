@@ -7,15 +7,16 @@ Created on 16 Apr 2020
 """
 
 from sqlalchemy import func
+from datetime import datetime
 
 from stream2segment.io.db import secure_dburl
 from stream2segment.io.db.inspection import attnames, get_related_models
-from stream2segment.process.db.models import (Segment, Station, get_classlabels)
+from stream2segment.process.db.models import (Segment, Station, ClassLabelling, get_classlabels)
 from stream2segment.process.db.sqlevalexpr import exprquery, get_pytype, get_sqltype
 
 # import atexit
 
-_session = None  # pylint: disable=invalid-name
+_session = None  # noqa
 
 
 def init(app, session):
@@ -102,13 +103,6 @@ def get_segment(segment_id):  # , cols2load=None):
     # this should never happen, but just in case.
 
     session = get_session()
-    # for obj in session.identity_map.values():
-    #     if isinstance(obj, Segment) and obj.id == segment_id:
-    #         break
-    # else:  # no break found (see above)
-    #     # clear the session and release all connections, we have in any case
-    #     # to query the database:
-    #     session.remove()
     seg = session.query(Segment).get(segment_id)
     # session.add(seg)
     return seg
@@ -148,6 +142,11 @@ def get_classes(segment_id=None):
     return get_classlabels(get_session(), segments=True)
 
 
+def get_classlabelling_count(class_id):
+    return get_session().query(func.count(ClassLabelling.id).
+                               filter(ClassLabelling.class_id == class_id)).scalar()
+
+
 def get_metadata(segment_id=None):
     """Return a list of tuples (column, column_type) if `segment_id` is None or
     (column, column_value) if segment is not None. In the first case,
@@ -155,52 +154,60 @@ def get_metadata(segment_id=None):
     (str, datetime,...), in the latter, it is the value of `segment` for that
     column
     """
-    related_models = get_related_models(Segment)
-
     segment = None
     if segment_id is not None:
-        # exclude all classes attributes (returned in get_classes):
-        related_models.pop('classes')
         segment = get_segment(segment_id)
         if not segment:
             return []
 
-    anames = _attnames(Segment, lambda attr: attr != Segment.data.key)
-
-    # map every related model to a function that will show only some of their attributes:
-    filter_funcs = {
-        'event': lambda attr: True,
+    # map every related model to a function that will show only some of their attributes.
+    # NOTE: this dict dictates also the ORDER of the related models
+    related_models_attrs = {
+        'event': lambda attr: attr not in {'contributor', 'contributor_id',
+                                           'mag_author', 'event_type', 'author'},
         'station': lambda attr: attr != Station.inventory_xml.key,
         'channel': lambda attr: True,
         'datacenter': lambda attr: attr in {'id', 'dataselect_url'},
-        'download': lambda attr: attr in {'id', 'run_time'},
-        'classes': lambda attr: False  # attr in {'id', 'label', 'description'},
+        'download': lambda attr: attr in {'id', 'run_time'}
     }
-
+    # rel(ated) models (establishing relationships with the Segment class):
+    rel_model_classes = get_related_models(Segment)
+    seg_simple_att_names = _attnames(Segment, lambda attr: attr != Segment.data.key)
     if segment:
         # we have an instance, it is for showing data on the GUI. So:
-        anames = [(_, getattr(segment, _)) for _ in anames]
-        for relation_name, related_model in related_models.items():
-            related_model_attrs = _attnames(related_model,
-                                            filter_funcs.get(relation_name, None))
-            # obj will load all related model attributes (except those that are deferred
-            # by design, e.g. download.log. Any kind other optimization is premature)
-            # Note that there is always a 1-1 related object, as we removed 'classes'
-            obj = getattr(segment, relation_name)
-            anames.extend((relation_name + '.' + a, getattr(obj, a))
-                          for a in related_model_attrs)
+        metadata = [{
+            'label': _,
+            'value': _jsonify(getattr(segment, _)),
+            'dbmodel': Segment.__name__
+        } for _ in seg_simple_att_names]
+
+        for relation_name, attr_filter_func in related_models_attrs.items():
+            rel_model_class = rel_model_classes[relation_name]
+            rel_model_attrs = _attnames(rel_model_class, attr_filter_func)
+            rel_model_inst = getattr(segment, relation_name)
+            metadata.extend({
+                'label': relation_name + '.' + a,
+                'value': _jsonify(getattr(rel_model_inst, a)),
+                'dbmodel': rel_model_class.__name__
+            } for a in rel_model_attrs)
     else:
         # we have a model (instance class), it is for selecting data on the GUI. So:
-        anames = [(_, _get_pytype(Segment, _)) for _ in anames]
-        for relation_name, related_model in related_models.items():
-            related_model_attrs = _attnames(related_model,
-                                            filter_funcs.get(relation_name, None))
-            anames.extend((relation_name + '.' + a, _get_pytype(related_model, a))
-                          for a in related_model_attrs)
-        # remove None's (unknown type, no selection possible):
-        anames = [_ for _ in anames if _[1] is not None]
+        metadata = [{
+            'label': a,
+            'dtype': _get_pytype(Segment, a),
+            'dbmodel': Segment.__name__
+        } for a in seg_simple_att_names if _get_pytype(Segment, a) is not None]
 
-    return anames
+        for relation_name, attr_filter_func in related_models_attrs.items():
+            rel_model_class = rel_model_classes[relation_name]
+            rel_model_attrs = _attnames(rel_model_class, attr_filter_func)
+            metadata.extend({
+                'label': relation_name + '.' + a,
+                'dtype': _get_pytype(rel_model_class, a),
+                'dbmodel': rel_model_class.__name__
+            } for a in rel_model_attrs if _get_pytype(rel_model_class, a) is not None)
+
+    return metadata
 
 
 def _attnames(model, filter_func=None):
@@ -216,3 +223,8 @@ def _get_pytype(model, attrname):
     sqltype = get_sqltype(getattr(model, attrname))
     pytype = None if sqltype is None else get_pytype(sqltype)
     return None if pytype is None else str(pytype.__name__)
+
+
+def _jsonify(obj):
+    """flask converts datetime(s) to Fri, 08 Sep 2017 05:03:10 GMT, let's keep UTC"""
+    return obj.isoformat(sep=' ') if isinstance(obj, datetime) else obj

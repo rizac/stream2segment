@@ -165,7 +165,7 @@ def process(pyfunc, dburl, segments_selection=None, config=None, outfile=None,
 def _valid_pyfunc(pyfunc):
     """Checks if the argument is a valid processing Python function by inspecting its
     signature"""
-    params = inspect.signature(pyfunc).parameters # dict[str, inspect.Parameter]
+    params = inspect.signature(pyfunc).parameters  # dict[str, inspect.Parameter]
     # less than two arguments? then function invalid:
     if len(params) < 2:
         raise ValueError('Python function should have 2 arguments '
@@ -188,7 +188,7 @@ def _run_and_write(pyfunc, dburl, segments_selection=None, config=None, outfile=
     if config is None:
         config = {}
     if segments_selection is None:
-        segments_selection = {'has_data': True}
+        segments_selection = get_default_segments_selection()
 
     session = validate_param("dburl", dburl, get_session)
     writer = get_writer(outfile, append, writer_options)
@@ -208,6 +208,13 @@ def _run_and_write(pyfunc, dburl, segments_selection=None, config=None, outfile=
     logger.info("%d of %d segment(s) successfully written to the provided output",
                 written, len(seg_ids))
 
+
+def get_default_segments_selection():
+    """Return a dict with a default segments selection for processing"""
+    return {
+        'has_valid_data': 'true',
+        'maxgap_numsamples': '[-0.5, 0.5]'
+    }
 
 def _valid_filewritable(filepath):
     """Check that the file is writable, i.e. that is a string and its

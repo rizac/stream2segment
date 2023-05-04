@@ -1,246 +1,297 @@
-{% extends "flask_base.html" %}
-{% set use_ng = true %}
+{% extends "base.html" %}
+{% set use_axios = true %}
 {% set use_plotly = true %}
 {% set use_leaflet = false %}
-{% set use_esrileaflet = false %}
 {% set use_bootstrap_css = true %}
 
-{% block head_scripts %}
-    {{ super() }}
-	<script type="text/javascript">
-		/*__SETTINGS below is the bridge between everything that must be passed from the backend
-		(jinja2) to the frontend (angular):*/
-		var __SETTINGS = {{ settings|tojson }};
-		__SETTINGS.bottomPlots = {{ bottomPlots|tojson }};
-		__SETTINGS.rightPlots = {{ rightPlots|tojson }};
-	</script>
-{% endblock %}
-
-{% block head_stylesheets %}
-    {{ super() }}
-    	<link href="static/css/mainapp.css" rel="stylesheet" media="screen">
-{% endblock %}
-
-{% block body_tag %}
-<body ng-app="myApp" ng-controller="myController" id='angularController'>
+{% block head_css %}
+{{ super() }}
+body{
+	background-color: whitesmoke !important;
+}
+.js-plotly-plot .plotly .modebar-btn svg {
+	top: 0px !important;  /* replace 2px to fix plotly modebar buttons too "low" */
+	margin: 8px 0;  /* add vertical space (better changing the padding on the parent, but done here for clarity) */
+}
+.select-highlighted{
+	border-radius: 5px;
+	background-color: #009688;
+	color: white;
+	font-weight: bold;
+	padding: 1px 5px;
+}
+table thead tr th { padding-bottom: 2rem; font-weight: normal; }
+.popup{
+	z-index: 100;
+	background-color: #f5f5f5;
+	-webkit-background-clip: padding-box;
+	background-clip: padding-box;
+	border: 1px solid #ccc;
+	border: 1px solid rgba(0,0,0,.33);
+	border-radius: 4px;
+	-webkit-box-shadow: 0 6px 12px rgba(0,0,0,.175);
+	box-shadow: 0 6px 12px rgba(0,0,0,.175);
+	padding: 1rem;
+	display: flex;
+	position: fixed;
+	max-height: 90vh;
+	max-width: 90vw;
+}
+.loader {
+	width: 48px;
+	height: 48px;
+	border: 5px solid #444;
+	border-bottom-color: transparent;
+	border-radius: 50%;
+	display: inline-block;
+	box-sizing: border-box;
+	animation: rotation 1s linear infinite;
+	}
+	@keyframes rotation {
+	0% {
+	    transform: rotate(0deg);
+	}
+	100% {
+	    transform: rotate(360deg);
+	}
+}
 {% endblock %}
 
 {% block body_content %}
-	{{ super() }}
-	<!--  raw tells jinja not to parse curly braces so we can angular takes place -->
-	{% raw %}
-	<div class="main flex-direction-col">
-		<div class='navbar'>
-			<div class="flex-direction-row toolbar">
-				<!-- use checkbox class for all same level divs (bootstraps controls margins top and bottom intelligently -->
-				<div class="flex-direction-row toolbar" ng-show="segmentsCount>0">
-					<h4>Segment {{ segIdx + 1 }} of {{ segmentsCount.toLocaleString('en-US') }}</h4>
-					<button id="prev-segment-btn" class='btn btn-default center' ng-click="setPreviousSegment()"
-							title="previous segment (keyboard: left arrow)" style="margin-left:.5rem">
-						<span class='arrow-left'></span>
-					</button>
-					<button id="next-segment-btn" class='btn btn-default center' ng-click="setNextSegment()"
-							title="next segment (keyboard: right arrow)" style="margin-left:.5rem">
-						<span class='arrow-right'></span>
-					</button>
-				</div>
-				
-				<button class='btn btn-default' ng-click="showSelectForm()" style="margin-left:.5rem">
-					Select
-				</button>
-				
-				<div class="flex-direction-row toolbar" ng-show="segmentsCount>0" style="margin-left:.5rem">
-					<h4>Plots:</h4>		
-					<label ng-show="hasPreprocessFunc" title="{% endraw %}{{ preprocessfunc_doc }}{% raw %}" style="margin-left:.5rem">
-						<input type="checkbox" ng-model="showPreProcessed" ng-change="togglePreProcess()"> Pre-process
-					</label>
-					<label  style="margin-left:.5rem">
-						<input type="checkbox" ng-model="showAllComponents" ng-change="toggleAllComponentView()"> Show all orientations
-					</label>
-				</div>
-	
-				<button class='btn btn-default' ng-click="showConfigForm()" style="margin-left:.5rem">
-					Config
-				</button>
-
-				<div class="flexible text-right" ng-show="!warnMsg && !loading" style="margin-left:.5rem">DB: {% endraw %}{{ dburl }}{% raw %}</div>
-				<div class="flexible" ng-show='warnMsg || loading' ng-class="warnMsg && !loading ? 'select-highlighted-err' : ''" style="margin-left:.5rem">{{ warnMsg }} <div ng-show='loading' class='loader'></div></div>
-			</div>
+{{ super() }}
+<div class="main d-flex flex-column" style="height:100%">
+	<!-- TOOLBAR -->
+	<div class="d-flex flex-row align-items-baseline p-2 mb-3 shadow">
+		<div>Segment
+			<span id="current_segment_index">0</span>
+			of
+			<span id="segments_count">0</span>
 		</div>
-		<div class="center flexible flex-direction-row">
-			 <div class='flexible-half flex-direction-col'>
-				 <div class='flexible-half flex-direction-col'>
-				 	<div class='plot-wrapper flexible'>
-						<div id='plot-0' class='plot'></div>
-				 	</div>
-				 </div>
-				 {% endraw %}
-			 	 {% if bottomPlots|length %}
-				 <div class='flexible-half flex-direction-col'>
-					<div class='plot-wrapper flexible'>
-						{% for obj in bottomPlots %}
-							<div id='plot-{{obj.index}}' class='plot'
-								 ng-show="plots[{{ obj.index }}].visible"></div>
-						{% endfor %}
-					</div>
-					{% if bottomPlots|length > 1 %}
-					<div class='flex-direction-row toolbar'>
-						{% for obj in bottomPlots %}
-							<button  ng-class="plots[{{ obj.index }}].visible ? 'active btn-primary' : 'btn-default'" 
-								ng-click="setPlotVisible({{ obj.index }})" style="margin-right:.5rem"
-								class='btn btn-sm' title="{{obj.doc}}">{{ obj.name }}</button>
-						{% endfor %}
-					</div>
-					{% endif %}
-				 </div>
-				 {% endif %}
-				 {% raw %}
-			 </div>
-			 <div class='flexible-half flex-direction-col'>
-				{% endraw %}
-				{% if rightPlots|length %}
-				<div class='flexible-half flex-direction-row'>
-					<div class='plot-wrapper flexible'>
-						{% for obj in rightPlots %}
-						<div id='plot-{{obj.index}}' class='plot'
-							ng-show="plots[{{ obj.index }}].visible"></div>
-						{% endfor %}
-					</div>
-					{% if rightPlots|length > 1 %}
-					<div class='flex-direction-col toolbar'>
-						{% for obj in rightPlots %}
-							<button ng-class="plots[{{ obj.index }}].visible ? 'active btn-primary' : 'btn-default'" 
-								ng-click="setPlotVisible({{ obj.index }})" style="margin-bottom:.5rem"
-								class='btn btn-sm' title="{{obj.doc}}">{{ obj.name }}</button>
-						{% endfor %}
-					</div>
-					{% endif %}
-					</div>
-				{% endif %}
-				{% raw %}
-				<div class="flexible-half flex-direction-col">
-					<div class="metadata panel panel-default flexible flex-direction-col">
-						<div class="panel-heading" style='background-color:transparent !important'>
-							&#9432; Segment id (net.sta.loc.cha code): <span style="font-weight:bold; color:black">{{ segData.mainInfo.seedId}}</span>,
-							P-wave arrival: <span style="font-weight:bold; color:black">{{ segData.mainInfo.arrivalTime}}</span>. Recorded
-							event of magnitude <span style="font-weight:bold; color:black">{{ segData.mainInfo.eventMag}}</span> is located
-							&#8773; <span style="font-weight:bold; color:black">{{ segData.mainInfo.eventDistanceKm}} Km</span> from the segment station.
-							Full Segment metadata:
-						</div>
-						<div class='flexible'>
-							<div class="panel-body">
-								<div ng-show="classes.length">
-									<div class="divider"></div>
-									<div ng-click="toggleDivVisibility('classes')">
-										class label <div ng-class="isDivVisible('classes') ? 'arrow-up' : 'arrow-down'"
-											style='float:right'></div>
-									</div>
-									<div ng-show="isDivVisible('classes')" class="panel-body">
-										<div ng-repeat="class in classes">
-					  						<label title="{{ class.description }}">
-												<input
-												    type="checkbox"
-												    value="{{ class.id }}"
-												    ng-model="segData.classIds[class.id]"
-												    ng-click="toggleSegmentClassLabel(class.id)"
-												> {{ class.label }} ({{ class.segments }} segments)
-											</label>
-										</div>
-									</div>
-								</div>
-								<div ng-repeat="(key, vals) in segData.metadata">
-									<!-- <div class="divider"></div> -->
-									<div ng-click="toggleDivVisibility(key)" class='metadata-header' style="cursor:pointer">
-										{{ key }} <div ng-class="isDivVisible(key) ? 'arrow-up' : 'arrow-down'"
-											style='float:right'></div>
-									</div>
-									<div ng-show="isDivVisible(key)" class="panel-body">
-										<table>
-											<tr ng-repeat="(subKey, subVal) in vals">
-												<td>{{ subKey }}</td><td>{{ subVal }}</td>
-											</tr>
-										</table>
-									</div>
-								</div>
-							</div>
-						</div>
-					</div>
-				</div>
-			</div>
+		<button id="prev-segment-btn" class='btn btn-outline-secondary text-center ms-1'
+				onclick="setPreviousSegment()"
+				title="previous segment (you can also use the left arrow key)">
+			&lang; <!--&larr; -->
+		</button>
+		<button id="next-segment-btn" class='btn btn-outline-secondary text-center ms-1'
+				onclick="setNextSegment()"
+				title="next segment (you can also use the right arrow key)">
+			&rang; <!--&rarr; -->
+		</button>
+		<button class='btn btn-outline-secondary ms-1'
+				onclick="toggleVisibility('segments-selection-dialog')">
+			Select
+		</button>
+		<div class="ms-2">Plots</div>
+		<input type="checkbox" class="btn-check"
+			   id="preprocess-plots-btn"
+			   {% if preprocess_func_on -%}checked{%- endif %}
+			   onclick="recomputeAllPlots()">
+		<label class="btn btn-sm btn-outline-secondary ms-1" for="preprocess-plots-btn">Pre-process</label>
+		<button class='btn btn-outline-secondary ms-1'
+				onclick="toggleVisibility('config-dialog')">
+			Config
+		</button>
+		<div class="ms-2">DB Url</div>
+		<div class="ms-1" style="flex: 1 1 0;white-space:nowrap;overflow:auto">
+			{{ title }}
 		</div>
 	</div>
-	<!-- SELECTION FORM (move at the end so that it does not display long time, it's annoying otherwise) -->
-	<div id="select-form" ng-show="selection.showForm" class="popup alert">
-		<!-- Select segments where: -->
-		<a href="#" class="close" data-dismiss="alert" aria-label="close" onclick="return false;"
-			ng-click="closeSelectionForm()" style="font-size: xx-large;">&times;</a>
-		<div class="center">
-			<table>
-				<tr>
-					<th>Attribute</th>
-					<th><i>Select</i> expression
-					    <table class='note'>
-					    		<tr><td>a b c</td><td>select segments whose attribute value is a, b or c</td></tr>
-								<tr><td>[a, b]</td><td>select segments whose attribute value is between a and b (including endpoints)</td></tr>
-								<tr><td>(a, b)</td><td>select segments whose attribute value is between a and b (excluding endpoints)</td></tr>
-							<tr><td>!=a</td><td>select segments whose attribute value is not a</td></tr>
-							<tr><td> =a &gt;a &gt;=a &lt;a &lt;=a</td><td>(same as above with different operators)</td></tr>
+	<!-- PLOTS BUTTONS -->
+	<div class="d-flex flex-row px-2">
+		<div class="d-flex flex-row align-items-baseline" style="flex: 1 1 50%">  <!-- main plot controls -->
+			<span class='d-none me-2' id="seed_id"></span>
+			<input type="checkbox" class="btn-check"
+				   id="show-all-components-btn"
+				   onclick='recomputePlot("", "main-plot", {})'>
+			<label class="btn btn-sm btn-outline-secondary me-2" for="show-all-components-btn">Show all orientations</label>
+		</div>
+		<div class="d-flex flex-row align-items-baseline" style="flex: 1 1 50%">  <!-- right plot controls -->
+			{%- if rightPlots|length < 1 -%}
+			{{ seg_metadata_caption | safe }}
+			{%- else -%}
+			{% for plot in rightPlots %}
+			<input type="radio" class="btn-check"
+				   name="right-plot-option" id="right-plot-{{ plot.name }}"
+				   data-plot='["{{ plot.name }}", "right-plot", {{ plot.layout | tojson }}]'
+				   onclick="recomputePlot(...JSON.parse(this.getAttribute('data-plot')))"
+				   {%- if loop.index0 == 0 %} checked {% endif %}
+				   title="{{plot.doc}}" autocomplete="off">
+			<label class="btn btn-sm btn-outline-secondary me-2" for="right-plot-{{ plot.name }}">{{ plot.name }}</label>
+			{% endfor %}
+			{%- endif %}
+		</div>
+	</div>
+	<!-- PLOTS CONTAINER -->
+	<div class="d-flex flex-row px-2 pb-2" style="flex: 1 1 auto">
+		<!--LEFT COLUMN PLOTS -->
+		<div class='d-flex flex-column' style="flex: 0 0 50%" >
+			<div style="flex: 1 1 50%; position:relative">
+				<div id='main-plot' style="position:absolute;top:0;right:1rem;bottom:1rem;left:0;overflow:auto"></div>
+			</div>
+			<div class="{%- if bottomPlots|length < 1 -%}d-none{%- else -%}d-flex{%- endif %} flex-column" style="flex:1 1 50%">
+				<div style="flex: 1 1 auto; position:relative">
+					<div id='bottom-plot' style="position:absolute;top:0;right:1rem;bottom:1rem;left:0;overflow:auto"></div>
+				</div>
+				<div class="d-flex flex-row">
+					{% for plot in bottomPlots %}
+					<input type="radio" class="btn-check"
+						   name="bottom-plot-option" id="bottom-plot-{{ plot.name }}"
+						   data-plot='["{{ plot.name }}", "bottom-plot", {{ plot.layout | tojson }}]'
+						   onclick="recomputePlot(...JSON.parse(this.getAttribute('data-plot')))"
+						   {%- if loop.index0 == 0 %} checked {% endif %}
+						   title="{{plot.doc}}" autocomplete="off">
+					<label class="btn btn-sm btn-outline-secondary me-2" for="bottom-plot-{{ plot.name }}">{{ plot.name }}</label>
+					{% endfor %}
+				</div>
+		 	</div>
+		</div>
+		<!--RIGHT COLUMN PLOTS -->
+		<div class='d-flex flex-column' style="flex: 0 0 50%">
+			 <!-- RIGHT TOP PLOT PANEL (WITH BUTTONS) -->
+			<div class="{%- if rightPlots|length < 1 -%}d-none{%- else -%}d-flex{%- endif %} flex-row" style="flex:1 1 50%">
+				<div style="flex: 1 1 auto; position:relative">
+					<div id="right-plot" style="position:absolute;top:0;right:1rem;bottom:1rem;left:0;overflow:auto"></div>
+				</div>
+			</div>
+			<!-- RIGHT BOTTOM PANEL (SEGMENT METADATA) -->
+			<div class="d-flex flex-column" style="flex: 1 1 50%; margin-left:1rem">
+				<div style="flex:1 1 auto; position:relative">
+					<div style="position:absolute;top:0;right:0;bottom:0;left:0;overflow:auto">
+						<table class='mt-2' style="width:100%;">
+							{%- if rightPlots|length > 0 -%}
+							<thead><tr><th colspan="2">{{ seg_metadata_caption | safe }}</th></tr></thead>
+							{%- endif %}
+							<tbody data-is-segment-metadata>
+							{% for class in classes -%}
+							<tr title="{{ class.label }}{%- if class.description -%}: {{ class.description }}{%- endif -%}"
+								data-metadata-type="class.label">
+								<td>
+									<label style="white-space: nowrap;">
+										<input type="checkbox" data-segment-class-id="{{ class.id }}"
+											   onclick="setClassLabel(parseInt(this.getAttribute('data-segment-class-id')), this.checked)">
+										{{ class.label }}
+									</label>
+								</td>
+								<td style="text-overflow: ellipsis;white-space:nowrap;max-width:0;overflow:hidden">
+									(DB segments labelled: <span id="class-{{class.id}}-segments-count">{{ class.segments }}</span>)
+								</td>
+							</tr>
+							{%- endfor -%}
+							{% for mdata in metadata -%}
+							{% set name = mdata.label %}
+							{% set type = mdata.dbmodel %}
+							<tr data-metadata-type="{{ type }}">
+								<td>{{ name }}</td>
+								<td data-segment-attr="{{ name }}" style='width:100%'>N/A</td>
+							</tr>
+							{%- endfor -%}
+							</tbody>
 						</table>
-					</th>
-				</tr>
-				<tr ng-repeat="mdata in metadata">
-				<!--NOTE: mdata is an Array of segment attributes, each attribute is an Array of the form [name, type]
-				    (both strings) -->
-					<td><span ng-class="selection.selExpr[mdata[0]] ? 'select-highlighted' : ''">{{ mdata[0] }}</span></td>
-					<td style='width:100%'>
-						<input style='width:100%' type=text ng-model="selection.selExpr[mdata[0]]" placeholder="({{ mdata[1] }})"/>
-					</td>
-				</tr>
-			</table>
-		</div>
-		<div style='text-align:center'>
-			<button class='btn btn-default' ng-click="selectSegments(selection.selExpr)">Select</button>
-		</div>
+					</div>
+				</div>
+			</div>
+		 </div>
 	</div>
-	
-	<div id="config-form" ng-show="config.showForm" class="popup alert">
-		<!-- Config (.yaml file) -->
-		<a href="#" class="close" data-dismiss="alert" aria-label="close" onclick="return false;"
-			ng-click="closeConfigForm()" style="font-size: xx-large;">&times;</a>
-		<div>
-		Configuration editor (YAML syntax):
-		</div>
-		<div class="center" id='configEditor'>
-		</div>
-		<div style='text-align:center'>
-			<button class='btn btn-default' ng-click="updateConfig()">Update</button>
-		</div>
+</div>
+
+
+
+<!-- SELECTION FORM (move at the end so that it does not display long time, it's annoying otherwise) -->
+<div id="segments-selection-dialog" class="d-none popup flex-column" style="top: 5vh; left:5vw; max-width:45vw">
+	<!-- Select segments where: -->
+	<div class="bg-secondary-subtle text-end small mb-2">
+		<button type="button" class="btn-close" aria-label="Close"
+				onclick="toggleVisibility('segments-selection-dialog')"></button>
 	</div>
-	{% endraw %}
+	<div style="flex: 1 1 auto; overflow:auto">
+		<table>
+			<thead>
+			<tr>
+				<th>Attribute</th>
+				<th><i>Select</i> expression <a href="#" onclick="this.nextElementSibling.classList.toggle('d-none')">click for examples</a>
+					<table class='small secondary d-none' style="font-weight: normal">
+						<tr><td class="pe-2 text-nowrap">a b c</td><td>select segments whose attribute value is a, b or c</td></tr>
+						<tr><td class="pe-2 text-nowrap">[a, b]</td><td>select segments whose attribute value is between a and b (including endpoints)</td></tr>
+						<tr><td class="pe-2 text-nowrap">(a, b)</td><td>select segments whose attribute value is between a and b (excluding endpoints)</td></tr>
+						<tr><td class="pe-2 text-nowrap">!=a</td><td>select segments whose attribute value is not a (likewise, you can use the operators: =a &gt;a &gt;=a &lt;a &lt;=a)</td></tr>
+						<tr><td colspan="2">
+							<a target="_blank" href="https://github.com/rizac/stream2segment/wiki/The-Segment-object#segments-selection">Click here for more details</a>
+						</td></tr>
+					</table>
+				</th>
+			</tr>
+			</thead>
+			<tbody data-is-segment-metadata>
+			{% for mdata in metadata -%}
+			{% set name = mdata.label %}
+			{% set dtype = mdata.dtype %}
+			{% set type = mdata.dbmodel %}
+			<tr data-metadata-type="{{ type }}">
+				<td><span id="sss-{{ name }}">{{ name }}</span></td>
+				<td style='width:100%'>
+					<input style='width:100%' type=text
+						   data-segment-select-attr="{{ name }}"
+						   oninput="this.value ? document.getElementById('sss-{{ name }}').classList.add('select-highlighted') : document.getElementById('sss-{{ name }}').classList.remove('select-highlighted')"
+						   placeholder="{{ dtype }}"
+					/>
+				</td>
+			</tr>
+			{%- endfor -%}
+			</tbody>
+		</table>
+	</div>
+	<div class='text-center pt-2'>
+		<button class='btn btn-outline-secondary'
+				onclick="updateSegmentSelection().then(response => { toggleVisibility('segments-selection-dialog') })">
+			Select
+		</button>
+	</div>
+</div>
+
+<div id="config-dialog" class="popup d-none flex-column"
+	 style="top: 50%; left: 50%; transform: translate(-50%, -50%);">
+	<!-- Config (.yaml file) -->
+	<div class="text-end small bg-secondary-subtle mb-2">
+		<button type="button" class="btn-close" aria-label="Close"
+				onclick="toggleVisibility('config-dialog')"></button>
+	</div>
+	<div>Configuration editor (YAML syntax):</div>
+	<div id='config-editor' style="flex: 1 1 auto; overflow:auto; min-height:75vh; min-width:50vw;"></div>
+	<div class='text-center pt-2'>
+		<button class='btn btn-outline-secondary'
+				onclick="updateConfig().then(response => { toggleVisibility('config-dialog') })">
+			Update
+		</button>
+	</div>
+</div>
+
+<div id="message-dialog" class="popup d-none flex-column align-items-center"
+	 style="z-index:1000; top:50%; left: 50%; transform: translate(-50%, -50%);">
+	<span class="loader"></span>
+	<div class="d-flex flex-row align-items-end">
+		<div class="message" style="margin-top:.5rem"></div>
+		<button type="button" class="btn-close ms-2" aria-label="Close"
+				onclick="toggleVisibility('message-dialog')">
+		</button>
+	</div>
+</div>
 {% endblock %}
+
 {% block after_body %}
 	{{ super() }}
-	<!-- load angular and init it (IN THIS ORDER!) -->
-	<script src="static/js/mainapp/ng-app.js" defer></script>
-	
-	<!-- <script src="https://pagecdn.io/lib/ace/1.4.8/ace.min.js" crossorigin="anonymous"
-			integrity="sha256-2vrgUWyhDF1A6gCwYj0YcNWMoEdeJNuj0G3MHPLP9RE=" ></script> -->
-	<!-- <script src="https://pagecdn.io/lib/ace/1.4.8/ace.js" crossorigin="anonymous"
-		    integrity="sha256-+svOVB1WmhKhTy7N21gWvtyXn91qF0r52P2hIArRRug=" ></script> -->
+	<script src="static/js/mainapp.js"></script>
 	<script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.17.0/ace.min.js"></script>
-
 	<script type="text/javascript">
-		var configEditor = ace.edit("configEditor");
+		var configEditor = ace.edit("config-editor");
 		ace.config.set('basePath', 'https://pagecdn.io/lib/ace/1.4.8');
 		// instead of doing so:
 		// configEditor.setTheme("ace/theme/idle_fingers");
 		// configEditor.session.setMode("ace/mode/yaml");
 		// we set everything in the options dict
 		// (for infor see: https://codepen.io/ryancat/pen/mMyvpx)
-		var _fs = parseFloat(window.getComputedStyle(document.body).getPropertyValue('font-size'));
 		configEditor.setOptions({
 			wrap: true,
-			fontSize: isNaN(_fs) ? 15 : _fs,
+			fontSize: getPageFontInfo().size,  // see custom js
 			mode: "ace/mode/yaml",
 			theme: "ace/theme/idle_fingers",
 			showLineNumbers: true,
@@ -264,6 +315,142 @@
 			}
 		});
 
+		// arrange metadata tables by grouping different metadata types (event, station, ....) together:
+		for (var tbody of document.querySelectorAll('tbody[data-is-segment-metadata]')){
+			tbody.querySelectorAll('tr').forEach((tr, i, trs) => {
+				if (i > 0 && trs[i-1].getAttribute('data-metadata-type') != tr.getAttribute('data-metadata-type')){
+					tr.querySelectorAll('td').forEach(td => {td.style.paddingTop = '2rem';});
+				}
+			});
+		}
+	</script>
+	<script>
+		var SEGMENTS_COUNT = 0;  // real value will be set at the end of this script tag
+		var SELECTED_SEGMENT_INDEX = 0;
+
+		function setNextSegment(){
+			setSegment(SELECTED_SEGMENT_INDEX + 1);
+		};
+
+		function setPreviousSegment(){
+			setSegment(SELECTED_SEGMENT_INDEX - 1);
+		};
+
+		function tracesArePreprocessed(){
+			return document.getElementById('preprocess-plots-btn').checked;
+		};
+
+		function mainPlotShowsAllComponents(){
+			return document.getElementById('show-all-components-btn').checked;
+		};
+
+		function setSegment(index){
+			if (SEGMENTS_COUNT < 1){ return; }
+			if (index < 0){
+				index = SEGMENTS_COUNT + index;
+			}else if (index >= SEGMENTS_COUNT){
+				index = index % SEGMENTS_COUNT;
+			}
+			var attrElements = {};
+			document.querySelectorAll(`[data-segment-attr]`).forEach(elm => {
+				elm.innerHTML = "";
+				attrElements[elm.getAttribute('data-segment-attr')] = elm;
+			});
+			var classElements = {};
+			document.querySelectorAll(`[data-segment-class-id]`).forEach(elm => {
+				elm.checked = false;
+				classElements[parseInt(elm.getAttribute('data-segment-class-id'))] = elm;
+			});
+			get_segment_data(index, SEGMENTS_COUNT,
+							 getPlotDataToRecompute(), tracesArePreprocessed(), mainPlotShowsAllComponents(),
+	 						 attrElements, classElements).then(segmentAttrs => {
+				SELECTED_SEGMENT_INDEX = index;
+				document.getElementById('current_segment_index').innerHTML = (SELECTED_SEGMENT_INDEX + 1).toLocaleString('en-US');
+				var seedIdElm = document.getElementById('seed_id');
+				seedIdElm.innerHTML = segmentAttrs.seed_id || "";
+				seedIdElm.innerHTML ? seedIdElm.classList.remove('d-none') : seedIdElm.classList.add('d-none');
+			});
+		};
+
+		function recomputeAllPlots(){
+			get_segment_data(SELECTED_SEGMENT_INDEX, SEGMENTS_COUNT,
+							 getPlotDataToRecompute(), tracesArePreprocessed(), mainPlotShowsAllComponents(),
+	 						 null, null);
+		}
+
+		function getPlotDataToRecompute(){
+			var plots = [["", 'main-plot', {}]];
+			document.querySelectorAll('[data-plot]').forEach(elm => {
+				if (elm.checked){
+					plots.push(JSON.parse(elm.getAttribute('data-plot')));
+				}
+			});
+			return plots;
+		}
+
+		function recomputePlot(funcName, divId, layout){
+			get_segment_data(SELECTED_SEGMENT_INDEX, SEGMENTS_COUNT,
+							 [[funcName, divId, layout]], tracesArePreprocessed(), mainPlotShowsAllComponents(),
+	 						 null, null);
+		}
+
+		function setClassLabel(classId, value){
+			var params = {
+				seg_index: SELECTED_SEGMENT_INDEX,
+				seg_count: SEGMENTS_COUNT,
+				class_id: classId,
+				value: value
+			};
+			axios.post("/set_class_id", params, {headers: {'Content-Type': 'application/json'}}).then(response => {
+				document.getElementById(`class-${classId}-segments-count`).innerHTML = response.data;
+			});
+		}
+
+		function getSegmentSelectionInputElements(){
+			var ret = {};
+			var attr = 'data-segment-select-attr';
+			document.querySelectorAll(`input[${attr}]`).forEach(elm => {
+				ret[elm.getAttribute(attr)] = elm;
+			});
+			return ret;
+		}
+
+		function updateSegmentSelection(){
+			return setSegmentsSelection(getSegmentSelectionInputElements()).then(response => {
+				var numSegments = response.num_segments;  // surely > 0
+				updateSegmentsCount(numSegments);
+				return response;
+			});
+		}
+
+		function toggleVisibility(divId){
+			var div = document.getElementById(divId);
+			var isVisible = isDivVisible(div);
+			if (!isVisible && divId == 'config-dialog'){
+				// query config and show form only upon successful response:
+				setConfig(configEditor).then(response => { setDivVisible(div, true) });
+			}else if (!isVisible && divId == 'segments-selection-dialog'){
+				// query segment selection and show form only upon successful response:
+				getSegmentsSelection(getSegmentSelectionInputElements()).then(response => { setDivVisible(div, true) });
+			}else{
+				setDivVisible(div, !isVisible);
+			}
+		}
+
+		function updateConfig(){
+			return axios.post("/set_config", {data: configEditor.getValue()}, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
+				recomputeAllPlots();
+				return response;
+			});
+		}
+
+		function updateSegmentsCount(num_segments){
+			SEGMENTS_COUNT = num_segments;
+			document.getElementById('segments_count').innerHTML = SEGMENTS_COUNT.toLocaleString('en-US');
+			setSegment(0);
+		}
+
+		updateSegmentsCount({{ num_segments }});
 
 	</script>
 {% endblock %}

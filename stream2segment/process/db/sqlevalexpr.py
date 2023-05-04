@@ -233,32 +233,34 @@ def binexpr(column, expr):
     binexpr(model.column1, '>=5')
     ```
     """
-    operator, values = split(expr)
-    values = parsevals_sql(column, values)
-    if operator == '=':
-        return column == values[0] if len(values) == 1 else column.in_(values)
-    if operator == "!=":
-        return column != values[0] if len(values) == 1 else ~column.in_(values)
-    if operator == ">":
-        return and_(*[column > val for val in values])
-    if operator == "<":
-        return and_(*[column < val for val in values])
-    if operator == ">=":
-        return and_(*[column >= val for val in values])
-    if operator == "<=":
-        return and_(*[column <= val for val in values])
-    else:
-        cond = column.between(values[0], values[1])
-        if operator == 'open':
-            cond = cond & (column != values[0]) & (column != values[1])
-        elif operator == 'leftopen':
-            cond = cond & (column != values[0])
-        elif operator == 'rightopen':
-            cond = cond & (column != values[1])
-        elif operator != 'closed':
-            raise ValueError("Invalid operator %s" % operator)
-        return cond
-    raise ValueError("Invalid expression %s" % expr)
+    try:
+        operator, values = split(expr)
+        values = parsevals_sql(column, values)
+        if operator == '=':
+            return column == values[0] if len(values) == 1 else column.in_(values)
+        if operator == "!=":
+            return column != values[0] if len(values) == 1 else ~column.in_(values)
+        if operator == ">":
+            return and_(*[column > val for val in values])
+        if operator == "<":
+            return and_(*[column < val for val in values])
+        if operator == ">=":
+            return and_(*[column >= val for val in values])
+        if operator == "<=":
+            return and_(*[column <= val for val in values])
+        else:
+            cond = column.between(values[0], values[1])
+            if operator == 'open':
+                cond = cond & (column != values[0]) & (column != values[1])
+            elif operator == 'leftopen':
+                cond = cond & (column != values[0])
+            elif operator == 'rightopen':
+                cond = cond & (column != values[1])
+            elif operator != 'closed':
+                raise ValueError("Invalid operator %s" % operator)
+            return cond
+    except (AssertionError, ValueError, IndexError, AttributeError, TypeError):
+        raise ValueError("Invalid expression for column '%s': %s" % (column, expr))
 
 
 def split(expr):

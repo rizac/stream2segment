@@ -472,10 +472,10 @@ def get_s2s_responses():
         elif code >= 200:
             sortpos = code - 200
             if code == 200:
-                leg = 'Data saved (download ok, no additional warning)'
+                leg = 'Data saved (download completed, no additional warning)'
             elif code == 204:
-                leg = ('Data saved but empty (download ok, the server did '
-                       'not return any data)')
+                leg = ('No data saved (download completed, the server returned '
+                       '0 bytes of data)')
             else:
                 leg = ('Data probably saved (download completed, server '
                        'response code %d indicates Success)') % code
@@ -488,21 +488,21 @@ def get_s2s_responses():
     # custom codes:
     codes = s2scodes
     resp[codes.timespan_warn] = ('OK Partially Saved',
-                                 'Data saved (download ok, some received data '
-                                 'chunks were completely outside the requested '
-                                 'time span and discarded)', 0.5)
+                                 'Data saved (download completed, some data '
+                                 'chunks discarded because outside the requested '
+                                 'time window)', 0.5)
     resp[codes.timespan_err] = ('Time Span Error',
-                                'No data saved (download ok, data completely '
-                                'outside requested time span)', 99.1)
-    resp[codes.mseed_err] = ('MSeed Error', 'No data saved (download ok, '
+                                'No data saved (download completed, all data discarded '
+                                'because outside the requested time window)', 99.1)
+    resp[codes.mseed_err] = ('MSeed Error', 'No data saved (download completed, '
                              'malformed MiniSeed data)', 99.2)
     resp[codes.url_err] = ('Url Error',
                            'No data saved (download failed, generic url '
                            'error: timeout, no internet connection, ...)',
                            99.3)
     resp[codes.seg_not_found] = ('Segment Not Found',
-                                 'No data saved (download ok, segment data not '
-                                 'found, e.g., after a multi-segment request)',
+                                 'No data saved (download completed, segment data not '
+                                 'found, e.g., in a multi-segment request)',
                                  99.4)
 
     return resp
@@ -568,7 +568,7 @@ class DownloadStats(OrderedDict):
         GAP_OVLAP_CODE = -2000
         resp = dict(DownloadStats.resp,
                     GAP_OVLAP_CODE=('OK Gaps Overlaps',  # title
-                                    'Data saved (download ok, '  # legend
+                                    'Data saved (download completed, '  # legend
                                     'data has gaps or overlaps)',
                                     0.1) # sort order (put it next ot '200 ok')
         )

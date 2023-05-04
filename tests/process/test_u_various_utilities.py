@@ -13,7 +13,7 @@ import pytest
 import numpy as np
 from obspy.core.stream import read
 
-from stream2segment.process import SkipSegment
+from stream2segment.process import SkipSegment, load_ints_from_txt, save_ints_to_txt
 from stream2segment.process.db.models import get_stream
 from stream2segment.process.main import get_slices
 from stream2segment.process.writers import HDFWriter
@@ -141,3 +141,18 @@ def test_writer_hdf(
         writer.write(4, df2.loc[0, :].to_dict())
     aps = writer.already_processed_segments()
     assert list(aps) == [1, 2, 3, 4]
+
+
+@pytest.mark.parametrize('sep', [None, ' ', '\t', '\n'])
+def test_read_from_file(sep,  # fixtures:
+                        pytestdir):
+    import os
+    outfile = os.path.join(pytestdir.makedir(), "ids.txt")
+    ints = np.random.randint(0, 1000000, 10, dtype=int)
+    save_ints_to_txt(outfile, ints, sep)
+    ints2 = load_ints_from_txt(outfile, sep, False)
+    assert np.alltrue(ints2 == ints)
+    assert not isinstance(ints2, list)
+    ints2 = load_ints_from_txt(outfile, sep)
+    assert np.alltrue(ints2 == ints)
+    assert isinstance(ints2, list)
