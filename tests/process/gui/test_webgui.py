@@ -32,9 +32,6 @@ from stream2segment.process.gui.webapp.mainapp import core as core_module
 from stream2segment.process.gui.webapp.mainapp import db as db_module
 
 
-SEG_SEL_STR = 'segments_selection'
-
-
 class Test:
     pyfile, configfile = get_templates_fpaths("gui.py", "gui.yaml")
 
@@ -550,15 +547,11 @@ class Test:
                            # fixtures:
                            db):
         """test a change in the config from within the GUI"""
-        plot_indices = [0]
-        index_of_sn_spectra = None
+        plot_names = [""]
+        spectra_plot_func = 'sn_spectra'
         if calculate_sn_spectra:
-            for ud in core_module.userdefined_plots:
-                if ud['name'] == 'sn_spectra':
-                    index_of_sn_spectra = ud['index']
-                    plot_indices.append(index_of_sn_spectra)
-                    break
-        metadata = False
+            plot_names.append(spectra_plot_func)
+        attributes = False
         classes = False
 
         # test some combinations of plots. Return always the same segment,
@@ -571,34 +564,26 @@ class Test:
         with self.app.test_request_context():
             app = self.app.test_client()
             
-            # change selection to be more relaxed (by default it should have
-            # maxgap_numsamples within (-0.5, 0.5) in the selection,
-            # but we built a test dataset with all maxgap_numsamples = None,
-            # thus keep only has_data':'true' in the selection):
             app.post("/set_selection",
-                     data=json.dumps({SEG_SEL_STR: {'has_data':'true'}}),
+                     data=json.dumps({'has_data': 'true'}),
                      headers={'Content-Type': 'application/json'})
             
             d = dict(seg_index=1,  # whatever, not used
                      seg_count=1,  # whatever, not used
                      pre_processed=False,
-                     # zooms = data['zooms']
-                     plot_indices=plot_indices,  # data['plotIndices']
-                     metadata=metadata,
+                     plot_names=plot_names,
+                     attributes=attributes,
                      classes=classes,
                      all_components=False)
-            resp1 = app.post("/get_segment", data=json.dumps(d),
-                           headers={'Content-Type': 'application/json'})
+            resp1 = app.post("/get_segment_data", data=json.dumps(d),
+                             headers={'Content-Type': 'application/json'})
 
             # now change the config:
-            config = core_module.get_config(asstr=False)
+            config = core_module.get_config(as_str=False)
             config['sn_windows']['arrival_time_shift'] += .2  # shift by .2 second
             d['config'] = config
-#             # the dict passed from the client to the server has only strings, thus:
-#             for key in list(d['config'].keys()):
-#                 d['config'][key] = json.dumps(d['config'][key])
-            resp2 = app.post("/get_segment", data=json.dumps(d),
-                           headers={'Content-Type': 'application/json'})
+            resp2 = app.post("/get_segment_data", data=json.dumps(d),
+                             headers={'Content-Type': 'application/json'})
 
             try:
                 data1 = json.loads(resp1.data)
@@ -609,27 +594,14 @@ class Test:
                 data1 = json.loads(resp1.data.decode('utf8'))
                 data2 = json.loads(resp2.data.decode('utf8'))
 
-            assert len(data1['sn_windows']) == 2
-            assert len(data2['sn_windows']) == 2
-            for wdw1, wdw2 in zip(data1['sn_windows'], data2['sn_windows']):
-                assert wdw1 != wdw2
-
             plots1 = data1['plots']
             plots2 = data2['plots']
-            assert len(plots1) == len(plots2) == len(plot_indices)
+            assert len(plots1) == len(plots2) == len(plot_names)
 
-            for index in range(len(plot_indices)):
-                # each plots* is:
-                # [plotdata[0], plotdata[2], ...]
-                # where each plotdata is:
-                # [plot.title or '', data, "\n".join(plot.warnings), plot.is_timeseries]
-                # each data is [x0, dx, y, label] all numeric except 'label'
-                # see class jsplot
-                # get each 'data' 
-                plot1data = plots1[index]  #  [1]
-                plot2data = plots2[index]  # [1]
-                plotindex = plot_indices[index]
-                expected_lineseries_num = 1 if plotindex != index_of_sn_spectra else 2
+            for name in plot_names:
+                plot1data = plots1[name]
+                plot2data = plots2[name]
+                expected_lineseries_num = 1 if name != spectra_plot_func else 2
                 assert len(plot1data) == len(plot2data) == expected_lineseries_num
                 for lineseriesindex in range(len(plot1data)):
                     # plots are returned as a list of lineseries:
@@ -647,7 +619,7 @@ class Test:
                     # Consider that plotindices is either 0 or 2
                     # 0: time series plot
                     # 2: Spectra
-                    if plotindex != index_of_sn_spectra:
+                    if name != spectra_plot_func:
                         assert dxa == dxb
                         assert len(ya) == len(yb)
                         assert np.allclose(ya, yb)

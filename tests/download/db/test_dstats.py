@@ -318,7 +318,7 @@ TOTAL                      3         1          2      1      1      1        1 
         assert not result.exception
         assert mock_open_in_browser.called
         assert mock_gettempdir.called
-        assert os.listdir(mytmpdir) == ['s2s_dstats.html']
+        assert os.listdir(mytmpdir) == ['s2s_dstats_db.sqlite.html']
 
     @pytest.mark.parametrize('download_index', [None, -1])
     @patch(patches.open_in_browser)
