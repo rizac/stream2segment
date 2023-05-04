@@ -58,7 +58,7 @@ def create_s2s_show_app(session, pymodule=None, config=None, segments_selection=
     from stream2segment.process.gui.webapp.mainapp import core
     seg_count = core.init(app, session, pymodule, config, segments_selection)
     if seg_count < 1:
-        raise BadParam('No plottable waveform found on the database')
+        raise ValueError('No plottable waveform found on the database')
     core.reset_segment_ids_array(seg_count)
 
     # Note that the templae_folder of the Blueprint and the static paths in

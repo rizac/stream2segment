@@ -193,10 +193,10 @@ def get_metadata(segment_id=None):
     else:
         # we have a model (instance class), it is for selecting data on the GUI. So:
         metadata = [{
-            'label': _,
-            'dtype': _get_pytype(Segment, _),
+            'label': a,
+            'dtype': _get_pytype(Segment, a),
             'dbmodel': Segment.__name__
-        } for _ in seg_simple_att_names]
+        } for a in seg_simple_att_names if _get_pytype(Segment, a) is not None]
 
         for relation_name, attr_filter_func in related_models_attrs.items():
             rel_model_class = rel_model_classes[relation_name]
