@@ -568,7 +568,7 @@ class DownloadStats(OrderedDict):
         GAP_OVLAP_CODE = -2000
         resp = dict(DownloadStats.resp,
                     GAP_OVLAP_CODE=('OK Gaps Overlaps',  # title
-                                    'Data saved (download ok, '  # legend
+                                    'Data saved (download completed, '  # legend
                                     'data has gaps or overlaps)',
                                     0.1) # sort order (put it next ot '200 ok')
         )

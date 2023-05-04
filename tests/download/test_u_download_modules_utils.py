@@ -211,7 +211,7 @@ geofon   5      5
 TOTAL    5      5
 
 COLUMNS DETAILS:
- - OK: Data saved (download ok, no additional warning)"""[1:]
+ - OK: Data saved (download completed, no additional warning)"""[1:]
 
     d['geofon']['200'] += 100
 
@@ -222,7 +222,7 @@ geofon  105    105
 TOTAL   105    105
 
 COLUMNS DETAILS:
- - OK: Data saved (download ok, no additional warning)"""[1:]
+ - OK: Data saved (download completed, no additional warning)"""[1:]
 
     d['geofon'][413] += 5
 
@@ -236,7 +236,7 @@ geofon  105        5    110
 TOTAL   105        5    110
 
 COLUMNS DETAILS:
- - OK: Data saved (download ok, no additional warning)
+ - OK: Data saved (download completed, no additional warning)
  - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)"""[1:]
 
     d['geofon'][urlerr] += 3
@@ -251,7 +251,7 @@ geofon  105      3        5    113
 TOTAL   105      3        5    113
 
 COLUMNS DETAILS:
- - OK: Data saved (download ok, no additional warning)
+ - OK: Data saved (download completed, no additional warning)
  - Url Error: No data saved (download failed, generic url error: timeout, no internet connection, ...)
  - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)"""[1:]
 
@@ -267,8 +267,8 @@ geofon  105     11      3        5    124
 TOTAL   105     11      3        5    124
 
 COLUMNS DETAILS:
- - OK: Data saved (download ok, no additional warning)
- - MSeed Error: No data saved (download ok, malformed MiniSeed data)
+ - OK: Data saved (download completed, no additional warning)
+ - MSeed Error: No data saved (download completed, malformed MiniSeed data)
  - Url Error: No data saved (download failed, generic url error: timeout, no internet connection, ...)
  - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)"""[1:]
 
@@ -285,9 +285,9 @@ eida      0      3      0      0        0      3
 TOTAL   105      3     11      3        5    127
 
 COLUMNS DETAILS:
- - OK: Data saved (download ok, no additional warning)
- - Time Span Error: No data saved (download ok, data completely outside requested time span)
- - MSeed Error: No data saved (download ok, malformed MiniSeed data)
+ - OK: Data saved (download completed, no additional warning)
+ - Time Span Error: No data saved (download completed, all data discarded because outside the requested time window)
+ - MSeed Error: No data saved (download completed, malformed MiniSeed data)
  - Url Error: No data saved (download failed, generic url error: timeout, no internet connection, ...)
  - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)"""[1:]
 
@@ -304,10 +304,10 @@ eida      0          0      3      0      0        0      3
 TOTAL   105          0      3     11      3        5    127
 
 COLUMNS DETAILS:
- - OK: Data saved (download ok, no additional warning)
- - OK Partially Saved: Data saved (download ok, some received data chunks were completely outside the requested time span and discarded)
- - Time Span Error: No data saved (download ok, data completely outside requested time span)
- - MSeed Error: No data saved (download ok, malformed MiniSeed data)
+ - OK: Data saved (download completed, no additional warning)
+ - OK Partially Saved: Data saved (download completed, some data chunks discarded because outside the requested time window)
+ - Time Span Error: No data saved (download completed, all data discarded because outside the requested time window)
+ - MSeed Error: No data saved (download completed, malformed MiniSeed data)
  - Url Error: No data saved (download failed, generic url error: timeout, no internet connection, ...)
  - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)"""[1:]
 
@@ -324,10 +324,10 @@ eida      0          6      3      0      0        0      9
 TOTAL   105          6      3     11      3        5    133
 
 COLUMNS DETAILS:
- - OK: Data saved (download ok, no additional warning)
- - OK Partially Saved: Data saved (download ok, some received data chunks were completely outside the requested time span and discarded)
- - Time Span Error: No data saved (download ok, data completely outside requested time span)
- - MSeed Error: No data saved (download ok, malformed MiniSeed data)
+ - OK: Data saved (download completed, no additional warning)
+ - OK Partially Saved: Data saved (download completed, some data chunks discarded because outside the requested time window)
+ - Time Span Error: No data saved (download completed, all data discarded because outside the requested time window)
+ - MSeed Error: No data saved (download completed, malformed MiniSeed data)
  - Url Error: No data saved (download failed, generic url error: timeout, no internet connection, ...)
  - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)"""[1:]
 
@@ -344,10 +344,10 @@ eida      0          6      3      0      0        0         0      9
 TOTAL   105          6      3     11      3        5         1    134
 
 COLUMNS DETAILS:
- - OK: Data saved (download ok, no additional warning)
- - OK Partially Saved: Data saved (download ok, some received data chunks were completely outside the requested time span and discarded)
- - Time Span Error: No data saved (download ok, data completely outside requested time span)
- - MSeed Error: No data saved (download ok, malformed MiniSeed data)
+ - OK: Data saved (download completed, no additional warning)
+ - OK Partially Saved: Data saved (download completed, some data chunks discarded because outside the requested time window)
+ - Time Span Error: No data saved (download completed, all data discarded because outside the requested time window)
+ - MSeed Error: No data saved (download completed, malformed MiniSeed data)
  - Url Error: No data saved (download failed, generic url error: timeout, no internet connection, ...)
  - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)
  - Internal Server Error: No data saved (download failed: Server error, server response code 500)"""[1:]
@@ -365,10 +365,10 @@ eida      0          6      3      0      0        0         0         3     12
 TOTAL   105          6      3     11      3        5         1         3    137
 
 COLUMNS DETAILS:
- - OK: Data saved (download ok, no additional warning)
- - OK Partially Saved: Data saved (download ok, some received data chunks were completely outside the requested time span and discarded)
- - Time Span Error: No data saved (download ok, data completely outside requested time span)
- - MSeed Error: No data saved (download ok, malformed MiniSeed data)
+ - OK: Data saved (download completed, no additional warning)
+ - OK Partially Saved: Data saved (download completed, some data chunks discarded because outside the requested time window)
+ - Time Span Error: No data saved (download completed, all data discarded because outside the requested time window)
+ - MSeed Error: No data saved (download completed, malformed MiniSeed data)
  - Url Error: No data saved (download failed, generic url error: timeout, no internet connection, ...)
  - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)
  - Internal Server Error: No data saved (download failed: Server error, server response code 500)
@@ -387,10 +387,10 @@ eida      0          6      3      0      0        0         0         3     0  
 TOTAL   105          6      3     11      3        5         1         3     3    140
 
 COLUMNS DETAILS:
- - OK: Data saved (download ok, no additional warning)
- - OK Partially Saved: Data saved (download ok, some received data chunks were completely outside the requested time span and discarded)
- - Time Span Error: No data saved (download ok, data completely outside requested time span)
- - MSeed Error: No data saved (download ok, malformed MiniSeed data)
+ - OK: Data saved (download completed, no additional warning)
+ - OK Partially Saved: Data saved (download completed, some data chunks discarded because outside the requested time window)
+ - Time Span Error: No data saved (download completed, all data discarded because outside the requested time window)
+ - MSeed Error: No data saved (download completed, malformed MiniSeed data)
  - Url Error: No data saved (download failed, generic url error: timeout, no internet connection, ...)
  - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)
  - Internal Server Error: No data saved (download failed: Server error, server response code 500)
@@ -410,11 +410,11 @@ eida      0          6        3      3      0      0        0         0         
 TOTAL   105          6        3      3     11      3        5         1         3     3    143
 
 COLUMNS DETAILS:
- - OK: Data saved (download ok, no additional warning)
- - OK Partially Saved: Data saved (download ok, some received data chunks were completely outside the requested time span and discarded)
- - No Content: Data saved but empty (download ok, the server did not return any data)
- - Time Span Error: No data saved (download ok, data completely outside requested time span)
- - MSeed Error: No data saved (download ok, malformed MiniSeed data)
+ - OK: Data saved (download completed, no additional warning)
+ - OK Partially Saved: Data saved (download completed, some data chunks discarded because outside the requested time window)
+ - No Content: No data saved (download completed, the server returned 0 bytes of data)
+ - Time Span Error: No data saved (download completed, all data discarded because outside the requested time window)
+ - MSeed Error: No data saved (download completed, malformed MiniSeed data)
  - Url Error: No data saved (download failed, generic url error: timeout, no internet connection, ...)
  - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)
  - Internal Server Error: No data saved (download failed: Server error, server response code 500)
@@ -435,13 +435,13 @@ what      0          0        0      0      0      0        0        0         0
 TOTAL   105          6        3      3     11      3        0        5         1         3     3    143
 
 COLUMNS DETAILS:
- - OK: Data saved (download ok, no additional warning)
- - OK Partially Saved: Data saved (download ok, some received data chunks were completely outside the requested time span and discarded)
- - No Content: Data saved but empty (download ok, the server did not return any data)
- - Time Span Error: No data saved (download ok, data completely outside requested time span)
- - MSeed Error: No data saved (download ok, malformed MiniSeed data)
+ - OK: Data saved (download completed, no additional warning)
+ - OK Partially Saved: Data saved (download completed, some data chunks discarded because outside the requested time window)
+ - No Content: No data saved (download completed, the server returned 0 bytes of data)
+ - Time Span Error: No data saved (download completed, all data discarded because outside the requested time window)
+ - MSeed Error: No data saved (download completed, malformed MiniSeed data)
  - Url Error: No data saved (download failed, generic url error: timeout, no internet connection, ...)
- - Segment Not Found: No data saved (download ok, segment data not found, e.g., after a multi-segment request)
+ - Segment Not Found: No data saved (download completed, segment data not found, e.g., in a multi-segment request)
  - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)
  - Internal Server Error: No data saved (download failed: Server error, server response code 500)
  - Multiple Choices: Data status unknown (download completed, server response code 300 indicates Redirection)
@@ -461,13 +461,13 @@ what      0          0        0      0      0      0        0         0         
 TOTAL   105          6        3      3     11      3        0  33030005         1         3     3  33030143
 
 COLUMNS DETAILS:
- - OK: Data saved (download ok, no additional warning)
- - OK Partially Saved: Data saved (download ok, some received data chunks were completely outside the requested time span and discarded)
- - No Content: Data saved but empty (download ok, the server did not return any data)
- - Time Span Error: No data saved (download ok, data completely outside requested time span)
- - MSeed Error: No data saved (download ok, malformed MiniSeed data)
+ - OK: Data saved (download completed, no additional warning)
+ - OK Partially Saved: Data saved (download completed, some data chunks discarded because outside the requested time window)
+ - No Content: No data saved (download completed, the server returned 0 bytes of data)
+ - Time Span Error: No data saved (download completed, all data discarded because outside the requested time window)
+ - MSeed Error: No data saved (download completed, malformed MiniSeed data)
  - Url Error: No data saved (download failed, generic url error: timeout, no internet connection, ...)
- - Segment Not Found: No data saved (download ok, segment data not found, e.g., after a multi-segment request)
+ - Segment Not Found: No data saved (download completed, segment data not found, e.g., in a multi-segment request)
  - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)
  - Internal Server Error: No data saved (download failed: Server error, server response code 500)
  - Multiple Choices: Data status unknown (download completed, server response code 300 indicates Redirection)
@@ -487,13 +487,13 @@ what      0          0        0      0      0      0        0         0         
 TOTAL   105          6        3      3     11      3        0  33030005         1        -8         3     3  33030135
 
 COLUMNS DETAILS:
- - OK: Data saved (download ok, no additional warning)
- - OK Partially Saved: Data saved (download ok, some received data chunks were completely outside the requested time span and discarded)
- - No Content: Data saved but empty (download ok, the server did not return any data)
- - Time Span Error: No data saved (download ok, data completely outside requested time span)
- - MSeed Error: No data saved (download ok, malformed MiniSeed data)
+ - OK: Data saved (download completed, no additional warning)
+ - OK Partially Saved: Data saved (download completed, some data chunks discarded because outside the requested time window)
+ - No Content: No data saved (download completed, the server returned 0 bytes of data)
+ - Time Span Error: No data saved (download completed, all data discarded because outside the requested time window)
+ - MSeed Error: No data saved (download completed, malformed MiniSeed data)
  - Url Error: No data saved (download failed, generic url error: timeout, no internet connection, ...)
- - Segment Not Found: No data saved (download ok, segment data not found, e.g., after a multi-segment request)
+ - Segment Not Found: No data saved (download completed, segment data not found, e.g., in a multi-segment request)
  - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)
  - Internal Server Error: No data saved (download failed: Server error, server response code 500)
  - Continue: Data status unknown (download completed, server response code 100 indicates Informational response)
@@ -522,13 +522,13 @@ what      0          0        0      0      0      0        0         0         
 TOTAL   105          6        3      3     11      3        0  33030005         1        -8         3     3       14  33030149
 
 COLUMNS DETAILS:
- - OK: Data saved (download ok, no additional warning)
- - OK Partially Saved: Data saved (download ok, some received data chunks were completely outside the requested time span and discarded)
- - No Content: Data saved but empty (download ok, the server did not return any data)
- - Time Span Error: No data saved (download ok, data completely outside requested time span)
- - MSeed Error: No data saved (download ok, malformed MiniSeed data)
+ - OK: Data saved (download completed, no additional warning)
+ - OK Partially Saved: Data saved (download completed, some data chunks discarded because outside the requested time window)
+ - No Content: No data saved (download completed, the server returned 0 bytes of data)
+ - Time Span Error: No data saved (download completed, all data discarded because outside the requested time window)
+ - MSeed Error: No data saved (download completed, malformed MiniSeed data)
  - Url Error: No data saved (download failed, generic url error: timeout, no internet connection, ...)
- - Segment Not Found: No data saved (download ok, segment data not found, e.g., after a multi-segment request)
+ - Segment Not Found: No data saved (download completed, segment data not found, e.g., in a multi-segment request)
  - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)
  - Internal Server Error: No data saved (download failed: Server error, server response code 500)
  - Continue: Data status unknown (download completed, server response code 100 indicates Informational response)
@@ -550,14 +550,14 @@ what      0          0        0       14      0      0      0        0         0
 TOTAL   105          6        3       14      3     11      3        0  33030005         1        -8         3     3       14  33030163
 
 COLUMNS DETAILS:
- - OK: Data saved (download ok, no additional warning)
- - OK Partially Saved: Data saved (download ok, some received data chunks were completely outside the requested time span and discarded)
- - No Content: Data saved but empty (download ok, the server did not return any data)
+ - OK: Data saved (download completed, no additional warning)
+ - OK Partially Saved: Data saved (download completed, some data chunks discarded because outside the requested time window)
+ - No Content: No data saved (download completed, the server returned 0 bytes of data)
  - Partial Content: Data probably saved (download completed, server response code 206 indicates Success)
- - Time Span Error: No data saved (download ok, data completely outside requested time span)
- - MSeed Error: No data saved (download ok, malformed MiniSeed data)
+ - Time Span Error: No data saved (download completed, all data discarded because outside the requested time window)
+ - MSeed Error: No data saved (download completed, malformed MiniSeed data)
  - Url Error: No data saved (download failed, generic url error: timeout, no internet connection, ...)
- - Segment Not Found: No data saved (download ok, segment data not found, e.g., after a multi-segment request)
+ - Segment Not Found: No data saved (download completed, segment data not found, e.g., in a multi-segment request)
  - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)
  - Internal Server Error: No data saved (download failed: Server error, server response code 500)
  - Continue: Data status unknown (download completed, server response code 100 indicates Informational response)
