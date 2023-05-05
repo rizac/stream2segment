@@ -268,7 +268,7 @@ TOTAL   105     11      3        5    124
 
 COLUMNS DETAILS:
  - OK: Data saved (download completed, no additional warning)
- - MSeed Error: No data saved (download completed, malformed MiniSeed data)
+ - MSeed Error: Data saved (download completed, malformed MiniSeed data)
  - Url Error: No data saved (download failed, generic url error: timeout, no internet connection, ...)
  - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)"""[1:]
 
@@ -287,7 +287,7 @@ TOTAL   105      3     11      3        5    127
 COLUMNS DETAILS:
  - OK: Data saved (download completed, no additional warning)
  - Time Span Error: No data saved (download completed, all data discarded because outside the requested time window)
- - MSeed Error: No data saved (download completed, malformed MiniSeed data)
+ - MSeed Error: Data saved (download completed, malformed MiniSeed data)
  - Url Error: No data saved (download failed, generic url error: timeout, no internet connection, ...)
  - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)"""[1:]
 
@@ -307,7 +307,7 @@ COLUMNS DETAILS:
  - OK: Data saved (download completed, no additional warning)
  - OK Partially Saved: Data saved (download completed, some data chunks discarded because outside the requested time window)
  - Time Span Error: No data saved (download completed, all data discarded because outside the requested time window)
- - MSeed Error: No data saved (download completed, malformed MiniSeed data)
+ - MSeed Error: Data saved (download completed, malformed MiniSeed data)
  - Url Error: No data saved (download failed, generic url error: timeout, no internet connection, ...)
  - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)"""[1:]
 
@@ -327,7 +327,7 @@ COLUMNS DETAILS:
  - OK: Data saved (download completed, no additional warning)
  - OK Partially Saved: Data saved (download completed, some data chunks discarded because outside the requested time window)
  - Time Span Error: No data saved (download completed, all data discarded because outside the requested time window)
- - MSeed Error: No data saved (download completed, malformed MiniSeed data)
+ - MSeed Error: Data saved (download completed, malformed MiniSeed data)
  - Url Error: No data saved (download failed, generic url error: timeout, no internet connection, ...)
  - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)"""[1:]
 
@@ -347,7 +347,7 @@ COLUMNS DETAILS:
  - OK: Data saved (download completed, no additional warning)
  - OK Partially Saved: Data saved (download completed, some data chunks discarded because outside the requested time window)
  - Time Span Error: No data saved (download completed, all data discarded because outside the requested time window)
- - MSeed Error: No data saved (download completed, malformed MiniSeed data)
+ - MSeed Error: Data saved (download completed, malformed MiniSeed data)
  - Url Error: No data saved (download failed, generic url error: timeout, no internet connection, ...)
  - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)
  - Internal Server Error: No data saved (download failed: Server error, server response code 500)"""[1:]
@@ -368,7 +368,7 @@ COLUMNS DETAILS:
  - OK: Data saved (download completed, no additional warning)
  - OK Partially Saved: Data saved (download completed, some data chunks discarded because outside the requested time window)
  - Time Span Error: No data saved (download completed, all data discarded because outside the requested time window)
- - MSeed Error: No data saved (download completed, malformed MiniSeed data)
+ - MSeed Error: Data saved (download completed, malformed MiniSeed data)
  - Url Error: No data saved (download failed, generic url error: timeout, no internet connection, ...)
  - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)
  - Internal Server Error: No data saved (download failed: Server error, server response code 500)
@@ -390,7 +390,7 @@ COLUMNS DETAILS:
  - OK: Data saved (download completed, no additional warning)
  - OK Partially Saved: Data saved (download completed, some data chunks discarded because outside the requested time window)
  - Time Span Error: No data saved (download completed, all data discarded because outside the requested time window)
- - MSeed Error: No data saved (download completed, malformed MiniSeed data)
+ - MSeed Error: Data saved (download completed, malformed MiniSeed data)
  - Url Error: No data saved (download failed, generic url error: timeout, no internet connection, ...)
  - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)
  - Internal Server Error: No data saved (download failed: Server error, server response code 500)
@@ -414,7 +414,7 @@ COLUMNS DETAILS:
  - OK Partially Saved: Data saved (download completed, some data chunks discarded because outside the requested time window)
  - No Content: No data saved (download completed, the server returned 0 bytes of data)
  - Time Span Error: No data saved (download completed, all data discarded because outside the requested time window)
- - MSeed Error: No data saved (download completed, malformed MiniSeed data)
+ - MSeed Error: Data saved (download completed, malformed MiniSeed data)
  - Url Error: No data saved (download failed, generic url error: timeout, no internet connection, ...)
  - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)
  - Internal Server Error: No data saved (download failed: Server error, server response code 500)
@@ -439,7 +439,7 @@ COLUMNS DETAILS:
  - OK Partially Saved: Data saved (download completed, some data chunks discarded because outside the requested time window)
  - No Content: No data saved (download completed, the server returned 0 bytes of data)
  - Time Span Error: No data saved (download completed, all data discarded because outside the requested time window)
- - MSeed Error: No data saved (download completed, malformed MiniSeed data)
+ - MSeed Error: Data saved (download completed, malformed MiniSeed data)
  - Url Error: No data saved (download failed, generic url error: timeout, no internet connection, ...)
  - Segment Not Found: No data saved (download completed, segment data not found, e.g., in a multi-segment request)
  - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)
@@ -465,7 +465,7 @@ COLUMNS DETAILS:
  - OK Partially Saved: Data saved (download completed, some data chunks discarded because outside the requested time window)
  - No Content: No data saved (download completed, the server returned 0 bytes of data)
  - Time Span Error: No data saved (download completed, all data discarded because outside the requested time window)
- - MSeed Error: No data saved (download completed, malformed MiniSeed data)
+ - MSeed Error: Data saved (download completed, malformed MiniSeed data)
  - Url Error: No data saved (download failed, generic url error: timeout, no internet connection, ...)
  - Segment Not Found: No data saved (download completed, segment data not found, e.g., in a multi-segment request)
  - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)
@@ -491,7 +491,7 @@ COLUMNS DETAILS:
  - OK Partially Saved: Data saved (download completed, some data chunks discarded because outside the requested time window)
  - No Content: No data saved (download completed, the server returned 0 bytes of data)
  - Time Span Error: No data saved (download completed, all data discarded because outside the requested time window)
- - MSeed Error: No data saved (download completed, malformed MiniSeed data)
+ - MSeed Error: Data saved (download completed, malformed MiniSeed data)
  - Url Error: No data saved (download failed, generic url error: timeout, no internet connection, ...)
  - Segment Not Found: No data saved (download completed, segment data not found, e.g., in a multi-segment request)
  - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)
@@ -526,7 +526,7 @@ COLUMNS DETAILS:
  - OK Partially Saved: Data saved (download completed, some data chunks discarded because outside the requested time window)
  - No Content: No data saved (download completed, the server returned 0 bytes of data)
  - Time Span Error: No data saved (download completed, all data discarded because outside the requested time window)
- - MSeed Error: No data saved (download completed, malformed MiniSeed data)
+ - MSeed Error: Data saved (download completed, malformed MiniSeed data)
  - Url Error: No data saved (download failed, generic url error: timeout, no internet connection, ...)
  - Segment Not Found: No data saved (download completed, segment data not found, e.g., in a multi-segment request)
  - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)
@@ -553,9 +553,9 @@ COLUMNS DETAILS:
  - OK: Data saved (download completed, no additional warning)
  - OK Partially Saved: Data saved (download completed, some data chunks discarded because outside the requested time window)
  - No Content: No data saved (download completed, the server returned 0 bytes of data)
- - Partial Content: Data probably saved (download completed, server response code 206 indicates Success)
+ - Partial Content: Data status unknown (download completed, server response code 206 indicates Success)
  - Time Span Error: No data saved (download completed, all data discarded because outside the requested time window)
- - MSeed Error: No data saved (download completed, malformed MiniSeed data)
+ - MSeed Error: Data saved (download completed, malformed MiniSeed data)
  - Url Error: No data saved (download failed, generic url error: timeout, no internet connection, ...)
  - Segment Not Found: No data saved (download completed, segment data not found, e.g., in a multi-segment request)
  - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)

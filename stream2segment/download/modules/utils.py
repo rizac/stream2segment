@@ -477,7 +477,7 @@ def get_s2s_responses():
                 leg = ('No data saved (download completed, the server returned '
                        '0 bytes of data)')
             else:
-                leg = ('Data probably saved (download completed, server '
+                leg = ('Data status unknown (download completed, server '
                        'response code %d indicates Success)') % code
         elif code >= 100:
             sortpos = code + 200
@@ -494,7 +494,7 @@ def get_s2s_responses():
     resp[codes.timespan_err] = ('Time Span Error',
                                 'No data saved (download completed, all data discarded '
                                 'because outside the requested time window)', 99.1)
-    resp[codes.mseed_err] = ('MSeed Error', 'No data saved (download completed, '
+    resp[codes.mseed_err] = ('MSeed Error', 'Data saved (download completed, '
                              'malformed MiniSeed data)', 99.2)
     resp[codes.url_err] = ('Url Error',
                            'No data saved (download failed, generic url '
