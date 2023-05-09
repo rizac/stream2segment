@@ -431,7 +431,12 @@ class Segment(Base):
                             secondary="channels",
                             primaryjoin="Segment.channel_id == Channel.id",
                             secondaryjoin="Station.id == Channel.station_id",
-                            uselist=False,  viewonly=True,
+                            uselist=False,
+                            # the following two params are set in order to make this
+                            # relationship work in v 1 and 2, but no idea why due to
+                            # the lack of clarity in sqlalchemy docs
+                            viewonly=True,
+                            sync_backref=False,
                             backref=backref("segments", lazy="dynamic"))
 
     @declared_attr
