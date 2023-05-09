@@ -4,13 +4,13 @@
 name: Python >= 3.8
 
 on:
-#  push:
-#    branches: [ dev ]
-#    paths-ignore:
-#      - "**/README.md"
-#      - "**/LICENSE"
-#      - "**/COPYING"
-#      - "stream2segment/resources/traveltimes/**"
+ push:
+   branches: [ master ]
+   paths-ignore:
+     - "**/README.md"
+     - "**/LICENSE"
+     - "**/COPYING"
+     - "stream2segment/resources/traveltimes/**"
       
   pull_request:
     branches: [ master ]
@@ -38,7 +38,7 @@ jobs:
     - name: Install dependencies
       run: |
         pip install --upgrade pip setuptools wheel
-        # pip install -r requirements.dev.txt
+    #    pip install -r requirements.dev.txt
         pip install .
         pip install jupyter
     # - name: Cleanup
