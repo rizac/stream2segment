@@ -149,8 +149,8 @@ class Test:
 
         # get ref segment to be used in tests below to mock plots
         # calcualtions:
-        self.segment_id = session.query(Segment).join(Segment.channel,
-                                                      Segment.event).filter(
+        self.segment_id = session.query(Segment).join(Segment.channel)\
+                                                .join(Segment.event).filter(
             (Channel.location == '01') &
             (Channel.channel == 'HHE') &
             (Event.event_id == 'event1')

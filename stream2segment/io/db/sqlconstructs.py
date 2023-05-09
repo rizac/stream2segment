@@ -14,6 +14,7 @@ from sqlalchemy.sql.expression import FunctionElement
 class strpos(FunctionElement):
     name = 'strpos'
     type = Integer()
+    inherit_cache = True
 
 
 @compiles(strpos)
@@ -33,6 +34,7 @@ def sqlite_strpos(element, compiler, **kw):
 class concat(FunctionElement):
     name = 'concat'
     type = String()
+    inherit_cache = True
 
 
 @compiles(concat)
@@ -84,6 +86,7 @@ def _duration_postgres(start, end):
 class duration_sec(FunctionElement):
     name = 'duration_sec'
     type = Float()
+    inherit_cache = True
 
 
 @compiles(duration_sec)
@@ -103,6 +106,7 @@ def sqlite_duration_sec(element, compiler, **kw):
 class missing_data_sec(FunctionElement):
     name = 'missing_data_sec'
     type = Float()
+    inherit_cache = True
 
 
 @compiles(missing_data_sec)
@@ -126,6 +130,7 @@ def sqlite_missing_data_sec(element, compiler, **kw):
 class missing_data_ratio(FunctionElement):
     name = 'missing_data_ratio'
     type = Float()
+    inherit_cache = True
 
 
 @compiles(missing_data_ratio)
@@ -149,6 +154,7 @@ def sqlite_missing_data_ratio(element, compiler, **kw):
 class deg2km(FunctionElement):
     name = 'deg2km'
     type = Float()
+    inherit_cache = True
 
 
 @compiles(deg2km)
@@ -162,6 +168,7 @@ def standard_deg2km(element, compiler, **kw):
 class substr(FunctionElement):
     name = 'substr'
     type = String()
+    inherit_cache = True
 
 
 @compiles(substr)

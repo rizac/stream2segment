@@ -431,7 +431,7 @@ class Segment(Base):
                             secondary="channels",
                             primaryjoin="Segment.channel_id == Channel.id",
                             secondaryjoin="Station.id == Channel.station_id",
-                            uselist=False,  # viewonly=True,
+                            uselist=False,  viewonly=True,
                             backref=backref("segments", lazy="dynamic"))
 
     @declared_attr

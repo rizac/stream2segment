@@ -46,8 +46,8 @@ class Test:
         # THIS IS A HACK:
         # s2s_download_logger.setLevel(logging.INFO)  # necessary to forward to handlers
         # if we called closing (we are testing the whole chain) the level will be reset
-        # (to level.INFO) otherwise it stays what we set two lines above. Problems might arise
-        # if closing sets a different level, but for the moment who cares
+        # (to level.INFO) otherwise it stays what we set two lines above. Problems
+        # might arise if closing sets a different level, but for the moment who cares
         # s2s_download_logger.addHandler(self.handler)
 
         # setup a run_id:
@@ -58,7 +58,7 @@ class Test:
 
         # side effects:
 
-        self._evt_urlread_sideeffect =  """#EventID | Time | Latitude | Longitude | Depth/km | Author | Catalog | Contributor | ContributorID | MagType | Magnitude | MagAuthor | EventLocationName
+        self._evt_urlread_sideeffect = """#EventID | Time | Latitude | Longitude | Depth/km | Author | Catalog | Contributor | ContributorID | MagType | Magnitude | MagAuthor | EventLocationName
 20160508_0000129|2016-05-08 05:17:11.500000|1|1|60.0|AZER|EMSC-RTS|AZER|505483|ml|3|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN
 20160508_0000004|2016-05-08 01:45:30.300000|90|90|2.0|EMSC|EMSC-RTS|EMSC|505183|ml|4|EMSC|CROATIA
 """

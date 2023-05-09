@@ -81,7 +81,7 @@ class Test:
         assert db.session.query(Station).count() == stationsc
 
         # test what happens deleting it (DANGER: WE ARE NOT DELETING ONLY invenotry_xml, SEE BELOW):
-        ret = db.session.query(Station.inventory_xml).delete()
+        ret = db.session.query(Station).delete()
         assert ret == stationsc
         db.session.commit()
 
@@ -481,7 +481,8 @@ class Test:
         t = time.time()
         for i in range(N):
             tup = db.session.query(Station.network, Station.station, Channel.location,
-                                   Channel.channel).select_from(Segment).join(Channel, Station).\
+                                   Channel.channel).select_from(Segment).join(Channel).\
+                                   join(Station).\
                                    filter(Segment.id == seg.id).first()
             _ = ".".join(tup)
         el2 = time.time() - t
@@ -566,7 +567,7 @@ class Test:
         k = str(seg)
         seg_ = COPY(seg)  # seg.copy()
         db.session.add(seg_)
-        with pytest.raises(FlushError):
+        with pytest.raises((FlushError, IntegrityError)):
             db.session.commit()
         db.session.rollback()
 
@@ -606,8 +607,12 @@ class Test:
         seg.data = b'asd'
         db.session.commit()
 
-        qry = db.session.query(Station).options(load_only('id')).\
-            join(Station.segments).filter(flt)  # @UndefinedVariable
+        # FIXME REMOVE
+        # qry = db.session.query(Station).options(load_only(Segment.id)).\
+        #     join(Station.segments).filter(flt)  # @UndefinedVariable
+
+        qry = db.session.query(Station).\
+            join(Station.segments).filter(flt)  # noqa
 
         stationz = qry.all()
         assert len(stationz) == 1

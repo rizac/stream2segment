@@ -11,10 +11,12 @@ import numpy as np
 import pytest
 import pandas as pd
 
-from sqlalchemy.ext.declarative.api import declarative_base
+
 from sqlalchemy import Column, Integer, String, LargeBinary, DateTime
 from sqlalchemy.exc import SQLAlchemyError
 
+# import declarative_base from io.db.models to be sqlalchemy 1.x vs 2.x compliant:
+from stream2segment.io.db import declarative_base
 from stream2segment.io.db.pdsql import (syncdfcol, insertdf, _get_max, syncdf, syncdfseq,
                                         mergeupdate, updatedf, dbquery2df, DbManager)
 

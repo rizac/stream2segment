@@ -7,20 +7,19 @@ s2s Download database ORM
 """
 
 from sqlalchemy import event
-from sqlalchemy.ext.declarative import declarative_base
-
-from stream2segment.io.db import models
+# import declarative_base from io.db.models to be sqlalchemy 1.x vs 2.x compliant:
+from stream2segment.io.db import models, declarative_base
 
 
 Base = declarative_base(cls=models.Base)
 
 
-class Download(Base, models.Download):  # pylint: disable=too-few-public-methods
+class Download(Base, models.Download):  # noqa
     """Model representing the executed downloads"""
     pass
 
 
-class Event(Base, models.Event):  # pylint: disable=too-few-public-methods
+class Event(Base, models.Event):  # noqa
     """Model representing a seismic Event"""
     pass
 

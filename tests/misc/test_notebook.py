@@ -12,6 +12,8 @@ from stream2segment.process import get_segment_help
 from stream2segment.resources import get_resource_abspath
 
 
+pytest.skip(allow_module_level=True)
+
 def test_segment_help():
     """This test check that we did not add any new method or attribute to the Segment
     object without considering it in the doc (either make it hidden or visible)

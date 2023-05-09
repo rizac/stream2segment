@@ -7,13 +7,14 @@ import os
 import re
 from itertools import product
 from unittest.mock import patch
+import warnings
 import numpy as np
 import pandas as pd
 import pytest
 import yaml
 from pandas._testing import assert_frame_equal
 from pandas.errors import EmptyDataError
-from tables import HDF5ExtError
+from tables import HDF5ExtError, NaturalNameWarning
 
 from stream2segment.process.db.models import Event, Segment
 from stream2segment.process import SkipSegment
@@ -589,6 +590,11 @@ segment (id=5): 4 traces (probably gaps/overlaps)
             # hdf does not support returning lists
             pytest.skip("Python function cannot return lists when output is HDF")
 
+        # legacy code needs to test also with legacy segment id 'Segment.db.id', but
+        # this generates a table warning that we want to suppress, so:
+        if '.' in segment_id_colname:
+            warnings.filterwarnings('ignore', category=NaturalNameWarning)
+
         with patch('stream2segment.process.writers.SEGMENT_ID_COLNAME',
               segment_id_colname):
             options = {'append': True}
@@ -703,6 +709,8 @@ segment (id=5): 4 traces (probably gaps/overlaps)
             assert "1 of 4 segment(s) successfully processed" in logtext4
             assert 'Overwriting existing output file' in logtext4
 
+        # reset warning (maybe not needed, for safety):
+        warnings.filterwarnings('always', category=NaturalNameWarning)
 
     def test_process_verbosity(self,
                                # fixtures:

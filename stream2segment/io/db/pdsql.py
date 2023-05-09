@@ -123,7 +123,7 @@ def harmonize_columns(table, dataframe):
             df_col = dataframe[col_name]
             # the type the dataframe column should have
             if col_type == np.datetime64:
-                format_ = 's' if issubclass(df_col.dtype.type, np.number) else None
+                format_ = 's' if issubclass(df_col.dtype.type, np.number) else 'ISO8601'
                 # let's assume utc and then remove tz info so comparison to "standard"
                 # Python date-times (i.e., with no tzinfo) is possible
                 dataframe[col_name] = pd.to_datetime(df_col, errors='coerce',

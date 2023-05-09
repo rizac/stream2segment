@@ -607,7 +607,7 @@ def get_counts(dframe, dframe_column, na_key):
     na_count = dframe_column.isna().sum()
     if na_count < len(dframe):
         # NOTE: groupby DOES NOT COUNT NA/Nones/NaNs
-        for result in dframe.groupby(dframe_column).size().iteritems():
+        for result in dframe.groupby(dframe_column).size().items():
             yield result  # result is (code, count)
     if na_count:
         yield na_key, na_count

@@ -16,7 +16,10 @@ import zlib
 import bz2
 
 from sqlalchemy import event
-from sqlalchemy.ext.declarative import declarative_base
+try:
+    from sqlalchemy.ext.declarative import declarative_base  # v<1.4
+except ImportError:
+    from sqlalchemy.orm import declarative_base  # v1.4+
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import relationship, backref, load_only
 from sqlalchemy.orm.session import object_session
@@ -26,7 +29,21 @@ from obspy.core.inventory.inventory import read_inventory
 
 from stream2segment.io.db.sqlconstructs import missing_data_ratio, missing_data_sec, \
     duration_sec, deg2km, concat, substr
-from stream2segment.io.db import models
+# import declarative_base from io.db.models to be sqlalchemy 1.x vs 2.x compliant:
+from stream2segment.io.db import models, declarative_base, sqlalchemy_version
+
+if sqlalchemy_version < 2:  # https://stackoverflow.com/a/75634238
+    __sa_select__ = select
+
+    def select(*entities, **kw):
+        """backward compatible select"""
+        return __sa_select__(list(entities), **kw)
+
+    __sa_case__ = case
+
+    def case(*entities, **kw):
+        """backward compatible select"""
+        return __sa_case__(list(entities), **kw)
 
 
 class SkipSegment(Exception):
@@ -293,7 +310,7 @@ class Segment(Base, models.Segment):
 
     @classlabels_count.expression
     def classlabels_count(cls):  # noqa
-        return select([func.count(ClassLabelling.id)]).\
+        return select(func.count(ClassLabelling.id)).\
             where(ClassLabelling.segment_id == cls.id).\
             label('classlabels_count')
 
@@ -517,7 +534,9 @@ class Segment(Base, models.Segment):
             else:
                 try:
                     obj_name, att = att.split('.')
-                    joins.add(obj_name)
+                    if obj_name not in joins:
+                        joins.add(obj_name)
+                        qry = qry.join(getattr(self.__class__, obj_name))
                     obj = getattr(self, obj_name)
                 except ValueError:
                     pass
@@ -526,9 +545,6 @@ class Segment(Base, models.Segment):
 
         if not include_self:
             exprs.append(Segment.id != self.id)
-
-        if joins:
-            qry = qry.join(*(getattr(self.__class__, obj) for obj in joins))
 
         if exprs:
             qry = qry.filter(and_(*exprs))
@@ -559,12 +575,12 @@ class Segment(Base, models.Segment):
         #   it often happens, convoluted:
         #   http://docs.sqlalchemy.org/en/latest/core/sqlelement.html#sqlalchemy.sql.expression.label
         dot = text("'.'")
-        sel = select([concat(Station.network, dot, Station.station, dot,
-                             Channel.location, dot, Channel.channel)]).\
+        sel = select(concat(Station.network, dot, Station.station, dot,
+                            Channel.location, dot, Channel.channel)).\
             where((Channel.id == cls.channel_id) &
                   (Station.id == Channel.station_id)).\
             limit(1).label('seedidentifier')
-        return case([(cls.data_seed_id.isnot(None), cls.data_seed_id)],
+        return case((cls.data_seed_id.isnot(None), cls.data_seed_id),
                     else_=sel)
 
     def inventory(self, reload=False, format=None):  # noqa
