@@ -9,7 +9,7 @@ Created on 16 Apr 2020
 from sqlalchemy import func
 from datetime import datetime
 
-from stream2segment.io.db import secure_dburl
+from stream2segment.io.db import secure_dburl, sqlalchemy_version
 from stream2segment.io.db.inspection import attnames, get_related_models
 from stream2segment.process.db.models import (Segment, Station, ClassLabelling, get_classlabels)
 from stream2segment.process.db.sqlevalexpr import exprquery, get_pytype, get_sqltype
@@ -103,9 +103,10 @@ def get_segment(segment_id):  # , cols2load=None):
     # this should never happen, but just in case.
 
     session = get_session()
-    seg = session.query(Segment).get(segment_id)
-    # session.add(seg)
-    return seg
+    if sqlalchemy_version >= 2:
+        return session.get(Segment, segment_id)
+    else:
+        return session.query(Segment).get(segment_id)
 
 
 # @atexit.register

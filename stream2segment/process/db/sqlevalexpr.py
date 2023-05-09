@@ -15,6 +15,56 @@ import numpy as np
 from sqlalchemy import asc, and_, desc, inspect
 
 
+def exprquery_legacy(sa_query, conditions, orderby=None):
+    # FIXME: remove
+    # get the table model from the query's FIRST column description
+    model = sa_query.column_descriptions[0]['entity']
+    parsed_conditions = []
+    joins = set()  # relationships have an hash, this assures no duplicates
+    # set already joined tables. We use the private method _join_entities
+    # although it's not documented anywhere (we inspected via eclipse debug to
+    # find the method):
+    already_joined_models = set(_.class_ for _ in sa_query._join_entities)
+    # if its'an InstrumentedAttribute, use the class
+    relations = inspect(model).relationships
+
+    if conditions:
+        for attname, expression in conditions.items():
+            if not expression:  # discard empty strings, None's, ...
+                # note that expressions MUST be strings
+                continue
+            relationship, column = _get_rel_and_column(model, attname, relations)
+            if relationship is not None and \
+                    get_rel_refmodel(relationship) not in already_joined_models:
+                joins.add(relationship)
+            condition = binexpr(column, expression)
+            parsed_conditions.append(condition)
+
+    directions = {"asc": asc, "desc": desc}
+    orders = []
+    if orderby:
+        for order in orderby:
+            try:
+                column_str, direction = order
+            except ValueError:
+                column_str, direction = order, "asc"
+            directionfunc = directions[direction]
+            relationship, column = _get_rel_and_column(model, column_str, relations)
+            if relationship is not None and \
+                    get_rel_refmodel(relationship) not in already_joined_models:
+                joins.add(relationship)
+            # FIXME: we might also write column.asc() or column.desc()
+            orders.append(directionfunc(column))
+
+    if joins:
+        sa_query = sa_query.join(*joins)
+    if parsed_conditions:
+        sa_query = sa_query.filter(and_(*parsed_conditions))
+    if orders:
+        sa_query = sa_query.order_by(*orders)
+    return sa_query
+
+
 def exprquery(sa_query, conditions, orderby=None):
     """Enhance the given SQLAlchemy query `sa_query` with conditions
     and ordering given in form of **string** expression, returning a new
@@ -145,12 +195,8 @@ def exprquery(sa_query, conditions, orderby=None):
     # get the table model from the query's FIRST column description
     model = sa_query.column_descriptions[0]['entity']
     parsed_conditions = []
-    joins = set()  # relationships have an hash, this assures no duplicates
-    # set already joined tables. We use the private method _join_entities
-    # although it's not documented anywhere (we inspected via eclipse debug to
-    # find the method):
-    already_joined_models = set(_.class_ for _ in sa_query._join_entities)
-    # if its'an InstrumentedAttribute, use the class
+    joins = set()  # store related model classes to avoid redundant joins. Should be
+    # investigated if this is necessary at all
     relations = inspect(model).relationships
 
     if conditions:
@@ -160,8 +206,9 @@ def exprquery(sa_query, conditions, orderby=None):
                 continue
             relationship, column = _get_rel_and_column(model, attname, relations)
             if relationship is not None and \
-                    get_rel_refmodel(relationship) not in already_joined_models:
+                    get_rel_refmodel(relationship) not in joins:
                 joins.add(relationship)
+                sa_query = sa_query.join(relationship)
             condition = binexpr(column, expression)
             parsed_conditions.append(condition)
 
@@ -176,13 +223,12 @@ def exprquery(sa_query, conditions, orderby=None):
             directionfunc = directions[direction]
             relationship, column = _get_rel_and_column(model, column_str, relations)
             if relationship is not None and \
-                    get_rel_refmodel(relationship) not in already_joined_models:
+                    get_rel_refmodel(relationship) not in joins:
                 joins.add(relationship)
+                sa_query = sa_query.join(relationship)
             # FIXME: we might also write column.asc() or column.desc()
             orders.append(directionfunc(column))
 
-    if joins:
-        sa_query = sa_query.join(*joins)
     if parsed_conditions:
         sa_query = sa_query.filter(and_(*parsed_conditions))
     if orders:

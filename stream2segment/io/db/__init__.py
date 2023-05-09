@@ -6,6 +6,17 @@ from sqlalchemy.exc import ProgrammingError, OperationalError, SQLAlchemyError
 from sqlalchemy.orm.scoping import scoped_session
 from sqlalchemy.engine import create_engine
 from sqlalchemy.orm.session import sessionmaker
+from sqlalchemy import text, __version__ as __sa_version__
+
+
+sqlalchemy_version = float(".".join(__sa_version__.split('.')[0:2]))  # https://stackoverflow.com/a/75634238
+
+# IMPORTS to be called from the codebase to fix sqlalchemy 1.x vs 2.x changes:
+
+if sqlalchemy_version >= 2:
+    from sqlalchemy.orm import declarative_base  # noqa
+else:
+    from sqlalchemy.ext.declarative import declarative_base  # noqa
 
 
 def get_session(dbpath, scoped=False, check_db_existence=True, **engine_args):
@@ -30,7 +41,7 @@ def get_session(dbpath, scoped=False, check_db_existence=True, **engine_args):
     try:
         # set max timeout if not set
         if is_postgres(dbpath):
-            timeout = 30  # in seconds
+            timeout = 20  # in seconds
             engine_args.setdefault('connect_args', {})
             engine_args['connect_args'].setdefault('connect_timeout', timeout)
         engine = create_engine(dbpath, **engine_args)
@@ -104,13 +115,12 @@ def database_exists(url_or_engine):
     if is_sqlite(url_):
         return os.path.isfile(_extract_file_path(url_))
 
-    text = 'SELECT 1'
     with _engine(url_or_engine) as engine:
         try:
-            result = engine.execute(text)
-            result.close()
-            return True
-        except (ProgrammingError, OperationalError) as exc:
+            with engine.begin() as conn:
+                conn.execute(text('SELECT 1'))
+                return True
+        except (ProgrammingError, OperationalError) as _:
             return False
 
 

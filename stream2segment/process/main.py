@@ -347,7 +347,7 @@ def run_and_yield(dburl, seg_ids, pyfunc, config, show_progress=False,
     # (`warnings_filter=None`). `create_processing_env` is also called in Python
     # subprocesses, if present. For info see :func:`process_segments_mp`
     with create_processing_env(seg_len if show_progress else 0,
-                               redirect_stderr=True,
+                               redirect_stderr=sys.stderr.isatty(),
                                warnings_filter=None) as pbar:
         if show_progress and seg_len:
             # Show the progressbar now, because the 1st chunk might be ready in minutes,

@@ -10,6 +10,7 @@ import pytest
 from sqlalchemy.exc import IntegrityError, ProgrammingError
 from sqlalchemy.sql.expression import desc
 
+from stream2segment.io.db import sqlalchemy_version
 from stream2segment.process.db.sqlevalexpr import exprquery, binexpr
 from stream2segment.process.db.models import ClassLabelling, Class, Segment, Station, Channel,\
     Event, DataCenter, Download, WebService
@@ -124,8 +125,10 @@ class Test:
 
         # ok so let's see how relationships join for us:
         # this below is wrong, it does not return ANY join cause none is specified in models
-        with pytest.raises(Exception):
-            sess.query(Channel).join(Event)
+        from sqlalchemy import __version__
+        if int(__version__.split('.')[0]) < 2:
+            with pytest.raises(Exception):
+                sess.query(Channel).join(Event)
 
         # this below works, but since we didn't join is simply returning two * three elements
         # why? (in any case because we have TWO stations with station column = 's1', and three
@@ -165,7 +168,7 @@ class Test:
 
         # this works:
         k1 = sess.query(Segment.id).join(Segment.station).order_by(Station.id).all()
-        k2 = sess.query(Segment.id).join(Segment.station, Segment.channel).\
+        k2 = sess.query(Segment.id).join(Segment.station).join(Segment.channel).\
             order_by(Station.id, Channel.id).all()
 
         # curiously, k1 is like k2 (which is  [(3,), (2,), (1,)]).
@@ -293,9 +296,9 @@ class Test:
                          ['channel.id', 'event_distance_deg']).all()
         seg_ids = [c[0] for c in res1]
         assert sorted(seg_ids) == [1, 1, 2]  # regardless of order, we are interested in segments
-        # solution? distinct!. You could use also group_by BUT NOTE:
-        # group_by HAS PROBLEMS in postgres, as the grpup by column must be specified also in the
-        # group_by argument!
+        # To return only one id, a solution might be `distinct` or `group_by`.
+        # group_by HAS PROBLEMS in postgres, as the grpup by column must be specified
+        # also in the group_by argument!
         if db.is_postgres:
             with pytest.raises(ProgrammingError):
                 res1 = exprquery(sess.query(Segment.id), {'classes.id': '[1 2]'},
@@ -306,12 +309,18 @@ class Test:
                              ['channel.id', 'event_distance_deg']).group_by(Segment.id).all()
             # regardless of order, we are interested in segments:
             assert sorted([c[0] for c in res1]) == [1, 2]
-        # distinct is ok as it's without args, sqlalchemy does the job for us of getting the
-        # columns:
-        res1 = exprquery(sess.query(Segment.id), {'classes.id': '[1 2]'},
-                         ['channel.id', 'event_distance_deg']).distinct().all()
-        # regardless of order, we are interested in segments:
-        assert sorted([c[0] for c in res1]) == [1, 2]
+        # `distinct` is also NOT ok. Being without args, sqlalchemy does the job
+        # for us of getting the columns BUT ONLY if sqlalchemy version is 1.x. So:
+        if db.is_postgres and sqlalchemy_version >= 2:
+            with pytest.raises(ProgrammingError):
+                res1 = exprquery(sess.query(Segment.id), {'classes.id': '[1 2]'},
+                                 ['channel.id', 'event_distance_deg']).distinct().all()
+            db.session.rollback()
+        else:
+            res1 = exprquery(sess.query(Segment.id), {'classes.id': '[1 2]'},
+                             ['channel.id', 'event_distance_deg']).distinct().all()
+            # regardless of order, we are interested in segments:
+            assert sorted([c[0] for c in res1]) == [1, 2]
 
         # again, as above, test with postgres fails:
         if db.is_postgres:
@@ -362,7 +371,7 @@ class Test:
             cond = binexpr(c, "2016-01-01T00:03:04, 2017-01-01")
 
         cond = binexpr(c, "2016-01-01T00:03:04 2017-01-01")
-        assert str(cond) == "segments.arrival_time IN (:arrival_time_1, :arrival_time_2)"
+        assert str(cond).startswith("segments.arrival_time IN (")
 
         cond = binexpr(c, "[2016-01-01T00:03:04 2017-01-01]")
         assert str(cond) == "segments.arrival_time BETWEEN :arrival_time_1 AND :arrival_time_2"
@@ -453,12 +462,12 @@ class Test:
                                 "ON classes.id = class_labellings_1.class_id "
                                 "WHERE classes.label = %(label_1)s""")
 
-            assert exprs[1] == ("FROM segments "
-                                "JOIN class_labellings AS class_labellings_1 "
-                                "ON segments.id = class_labellings_1.segment_id "
-                                "JOIN classes "
-                                "ON classes.id = class_labellings_1.class_id "
-                                "WHERE classes.label IN (%(label_1)s, %(label_2)s)")
+            assert exprs[1].startswith("FROM segments "
+                                       "JOIN class_labellings AS class_labellings_1 "
+                                       "ON segments.id = class_labellings_1.segment_id "
+                                       "JOIN classes "
+                                       "ON classes.id = class_labellings_1.class_id "
+                                       "WHERE classes.label IN ")
 
             assert exprs[2] == ("FROM segments "
                                 "WHERE (SELECT count(class_labellings.id) AS count_1 "
@@ -473,12 +482,12 @@ class Test:
                                 "ON classes.id = class_labellings_1.class_id "
                                 "WHERE classes.label = ?")
 
-            assert exprs[1] == ("FROM segments "
-                                "JOIN class_labellings AS class_labellings_1 "
-                                "ON segments.id = class_labellings_1.segment_id "
-                                "JOIN classes "
-                                "ON classes.id = class_labellings_1.class_id "
-                                "WHERE classes.label IN (?, ?)")
+            assert exprs[1].startswith("FROM segments "
+                                       "JOIN class_labellings AS class_labellings_1 "
+                                       "ON segments.id = class_labellings_1.segment_id "
+                                       "JOIN classes "
+                                       "ON classes.id = class_labellings_1.class_id "
+                                       "WHERE classes.label IN (")
 
             assert exprs[2] == ("FROM segments "
                                 "WHERE (SELECT count(class_labellings.id) AS count_1 "

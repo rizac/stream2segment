@@ -318,7 +318,8 @@ TOTAL                      3         1          2      1      1      1        1 
         assert not result.exception
         assert mock_open_in_browser.called
         assert mock_gettempdir.called
-        assert os.listdir(mytmpdir) == ['s2s_dstats_db.sqlite.html']
+        assert os.listdir(mytmpdir) == ['s2s_dstats_' +
+                                        os.path.basename(db.dburl) + '.html']
 
     @pytest.mark.parametrize('download_index', [None, -1])
     @patch(patches.open_in_browser)
@@ -327,7 +328,7 @@ TOTAL                      3         1          2      1      1      1        1 
                                 download_index,
                                 # fixtures:
                                 db, pytestdir):
-        '''test a case where save inventory is True, and that we saved inventories'''
+        """test a case where save inventory is True, and that we saved inventories"""
 
         # mock  a download with only inventories, i.e. with no segments downloaded
         dwnl = Download()
