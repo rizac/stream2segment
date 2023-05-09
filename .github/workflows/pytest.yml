@@ -38,9 +38,10 @@ jobs:
     - name: Install dependencies
       run: |
         pip install --upgrade pip setuptools wheel
-        pip install .
+        pip install  -r requirements.dev.txt
         pip install jupyter
     #    pip install -r requirements.dev.txt
+    #    pip install .
     # - name: Cleanup
     #   run: |
     #     find . \( -name '__pycache__' -or -name '*.pyc' \) -delete
