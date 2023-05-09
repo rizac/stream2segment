@@ -35,6 +35,8 @@ from sqlalchemy.types import Integer, Float, Boolean, DateTime, Date  # , TIMEST
 
 from stream2segment.io.db.inspection import colnames
 
+pandas_version = float('.'.join(pd.__version__.split('.')[:2]))
+
 
 def get_dtype(sqltype):
     """Converts a SQL type to a numpy type. Given a SQLAlchemy column (ORM model
@@ -123,7 +125,8 @@ def harmonize_columns(table, dataframe):
             df_col = dataframe[col_name]
             # the type the dataframe column should have
             if col_type == np.datetime64:
-                format_ = 's' if issubclass(df_col.dtype.type, np.number) else 'ISO8601'
+                format_ = 's' if issubclass(df_col.dtype.type, np.number) else \
+                    'ISO8601' if pandas_version >= 2 else None
                 # let's assume utc and then remove tz info so comparison to "standard"
                 # Python date-times (i.e., with no tzinfo) is possible
                 dataframe[col_name] = pd.to_datetime(df_col, errors='coerce',
