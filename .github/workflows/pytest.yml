@@ -38,7 +38,7 @@ jobs:
     - name: Install dependencies
       run: |
         pip install --upgrade pip setuptools wheel
-    #    pip install -r requirements.dev.txt
+        pip install -r requirements.dev.txt
         pip install .
         pip install jupyter
     # - name: Cleanup
