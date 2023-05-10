@@ -96,7 +96,7 @@ setup(
                       'Flask>=0.12.3',
                       'psycopg2>=2.7.3.1',
                       'psutil>=5.3.1',
-                      'SQLAlchemy<=1.3.24,>=2.0.12',
+                      'SQLAlchemy>=1.1.14',
                       'click>=6.7'
                       ],
 
