@@ -417,7 +417,7 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 
 		function updateSegmentSelection(){
 			return setSegmentsSelection(getSegmentSelectionInputElements()).then(response => {
-				var numSegments = response.num_segments;  // surely > 0
+				var numSegments = response.data;  // surely > 0
 				updateSegmentsCount(numSegments);
 				return response;
 			});

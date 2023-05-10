@@ -449,7 +449,7 @@ def _jsonify(obj):
             if nonfinite.any():
                 obj2 = obj2.astype(object)
                 obj2[nonfinite] = None
-            return obj2.tolist() if is_ndarray else obj
+            return obj2.tolist()
         return None if obj != obj or obj in (-math.inf, math.inf) else obj
     except TypeError:  # raised by np.isfinite
         if isinstance(obj, (list, tuple)):
