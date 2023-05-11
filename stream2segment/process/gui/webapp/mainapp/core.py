@@ -7,6 +7,7 @@ Core functionalities for the main GUI web application (show command)
 """
 import math
 import contextlib
+import os
 from datetime import datetime, date
 
 from io import StringIO
@@ -218,7 +219,16 @@ def set_class_id(seg_id, class_id, value):
     from the given segment (value=False)
     """
     segment = get_segment(seg_id)
-    annotator = 'web app labeller'  # FIXME: use a session or computer username?
+    try:
+        import getpass
+        annotator = str(getpass.getuser())
+        if len(annotator) > 2:
+            annotator = annotator[0] + '*' * (len(annotator) - 2) + annotator[-1]
+        else:
+            annotator = 'user id ' + str(os.getuid())
+    except Exception:  # noqa
+        annotator = 'anonymous labeller'
+
     if value:
         segment.add_classlabel(class_id, annotator=annotator)
     else:
@@ -253,30 +263,12 @@ def get_segment_data(seg_id, plot_names, all_components, preprocessed,
     plots = []
     if zooms is None and plot_names:
         zooms = [(None, None) for _ in plot_names]
-    # sn_windows = []
-    # if config:
-    #     g_config.update(**config)
 
-    # if plot_indices:
-    #     plots = get_plots(seg_id, plot_indices, preprocessed, all_components, zooms_)
-    #     try:
-    #         # return always sn_windows, as we already calculated them. It is
-    #         # better to call this method AFTER get_plots_func defined above
-    #         sn_windows = [sorted([_jsonify(x[0]), _jsonify(x[1])])
-    #                       for x in exec_func(get_segment(seg_id),
-    #                                          preprocessed,
-    #                                          get_sn_windows)]
-    #     except Exception:  # pylint: disable=broad-except
-    #         sn_windows = []
     if plot_names:
         plots = get_plots(seg_id, plot_names, preprocessed, all_components, zooms)
 
     return {
         'plots': plots,
-        # 'plots': [p.tojson(z, NPTS_WIDE) for p, z in zip(plots, zooms_)],
-        # 'seg_id': seg_id,
-        # 'plot_types': [p.is_timeseries for p in plots],
-        # 'sn_windows': sn_windows,
         'attributes': [] if not attributes else db.get_metadata(seg_id),
         'classes': [] if not classes else db.get_classes(seg_id)
     }
@@ -449,7 +441,7 @@ def _jsonify(obj):
             if nonfinite.any():
                 obj2 = obj2.astype(object)
                 obj2[nonfinite] = None
-            return obj2.tolist() if is_ndarray else obj
+            return obj2.tolist()
         return None if obj != obj or obj in (-math.inf, math.inf) else obj
     except TypeError:  # raised by np.isfinite
         if isinstance(obj, (list, tuple)):
@@ -458,20 +450,3 @@ def _jsonify(obj):
         return obj
     except ValueError:
         return obj
-
-
-# def get_sn_windows(segment, config):
-#     """Return returns the two tuples (s_start, s_end), (n_start, n_end)
-#     where all arguments are `UTCDateTime`s and the first tuple refers to the
-#     signal window, the latter to the noise window. Both windows are
-#     calculated on the given segment, according to the given config
-#     (dict)
-#     """
-#     if len(segment.stream()) != 1:
-#         raise ValueError(("Unable to get sn-windows: %d traces in stream "
-#                           "(possible gaps/overlaps)") % len(segment.stream()))
-#     wndw = config['sn_windows']
-#     arrival_time = \
-#         UTCDateTime(segment.arrival_time) + wndw['arrival_time_shift']
-#     return sn_split(segment.stream()[0], arrival_time, wndw['signal_window'],
-#                     return_windows=True)
