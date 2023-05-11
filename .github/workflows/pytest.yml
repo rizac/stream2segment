@@ -12,13 +12,13 @@ on:
       - "**/COPYING"
       - "stream2segment/resources/traveltimes/**"
       
-#  pull_request:
-#    branches: [ master ]
-#    paths-ignore:
-#      - "**/README.md"
-#      - "**/LICENSE"
-#      - "**/COPYING"
-#      - "stream2segment/resources/traveltimes/**"
+  pull_request:
+    branches: [ master ]
+    paths-ignore:
+      - "**/README.md"
+      - "**/LICENSE"
+      - "**/COPYING"
+      - "stream2segment/resources/traveltimes/**"
 
 jobs:
   build:
@@ -38,7 +38,7 @@ jobs:
     - name: Install dependencies
       run: |
         pip install --upgrade pip setuptools wheel
-        pip install -r requirements.dev.txt
+        pip install -r requirements.dev.jupyterlab.txt
         pip install .
         pip install jupyter
     # - name: Cleanup
