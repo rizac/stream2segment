@@ -237,9 +237,10 @@ Install this package:
 pip install -e .
 ```
 
-(optional) install jupyter:
+(optional) install jupyter notebook or jupyterlab 
+(see [Jupyter page for details](https://jupyter.org/install)), e.g.:
 ```console
-pip install jupyter
+pip install jupyterlab
 ```
 
 The program is now installed. To double-check the program functionalities,
