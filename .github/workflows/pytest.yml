@@ -4,21 +4,21 @@
 name: Python >= 3.8
 
 on:
-#  push:
-#    branches: [ dev ]
-#    paths-ignore:
-#      - "**/README.md"
-#      - "**/LICENSE"
-#      - "**/COPYING"
-#      - "stream2segment/resources/traveltimes/**"
-      
-  pull_request:
-    branches: [ master ]
+  push:
+    branches: [ dev ]
     paths-ignore:
       - "**/README.md"
       - "**/LICENSE"
       - "**/COPYING"
       - "stream2segment/resources/traveltimes/**"
+      
+#  pull_request:
+#    branches: [ master ]
+#    paths-ignore:
+#      - "**/README.md"
+#      - "**/LICENSE"
+#      - "**/COPYING"
+#      - "stream2segment/resources/traveltimes/**"
 
 jobs:
   build:
