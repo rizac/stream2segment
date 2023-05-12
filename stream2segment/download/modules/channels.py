@@ -17,7 +17,8 @@ from stream2segment.io.cli import get_progressbar
 from stream2segment.io.db.pdsql import dbquery2df, shared_colnames, mergeupdate
 from stream2segment.download.db.models import DataCenter, Station, Channel
 from stream2segment.download.exc import FailedDownload
-from stream2segment.download.modules.utils import (read_async, get_dataframe_from_fdsn,
+from stream2segment.download.url import read_async
+from stream2segment.download.modules.utils import (get_dataframe_from_fdsn,
                                                    dbsyncdf, formatmsg,
                                                    logwarn_dataframe, strconvert)
 
@@ -51,11 +52,10 @@ def get_channels_df(session, datacenters_df, eidavalidator, net, sta, loc, cha,
     ret = []
     url_failed_dc_ids = []
     with get_progressbar(show_progress, length=len(datacenters_df)) as pbar:
-        for obj, result, exc, url in read_async(iterable,
-                                                urlkey=lambda obj: obj[-1],
-                                                blocksize=blocksize,
-                                                max_workers=max_thread_workers,
-                                                decode='utf8', timeout=timeout):
+        for obj, url, result, exc, status_code in \
+                read_async(iterable, urlkey=lambda obj: obj[-1], blocksize=blocksize,
+                           max_workers=max_thread_workers, decode='utf8',
+                           timeout=timeout):
             pbar.update(1)
             dcen_id = obj[0]
             if exc:
@@ -63,7 +63,7 @@ def get_channels_df(session, datacenters_df, eidavalidator, net, sta, loc, cha,
                 logger.warning(formatmsg("Unable to fetch stations", exc, url))
             else:
                 try:
-                    dframe = get_dataframe_from_fdsn(result[0], "channel", url)
+                    dframe = get_dataframe_from_fdsn(result, "channel", url)
                     if not dframe.empty:
                         dframe[Station.datacenter_id.key] = dcen_id
                         ret.append(dframe)

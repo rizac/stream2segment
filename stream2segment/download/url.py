@@ -41,46 +41,36 @@ def get_opener(url, user, password):
     return build_opener(*handlers)
 
 
-def urlread(url, blocksize=-1, decode=None, wrap_exceptions=True,
-            raise_http_err=True, timeout=None, opener=None, **kwargs):
+def urlread(url, blocksize=-1, decode=None, timeout=None, opener=None, **kwargs):
     """Read and return data from the given `url`. Wrapper around Python `urllib`
-    `open` with some features added. Returns the tuple `(content_read, status, message)`
+    `open` with some features added. Returns the tuple `(data, error, status_code)`
+    (see below for details)
 
     :param url: (string or `Request` object) a valid url or an `urllib2.Request` object
     :param blocksize: int, default: -1. The block size while reading, -1 means:
         read entire content at once
     :param: decode: string or None, default: None. The string used for decoding (e.g.,
         'utf8'). If None, the result is a `bytes` object, otherwise `str`
-    :param wrap_exceptions: if True (the default), all url-related exceptions:
-        `urllib.error.HTTPError`, `urllib.error.URLError`, `http.client.HTTPException`,
-        `socket.error` will be caught and wrapped into a :class:`url.URLException` that
-        will be raised (the original exception is available via the `.exc` attribute)
-    :param raise_http_err: If True (the default) `HTTPError`s will be raised normally as
-        exceptions. Otherwise, they will be treated as response object and the tuple
-        `(None, status, message)` will be returned, where `status` (int) is the HTTP
-        status code (most likely in the range [400-599]) and `message` (`str`) is the
-        string denoting the status message
     :param timeout: timeout parameter specifies a timeout in seconds for blocking
         operations like the connection attempt (if not specified, None or non-positive,
         the global default timeout setting will be used). This actually only works for
         HTTP, HTTPS and FTP connections.
     :param opener: a custom opener. When None (the default), the default urllib opener is
         used. See :func:`get_opener` for, e.g., creating an opener from a base url, user
-        and passowrd
+        and password
     :param kwargs: optional arguments to be passed to the underlying python `urlopen`
         function. These arguments are ignored if a custom `opener` argument is provided
 
-    :return: the tuple (content_read, status_code, status_message), where:
+    :return: the tuple (data, error, status_code), where:
 
-        - content_read (`bytes` or `str`) is the response content. If `decode` is given,
-          it is a `str`. If the response is issued from an HTTPError and `raise_http_err`
-          is False, `content_read` is None
-        - status_code (int) is the response HTTP status code
-        - status_message (string) is the response HTTP status message
-
-    :raise: `URLException` if `wrap_exceptions` is True. Otherwise any of the following:
-        `urllib.error.HTTPError`, `urllib.error.URLError`, `http.client.HTTPException`,
-        `socket.error`
+        - data (`bytes` or `str`) is the response content. If `decode` is given,
+          it is a `str`. It is None in case of request/response error (see `error` below)
+        - error: the response error in form of Python exception raised (either
+          HTTPException, URLError, socket.error - e.g. socket.timeout - or HTTPError).
+          It is always None if the request/response exchange was successful
+        - status_code (int) is the response HTTP status code. None if the code could not
+          be inferred (e.g. general error not instance of HTTPError). In some cases. it
+          could be a string representing the status code instead of an int
     """
     try:
         ret = b''
@@ -94,82 +84,49 @@ def urlread(url, blocksize=-1, decode=None, wrap_exceptions=True,
         open_conn = urlopen(url, **kwargs) if opener is None else opener.open(url, **kwargs)
         with open_conn as conn:
             if blocksize < 0:  # https://docs.python.org/2.4/lib/bltin-file-objects.html
-                ret = conn.read()  # pylint: disable=no-member
+                ret = conn.read()
             else:
                 while True:
-                    buf = conn.read(blocksize)  # pylint: disable=no-member
+                    buf = conn.read(blocksize)
                     if not buf:
                         break
                     ret += buf
         if decode:
             ret = ret.decode(decode)
-        return ret, conn.code, conn.msg  # pylint: disable=no-member
+        return ret, None, conn.code
     except HTTPError as exc:
-        if not raise_http_err:
-            return None, exc.code, exc.msg
-        else:
-            if wrap_exceptions:
-                raise URLException(exc)
-            else:
-                raise exc
+        return None, exc, exc.code
     except (HTTPException, URLError, socket.error) as exc:
         # (socket.error is the superclass of all socket exc)
-        if wrap_exceptions:
-            raise URLException(exc)
-        else:
-            raise exc
-
-
-class URLException(Exception):
-    """Custom exception wrapping any url/http related exception `urllib.error.HTTPError`,
-    `urllib.error.URLError`, `http.client.HTTPException`, `socket.error`.
-    The original exception is retrievable via the `exc` attribute of this object.
-    """
-    def __init__(self, original_exception):
-        # this constructor makes str(self) behave like str(original_exception) in both
-        # py 2.7.14 and 3.6.2: But in principle, this class should act as container and
-        # any operation be performed on self.exc
-        super(URLException, self).__init__(original_exception)
-        self.exc = original_exception
+        return None, exc, None
 
 
 def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024, decode=None,
-               raise_http_err=True, timeout=None, unordered=True, openers=None,
-               **kwargs):  # pylint:disable=too-many-arguments
-    """Wrapper around `multiprocessing.pool.ThreadPool()` for downloading
-    data from urls in `iterable` asynchronously with remarkable performance boost for
-    large downloads. Each download is executed on a separate *worker thread*, yielding
+               timeout=None, unordered=True, openers=None, **kwargs):  # noqa
+    """Wrapper around `multiprocessing.pool.ThreadPool()` for  downloading
+    data asynchronously from different urls iteratively. Specifically designed for
+    large downloads, each download is executed on a separate *worker thread*, yielding
     the result of each `url` read.
 
-    Yields the tuple:
+    For each item `obj` of iterable, this function yields the tuple:
     ```
-        obj, result, exc, url
+        obj[Any],
+        url[str | Request],
+        response_data[str | bytes | None],
+        response_error[Exception | None],
+        response_code[int | None]
     ```
-    where:
+    Notes:
 
-      - `obj` is the element of `iterable` which originated the `urlread` call
-      - `result` is the result of `urlread`, it is None in case of errors (see `exc`
-        below). Otherwise, it is the tuple
-        ```(data, status_code, message)```
-         where:
-         * `data` is the data read (as bytes or string if `decode != None`). It can be
-            None when `raise_http_err=False` and an HTTPException occurred
-         * `status_code` is the integer denoting the status code (e.g. 200), and
-         * `message` the string denoting the status message (e.g., 'OK').
-      - `exc` is the exception raised by `urlread`, if any. **Either `result` or `exc`
-         are None, but not both**. Note that `exc` is one of the following URL-related
-         exceptions: `urllib.error.URLError`, `http.client.HTTPException`, `socket.error`
-         and optionally, `urllib.error.HTTPError` (when `raise_http_err` is `False`).
-         Any other exception is raised and will stop the download
-      - `url` is the original url (either string or Request object). If `iterable` is an
-        iterable of `Request` objects or url strings, then `url` is equal to `obj`
-
-    Note that if `raise_http_err=False` then `urllib.error.HTTPError`s are treated as
-    'normal' response and will be yielded in `result` as a tuple where `data=None` and
-    `status_code` is most likely >= 400.
-    Finally, this function can cleanly cancel *worker threads* (still to be processed)
-    via Ctrl+C if executed from the command line. In the following we will simply refer
-    to `urlread` to indicate the `urllib2.urlopen.read` function.
+      - `If `iterable` is an iterable of `Request` objects or url strings, then `url` is
+        equal to `obj` (see the `urlkey` parameter for details)
+      - either `response_data` and `response_error` are None, but not both. If the latter
+        is not None, then the request failed. `response_error` can be any of the
+        following URL-related exceptions: `urllib.error.URLError`,
+        `http.client.HTTPException`, `socket.error` `urllib.error.HTTPError`. Any other
+        Exception raises "normally"
+      - `response_code` is the int denoting the status code (e.g. 200), which might be
+         None (e.g., a failed request with `response_error` not `urllib.error.HTTPError`)
 
     :param iterable: an iterable of objects representing the urls addresses to be read:
         if its elements are neither strings nor `Request` objects, the `urlkey` argument
@@ -187,10 +144,6 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024, dec
         EOF is reached
     :param decode: string or None (default: None) optional decoding (e.g., 'utf-8') to
         convert the result of the url request from `bytes` (the default) into `str`
-    :param raise_http_err: boolean (True by default) tells whether `HTTPError`s should
-        be yielded as exceptions or not. When False, `HTTPError`s are yielded as normal
-        responses in `result` as the tuple `(None, status_code, message)` (where
-        `status_code` is most likely >= 400)
     :param timeout: timeout parameter specifies a timeout in seconds for blocking
         operations like the connection attempt (if not specified, None or non-positive,
         the global default timeout setting will be used). This actually only works for
@@ -228,13 +181,7 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024, dec
             return None
         url = urlkey(obj) if urlkey is not None else obj
         opener = openers(obj) if openers is not None else None
-        try:
-            return obj, \
-                urlread(url, blocksize, decode, True, raise_http_err, timeout, opener,
-                        **kwargs), \
-                None, url
-        except URLException as urlexc:
-            return obj, None, urlexc.exc, url
+        return (obj, url) + urlread(url, blocksize, decode, timeout, opener, **kwargs)
 
     tpool = ThreadPool(max_workers)
     threadpoolmap = tpool.imap_unordered if unordered else tpool.imap

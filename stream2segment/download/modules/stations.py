@@ -20,9 +20,10 @@ import pandas as pd
 from stream2segment.io.cli import get_progressbar
 from stream2segment.io.db.pdsql import DbManager
 from stream2segment.download.db.models import DataCenter, Station, Segment
-from stream2segment.download.url import get_host
-from stream2segment.download.modules.utils import (read_async, DbExcLogger, formatmsg,
+from stream2segment.download.url import get_host, read_async
+from stream2segment.download.modules.utils import (DbExcLogger, formatmsg,
                                                    url2str, err2str)
+
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__)
@@ -82,17 +83,15 @@ def save_inventories(session, stations_df, max_thread_workers, timeout,
         reader = read_async(iterable,
                             urlkey=lambda obj: _get_sta_request(*obj[1:]),
                             max_workers=max_thread_workers,
-                            blocksize=download_blocksize, timeout=timeout,
-                            raise_http_err=True)
+                            blocksize=download_blocksize, timeout=timeout)
 
-        for obj, result, exc, request in reader:
+        for obj, request, data, exc, status_code in reader:
             pbar.update(1)
             sta_id = obj[0]
             if exc:
                 inv_logger.warn(request, exc)
                 errors += 1
             else:
-                data, code, msg = result  # @UnusedVariable
                 if not data:
                     inv_logger.warn(request, "empty response")
                     empty += 1

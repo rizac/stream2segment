@@ -286,24 +286,21 @@ def _urlread(url, timeout=None, is_isf=False):
     """Wrapper around `urlread` but returns None if the url should be split
     because of a too long request
     """
-    try:
-        raw_data, code, msg = urlread(url, decode='utf8', timeout=timeout,
-                                      raise_http_err=True, wrap_exceptions=False)
+    raw_data, exc, code = urlread(url, decode='utf8', timeout=timeout)
 
-        if code == 204:
-            raw_data = ''
-
-        if raw_data and is_isf:
-            raw_data = isfresponse2txt(raw_data)
-
-        return raw_data
-
-    except Exception as exc:  # pylint: disable=broad-except
-        # raise only if we do NOT have timeout or http err in (413, 504)
+    if exc is not None:
         if isinstance(exc, socket.timeout) or \
                 (isinstance(exc, HTTPError) and exc.code in (413, 504)):  # noqa
             return _SUSPECTED_REQUEST_TOO_ARGE
-        raise
+        raise exc
+
+    if code == 204:
+        raw_data = ''
+
+    if raw_data and is_isf:
+        raw_data = isfresponse2txt(raw_data)
+
+    return raw_data
 
 
 def _split_request(evt_query_args):

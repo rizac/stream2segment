@@ -19,10 +19,11 @@ from stream2segment.download.modules.channels import get_post_data as origi_get_
 
 
 def no_connection():
+    from stream2segment.download.url import HTTPError
     try:
-        urlread("https://geofon.gfz-potsdam.de/")
-        return False
-    except:
+        data, err, code = urlread("https://geofon.gfz-potsdam.de/")
+        return err is None or isinstance(err, HTTPError)
+    except Exception:  # noqa
         return True
 
 

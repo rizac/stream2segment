@@ -4,13 +4,12 @@ Created on Dec 12, 2016
 @author: riccardo
 """
 from io import StringIO, BytesIO
-import socket
 from urllib.request import Request
 from unittest.mock import Mock, patch
 import pytest
 from click.termui import progressbar
 
-from stream2segment.download.url import urlread, URLException, URLError, HTTPError
+from stream2segment.download.url import (urlread, URLError, socket, HTTPError)
 from stream2segment.io.cli import Nop, get_progressbar
 from stream2segment.io.db import secure_dburl
 from stream2segment.download.modules.utils import formatmsg
@@ -39,7 +38,7 @@ def test_utils_url_read(mock_urlopen):
 
         def read(self, *a, **kw):
             if isinstance(self.a, Exception):
-                raise self.a  # pylint: disable=raising-non-exception
+                raise self.a
             mockread(*a, **kw)
             return self.a.read(*a, **kw)
 
@@ -72,25 +71,20 @@ def test_utils_url_read(mock_urlopen):
     assert mockread.call_count == 1  # because blocksize is -1
 
     mock_urlopen.side_effect = lambda url, **kw: mybytesio(URLError('wat?'))
-    with pytest.raises(URLError):
-        urlread(val, wrap_exceptions=False)  # note urlexc
-    with pytest.raises(URLException):
-        urlread(val, wrap_exceptions=True)  # note urlexc
-
-    mock_urlopen.side_effect = lambda url, **kw: mybytesio(URLError('wat?'))
-    with pytest.raises(URLException):
-        urlread(val)  # note urlexc
+    d, e, c = urlread(val)
+    assert isinstance(e, URLError)
 
     mock_urlopen.side_effect = lambda url, **kw: mybytesio(socket.timeout())
-    with pytest.raises(URLException):
-        urlread(val)  # note urlexc
+    d, e, c = urlread(val)
+    assert isinstance(e, socket.error)
 
     mock_urlopen.side_effect = lambda url, **kw: mybytesio(HTTPError('url', 500, '?', None, None))
-    with pytest.raises(URLException):
-        urlread(val)  # note urlexc
+    d, e, c = urlread(val)
+    assert isinstance(e, HTTPError)
 
-    mock_urlopen.side_effect = lambda url, **kw: mybytesio(HTTPError('url', 500, '?', None, None))
-    assert urlread(val, raise_http_err=False) == (None, 500, '?')  # note urlexc
+    err = HTTPError('url', 500, '?', None, None)
+    mock_urlopen.side_effect = lambda url, **kw: mybytesio(err)
+    assert urlread(val) == (None, err, 500)
 
 
 @pytest.mark.parametrize('input, expected_result, ',

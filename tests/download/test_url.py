@@ -40,7 +40,7 @@ class Test:
             yield
 
     def read_async(self, *a, **v):
-        for obj, result, exc, url in read_async(*a, **v):
+        for obj, url, result, exc, code in read_async(*a, **v):
             assert _ismainthread()
             self.progress += 1
             if exc:
@@ -52,14 +52,14 @@ class Test:
         """it is easy to check what happens if an unknown exception is raised from urllib: just mock it
         but what about an exception raised in the caller body, if urlread is ok? Check it here
         """
-        for obj, result, exc, url in read_async(*a, **v):
+        for obj, url, result, exc, code in read_async(*a, **v):
             assert _ismainthread()
             raise KeyboardInterrupt()
-            self.progress += 1
-            if exc:
-                self.errors.append(exc)
-            else:
-                self.successes.append(result)
+            # self.progress += 1
+            # if exc:
+            #     self.errors.append(exc)
+            # else:
+            #     self.successes.append(result)
 
     def config_urlopen(self, read_side_effect_as_list, sleep_time=None):
         a = Mock()
@@ -95,7 +95,7 @@ class Test:
 
         assert len(self.successes) == 2
         
-        data_ = list(x[0] for x in self.successes)
+        data_ = list(self.successes)
         for res in data:
             if not res:  # the empty byte is not returned, it serves only to stop urlread
                 continue

@@ -29,8 +29,8 @@ from stream2segment.io.db.pdsql import harmonize_columns, dropnulls, syncdf
 from stream2segment.io.db.inspection import colnames
 from stream2segment.download.db.models import Event, Station, Channel
 from stream2segment.download.exc import FailedDownload
-from stream2segment.download.url import (read_async as original_read_async,
-                                         responses)
+from stream2segment.download.url import responses
+
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__)
@@ -109,34 +109,34 @@ def url2str(obj, maxlen=None):
     return url
 
 
-def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024 * 1024,
-               decode=None, raise_http_err=True, timeout=None,
-               max_mem_consumption=90, **kwargs):
-    """Wrapper around read_async defined in url which raises a
-    :class:`FailedDownload` in case of MemoryError
-
-    :param max_mem_consumption: a value in (0, 100] denoting the threshold in
-        % of the total memory after which the program should raise. This should
-        return as fast as possible consuming the less memory possible, and
-        assuring the quit-download message will be sent to the logger
-    """
-    do_memcheck = 0 < max_mem_consumption < 100
-    process = psutil.Process(os.getpid()) if do_memcheck else None
-    count = 0
-    step = 200
-    for result in original_read_async(iterable, urlkey, max_workers, blocksize,
-                                      decode, raise_http_err, timeout,
-                                      **kwargs):
-        yield result
-        if do_memcheck:
-            count += 1
-            if count == step:
-                count = 0
-                mem_percent = process.memory_percent()
-                if mem_percent > max_mem_consumption:
-                    raise FailedDownload(("Memory overflow: %.2f%% (used) > "
-                                          "%.2f%% (threshold)") %
-                                         (mem_percent, max_mem_consumption))
+# def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024 * 1024,
+#                decode=None, raise_http_err=True, timeout=None,
+#                max_mem_consumption=90, **kwargs):
+#     """Wrapper around read_async defined in url which raises a
+#     :class:`FailedDownload` in case of MemoryError
+#
+#     :param max_mem_consumption: a value in (0, 100] denoting the threshold in
+#         % of the total memory after which the program should raise. This should
+#         return as fast as possible consuming the less memory possible, and
+#         assuring the quit-download message will be sent to the logger
+#     """
+#     do_memcheck = 0 < max_mem_consumption < 100
+#     process = psutil.Process(os.getpid()) if do_memcheck else None
+#     count = 0
+#     step = 200
+#     for result in original_read_async(iterable, urlkey, max_workers, blocksize,
+#                                       decode, raise_http_err, timeout,
+#                                       **kwargs):
+#         yield result
+#         if do_memcheck:
+#             count += 1
+#             if count == step:
+#                 count = 0
+#                 mem_percent = process.memory_percent()
+#                 if mem_percent > max_mem_consumption:
+#                     raise FailedDownload(("Memory overflow: %.2f%% (used) > "
+#                                           "%.2f%% (threshold)") %
+#                                          (mem_percent, max_mem_consumption))
 
 
 def dbsyncdf(dataframe, session, matching_columns, autoincrement_pkey_col,

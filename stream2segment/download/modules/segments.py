@@ -17,10 +17,10 @@ from stream2segment.io import Fdsnws
 from stream2segment.io.cli import get_progressbar
 from stream2segment.io.db.pdsql import dbquery2df, mergeupdate, DbManager
 from stream2segment.download.db.models import DataCenter, Segment
-from stream2segment.download.modules.utils import read_async, DbExcLogger, logwarn_dataframe, DownloadStats, formatmsg, s2scodes, url2str
+from stream2segment.download.modules.utils import DbExcLogger, logwarn_dataframe, DownloadStats, formatmsg, s2scodes, url2str
 from stream2segment.download.exc import NothingToDownload
 from stream2segment.download.modules.mseedlite import MSeedError, unpack as mseedunpack
-from stream2segment.download.url import get_opener, get_host
+from stream2segment.download.url import get_opener, get_host, read_async
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__)
@@ -451,7 +451,7 @@ def get_responses(seg_groups, dc_dataselect_manager, chaid2mseedid,
                   max_thread_workers, timeout, download_blocksize):
     """Download segments and yields results
 
-    :param seg groups: is an iterable of 2 element tuples. The first element is
+    :param seg_groups: is an iterable of 2 element tuples. The first element is
         the tuple of the 'groupby' values, and the second element is the
         Dataframe
     """
@@ -479,30 +479,23 @@ def get_responses(seg_groups, dc_dataselect_manager, chaid2mseedid,
         return dc_dataselect_manager.opener(group_element[0][0])
 
     code_url_err, code_mseed_err = s2scodes.url_err, s2scodes.mseed_err
-    for (group_keys, dframe), result, exc, request in \
-            read_async(seg_groups, urlkey=req, raise_http_err=False,
-                       max_workers=max_thread_workers, timeout=timeout,
-                       blocksize=download_blocksize, openers=openerfunc):
-        # result is the tuple (data, http code, http message), or None if exc
-        # is not None. Note that exc can be only issued from an URLError, as
-        # HTTPErrors are returned in the tuple (data, http code, http message)
-        # (code>=400). So:
+    for (group_keys, dframe), request, data, exc, code in \
+            read_async(seg_groups, urlkey=req, max_workers=max_thread_workers,
+                       timeout=timeout, blocksize=download_blocksize,
+                       openers=openerfunc):
         if exc:
-            code = code_url_err
             data = None  # for safety
+            if code is None:
+                code = code_url_err
         else:
             exc = None  # for safety
-            data, code = result[0], result[1]
-            if code >= 400:
-                exc = "%d: %s" % (code, result[2])
-                data = None  # for safety
-            elif not data:
+            if not data:
                 data = b''
             else:
                 try:
                     data = mseedunpack(data,
                                        group_keys[1],  # stime
-                                       group_keys[2]  # etime
+                                       group_keys[2]   # etime
                                        )
                 except MSeedError as mseedexc:
                     code = code_mseed_err
@@ -687,10 +680,6 @@ class DcDataselectManager:
     @staticmethod
     def _get_data_open(dcid2fdsn):
         errors = {}  # dummy var to return no error
-        # return {id_: [fdsn,
-        #               fdsn.url(service=Fdsnws.DATASEL, method=Fdsnws.QUERY),
-        #               None]
-        #         for id_, fdsn in dcid2fdsn.items()}, errors
         ret = {}
         for id_, fdsn in dcid2fdsn.items():
             url = fdsn.url(service=Fdsnws.DATASEL, method=Fdsnws.QUERY)
@@ -702,10 +691,6 @@ class DcDataselectManager:
     @staticmethod
     def _get_data_from_userpass(dcid2fdsn, user, password):
         errors = {}  # dummy var to return no error
-        # return {id_: [fdsn,
-        #            fdsn.url(service=Fdsnws.DATASEL, method=Fdsnws.QUERYAUTH),
-        #               get_opener(fdsn.site, user, password)]
-        #         for id_, fdsn in dcid2fdsn.items()}, errors
         ret = {}
         for id_, fdsn in dcid2fdsn.items():
             url = fdsn.url(service=Fdsnws.DATASEL, method=Fdsnws.QUERYAUTH)
@@ -728,19 +713,17 @@ class DcDataselectManager:
 
         data, errors = {}, {}
         with get_progressbar(show_progress, length=len(dcid2fdsn)) as pbar:
-            for dcid, result, exc, _ in read_async(dcid2fdsn.keys(),
-                                                   urlkey=req,
-                                                   decode='utf8',
-                                                   raise_http_err=True):
+            for dcid, url_, data_, exc, status_code in \
+                    read_async(dcid2fdsn.keys(), urlkey=req, decode='utf8'):
 
                 pbar.update(1)
                 fdsn = dcid2fdsn[dcid]
                 if exc is None:
-                    if ':' not in result[0]:
+                    if ':' not in data_:
                         exc = ValueError('Invalid user and password returned. '
                                          'This could be a data-center bug')
                     else:
-                        user, pswd = result[0].split(':')
+                        user, pswd = data_.split(':')
                         data[dcid] = [fdsn,
                                       fdsn.url(service=Fdsnws.DATASEL,
                                                method=Fdsnws.QUERYAUTH),

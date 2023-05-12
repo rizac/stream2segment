@@ -18,7 +18,7 @@ from stream2segment.download.db.models import DataCenter
 from stream2segment.download.modules.utils import dbsyncdf, formatmsg, \
     strconvert, strptime, urljoin
 from stream2segment.download.exc import FailedDownload
-from stream2segment.download.url import URLException, urlread
+from stream2segment.download.url import urlread
 from stream2segment.resources import get_resource_abspath
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
@@ -103,25 +103,20 @@ def get_eidars_response_text(routing_service_url):
     # 'service' and 'format'. The reasons are two:
     # 1) as of Jan 2019 the service is buggy if supplying some arguments (e.g.,
     # with long list of channels), adn this might happen again in the future.
-    # 2) We can save a local file (independent from the custom query) and read
+    # 2) We can save a local file (independent of the custom query) and read
     # from it in case of request failure. The file should be updated from times
     # to times
     query_args = {'service': 'dataselect', 'format': 'post'}
     url = urljoin(routing_service_url, **query_args)
-
-    try:
-        responsetext, status, msg = urlread(url, decode='utf8',
-                                            raise_http_err=True)
-        if not responsetext:
-            raise URLException(Exception("Empty data response"))  # fall below
-    except URLException as urlexc:
-        responsetext, last_mod_time_str = _get_local_routing_service()
+    response_text, error, code = urlread(url, decode='utf8')
+    if error:
+        response_text, last_mod_time_str = _get_local_routing_service()
         msg = ("Eida routing service error, reading routes from file "
                "(last updated: %s)" % last_mod_time_str)
         logger.info(formatmsg(msg, "eida routing service error"))
-        logger.warning(formatmsg("Eida routing service error", urlexc.exc, url))
+        logger.warning(formatmsg("Eida routing service error", str(error), url))
 
-    return responsetext
+    return response_text
 
 
 def _get_local_routing_service():
