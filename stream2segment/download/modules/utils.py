@@ -22,7 +22,6 @@ from dateutil import parser as dateparser
 from dateutil.tz.tz import tzutc
 
 import pandas as pd
-import psutil
 
 from stream2segment.io.db.models import MINISEED_READ_ERROR_CODE
 from stream2segment.io.db.pdsql import harmonize_columns, dropnulls, syncdf
@@ -107,36 +106,6 @@ def url2str(obj, maxlen=None):
     except AttributeError:
         url = str(obj)
     return url
-
-
-# def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024 * 1024,
-#                decode=None, raise_http_err=True, timeout=None,
-#                max_mem_consumption=90, **kwargs):
-#     """Wrapper around read_async defined in url which raises a
-#     :class:`FailedDownload` in case of MemoryError
-#
-#     :param max_mem_consumption: a value in (0, 100] denoting the threshold in
-#         % of the total memory after which the program should raise. This should
-#         return as fast as possible consuming the less memory possible, and
-#         assuring the quit-download message will be sent to the logger
-#     """
-#     do_memcheck = 0 < max_mem_consumption < 100
-#     process = psutil.Process(os.getpid()) if do_memcheck else None
-#     count = 0
-#     step = 200
-#     for result in original_read_async(iterable, urlkey, max_workers, blocksize,
-#                                       decode, raise_http_err, timeout,
-#                                       **kwargs):
-#         yield result
-#         if do_memcheck:
-#             count += 1
-#             if count == step:
-#                 count = 0
-#                 mem_percent = process.memory_percent()
-#                 if mem_percent > max_mem_consumption:
-#                     raise FailedDownload(("Memory overflow: %.2f%% (used) > "
-#                                           "%.2f%% (threshold)") %
-#                                          (mem_percent, max_mem_consumption))
 
 
 def dbsyncdf(dataframe, session, matching_columns, autoincrement_pkey_col,
@@ -1027,3 +996,30 @@ def urljoin(*urlpath, **query_args):
     return "{}?{}".format('/'.join(url.strip('/') for url in urlpath),
                           "&".join("{}={}".format(k, v)
                                    for k, v in query_args.items()))
+
+
+class _MemoryChecker:
+    """Legacy class for checking memory consumption. Initialize outside a loop and then
+    call `check_memory_consumption` in the loop. A FailedDownload will be raised if the
+    memory consumption exceeds a certain threshold. Memory checks were implemented
+    for each request and might be useful especially in the download of segments or
+    inventories (see e.g. `download.modules.segments.get_responses`) to prevent the
+    program to exit with no clear message. Because these error happened long ago on 8Gb
+    machines only, as of 2023 memory checks are removed from the codebase
+    """
+    def __init__(self, step=500, memory_max_percent=90):
+        self.step = step
+        self.counter = 0
+        self.memory_max_percent = memory_max_percent
+        import psutil
+        self.process = psutil.Process(os.getpid())
+
+    def check_memory_consumption(self):
+        self.counter += 1
+        if self.counter % self.step == 0:
+            self.counter = 0
+            mem_percent = self.process.memory_percent()
+            if mem_percent > self.memory_max_percent:
+                raise FailedDownload(("Memory overflow: %.2f%% (used) > "
+                                      "%.2f%% (threshold)") %
+                                     (mem_percent, self.memory_max_percent))
