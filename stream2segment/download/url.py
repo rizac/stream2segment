@@ -42,11 +42,10 @@ def get_opener(url, user, password):
 
 
 def urlread(url, blocksize=-1, decode=None, timeout=None, opener=None, **kwargs):
-    """Read and return data from the given `url`. Wrapper around Python `urllib`
-    `open` with some features added. Returns the tuple `(data, error, status_code)`
-    (see below for details)
+    """Read and return data from the given `url` using Python `urllib.open`.
+    Return the tuple `(data, error, status_code)` (see below for details)
 
-    :param url: (string or `Request` object) a valid url or an `urllib2.Request` object
+    :param url: (str or ``urllib.request..Request`)
     :param blocksize: int, default: -1. The block size while reading, -1 means:
         read entire content at once
     :param: decode: string or None, default: None. The string used for decoding (e.g.,
@@ -69,7 +68,7 @@ def urlread(url, blocksize=-1, decode=None, timeout=None, opener=None, **kwargs)
           HTTPException, URLError, socket.error - e.g. socket.timeout - or HTTPError).
           It is always None if the request/response exchange was successful
         - status_code (int) is the response HTTP status code. None if the code could not
-          be inferred (e.g. general error not instance of HTTPError). In some cases. it
+          be inferred (e.g. `error` is given but not instance of HTTPError). Note: it
           could be a string representing the status code instead of an int
     """
     try:
