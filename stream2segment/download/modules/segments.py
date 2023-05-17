@@ -8,6 +8,7 @@ Segments download functions
 from datetime import timedelta
 from collections import OrderedDict
 import logging
+from itertools import zip_longest
 from urllib.request import Request
 
 import numpy as np
@@ -326,25 +327,28 @@ def download_save_segments(session, segments_df, dc_dataselect_manager,
     toupdate = SEG.DSCODE in segments_df.columns
     code_not_found = s2scodes.seg_not_found
     skipped_same_code = 0
+    retry_codes = {429, 503} if max_thread_workers is None else set()
+    if max_thread_workers is None:
+        # set the thread processes. Hints found here:
+        # https://docs.python.org/3/library/concurrent.futures.html#concurrent.futures.ThreadPoolExecutor
+        import os
+        max_thread_workers = min(32, os.cpu_count() + 4)
+
     # report seg. errors only once per error type and data center:
     seg_logger = SegmentLogger()
     with get_progressbar(show_progress, length=len(segments_df)) as pbar:
         # store dataframes with a 413 error and retry later:
         skipped_dataframes = []
-        for group_ in groupsby:
-            # for safety (if this is the second loop or greater):
-            if segments_df.empty:
-                break
+        while not segments_df.empty:
 
-            is_last_iteration = group_ == groupsby[-1]
-            seg_groups = segments_df.groupby(group_, sort=False)
+            seg_groups = get_download_iterator(segments_df)
             for data, exc, code, request, dframe in \
                     get_responses(seg_groups, dc_dataselect_manager,
                                   chaid2mseedid, max_thread_workers, timeout,
                                   download_blocksize):
 
                 num_segments = len(dframe)
-                if code == 413 and not is_last_iteration and num_segments > 1:
+                if code in retry_codes and max_thread_workers > 2:
                     skipped_dataframes.append(dframe)
                     continue
 
@@ -366,7 +370,7 @@ def download_save_segments(session, segments_df, dc_dataselect_manager,
                     # here we are if: exc is not None OR data = b''
                     url_stats[code] += num_segments
                     if toupdate and code is not None and \
-                            (dframe[col_dscode] == code).sum():
+                            (dframe[col_dscode] == code).sum():  # noqa
                         # if there are rows to update, then discard those for
                         # which the code is the same in the database. If we
                         # requested a different time window, we should update
@@ -404,6 +408,7 @@ def download_save_segments(session, segments_df, dc_dataselect_manager,
                 segments_df = pd.concat(skipped_dataframes, axis=0,
                                         ignore_index=True, copy=True,
                                         verify_integrity=False)
+                max_thread_workers = 2
                 skipped_dataframes = []
             else:
                 # break the next loop, if any
@@ -418,6 +423,19 @@ def download_save_segments(session, segments_df, dc_dataselect_manager,
                                   "in statistics") % skipped_same_code,
                                  "Still receiving the same download code"))
     return stats
+
+
+def get_download_iterator(segments_df):
+    dcs = segments_df[SEG.DCID].nunique()
+    if dcs == 1:
+        return (dfr for _, dfr in segments_df.groupby([SEG.STIME, SEG.ETIME],
+                                                      sort=False, observed=True))
+    groups = (dc_df.groupby([SEG.STIME, SEG.ETIME], sort=False, observed=True)
+              for _, dc_df in segments_df.groupby(SEG.DCID, sort=False, observed=True))
+    for sub_groups in zip_longest(*groups, fillvalue=None):
+        for sub_group in sub_groups:
+            if sub_group is not None:
+                yield sub_group[1]
 
 
 def get_dbmanager(session, update_datacenter, update_request_timebounds, db_bufsize):
