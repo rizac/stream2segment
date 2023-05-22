@@ -59,12 +59,12 @@ def prepare_for_download(session, segments_df, dc_dataselect_manager, timespan,
     # Now merge/update existing dataframe (`segments_df`) with the db values
     # (`db_seg_df`). Do it in two steps: 1) set columns and defaults (for int
     # types, sets np.nan). Note that if we have something to retry
-    # (db_seg_df[SEG_RETRY].any()), we add also a column SEG.DSCODE with
+    # (db_seg_df[SEG_RETRY].any()), we add also a column SEG.DWLCODE with
     # None/nan as default: checking if that column exists will be the way later
     # to know if we need to update rows or only insert new rows.
     cols2set = OrderedDict([(SEG.ID, np.nan), (SEG.RETRY, True),
-                            (SEG.REQSTIME, pd.NaT), (SEG.REQETIME, pd.NaT)] +
-                           ([(SEG.DSCODE, np.nan)]
+                            (SEG.REQSTART, pd.NaT), (SEG.REQEND, pd.NaT)] +
+                           ([(SEG.DWLCODE, np.nan)]
                             if db_seg_df[SEG.RETRY].any() else []))
     for colname, default_ in cols2set.items():
         segments_df[colname] = default_
@@ -102,13 +102,13 @@ def prepare_for_download(session, segments_df, dc_dataselect_manager, timespan,
     # updating SR segments which were downloaded with no credentials, by
     # definition of SR (suspiciously restricted). Thus, if we have those
     # segments (`not force_retry_ids.empty`) and we are performing a download
-    # on an already existing database (`SEG.DSCODE in segments_df.columns`),
-    # for those SR segments we will set the value of the column `SEG.DSCODE` to
+    # on an already existing database (`SEG.DWLCODE in segments_df.columns`),
+    # for those SR segments we will set the value of the column `SEG.DWLCODE` to
     # None/nan: as we will never get any response code = None from the server,
     # those SR segments will always be updated
-    if not force_retry_ids.empty and SEG.DSCODE in segments_df.columns:
+    if not force_retry_ids.empty and SEG.DWLCODE in segments_df.columns:
         segments_df.loc[segments_df[SEG.ID].isin(force_retry_ids),
-                        SEG.DSCODE] = np.nan
+                        SEG.DWLCODE] = np.nan
 
     segments_df.drop([SEG.RETRY], axis=1, inplace=True)
 
@@ -167,19 +167,19 @@ def set_segments_to_retry(db_seg_df, is_opendataonly, retry_seg_not_found,
     # (those already downloaded)
     mask = False
     if retry_seg_not_found:
-        mask |= pd.isnull(db_seg_df[SEG.DSCODE])
+        mask |= pd.isnull(db_seg_df[SEG.DWLCODE])
     if retry_url_err:
-        mask |= db_seg_df[SEG.DSCODE] == codes.url_err
+        mask |= db_seg_df[SEG.DWLCODE] == codes.url_err
     if retry_mseed_err:
-        mask |= db_seg_df[SEG.DSCODE] == codes.mseed_err
+        mask |= db_seg_df[SEG.DWLCODE] == codes.mseed_err
     if retry_client_err:
-        mask |= (db_seg_df[SEG.DSCODE] >= 400) & (db_seg_df[SEG.DSCODE] < 500)
+        mask |= (db_seg_df[SEG.DWLCODE] >= 400) & (db_seg_df[SEG.DWLCODE] < 500)
     if retry_server_err:
-        mask |= (db_seg_df[SEG.DSCODE] >= 500) & (db_seg_df[SEG.DSCODE] < 600)
+        mask |= (db_seg_df[SEG.DWLCODE] >= 500) & (db_seg_df[SEG.DWLCODE] < 600)
     if retry_timespan_err:
-        mask |= db_seg_df[SEG.DSCODE] == codes.timespan_err
+        mask |= db_seg_df[SEG.DWLCODE] == codes.timespan_err
     if retry_timespan_warn:
-        mask |= db_seg_df[SEG.DSCODE] == codes.timespan_warn
+        mask |= db_seg_df[SEG.DWLCODE] == codes.timespan_warn
 
     if is_opendataonly:
         # SEG_RETRY is not in db_seg_df, assing:
@@ -208,16 +208,16 @@ def set_requested_timebounds(segments_df, timespan):
     td0, td1 = timedelta(minutes=timespan[0]), timedelta(minutes=timespan[1])
     tstart, tend = (segments_df[SEG.ATIME] - td0).dt.round('s'), \
         (segments_df[SEG.ATIME] + td1).dt.round('s')
-    retry_requests_timebounds = pd.notnull(segments_df[SEG.REQSTIME]) & \
-        ((segments_df[SEG.REQSTIME] != tstart) |
-         (segments_df[SEG.REQETIME] != tend))
+    retry_requests_timebounds = pd.notnull(segments_df[SEG.REQSTART]) & \
+        ((segments_df[SEG.REQSTART] != tstart) |
+         (segments_df[SEG.REQEND] != tend))
     request_timebounds_need_update = retry_requests_timebounds.any()
     if request_timebounds_need_update:
         segments_df[SEG.RETRY] |= retry_requests_timebounds
     # SEG.RETRY column updated: clear old time bounds and set new ones just
     # calculated:
-    segments_df[SEG.REQSTIME] = tstart
-    segments_df[SEG.REQETIME] = tend
+    segments_df[SEG.REQSTART] = tstart
+    segments_df[SEG.REQEND] = tend
     return request_timebounds_need_update.item()  # return Python boolean
 
 
@@ -228,8 +228,8 @@ def check_suspiciously_duplicated_segment(segments_df):
     This function simply logs a message if any such duplicated segment is found,
     it does NOT modify segments_df
     """
-    seg_dupes_mask = segments_df.duplicated(subset=[SEG.CHAID, SEG.REQSTIME,
-                                                    SEG.REQETIME],
+    seg_dupes_mask = segments_df.duplicated(subset=[SEG.CHAID, SEG.REQSTART,
+                                                    SEG.REQEND],
                                             keep=False)
     if seg_dupes_mask.any():
         seg_dupes = segments_df[seg_dupes_mask]
@@ -237,10 +237,10 @@ def check_suspiciously_duplicated_segment(segments_df):
                "due to events with different ids\n"
                "but same (or very close) latitude, longitude, depth and time.")
         logger.info(msg, len(seg_dupes))
-        seg_dupes_sorted = seg_dupes.sort_values(by=[SEG.CHAID, SEG.REQSTIME,
-                                                     SEG.REQETIME])
+        seg_dupes_sorted = seg_dupes.sort_values(by=[SEG.CHAID, SEG.REQSTART,
+                                                     SEG.REQEND])
         logwarn_dataframe(seg_dupes_sorted, "Suspicious duplicated segments",
-                          [SEG.CHAID, SEG.REQSTIME, SEG.REQETIME, SEG.EVID],
+                          [SEG.CHAID, SEG.REQSTART, SEG.REQEND, SEG.EVID],
                           max_row_count=100)
 
 
@@ -248,26 +248,24 @@ class SEG:  # noqa
     """Simple enum-like container of strings defining the segment's
     related database/dataframe columns needed in this module
     """
-    CHAID = Segment.channel_id.key  # pylint: disable=invalid-name
-    EVID = Segment.event_id.key  # pylint: disable=invalid-name
-    ATIME = Segment.arrival_time.key  # pylint: disable=invalid-name
-    REQSTIME = Segment.request_start.key  # pylint: disable=invalid-name
-    REQETIME = Segment.request_end.key  # pylint: disable=invalid-name
-    DCID = Segment.datacenter_id.key  # pylint: disable=invalid-name
-    ID = Segment.id.key  # pylint: disable=invalid-name
-    START = Segment.request_start.key  # pylint: disable=invalid-name
-    END = Segment.request_end.key  # pylint: disable=invalid-name
-    STIME = Segment.start_time.key  # pylint: disable=invalid-name
-    ETIME = Segment.end_time.key  # pylint: disable=invalid-name
-    DATA = Segment.data.key  # pylint: disable=invalid-name
-    DSCODE = Segment.download_code.key  # pylint: disable=invalid-name
-    DATAID = Segment.data_seed_id.key  # pylint: disable=invalid-name
-    MGAP = Segment.maxgap_numsamples.key  # pylint: disable=invalid-name
-    SRATE = Segment.sample_rate.key  # pylint: disable=invalid-name
-    DOWNLID = Segment.download_id.key  # pylint: disable=invalid-name
-    QAUTH = Segment.queryauth.key  # pylint: disable=invalid-name
+    CHAID = Segment.channel_id.key  # noqa
+    EVID = Segment.event_id.key  # noqa
+    ATIME = Segment.arrival_time.key  # noqa
+    REQSTART = Segment.request_start.key  # noqa
+    REQEND = Segment.request_end.key  # noqa
+    DCID = Segment.datacenter_id.key  # noqa
+    ID = Segment.id.key  # noqa
+    START = Segment.start_time.key  # noqa
+    END = Segment.end_time.key  # noqa
+    DATA = Segment.data.key  # noqa
+    DWLCODE = Segment.download_code.key  # noqa
+    DATAID = Segment.data_seed_id.key  # noqa
+    MGAP = Segment.maxgap_numsamples.key  # noqa
+    SRATE = Segment.sample_rate.key  # noqa
+    DWLID = Segment.download_id.key  # noqa
+    QAUTH = Segment.queryauth.key  # noqa
     # non-db column temporary set to get what segment has to be re-downloaded:
-    RETRY = "__do.download__"  # pylint: disable=invalid-name
+    RETRY = "__do.download__"  # noqa
 
 
 def download_save_segments(session, segments_df, dc_dataselect_manager,
@@ -300,31 +298,16 @@ def download_save_segments(session, segments_df, dc_dataselect_manager,
                                update_request_timebounds, db_bufsize)
     stats = DownloadStats()
 
-    # Define the groupsby columns. Remember that segments_df has columns: we
-    # should group by (net, sta, loc, stime, etime), meaning that two rows with
-    # those values equal will be given in the same sub-dataframe, and if 413 is
-    # found, take 413s erros creating a new dataframe, and then group segment
-    # by segment, i.e. (net, sta, loc, cha, stime, etime).
-    # Unfortunately, for perf reasons we do not have
-    # the first 4 columns, but we do have channel_id which basically comprises
-    # (net, sta, loc, cha) NOTE: SEG_START and SEG_END MUST BE ALWAYS PRESENT
-    # IN THE SECOND AND THORD POSITION!!!!!
-    groupsby = [
-        [SEG.DCID, SEG.START, SEG.END],
-        [SEG.DCID, SEG.START, SEG.END, SEG.CHAID]
-    ]
-
     # these are the column names to be set on a dataframe from a received
     # response, mapped to their default value. Set nan to let pandas understand
     # it's numeric. None I don't know how it is converted (should be checked)
     # but it's for string types for numpy types, see
     # https://docs.scipy.org/doc/numpy/reference/arrays.dtypes.html#specifying-and-constructing-data-types
     defaultvalues = {SEG.DATA: None, SEG.SRATE: np.nan, SEG.MGAP: np.nan,
-                     SEG.DATAID: None, SEG.DSCODE: np.nan, SEG.STIME: pd.NaT,
-                     SEG.ETIME: pd.NaT, SEG.DOWNLID: download_id}
+                     SEG.DATAID: None, SEG.DWLCODE: np.nan, SEG.START: pd.NaT,
+                     SEG.END: pd.NaT, SEG.DWLID: download_id}
     defaultvalues_nodata = dict(defaultvalues)  # copy
-    col_dscode, col_data = SEG.DSCODE, SEG.DATA
-    toupdate = SEG.DSCODE in segments_df.columns
+    toupdate = SEG.DWLCODE in segments_df.columns
     code_not_found = s2scodes.seg_not_found
     skipped_same_code = 0
     retry_codes = {429, 503} if max_thread_workers is None else set()
@@ -332,7 +315,11 @@ def download_save_segments(session, segments_df, dc_dataselect_manager,
         # set the thread processes. Hints found here:
         # https://docs.python.org/3/library/concurrent.futures.html#concurrent.futures.ThreadPoolExecutor
         import os
-        max_thread_workers = min(32, os.cpu_count() + 4)
+        # set max allowed threads as 4 simultaneous requests per data center:
+        max_cuncurrent_requests = 4 * segments_df[SEG.DCID].nunique()
+        # Now adjust with the computer capacity (we use the algorithm here:
+        # https://docs.python.org/3/library/concurrent.futures.html#concurrent.futures.ThreadPoolExecutor
+        max_thread_workers = min(max_cuncurrent_requests, 32, os.cpu_count() + 4)
 
     # report seg. errors only once per error type and data center:
     seg_logger = SegmentLogger()
@@ -341,9 +328,9 @@ def download_save_segments(session, segments_df, dc_dataselect_manager,
         skipped_dataframes = []
         while not segments_df.empty:
 
-            seg_groups = get_download_iterator(segments_df)
+            dataframes = get_download_iterator(segments_df)
             for data, exc, code, request, dframe in \
-                    get_responses(seg_groups, dc_dataselect_manager,
+                    get_responses(dataframes, dc_dataselect_manager,
                                   chaid2mseedid, max_thread_workers, timeout,
                                   download_blocksize):
 
@@ -363,14 +350,14 @@ def download_save_segments(session, segments_df, dc_dataselect_manager,
                     populate_dataframe(data, code, dframe, chaid2mseedid)
                     # group by download code, count them, and add the counts to
                     # stats:
-                    for kode, kount in get_counts(dframe, col_dscode,
+                    for kode, kount in get_counts(dframe, SEG.DWLCODE,
                                                   code_not_found):
                         url_stats[kode] += kount
                 else:
                     # here we are if: exc is not None OR data = b''
                     url_stats[code] += num_segments
                     if toupdate and code is not None and \
-                            (dframe[col_dscode] == code).sum():  # noqa
+                            (dframe[SEG.DWLCODE] == code).sum():  # noqa
                         # if there are rows to update, then discard those for
                         # which the code is the same in the database. If we
                         # requested a different time window, we should update
@@ -383,14 +370,14 @@ def download_save_segments(session, segments_df, dc_dataselect_manager,
                         # (see comment L.94). Thus, if for some weird reason
                         # the response code is None, then update the segment
                         # anyway (as we wanted to)
-                        dframe = dframe[dframe[col_dscode] != code]
+                        dframe = dframe[dframe[SEG.DWLCODE] != code]
                         skipped_same_code += num_segments - len(dframe)
                         if dframe.empty:  # nothing to update on the db
                             continue
                     # update dict of default values, and set it to the
                     # dataframe:
-                    defaultvalues_nodata.update({col_dscode: code,
-                                                 col_data: data})
+                    defaultvalues_nodata.update({SEG.DWLCODE: code,
+                                                 SEG.DATA: data})
                     # Remember: `assign` returns a copy:
                     dframe = dframe.assign(**defaultvalues_nodata)
 
@@ -426,11 +413,11 @@ def download_save_segments(session, segments_df, dc_dataselect_manager,
 
 
 def get_download_iterator(segments_df):
-    dcs = segments_df[SEG.DCID].nunique()
-    if dcs == 1:
-        return (dfr for _, dfr in segments_df.groupby([SEG.STIME, SEG.ETIME],
-                                                      sort=False, observed=True))
-    groups = (dc_df.groupby([SEG.STIME, SEG.ETIME], sort=False, observed=True)
+    """Yield dataframes to be downloaded, one request per dataframe, one waveform per
+     dataframe row. The iterator is optimized to alternate datacenters when possible
+     and group each dataframe by datacenter and time span
+    """
+    groups = (dc_df.groupby([SEG.REQSTART, SEG.REQEND], sort=False, observed=True)
               for _, dc_df in segments_df.groupby(SEG.DCID, sort=False, observed=True))
     for sub_groups in zip_longest(*groups, fillvalue=None):
         for sub_group in sub_groups:
@@ -441,22 +428,22 @@ def get_download_iterator(segments_df):
 def get_dbmanager(session, update_datacenter, update_request_timebounds, db_bufsize):
     """Return a DbManager for downloading waveform data"""
     colnames2update = [
-        SEG.DOWNLID,
+        SEG.DWLID,
         SEG.DATA,
         SEG.SRATE,
         SEG.MGAP,
         SEG.DATAID,
-        SEG.DSCODE,
-        SEG.STIME,
-        SEG.ETIME,
+        SEG.DWLCODE,
+        SEG.START,
+        SEG.END,
         SEG.QAUTH
     ]
     if update_request_timebounds:
-        colnames2update += [SEG.START, SEG.ATIME, SEG.END]
+        colnames2update += [SEG.REQSTART, SEG.ATIME, SEG.REQEND]
     if update_datacenter:
         colnames2update += [SEG.DCID]
 
-    db_exc_logger = DbExcLogger([SEG.ID, SEG.CHAID, SEG.START, SEG.END,
+    db_exc_logger = DbExcLogger([SEG.ID, SEG.CHAID, SEG.REQSTART, SEG.REQEND,
                                  SEG.DCID])
 
     return DbManager(session, Segment.id, colnames2update,
@@ -465,40 +452,27 @@ def get_dbmanager(session, update_datacenter, update_request_timebounds, db_bufs
                      onupdate_err_callback=db_exc_logger.failed_update)
 
 
-def get_responses(seg_groups, dc_dataselect_manager, chaid2mseedid,
+def get_responses(dataframes, dc_dataselect_manager, chaid2mseedid,
                   max_thread_workers, timeout, download_blocksize):
     """Download segments and yields results
 
-    :param seg_groups: is an iterable of 2 element tuples. The first element is
-        the tuple of the 'groupby' values, and the second element is the
-        Dataframe
+    :param dataframes: iterable of dataframes, one dataframe per request, one row
+        per requested waveform. Moreover, each dataframe row is assumed to refer to the
+        same data center and have the same time span (start end)
     """
-    def req(group_element):
-        """Call get_seg_request from an item of Pandas groupby. Used in
-        `read_async` below
-
-        :param group_element: an element yielded by iterating over pandas
-            groupby
-            https://pandas.pydata.org/pandas-docs/stable/user_guide/groupby.html#iterating-through-groups
-        """
-        dframe = group_element[1]
-        # group_element[0][0] is the datacenter id:
-        dc_url = dc_dataselect_manager.baseurl(group_element[0][0])
+    def req(dframe):
+        """Create a Request object from the given dataframe"""
+        dc_url = dc_dataselect_manager.baseurl(dframe[SEG.DCID].iloc[0])
         return get_seg_request(dframe, dc_url, chaid2mseedid)
 
-    def openerfunc(group_element):
-        """Return a urllib opener from the given obj
-
-        :param group_element: an element yielded by iterating over pandas
-            groupby
-            https://pandas.pydata.org/pandas-docs/stable/user_guide/groupby.html#iterating-through-groups
-        """
-        # group_element[0][0] is the datacenter id:
-        return dc_dataselect_manager.opener(group_element[0][0])
+    def openerfunc(dframe):
+        """Return a Opener (or None) from the given dataframe. An Opener is the
+        object needed to download restricted data"""
+        return dc_dataselect_manager.opener(dframe[SEG.DCID].iloc[0])
 
     code_url_err, code_mseed_err = s2scodes.url_err, s2scodes.mseed_err
-    for (group_keys, dframe), request, data, exc, code in \
-            read_async(seg_groups, urlkey=req, max_workers=max_thread_workers,
+    for dframe, request, data, exc, code in \
+            read_async(dataframes, urlkey=req, max_workers=max_thread_workers,
                        timeout=timeout, blocksize=download_blocksize,
                        openers=openerfunc):
         if exc:
@@ -511,10 +485,9 @@ def get_responses(seg_groups, dc_dataselect_manager, chaid2mseedid,
                 data = b''
             else:
                 try:
-                    data = mseedunpack(data,
-                                       group_keys[1],  # stime
-                                       group_keys[2]   # etime
-                                       )
+                    start_time = dframe[SEG.REQSTART].iloc[0]
+                    end_time = dframe[SEG.REQEND].iloc[0]
+                    data = mseedunpack(data, start_time, end_time)
                 except MSeedError as mseedexc:
                     code = code_mseed_err
                     exc = mseedexc
@@ -529,8 +502,8 @@ def get_seg_request(segments_df, datacenter_url, chaid2mseedid):
     :param chaid2mseedid: dict of channel ids (int) mapped to mseed ids
         (strings in "Network.station.location.channel" format)
     """
-    stime = segments_df[SEG.START].iloc[0].isoformat()
-    etime = segments_df[SEG.END].iloc[0].isoformat()
+    stime = segments_df[SEG.REQSTART].iloc[0].isoformat()
+    etime = segments_df[SEG.REQEND].iloc[0].isoformat()
 
     post_data = "\n".join("{} {} {}".format(*(chaid2mseedid[chaid].
                                               replace("..", ".--.").
@@ -551,7 +524,7 @@ def populate_dataframe(resdict, code, dframe, chaid2mseedid):
         result of `mseedliste.mseedunpack` on that server data
     """
     codes = s2scodes
-    col_dscode = SEG.DSCODE
+    col_dscode = SEG.DWLCODE
     col_data = SEG.DATA
     # the order of these columns matters! see below
     columns2set = (
@@ -560,8 +533,8 @@ def populate_dataframe(resdict, code, dframe, chaid2mseedid):
         SEG.MGAP,
         SEG.DATAID,
         col_dscode,
-        SEG.STIME,
-        SEG.ETIME
+        SEG.START,
+        SEG.END
     )
 
     # iterate over dframe rows and assign the relative data
@@ -641,7 +614,7 @@ class DcDataselectManager:
 
     def __init__(self, datacenters_df, authorizer, show_progress=False):
         """Initialize a new DcDataselectManager"""
-        DC_ID = DataCenter.id.key  # pylint: disable=invalid-name
+        DC_ID = DataCenter.id.key  # noqa
         DC_DSURL = DataCenter.dataselect_url.key  # noqa
 
         # there is a handy function:
