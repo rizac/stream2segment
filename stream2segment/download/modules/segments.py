@@ -268,6 +268,14 @@ class SEG:  # noqa
     RETRY = "__do.download__"  # noqa
 
 
+_RETRY_CODES = {
+    # map HTTP status code with the min number of concurrent downloads
+    # allowing to retry that code. Lower values means: don't retry
+    429: 1,
+    503: 2
+}
+
+
 def download_save_segments(session, segments_df, dc_dataselect_manager,
                            chaid2mseedid, download_id, update_datacenters,
                            update_request_timebounds, max_thread_workers,
@@ -310,16 +318,8 @@ def download_save_segments(session, segments_df, dc_dataselect_manager,
     toupdate = SEG.DWLCODE in segments_df.columns
     code_not_found = s2scodes.seg_not_found
     skipped_same_code = 0
-    retry_codes = {429, 503} if max_thread_workers is None else set()
-    if max_thread_workers is None:
-        # set the thread processes. Hints found here:
-        # https://docs.python.org/3/library/concurrent.futures.html#concurrent.futures.ThreadPoolExecutor
-        import os
-        # set max allowed threads as 4 simultaneous requests per data center:
-        max_cuncurrent_requests = 4 * segments_df[SEG.DCID].nunique()
-        # Now adjust with the computer capacity (we use the algorithm here:
-        # https://docs.python.org/3/library/concurrent.futures.html#concurrent.futures.ThreadPoolExecutor
-        max_thread_workers = min(max_cuncurrent_requests, 32, os.cpu_count() + 4)
+
+    max_thread_workers = get_max_concurrent_downloads(segments_df, max_thread_workers)
 
     # report seg. errors only once per error type and data center:
     seg_logger = SegmentLogger()
@@ -335,7 +335,8 @@ def download_save_segments(session, segments_df, dc_dataselect_manager,
                                   download_blocksize):
 
                 num_segments = len(dframe)
-                if code in retry_codes and max_thread_workers > 2:
+                if max_thread_workers > 1 and \
+                        code in _RETRY_CODES and _RETRY_CODES[code] < max_thread_workers:
                     skipped_dataframes.append(dframe)
                     continue
 
@@ -395,7 +396,7 @@ def download_save_segments(session, segments_df, dc_dataselect_manager,
                 segments_df = pd.concat(skipped_dataframes, axis=0,
                                         ignore_index=True, copy=True,
                                         verify_integrity=False)
-                max_thread_workers = 2
+                max_thread_workers = 2 if max_thread_workers > 2 else 1
                 skipped_dataframes = []
             else:
                 # break the next loop, if any
@@ -417,12 +418,53 @@ def get_download_iterator(segments_df):
      dataframe row. The iterator is optimized to alternate datacenters when possible
      and group each dataframe by datacenter and time span
     """
-    groups = (dc_df.groupby([SEG.REQSTART, SEG.REQEND], sort=False, observed=True)
-              for _, dc_df in segments_df.groupby(SEG.DCID, sort=False, observed=True))
+    groups = _get_download_groups(segments_df)
     for sub_groups in zip_longest(*groups, fillvalue=None):
         for sub_group in sub_groups:
             if sub_group is not None:
                 yield sub_group[1]
+
+
+def get_max_concurrent_downloads(segments_df, suggested_concurrent_downloads=None):
+    """Compute and return the number of concurrent downloads to be passed to read_async,
+    inferring it from the given parameter and the number of downloads to perform
+
+    :param suggested_concurrent_downloads: None or int. If int, it will be returned,
+        if None, the number will be computed and returned
+    :param segments_df: the dataframe of segments to be downloaded
+    """
+    if suggested_concurrent_downloads is not None:
+        return int(suggested_concurrent_downloads)
+
+    # Get concurrent_datacenters (min. num. of data centers for which more than 50%
+    # of the total requests are performed), and infer from it the max thread workers
+    concurrent_datacenters = 1
+    n_downloads = sorted(g.ngroups for g in _get_download_groups(segments_df))
+    for i, nd in enumerate(n_downloads):
+        if nd > n_downloads[-1] / 2:
+            concurrent_datacenters = len(n_downloads) - i
+            break
+
+    # set the thread processes. Hints found here:
+    # https://docs.python.org/3/library/concurrent.futures.html#concurrent.futures.ThreadPoolExecutor
+    import os
+    # set max allowed threads as 2 simultaneous requests per data center (after talk with
+    # GEOFON. Also, let's not overload servers too much):
+    max_concurrent_requests_per_dc = 2
+    # Now adjust with the computer capacity (we use the algorithm here:
+    # https://docs.python.org/3/library/concurrent.futures.html#concurrent.futures.ThreadPoolExecutor
+    return min(max_concurrent_requests_per_dc * concurrent_datacenters,
+               32, os.cpu_count() + 4)
+
+
+def _get_download_groups(segments_df):
+    """Return an iterable of pandas GroupBy objects, one for eac unique Datacenter of
+     `segmetns_df`. and each yielding the tuples ((start, end), dataframe)
+     where each dataframe contains all segments with same time span (one segment per
+     row)
+     """
+    return (dc_df.groupby([SEG.REQSTART, SEG.REQEND], sort=False, observed=True)
+            for _, dc_df in segments_df.groupby(SEG.DCID, sort=False, observed=True))
 
 
 def get_dbmanager(session, update_datacenter, update_request_timebounds, db_bufsize):
