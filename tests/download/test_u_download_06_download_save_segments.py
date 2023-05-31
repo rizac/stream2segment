@@ -23,7 +23,8 @@ from stream2segment.download.modules.datacenters import get_datacenters_df
 from stream2segment.download.modules.channels import get_channels_df, chaid2mseedid_dict
 from stream2segment.download.modules.stationsearch import merge_events_stations
 from stream2segment.download.modules.segments import prepare_for_download, \
-    download_save_segments, DcDataselectManager, get_counts, get_max_concurrent_downloads
+    download_save_segments, DcDataselectManager, get_counts, \
+    get_max_concurrent_downloads, _get_download_groups, SEG, get_download_iterator
 from stream2segment.download.modules.utils import Authorizer
 from stream2segment.io.db.pdsql import dbquery2df, insertdf, updatedf
 from stream2segment.download.modules.utils import s2scodes
@@ -31,6 +32,7 @@ from stream2segment.download.modules.mseedlite import unpack
 from stream2segment.download.url import URLError, HTTPError, responses
 from stream2segment.resources import get_templates_fpath
 from stream2segment.io import yaml_load
+
 
 query_logger = logger = logging.getLogger("stream2segment")
 
@@ -484,8 +486,8 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         assert (db_segments_df.iloc[:3][COL] == 200).all()
         assert pd.isnull(db_segments_df.iloc[4:5][COL]).all()
         assert (db_segments_df.iloc[5:6][COL] == 200).all()
-        assert (db_segments_df.iloc[6:9][COL] == MSEEDERR_CODE).all()
-        assert (db_segments_df.iloc[9][COL] == URLERR_CODE).all()
+        assert (db_segments_df.iloc[6:9][COL] == MSEEDERR_CODE).all()  # noqa
+        assert (db_segments_df.iloc[9][COL] == URLERR_CODE).all()  # noqa
         # assert (db_segments_df.iloc[10][COL] == 500).all()
         # assert (db_segments_df.iloc[11][COL] == 413).all()
         assert (db_segments_df.iloc[-3:][COL] == -1).all()
@@ -785,7 +787,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # checking if an id is present.
         # check that the channel_ids align:
         assert (segments_df[Segment.channel_id.key].values ==
-                db_segments_df[Segment.channel_id.key].values).all()
+                db_segments_df[Segment.channel_id.key].values).all()  # noqa
         # so that we can simply do this:
         segments_df[Segment.id.key] = db_segments_df[Segment.id.key]
 
@@ -885,7 +887,6 @@ def test_get_counts():
 
 
 def test_max_downloads():
-    from stream2segment.download.modules.segments import SEG
     start = datetime.utcnow()
     end = start + timedelta(seconds=1)
     dfr = pd.DataFrame({
@@ -933,3 +934,29 @@ def test_max_downloads():
 
     assert get_max_concurrent_downloads(dfr, 1) == 1
     assert get_max_concurrent_downloads(dfr, 2) == 2
+
+
+def test_get_download_iterator():
+    dfr = pd.DataFrame({SEG.DCID: [1, 2, 1, 2, 3],
+                        SEG.REQSTART: [datetime.utcnow() +
+                                       timedelta(seconds=1) for _ in range(5)],
+                        SEG.REQEND: [datetime.utcnow() +
+                                     timedelta(seconds=1) for _ in range(5)]
+                        })
+    k = list(get_download_iterator(dfr))
+    datacenters = [_[SEG.DCID].iloc[0] for _ in k]
+    assert datacenters == [1, 2, 3, 1, 2]
+    # all dataframe have only one segment to download
+    assert all(len(_) == 1 for _ in k)
+
+    # set all dc=1 the same time stamp
+    dfr.loc[dfr[SEG.DCID] == 1, SEG.REQSTART] = datetime.utcnow()
+    dfr.loc[dfr[SEG.DCID] == 1, SEG.REQEND] = datetime.utcnow() + timedelta(seconds=1)
+    k = list(get_download_iterator(dfr))
+    datacenters = [_[SEG.DCID].iloc[0] for _ in k]
+    assert datacenters == [1, 2, 3, 2]
+    # all dataframe have only one segment to download except the dataframe of dc=1
+    # which has two:
+    assert len(k[0]) == 2
+    assert all(len(_) == 1 for _ in k[1:])
+
