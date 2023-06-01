@@ -269,8 +269,8 @@ class SEG:  # noqa
 
 
 _RETRY_CODES = {
-    # map HTTP status code with the min number of concurrent downloads
-    # allowing to retry that code. Lower values means: don't retry
+    # HTTP status codes that, if received, allow to retry the download (but only
+    # if the number of concurrent downloads is greater than the mapped int)
     429: 1,
     503: 2
 }
@@ -311,9 +311,11 @@ def download_save_segments(session, segments_df, dc_dataselect_manager,
     # it's numeric. None I don't know how it is converted (should be checked)
     # but it's for string types for numpy types, see
     # https://docs.scipy.org/doc/numpy/reference/arrays.dtypes.html#specifying-and-constructing-data-types
-    defaultvalues = {SEG.DATA: None, SEG.SRATE: np.nan, SEG.MGAP: np.nan,
-                     SEG.DATAID: None, SEG.DWLCODE: np.nan, SEG.START: pd.NaT,
-                     SEG.END: pd.NaT, SEG.DWLID: download_id}
+    defaultvalues = {
+        SEG.DATA: None, SEG.SRATE: np.nan, SEG.MGAP: np.nan,
+        SEG.DATAID: None, SEG.DWLCODE: np.nan, SEG.START: pd.NaT,
+        SEG.END: pd.NaT, SEG.DWLID: download_id
+    }
     defaultvalues_nodata = dict(defaultvalues)  # copy
     toupdate = SEG.DWLCODE in segments_df.columns
     code_not_found = s2scodes.seg_not_found
