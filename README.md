@@ -277,17 +277,19 @@ In any case, before reporting a problem remember to check first the
 - (update January 2021) On macOS (version 11.1, with Python 3.8 and 3.9):
 
   - if the installation fails with a lot of printout, and you spot a
-    "Failed building wheel for psycopg2", try to execute:
+    "Failed building wheel for psycopg2", see  
+    <!--, try to execute:
     ```
     export LIBRARY_PATH=$LIBRARY_PATH:/usr/local/opt/openssl/lib/ && pip ./installme-dev
     ```
-    (you might need to change the path of openssl below). Credits
+    (you might need to change the path of openssl below). Credits 
+    -->
     [here](https://stackoverflow.com/a/61159643/3526777) and
     [here](https://stackoverflow.com/a/39800677/3526777)
  
   - If the error message is "Failed building wheel for tables",
-    then `brew install c-blosc` and re-run `installme-dev` installation command
-    (with the `export` command above, if needed)
+    then try to install c-blosc (on macOS,  `brew install c-blosc`) <!-- and re-run `installme-dev` installation command
+    (with the `export` command above, if needed) -->
  
 
 - If you see (we experienced this while running tests, thus we can guess you should see

@@ -4,8 +4,9 @@ Created on Feb 4, 2016
 
 @author: riccardo
 """
-from datetime import datetime
+from datetime import datetime, timedelta
 import socket
+import os
 from itertools import cycle
 import logging
 from logging import StreamHandler
@@ -23,7 +24,8 @@ from stream2segment.download.modules.datacenters import get_datacenters_df
 from stream2segment.download.modules.channels import get_channels_df, chaid2mseedid_dict
 from stream2segment.download.modules.stationsearch import merge_events_stations
 from stream2segment.download.modules.segments import prepare_for_download, \
-    download_save_segments, DcDataselectManager, get_counts
+    download_save_segments, DcDataselectManager, get_counts, \
+    get_max_concurrent_downloads, _get_download_groups, SEG, get_download_iterator
 from stream2segment.download.modules.utils import Authorizer
 from stream2segment.io.db.pdsql import dbquery2df, insertdf, updatedf
 from stream2segment.download.modules.utils import s2scodes
@@ -31,6 +33,7 @@ from stream2segment.download.modules.mseedlite import unpack
 from stream2segment.download.url import URLError, HTTPError, responses
 from stream2segment.resources import get_templates_fpath
 from stream2segment.io import yaml_load
+
 
 query_logger = logger = logging.getLogger("stream2segment")
 
@@ -357,47 +360,59 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 # n2.s..c2      11          2              n2      s                c2      0.0                 2        2016-05-08 01:45:31.300 2016-05-08 01:44:31 2016-05-08 01:47:31  None  None                 1
 # n2.s..c3      12          2              n2      s                c3      0.0                 2        2016-05-08 01:45:31.300 2016-05-08 01:44:31 2016-05-08 01:47:31  None  None                 1
 
-        # self._segdata is the folder file of a "valid" 3-channel miniseed
-        # The channels are:
-        # Thus, no match will be found and all segments will be written with a None
-        # download status code
-
-        # setup urlread: first three rows: ok
-        # rows[3:6]: 413, retry them
-        # rows[6:9]: malformed_data
-        # rows[9:12] 413, retry them
-        # then retry:
-        # rows[3]: empty_data
-        # rows[4]: data_with_gaps (but seed_id should notmatch)
-        # rows[5]: data_with_gaps (seed_id should notmatch)
-        # rows[9]: URLError
-        # rows[10]: Http 500 error
-        # rows[11]: 413
-
-        # NOTE THAT THIS RELIES ON THE FACT THAT THREADS ARE EXECUTED IN THE ORDER OF THE DATAFRAME
-        # WHICH SEEMS TO BE THE CASE AS THERE IS ONE SINGLE PROCESS
+        # Mock url read and configure its return values in the list below:
         # self._seg_data[:2] is a way to mock data corrupted
-        urlread_sideeffect = [self._seg_data, 413, self._seg_data[:2], 413,
-                              '', self._seg_data_gaps, self._seg_data_gaps,
-                              URLError("++urlerror++"), 500, 413]
+        # self.data_gaps has data for the miniSEED BAKI.BHZ only
+        urlread_sideeffect = [self._seg_data, 429, self._seg_data[:2], 429,
+                              self._seg_data_gaps, URLError("++urlerror++")]
+
+        # With the mocked url read above we are about to perform 6 downloads:
+        #
+        # 1st download. Result (1 row per requested segment):
+        #  channel_id  event_id  download_code
+        #           1         1          200.0
+        #           2         1          200.0
+        #           3         1          200.0
+        #
+        # 2nd download is 429, retry later as 5th attempt, which returns
+        # self._seg_data_gaps (see urlread_sideeffect). Result (1 row per requested
+        # segment):
+        #  channel_id  event_id  download_code
+        #           7         1            NaN
+        #           8         1            NaN
+        #           9         1          200.0
+        #
+        # 3rd download returns self._seg_data[:2], which is a workaround to return
+        # malformed miniSEED (code -2). Result (1 row per requested segment):
+        #  channel_id  event_id  download_code
+        #           4         2             -2
+        #           5         2             -2
+        #           6         2             -2
+        #
+        # 4th download is 429, retry later as 6th attempt, which return an URLError
+        # (code -1). Result (1 row per requested segment):
+        #  channel_id  event_id  download_code
+        #          10         2             -1
+        #          11         2             -1
+        #          12         2             -1
+
         # Let's go:
         ztatz = self.download_save_segments(urlread_sideeffect, db.session, segments_df,
                                             dc_dataselect_manager,
                                             chaid2mseedid,
                                             self.run.id, False,
                                             request_timebounds_need_update,
-                                            1, 2, 3, db_bufsize=self.db_buf_size)
+                                            None, 2, 3, db_bufsize=self.db_buf_size)
         # get columns from db which we are interested on to check
         cols = [Segment.id, Segment.channel_id, Segment.datacenter_id,
-                Segment.download_code, Segment.maxgap_numsamples, \
+                Segment.download_code, Segment.maxgap_numsamples,
                 Segment.sample_rate, Segment.data_seed_id, Segment.data, Segment.download_id,
                 Segment.request_start, Segment.request_end, Segment.start_time, Segment.end_time
                 ]
         db_segments_df = dbquery2df(db.session.query(*cols))
         assert Segment.download_id.key in db_segments_df.columns
 
-        # change data column otherwise we cannot display db_segments_df.
-        # When there is data just print "data"
+        # change mSEEd data, when present, to b'data' (so that comparison is easier):
         db_segments_df.loc[(~pd.isnull(db_segments_df[Segment.data.key])) &
                            (db_segments_df[Segment.data.key].str.len() > 0),
                            Segment.data.key] = b'data'
@@ -433,7 +448,8 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         assert mock_updatedf.call_count == 0
 
         dsc = db_segments_df[Segment.download_code.key]
-        exp_dsc = np.array([200, 200, 200, 200, np.nan, 200, -2, -2, -2, -1, 500, 413])
+        # exp_dsc = np.array([200, 200, 200, 200, np.nan, 200, -2, -2, -2, -1, 500, 413])
+        exp_dsc = np.array([200, 200, 200, np.nan, np.nan, 200, -2, -2, -2, -1, -1, -1])
         assert ((dsc == exp_dsc) | (np.isnan(dsc) & np.isnan(exp_dsc))).all()
         # as we have 12 segments and a buf size of self.db_buf_size(=1, but it might change in the
         # future), this below is two
@@ -457,7 +473,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # assert data is consistent
         COL = Segment.data.key
         assert (db_segments_df.iloc[:3][COL] == b'data').all()
-        assert (db_segments_df.iloc[3:4][COL] == b'').all()
+        # assert (db_segments_df.iloc[3:4][COL] == b'').all()
         assert pd.isnull(db_segments_df.iloc[4:5][COL]).all()
         assert (db_segments_df.iloc[5:6][COL] == b'data').all()
         assert pd.isnull(db_segments_df.iloc[6:][COL]).all()
@@ -467,13 +483,15 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 
         # also this asserts that we grouped for dc starttime endtime
         COL = Segment.download_code.key
-        assert (db_segments_df.iloc[:4][COL] == 200).all()
+        # assert (db_segments_df.iloc[:4][COL] == 200).all()
+        assert (db_segments_df.iloc[:3][COL] == 200).all()
         assert pd.isnull(db_segments_df.iloc[4:5][COL]).all()
         assert (db_segments_df.iloc[5:6][COL] == 200).all()
-        assert (db_segments_df.iloc[6:9][COL] == MSEEDERR_CODE).all()
-        assert (db_segments_df.iloc[9][COL] == URLERR_CODE).all()
-        assert (db_segments_df.iloc[10][COL] == 500).all()
-        assert (db_segments_df.iloc[11][COL] == 413).all()
+        assert (db_segments_df.iloc[6:9][COL] == MSEEDERR_CODE).all()  # noqa
+        assert (db_segments_df.iloc[9][COL] == URLERR_CODE).all()  # noqa
+        # assert (db_segments_df.iloc[10][COL] == 500).all()
+        # assert (db_segments_df.iloc[11][COL] == 413).all()
+        assert (db_segments_df.iloc[-3:][COL] == -1).all()
 
         # assert gaps are only in the given position
         COL = Segment.maxgap_numsamples.key
@@ -622,8 +640,6 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 
         assert len(pd.unique(segments_df['arrival_time'])) == 2
 
-        h = 9
-
 # segments_df (index not shown). Note that
 # cid sid did n   s    l  c    ed   event_id          depth_km                time  <- LAST TWO ARE Event related columns that will be removed after arrival_time calculations
 # 1   1   1   GE  FLT1    HHE  0.0  20160508_0000129  60.0 2016-05-08 05:17:11.500
@@ -680,36 +696,52 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 # n2.s..c2      11          2              n2      s                c2      0.0                 2        2016-05-08 01:45:31.300 2016-05-08 01:44:31 2016-05-08 01:47:31  None  None                 1
 # n2.s..c3      12          2              n2      s                c3      0.0                 2        2016-05-08 01:45:31.300 2016-05-08 01:44:31 2016-05-08 01:47:31  None  None                 1
 
-        # self._segdata is the folder file of a "valid" 3-channel miniseed
-        # The channels are:
-        # Thus, no match will be found and all segments will be written with a None
-        # download status code
-
-        # setup urlread: first three rows: ok
-        # rows[3:6]: 413, retry them
-        # rows[6:9]: malformed_data
-        # rows[9:12] 413, retry them
-        # then retry:
-        # rows[3]: empty_data
-        # rows[4]: data_with_gaps (but seed_id should notmatch)
-        # rows[5]: data_with_gaps (seed_id should notmatch)
-        # rows[9]: URLError
-        # rows[10]: Http 500 error
-        # rows[11]: 413
-
-        # NOTE THAT THIS RELIES ON THE FACT THAT THREADS ARE EXECUTED IN THE ORDER OF THE DATAFRAME
-        # WHICH SEEMS TO BE THE CASE AS THERE IS ONE SINGLE PROCESS
+        # Mock url read and configure its return values in the list below:
         # self._seg_data[:2] is a way to mock data corrupted
-        urlread_sideeffect = [self._seg_data, 413, self._seg_data[:2], 413,
-                              '', self._seg_data_gaps, self._seg_data_gaps,
-                              URLError("++urlerror++"), 500, 413]
+        # self.data_gaps has data for the miniSEED BAKI.BHZ only
+        urlread_sideeffect = [self._seg_data, 429, self._seg_data[:2], 429,
+                              self._seg_data_gaps, 429]
+
+        # With the mocked url read above we are about to perform 6 downloads:
+        #
+        # 1st download. Result (1 row per requested segment): -204 means: out of bounds
+        #  channel_id  event_id  download_code
+        #           1         1          -204.0
+        #           2         1          -204.0
+        #           3         1          -204.0
+        #
+        # 2nd download is 429, retry later as 5th attempt, which returns
+        # self._seg_data_gaps (see urlread_sideeffect). Result (1 row per requested
+        # segment. -204 means: segment out of bounds):
+        #  channel_id  event_id  download_code
+        #           7         1            NaN
+        #           8         1            NaN
+        #           9         1         -204.0
+        #
+        # 3rd download returns self._seg_data[:2], which is a workaround to return
+        # malformed miniSEED (code -2). Result (1 row per requested segment):
+        #  channel_id  event_id  download_code
+        #           4         2             -2
+        #           5         2             -2
+        #           6         2             -2
+        #
+        # 4th download is 429, retry later as 6th attempt, which return another 429,
+        # retry as 7th attempt, return urlread_sideeffect item 0 (mock urlread resume
+        # form the 2st item in a cycle). Item 0 has data but does not correspond to the
+        # channel, so all items are null/nan (segment not found in data).
+        # Result (1 row per requested segment):
+        #  channel_id  event_id  download_code
+        #          10         2            nan
+        #          11         2            nan
+        #          12         2            nan
+
         # Let's go:
         ztatz = self.download_save_segments(urlread_sideeffect, db.session, segments_df,
                                             dc_dataselect_manager,
                                             chaid2mseedid,
                                             self.run.id, False,
                                             request_timebounds_need_update,
-                                            1, 2, 3, db_bufsize=self.db_buf_size)
+                                            None, 2, 3, db_bufsize=self.db_buf_size)
         # get columns from db which we are interested on to check
         cols = [Segment.id, Segment.channel_id, Segment.datacenter_id,
                 Segment.download_code, Segment.maxgap_numsamples,
@@ -756,7 +788,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # checking if an id is present.
         # check that the channel_ids align:
         assert (segments_df[Segment.channel_id.key].values ==
-                db_segments_df[Segment.channel_id.key].values).all()
+                db_segments_df[Segment.channel_id.key].values).all()  # noqa
         # so that we can simply do this:
         segments_df[Segment.id.key] = db_segments_df[Segment.id.key]
 
@@ -822,7 +854,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 
 
 def test_get_counts():
-    '''tests get_counts in segments.py'''
+    """test get_counts in segments.py"""
     dframe = pd.DataFrame([
         {'a': 1.1},
         {'a': 1.1},
@@ -853,3 +885,80 @@ def test_get_counts():
     assert d[1.1] == 2
     assert d[5] == 1
     assert len(d) == 2
+
+
+def test_max_downloads():
+    max_cc_dw = min(32, os.cpu_count() + 4)
+    start = datetime.utcnow()
+    end = start + timedelta(seconds=1)
+    dfr = pd.DataFrame({
+        SEG.REQSTART: [start] * 6,
+        SEG.REQEND: [end] * 6,
+        SEG.DCID: [1, 2, 3, 1, 2, 3]
+    })
+    assert get_max_concurrent_downloads(dfr) == min(6, max_cc_dw)
+
+    dfr = pd.DataFrame({
+        SEG.REQSTART: [start] * 6 + [start] * 5,
+        SEG.REQEND: [end] * 6 + [end] * 5,
+        SEG.DCID: [1, 2, 3, 1, 2, 3] + [5, 6, 7, 8, 9]
+    })
+    assert get_max_concurrent_downloads(dfr) == min(16, max_cc_dw)
+
+    for x in range(1, 7):
+        dfr = pd.DataFrame({
+            SEG.REQSTART: [start + timedelta(_) for _ in range(x)] + [start] * 5,
+            SEG.REQEND: [end + timedelta(_) for _ in range(x)] + [end] * 5,
+            SEG.DCID: [1] * x + [5, 6, 7, 8, 9]
+        })
+        assert get_max_concurrent_downloads(dfr) == min(12 if x == 1 else 2, max_cc_dw)
+
+    dfr = pd.DataFrame({
+        SEG.REQSTART: [start + timedelta(_) for _ in range(9)],
+        SEG.REQEND: [end + timedelta(_) for _ in range(9)],
+        SEG.DCID: [1] * 4 + [5, 5, 7, 8, 9]
+    })
+    assert get_max_concurrent_downloads(dfr) == min(2, max_cc_dw)
+
+    dfr = pd.DataFrame({
+        SEG.REQSTART: [start + timedelta(_) for _ in range(8)],
+        SEG.REQEND: [end + timedelta(_) for _ in range(8)],
+        SEG.DCID: [1] * 3 + [5, 5, 7, 8, 9]
+    })
+    assert get_max_concurrent_downloads(dfr) == min(4, max_cc_dw)
+
+    dfr = pd.DataFrame({
+        SEG.REQSTART: [start + timedelta(_) for _ in range(1800)],
+        SEG.REQEND: [end + timedelta(_) for _ in range(1800)],
+        SEG.DCID: [1] * 599 + [5] * 600 + [6] * 601
+    })
+    assert get_max_concurrent_downloads(dfr) == min(6, max_cc_dw)
+
+    assert get_max_concurrent_downloads(dfr, 1) == min(1, max_cc_dw)
+    assert get_max_concurrent_downloads(dfr, 2) == min(2, max_cc_dw)
+
+
+def test_get_download_iterator():
+    dfr = pd.DataFrame({SEG.DCID: [1, 2, 1, 2, 3],
+                        SEG.REQSTART: [datetime.utcnow() +
+                                       timedelta(seconds=1) for _ in range(5)],
+                        SEG.REQEND: [datetime.utcnow() +
+                                     timedelta(seconds=1) for _ in range(5)]
+                        })
+    k = list(get_download_iterator(dfr))
+    datacenters = [_[SEG.DCID].iloc[0] for _ in k]
+    assert datacenters == [1, 2, 3, 1, 2]
+    # all dataframe have only one segment to download
+    assert all(len(_) == 1 for _ in k)
+
+    # set all dc=1 the same time stamp
+    dfr.loc[dfr[SEG.DCID] == 1, SEG.REQSTART] = datetime.utcnow()
+    dfr.loc[dfr[SEG.DCID] == 1, SEG.REQEND] = datetime.utcnow() + timedelta(seconds=1)
+    k = list(get_download_iterator(dfr))
+    datacenters = [_[SEG.DCID].iloc[0] for _ in k]
+    assert datacenters == [1, 2, 3, 2]
+    # all dataframe have only one segment to download except the dataframe of dc=1
+    # which has two:
+    assert len(k[0]) == 2
+    assert all(len(_) == 1 for _ in k[1:])
+
