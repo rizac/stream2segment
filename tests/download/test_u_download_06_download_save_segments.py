@@ -6,6 +6,7 @@ Created on Feb 4, 2016
 """
 from datetime import datetime, timedelta
 import socket
+import os
 from itertools import cycle
 import logging
 from logging import StreamHandler
@@ -887,6 +888,7 @@ def test_get_counts():
 
 
 def test_max_downloads():
+    max_cc_dw = min(32, os.cpu_count() + 4)
     start = datetime.utcnow()
     end = start + timedelta(seconds=1)
     dfr = pd.DataFrame({
@@ -894,14 +896,14 @@ def test_max_downloads():
         SEG.REQEND: [end] * 6,
         SEG.DCID: [1, 2, 3, 1, 2, 3]
     })
-    assert get_max_concurrent_downloads(dfr) == 6
+    assert get_max_concurrent_downloads(dfr) == min(6, max_cc_dw)
 
     dfr = pd.DataFrame({
         SEG.REQSTART: [start] * 6 + [start] * 5,
         SEG.REQEND: [end] * 6 + [end] * 5,
         SEG.DCID: [1, 2, 3, 1, 2, 3] + [5, 6, 7, 8, 9]
     })
-    assert get_max_concurrent_downloads(dfr) == 16
+    assert get_max_concurrent_downloads(dfr) == min(16, max_cc_dw)
 
     for x in range(1, 7):
         dfr = pd.DataFrame({
@@ -909,31 +911,31 @@ def test_max_downloads():
             SEG.REQEND: [end + timedelta(_) for _ in range(x)] + [end] * 5,
             SEG.DCID: [1] * x + [5, 6, 7, 8, 9]
         })
-        assert get_max_concurrent_downloads(dfr) == 12 if x == 1 else 2
+        assert get_max_concurrent_downloads(dfr) == min(12 if x == 1 else 2, max_cc_dw)
 
     dfr = pd.DataFrame({
         SEG.REQSTART: [start + timedelta(_) for _ in range(9)],
         SEG.REQEND: [end + timedelta(_) for _ in range(9)],
         SEG.DCID: [1] * 4 + [5, 5, 7, 8, 9]
     })
-    assert get_max_concurrent_downloads(dfr) == 2
+    assert get_max_concurrent_downloads(dfr) == min(2, max_cc_dw)
 
     dfr = pd.DataFrame({
         SEG.REQSTART: [start + timedelta(_) for _ in range(8)],
         SEG.REQEND: [end + timedelta(_) for _ in range(8)],
         SEG.DCID: [1] * 3 + [5, 5, 7, 8, 9]
     })
-    assert get_max_concurrent_downloads(dfr) == 4
+    assert get_max_concurrent_downloads(dfr) == min(4, max_cc_dw)
 
     dfr = pd.DataFrame({
         SEG.REQSTART: [start + timedelta(_) for _ in range(1800)],
         SEG.REQEND: [end + timedelta(_) for _ in range(1800)],
         SEG.DCID: [1] * 599 + [5] * 600 + [6] * 601
     })
-    assert get_max_concurrent_downloads(dfr) == 6
+    assert get_max_concurrent_downloads(dfr) == min(6, max_cc_dw)
 
-    assert get_max_concurrent_downloads(dfr, 1) == 1
-    assert get_max_concurrent_downloads(dfr, 2) == 2
+    assert get_max_concurrent_downloads(dfr, 1) == min(1, max_cc_dw)
+    assert get_max_concurrent_downloads(dfr, 2) == min(2, max_cc_dw)
 
 
 def test_get_download_iterator():
