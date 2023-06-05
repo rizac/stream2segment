@@ -74,8 +74,8 @@ In a nutshell:
       on computers with at least **16GB** of RAM.
 
     > **Note**  massive downloads are time-consuming operations where it is likely to miss
-      some data due to any kind of temporary connection problems. Consequently, it is advised
-      to perform the same massive download at least twice with the same configuration 
+      some data due to any kind of temporary connection problems. Consequently, **it is advisable
+      to perform the same massive download at least twice with the same configuration**  
       (subsequent runs will be faster as data will not be re-downloaded unnecessarily)
 
  2. **A Jupyter notebook tutorial with examples for processing downloaded data**,
