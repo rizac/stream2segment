@@ -17,9 +17,9 @@ metadata. The main advantages of this approach are:
   been downloaded in order to customize and improve further downloads
 
 * **Simple Python objects representing stored data and relationships**, easy 
-  to work with in any kind of custom code. For instance, a segment is 
-  represented by a `Segment` object with its data, metadata and related objects 
-  easily accessible through its attributes, e.g., `segment.stream()`, 
+  to work with in any kind of custom code accessing the database. For instance, a 
+  segment is represented by a `Segment` object with its data, metadata and related 
+  objects easily accessible through its attributes, e.g., `segment.stream()`, 
   `segment.maxgap_numsamples`, `segment.event.magnitude`, 
   `segment.station.network`, `segment.channel.orientation_code` and so on.
   
@@ -71,7 +71,12 @@ In a nutshell:
       must be input in the config file. The supported database types are SQLite 
       and Postgres: for massive downloads (as a rule of thumb: &ge; 1 million segments)
       we suggest to use Postgres. In any case, we **strongly** suggest running the program 
-      on computers with at least **16GB** of RAM
+      on computers with at least **16GB** of RAM.
+
+    > **Note**  massive downloads are time-consuming operations where it is likely to miss
+      some data due to any kind of temporary connection problems. Consequently, it is advised
+      to perform the same massive download at least twice with the same configuration 
+      (subsequent runs will be faster as data will not be re-downloaded unnecessarily)
 
  2. **A Jupyter notebook tutorial with examples for processing downloaded data**,
     for user who prefer this approach instead of the processing module described
