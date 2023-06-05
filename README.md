@@ -17,9 +17,9 @@ metadata. The main advantages of this approach are:
   been downloaded in order to customize and improve further downloads
 
 * **Simple Python objects representing stored data and relationships**, easy 
-  to work with in any kind of custom code. For instance, a segment is 
-  represented by a `Segment` object with its data, metadata and related objects 
-  easily accessible through its attributes, e.g., `segment.stream()`, 
+  to work with in any kind of custom code accessing the database. For instance, a 
+  segment is represented by a `Segment` object with its data, metadata and related 
+  objects easily accessible through its attributes, e.g., `segment.stream()`, 
   `segment.maxgap_numsamples`, `segment.event.magnitude`, 
   `segment.station.network`, `segment.channel.orientation_code` and so on.
   
@@ -71,33 +71,35 @@ In a nutshell:
       must be input in the config file. The supported database types are SQLite 
       and Postgres: for massive downloads (as a rule of thumb: &ge; 1 million segments)
       we suggest to use Postgres. In any case, we **strongly** suggest running the program 
-      on computers with at least **16GB** of RAM
+      on computers with at least **16GB** of RAM.
+
+    > **Note**  massive downloads are time-consuming operations where it is likely to miss
+      some data due to any kind of temporary connection problems. Consequently, **it is advisable
+      to perform the same massive download at least twice with the same configuration**  
+      (subsequent runs will be faster as data will not be re-downloaded unnecessarily)
 
  2. **A Jupyter notebook tutorial with examples for processing downloaded data**,
     for user who prefer this approach instead of the processing module described
     below (online version **[here](https://github.com/rizac/stream2segment/wiki/Using-Stream2segment-in-your-Python-code)**)
 
- 3. **Two Python modules (with relative configuration in YAML syntax)** illustrating how
-    to:
+ 3. **Two Python modules** (with relative configuration in YAML syntax):
  
-    1. process downloaded data and produce a tabular output (CSV, HDF) by executing the module as script (see code block after `if __name__ == "__main__"` in the module):
+    1. `paramtable.py`: process downloaded data and produce a tabular output (CSV, HDF) by executing the 
+       module as script (see code block after `if __name__ == "__main__"` in the module for details):
        ```console
-       python paramtable.py
+       python paramtable.py ...
        ```
          
-    2. visualize downloaded data in the user browser via the plots defined in the module:
+    2. `gui.py`: visualize downloaded data in the user browser via the plots defined in the module:
        ```console
-       s2s show -d download.yaml -p gui.py
+       s2s show -d download.yaml -p gui.py -c gui.yaml ...
        ```
        (Type `s2s show --help` for details)
-    
-    Both modules can be copied and edited to produce custom output or visualize custom plots.
-    
-    > Notes: the use of a YAML file is not mandatory but tries to enforce the good practice of
-      separating options or settings (e.g. select the segment of interest)
-      and the actual Python code performing the operations. This way you can experiment the same code 
-      with several settings by only creating different YAML files
 
+    > **Note**: the associated YAML files (`paramtable.yaml`, `gui.yaml`) are not 
+      mandatory but enforce the good practice of separating configuration settings (YAML)
+      and the actual Python code. This way you can experiment 
+      the same code with several settings by only creating different YAML files
 
 
 ## Installation

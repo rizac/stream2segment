@@ -197,8 +197,8 @@ timespan:
 # organization emitting them (thus there must be only one item in `data_url`) and second,
 # credentials might have an expiration time (e.g., roughly few hours for EIDA tokens).
 # Thus, try narrowing the search: e.g., shorter time bounds, network(s) or station(s) of
-# interest only. Have a look also at `max_concurrent_downloads` in `advanced_settings` as
-# in this case you might want to improve download efficiency over execution speed.
+# interest only (for advanced users: see also at `max_concurrent_downloads` in
+# `advanced_settings`).
 # Implementation details: restricted segments previously downloaded with no credentials
 # (thus, with no waveform data) will be always re-downloaded ignoring all 'retry'
 # settings. If you need to provide username and password, remember indentation in YAML
@@ -239,14 +239,10 @@ retry_timespan_err: true
 # =====================================
 
 advanced_settings:
- # Maximum number of concurrent / simultaneous downloads allowed. The default (null) sets
- # it automatically depending on the number of CPUs (usually >= 4), whereas 1 disables
- # concurrency and downloads all data in series, i.e., sequentially. We recommend to
- # leave this parameter to null because it improves significantly the execution speed.
- # The drawback is that some waveform data might not be downloaded because servers
- # usually limit the number of concurrent requests allowed from the same source. This
- # might be a problem in more targeted, less "massive" downloads, where you might need
- # to lower this parameter (e.g., 1, 2) to increase download efficiency over speed, e.g.:
+ # Maximum number of concurrent / simultaneous downloads allowed. The default (null) lets
+ # the program optimize this number depending on the computer CPU and data centers.
+ # We recommend to leave this parameter to null and set it to 1 (max 2) only in case you
+ # need to maximize download efficiency over speed, e.g.:
  # a) when fetching restricted data (see `restricted_data` parameter)
  # b) when retrying to fetch data from a specific datacenter which reported many download
  #    errors suggesting to "slow down", e.g. "Service Unavailable" (code 503) or

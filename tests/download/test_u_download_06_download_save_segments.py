@@ -6,7 +6,6 @@ Created on Feb 4, 2016
 """
 from datetime import datetime, timedelta
 import socket
-import os
 from itertools import cycle
 import logging
 from logging import StreamHandler
@@ -25,7 +24,7 @@ from stream2segment.download.modules.channels import get_channels_df, chaid2msee
 from stream2segment.download.modules.stationsearch import merge_events_stations
 from stream2segment.download.modules.segments import prepare_for_download, \
     download_save_segments, DcDataselectManager, get_counts, \
-    get_max_concurrent_downloads, _get_download_groups, SEG, get_download_iterator
+    get_preferred_max_concurrent_downloads, SEG, get_download_iterator
 from stream2segment.download.modules.utils import Authorizer
 from stream2segment.io.db.pdsql import dbquery2df, insertdf, updatedf
 from stream2segment.download.modules.utils import s2scodes
@@ -887,8 +886,8 @@ def test_get_counts():
     assert len(d) == 2
 
 
-def test_max_downloads():
-    max_cc_dw = min(32, os.cpu_count() + 4)
+def test_get_preferred_max_concurrent_downloads():
+    """test max concurrent downloads"""
     start = datetime.utcnow()
     end = start + timedelta(seconds=1)
     dfr = pd.DataFrame({
@@ -896,14 +895,14 @@ def test_max_downloads():
         SEG.REQEND: [end] * 6,
         SEG.DCID: [1, 2, 3, 1, 2, 3]
     })
-    assert get_max_concurrent_downloads(dfr) == min(6, max_cc_dw)
+    assert get_preferred_max_concurrent_downloads(dfr) == 6
 
     dfr = pd.DataFrame({
         SEG.REQSTART: [start] * 6 + [start] * 5,
         SEG.REQEND: [end] * 6 + [end] * 5,
         SEG.DCID: [1, 2, 3, 1, 2, 3] + [5, 6, 7, 8, 9]
     })
-    assert get_max_concurrent_downloads(dfr) == min(16, max_cc_dw)
+    assert get_preferred_max_concurrent_downloads(dfr) == 16
 
     for x in range(1, 7):
         dfr = pd.DataFrame({
@@ -911,31 +910,29 @@ def test_max_downloads():
             SEG.REQEND: [end + timedelta(_) for _ in range(x)] + [end] * 5,
             SEG.DCID: [1] * x + [5, 6, 7, 8, 9]
         })
-        assert get_max_concurrent_downloads(dfr) == min(12 if x == 1 else 2, max_cc_dw)
+        assert get_preferred_max_concurrent_downloads(dfr) == 12 if x == 1 else 2
 
     dfr = pd.DataFrame({
         SEG.REQSTART: [start + timedelta(_) for _ in range(9)],
         SEG.REQEND: [end + timedelta(_) for _ in range(9)],
         SEG.DCID: [1] * 4 + [5, 5, 7, 8, 9]
     })
-    assert get_max_concurrent_downloads(dfr) == min(2, max_cc_dw)
+    assert get_preferred_max_concurrent_downloads(dfr) == 2
 
     dfr = pd.DataFrame({
         SEG.REQSTART: [start + timedelta(_) for _ in range(8)],
         SEG.REQEND: [end + timedelta(_) for _ in range(8)],
-        SEG.DCID: [1] * 3 + [5, 5, 7, 8, 9]
+        SEG.DCID: [1] * 3 + [5, 5, 5, 8, 9]
     })
-    assert get_max_concurrent_downloads(dfr) == min(4, max_cc_dw)
+    assert get_preferred_max_concurrent_downloads(dfr) == 4
 
     dfr = pd.DataFrame({
         SEG.REQSTART: [start + timedelta(_) for _ in range(1800)],
         SEG.REQEND: [end + timedelta(_) for _ in range(1800)],
         SEG.DCID: [1] * 599 + [5] * 600 + [6] * 601
     })
-    assert get_max_concurrent_downloads(dfr) == min(6, max_cc_dw)
+    assert get_preferred_max_concurrent_downloads(dfr) == 6
 
-    assert get_max_concurrent_downloads(dfr, 1) == min(1, max_cc_dw)
-    assert get_max_concurrent_downloads(dfr, 2) == min(2, max_cc_dw)
 
 
 def test_get_download_iterator():

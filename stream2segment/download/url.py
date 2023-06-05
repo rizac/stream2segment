@@ -7,6 +7,7 @@ Http requests with multi-threading
 """
 import threading
 import socket
+import os
 from multiprocessing.pool import ThreadPool
 
 from urllib.parse import urlparse, urlencode
@@ -182,7 +183,7 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024, dec
         opener = openers(obj) if openers is not None else None
         return (obj, url) + urlread(url, blocksize, decode, timeout, opener, **kwargs)
 
-    tpool = ThreadPool(max_workers)
+    tpool = ThreadPool(adjust_max_concurrent_downloads(max_workers))
     threadpoolmap = tpool.imap_unordered if unordered else tpool.imap
     # note above: chunksize argument for threads (not processes)
     # seems to slow down download. Omit the argument and leave chunksize=1 (default)
@@ -202,6 +203,22 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024, dec
         raise
 
     tpool.close()
+
+
+def adjust_max_concurrent_downloads(preferred_max_concurrent_downloads=None):
+    """Return the maximum number of concurrent downloads adjusting the argument
+    in order not to exceed the computer CPU
+
+    :param preferred_max_concurrent_downloads: int denoting the preferred
+        number of concurrent downloads. <=0 or None means: no preferred number, infer
+        and return the max number of concurrent downloads from the computer CPU
+    """
+    # Now adjust with the computer capacity (we use the algorithm here:
+    # https://docs.python.org/3/library/concurrent.futures.html#concurrent.futures.ThreadPoolExecutor
+    os_max_concurrent_downloads = min(32, os.cpu_count() + 4)
+    if not preferred_max_concurrent_downloads or preferred_max_concurrent_downloads < 0:
+        return os_max_concurrent_downloads
+    return min(os_max_concurrent_downloads, preferred_max_concurrent_downloads)
 
 
 def _ismainthread():

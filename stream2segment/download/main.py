@@ -14,7 +14,6 @@ import psutil
 from stream2segment.download.log import configlog4download, DbStreamHandler
 from stream2segment.io.log import logfilepath, close_logger, elapsed_time
 from stream2segment.io import yaml_safe_dump
-from stream2segment.io.db.pdsql import dbquery2df
 from stream2segment.io.db import secure_dburl, close_session
 from stream2segment.download.inputvalidation import load_config_for_download, pop_param
 from stream2segment.download.db.models import Download
@@ -23,10 +22,11 @@ from stream2segment.download.modules.events import get_events_df
 from stream2segment.download.modules.datacenters import get_datacenters_df
 from stream2segment.download.modules.channels import get_channels_df, chaid2mseedid_dict
 from stream2segment.download.modules.stationsearch import merge_events_stations
-from stream2segment.download.modules.segments import prepare_for_download,\
-    download_save_segments, DcDataselectManager
-from stream2segment.download.modules.stations import (save_inventories,
-                                                      query4inventorydownload)
+from stream2segment.download.modules.segments import (prepare_for_download,
+                                                      download_save_segments,
+                                                      DcDataselectManager)
+from stream2segment.download.modules.stations import \
+    (save_inventories, get_station_df_for_inventory_download)
 
 
 # make the logger refer to the parent of this package (`rfind` below. For info:
@@ -345,9 +345,10 @@ def _run(session, download_id, events_url, starttime, endtime, data_url,
 
             # query station id, network station, datacenter_url
             # for those stations with empty inventory_xml
-            # AND at least one segment non empty/null
+            # AND at least one segment non-empty/null
             # Download inventories for those stations only
-            sta_df = dbquery2df(query4inventorydownload(session, update_metadata))
+            sta_df = get_station_df_for_inventory_download(session, update_metadata)
+
             if sta_df.empty:
                 stepinfo("Skipping: No station inventory to download")
             else:

@@ -18,11 +18,12 @@ from urllib.request import Request
 import pandas as pd
 
 from stream2segment.io.cli import get_progressbar
-from stream2segment.io.db.pdsql import DbManager
+from stream2segment.io.db.pdsql import DbManager, dbquery2df
 from stream2segment.download.db.models import DataCenter, Station, Segment
 from stream2segment.download.url import get_host, read_async
 from stream2segment.download.modules.utils import (DbExcLogger, formatmsg,
-                                                   url2str, err2str)
+                                                   url2str, err2str,
+                                                   get_max_concurrent_downloads)
 
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
@@ -54,6 +55,57 @@ def _get_sta_request(datacenter_url, network, station, start_time, end_time):
                    encode('utf8'))
 
 
+def get_station_df_for_inventory_download(session, update_metadata):
+    """
+    Return a Pandas DataFrame with all station information required to download
+    the necessary StationXML from the data stored in the DB mapped by the
+    given session object. See `save_inventories`
+
+    :param session: an SQLAlchemy session object
+    :param update_metadata: boolean, if True an element E of the returned list is
+        a tuple representing any station which has at least one segment with
+        data. If False, each E represents a station which has at least one
+        segment with data, AND does not have an inventory saved yet
+    :return:  a DataFrame that can be used to download inventories needed by the DB
+        underlying the given session, with columns:
+         (Station.id, Station.network, Station.station, DataCenter.station_url,
+        Station.start_time, Station.end_time)
+    """
+    sta_df = dbquery2df(_query4inventorydownload(session, update_metadata))
+    # set 'station_url' as categorical (might save some space):
+    sta_url_key = DataCenter.station_url.key
+    sta_df[sta_url_key] = sta_df[sta_url_key].astype('category')
+    # set rows to create alternate sequences of data centers, to minimize the risk
+    # to overload a single data center with many consecutive requests (but only if
+    # we have more than one data center):
+    if len(sta_df[sta_url_key].dtype.categories.values) > 1:
+        # https://stackoverflow.com/a/55942321:
+        tmp_col = '_._rank_._'
+        sta_df[tmp_col] = sta_df.groupby(sta_url_key).cumcount()
+        sta_df.sort_values([tmp_col], inplace=True)
+        sta_df.drop(columns=[tmp_col], inplace=True)
+    return sta_df
+
+
+def _query4inventorydownload(session, force_update):
+    """Return an sql-alchemy Query yielding the stations for downloading their
+    inventory xml. Each station is returned as tuple (denoting the station requested
+    values).
+    See `get_station_df_for_inventory_download` for details
+    """
+    qry = session.query(Station.id, Station.network, Station.station,
+                        DataCenter.station_url, Station.start_time,
+                        Station.end_time).join(Station.datacenter)
+
+    if force_update:
+        qry = qry.filter(Station.segments.any(Segment.has_data))  # noqa
+    else:
+        qry = qry.filter((~Station.has_inventory) &  # noqa
+                         (Station.segments.any(Segment.has_data)))  # @noqa
+
+    return qry
+
+
 def save_inventories(session, stations_df, max_thread_workers, timeout,
                      download_blocksize, db_bufsize, show_progress=False):
     """Save inventories. stations_df must not be empty (not checked here)"""
@@ -72,6 +124,10 @@ def save_inventories(session, stations_df, max_thread_workers, timeout,
                           onupdate_err_callback=db_exc_logger.failed_update)
 
     with get_progressbar(show_progress, length=len(stations_df)) as pbar:
+
+        if max_thread_workers is None:
+            n_downloads = stations_df.groupby(DataCenter.station_url.key).size().values
+            max_thread_workers = get_max_concurrent_downloads(n_downloads)
 
         iterable = zip(stations_df[Station.id.key],
                        stations_df[DataCenter.station_url.key],
@@ -144,35 +200,6 @@ def compress(bytestr, compression='gzip', compresslevel=9):
         return sio.getvalue()
 
     return bytestr
-
-
-def query4inventorydownload(session, force_update):
-    """Return an sql-alchemy Query yielding the stations for downloading their
-    inventory xml. The query is a list of tuples
-    (station_id, network, station, station_url)
-
-    :param session: the sql-alchemy session
-    :param force_update: boolean, if True an element E of the returned list is
-        a tuple representing any station which has at least one segment with
-        data. If False, each E represents a station which has at least one
-        segment with data, AND does not have an inventory saved yet
-    :return: a query yielding the tuples:
-        ```
-        (Station.id, Station.network, Station.station, DataCenter.station_url,
-        Station.start_time, Station.end_time)
-        ```
-    """
-    qry = session.query(Station.id, Station.network, Station.station,
-                        DataCenter.station_url, Station.start_time,
-                        Station.end_time).join(Station.datacenter)
-
-    if force_update:
-        qry = qry.filter(Station.segments.any(Segment.has_data))  # noqa
-    else:
-        qry = qry.filter((~Station.has_inventory) &  # noqa
-                         (Station.segments.any(Segment.has_data)))  # @noqa
-
-    return qry
 
 
 class InventoryLogger(set):

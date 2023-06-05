@@ -20,7 +20,8 @@ from stream2segment.download.modules.stationsearch import \
 from stream2segment.download.modules.datacenters import EidaValidator
 from stream2segment.download.modules.utils import (s2scodes, DownloadStats,
                                                    HTTPCodesCounter, logwarn_dataframe,
-                                                   strconvert, strptime)
+                                                   strconvert, strptime,
+                                                   get_max_concurrent_downloads)
 
 
 @pytest.mark.skip(reason="Test failing in remote CI, not locally on macOS. Need to "
@@ -651,33 +652,6 @@ http:wrong
         expected = set() if expected is None else set(expected)
         assert eidavalidator.get_dc_ids(*k) == expected
 
-# (any, ['A','D','C','B'])   ['A', 'B', 'C', 'D']  # note result is sorted
-#     (any, 'B,C,D,A')          ['A', 'B', 'C', 'D']  # same as above
-#     (any, 'A*, B??, C*')      ['A*', 'B??', 'C*']  # fdsn wildcards accepted
-#     (any, '!A*, B??, C*')     ['!A*', 'B??', 'C*']  # we support negations: !A* means "not A*"
-#     (any, ' A, B ')           ['A', 'B']  # leading and trailing spaces ignored
-#     (any, '*')                []  # if any chunk is '*', then [] (=match all) is returned
-#     (any, [])                 []  # same as above
-#     (any, '  ')               ['']  # this means: match the empty string
-#     (2, "--")                 ['']  # for locations (index=2), "--" means empty (fdsn spec.)
-#     (1, "--")                 ["--"]  # for others (index = 0,1,3), "--" is what it is
-#     (any, "!")                ['!']  # match any non empty string
-#     (any, "!*")               this raises (you cannot specify "discard all")
-#     (any, "!H*, H*")          this raises (it's a paradox)
-
-
-# def test_to_fdsn_arg():
-#
-#     val = ['A', 'B']
-#     assert to_fdsn_arg(val) == 'A,B'
-#
-#     val = ['!A', 'B']
-#     assert to_fdsn_arg(val) == 'B'
-#
-#     val = ['!A', 'B  ']
-#     assert to_fdsn_arg(val) == 'B  '
-
-
 
 def test_logwarn_dataframe_columns_none():
     """Simple test asserting there are no exceptions. FIXES problems
@@ -689,3 +663,12 @@ def test_logwarn_dataframe_columns_none():
     logwarn_dataframe(dfr, 'a message', max_row_count=45)
     logwarn_dataframe(dfr, 'a message', max_row_count=1)
 
+
+def test_get_max_concurrent_downloads():
+    assert get_max_concurrent_downloads([]) == 2 * 1
+    assert get_max_concurrent_downloads([0]) == 2 * 1
+    assert get_max_concurrent_downloads([11]) == 2 * 1
+    assert get_max_concurrent_downloads([17, 5, 1]) == 2 * 1
+    assert get_max_concurrent_downloads([1, 1, 1]) == 2 * 3
+    assert get_max_concurrent_downloads([5, 5, 5]) == 2 * 3
+    assert get_max_concurrent_downloads([17, 15, 1]) == 2 * 2

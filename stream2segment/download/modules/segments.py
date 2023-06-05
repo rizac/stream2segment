@@ -18,7 +18,10 @@ from stream2segment.io import Fdsnws
 from stream2segment.io.cli import get_progressbar
 from stream2segment.io.db.pdsql import dbquery2df, mergeupdate, DbManager
 from stream2segment.download.db.models import DataCenter, Segment
-from stream2segment.download.modules.utils import DbExcLogger, logwarn_dataframe, DownloadStats, formatmsg, s2scodes, url2str
+from stream2segment.download.modules.utils import (DbExcLogger, logwarn_dataframe,
+                                                   DownloadStats, formatmsg,
+                                                   s2scodes, url2str,
+                                                   get_max_concurrent_downloads)
 from stream2segment.download.exc import NothingToDownload
 from stream2segment.download.modules.mseedlite import MSeedError, unpack as mseedunpack
 from stream2segment.download.url import get_opener, get_host, read_async
@@ -321,7 +324,8 @@ def download_save_segments(session, segments_df, dc_dataselect_manager,
     code_not_found = s2scodes.seg_not_found
     skipped_same_code = 0
 
-    max_thread_workers = get_max_concurrent_downloads(segments_df, max_thread_workers)
+    if max_thread_workers is None:
+        max_thread_workers = get_preferred_max_concurrent_downloads(segments_df)
 
     # report seg. errors only once per error type and data center:
     seg_logger = SegmentLogger()
@@ -427,36 +431,12 @@ def get_download_iterator(segments_df):
                 yield sub_group[1]
 
 
-def get_max_concurrent_downloads(segments_df, suggested_concurrent_downloads=None):
-    """Compute and return the number of concurrent downloads to be passed to read_async,
-    inferring it from the given parameter and the number of downloads to perform
-
-    :param suggested_concurrent_downloads: None or int. If int, it will be returned,
-        if None, the number will be computed and returned
-    :param segments_df: the dataframe of segments to be downloaded
+def get_preferred_max_concurrent_downloads(segments_df):
+    """Return an int denoting the preferred maximum number of concurrent downloads
+    inferred from the given DataFrame `segments_df`
     """
-    if suggested_concurrent_downloads is not None:
-        return int(suggested_concurrent_downloads)
-
-    # Get concurrent_datacenters (min. num. of data centers for which more than 50%
-    # of the total requests are performed), and infer from it the max thread workers
-    concurrent_datacenters = 1
-    n_downloads = sorted(g.ngroups for g in _get_download_groups(segments_df))
-    for i, nd in enumerate(n_downloads):
-        if nd > n_downloads[-1] / 2:
-            concurrent_datacenters = len(n_downloads) - i
-            break
-
-    # set the thread processes. Hints found here:
-    # https://docs.python.org/3/library/concurrent.futures.html#concurrent.futures.ThreadPoolExecutor
-    import os
-    # set max allowed threads as 2 simultaneous requests per data center (after talk with
-    # GEOFON. Also, let's not overload servers too much):
-    max_concurrent_requests_per_dc = 2
-    # Now adjust with the computer capacity (we use the algorithm here:
-    # https://docs.python.org/3/library/concurrent.futures.html#concurrent.futures.ThreadPoolExecutor
-    return min(max_concurrent_requests_per_dc * concurrent_datacenters,
-               32, os.cpu_count() + 4)
+    n_downloads = (g.ngroups for g in _get_download_groups(segments_df))
+    return get_max_concurrent_downloads(n_downloads)
 
 
 def _get_download_groups(segments_df):
