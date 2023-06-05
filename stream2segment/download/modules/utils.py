@@ -18,6 +18,7 @@ from collections import OrderedDict
 from functools import cmp_to_key
 import logging
 
+import numpy as np
 from dateutil import parser as dateparser
 from dateutil.tz.tz import tzutc
 
@@ -996,6 +997,29 @@ def urljoin(*urlpath, **query_args):
     return "{}?{}".format('/'.join(url.strip('/') for url in urlpath),
                           "&".join("{}={}".format(k, v)
                                    for k, v in query_args.items()))
+
+
+def get_max_concurrent_downloads(n_downloads):
+    """Compute and return the number of concurrent downloads in a parallel download
+    execution (using e,g, ThreadPoolExecutor), inferring it from the given parameters
+    and the computer CPU.
+
+    :param n_downloads: a list/array of N integers where N denotes the
+        number of distinct domains / Data centers from which data should be downloaded,
+        and each list element is the number of downloads to be performed from the given
+        domain
+    """
+    concurrent_datacenters = 1
+    # Get concurrent_datacenters (min. num. of data centers for which at least 75%
+    # of the total requests are performed):
+    n_downloads = sorted(n_downloads)
+    if n_downloads:
+        th = .75 * n_downloads[-1]
+        concurrent_datacenters = len(n_downloads) - np.searchsorted(n_downloads, th)
+
+    # set max allowed threads as 2 simultaneous requests per data center (after talk with
+    # GEOFON. Also, let's not overload servers too much):
+    return 2 * concurrent_datacenters
 
 
 class _MemoryChecker:

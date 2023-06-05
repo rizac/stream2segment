@@ -240,7 +240,7 @@ retry_timespan_err: true
 
 advanced_settings:
  # Maximum number of concurrent / simultaneous downloads allowed. The default (null) lets
- # the program optimize this number depending on the number of CPUs and data centers.
+ # the program optimize this number depending on the computer CPU and data centers.
  # We recommend to leave this parameter to null and set it to 1 (max 2) only in case you
  # need to maximize download efficiency over speed, e.g.:
  # a) when fetching restricted data (see `restricted_data` parameter)
