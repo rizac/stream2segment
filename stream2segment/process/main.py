@@ -46,11 +46,10 @@ logger = logging.getLogger(__name__[:__name__.rfind('.')])
 def process(pyfunc, dburl, segments_selection=None, config=None, outfile=None,
             append=False, writer_options=None, logfile=False, verbose=False,
             multi_process=False, chunksize=None, skip_exceptions=None):
-    """Start a processing routine, fetching segments from the database at the
-    given URL and optionally saving the processed data into `outfile`.
-    See the doc-strings in stream2segment templates (command `s2s init`) for
-    implementing a process module and configuration (arguments `pyfile` and
-    `config`).
+    """Iteratively applies a function (`pyfunc`) to every selected segment
+    (`segments_selection`) found on the database (`dburl`), optionally saving the
+    result as a row of a tabular file (`outfile`) in CSV or
+    HDF format.
 
     :param pyfunc: the processing function, i.e. a Python function with signature
         (arguments) `(segment, config)`
@@ -63,26 +62,22 @@ def process(pyfunc, dburl, segments_selection=None, config=None, outfile=None,
             'event.magnitude': '<=6',
             'channel.channel': 'HHZ',
             'maxgap_numsamples': '(-0.5, 0.5)',
-            'has_data': 'true'
+            'has_valid_data': 'true'
         }
         ```
-        (the last two keys assure segments with no gaps, and with data.
-        'has_data': 'true' is basically a default to be provided in most cases). If None
-        or missing, it defaults to the dict `{'has_data`: True}`
-    :param config: dict. Optional argument to be passed to `pyfunc`.
-        Populate it with user-defined parameter needed in your processing function. If
-        you implemented a YAML file following the guidelines of the available templates
-        (see command `s2s init`), then you can load the config as dict and other function
-        argument via :func:`load_p_config`:
-        ```
-        config, segments_selection, multi_process, chunksize, writer_options = \
-            load_p_config(yaml_file)
-        ```
+        If None or missing, it defaults to a dict with the last two keys listed above
+    :param config: dict or str. The `dict` with user-defined parameters to tune your
+        processing function (passed as 2nd argument to `pyfunc`).
+        If `str`, it is supposed to be a path to a YAML file that will be read as
+        Python `dict`. If missing or None, it will default to `{}` (empty dict, i.e. no
+        config)
     :param outfile: str or None. The destination file where to write the
         processing output, either ".csv" or ".hdf". The type of output will be inferred
         from the file extension, and defaults to CSV when missing or unknown.
         If no output file is given, the returned values of the processing function will
-        be ignored
+        be ignored. Otherwise, `pyfunc` must either return a `dict`, `list` or
+        - for hdf output - pandas `DataFrame`. The returned value will be written as
+        row of the tabular output.
     :param append: bool (default False) ignored if the output file is not given
         or non-existing, otherwise: if False, overwrite the existing output
         file. If True, process unprocessed segments only (checking the segment
@@ -112,36 +107,28 @@ def process(pyfunc, dburl, segments_selection=None, config=None, outfile=None,
             }
         }
         ```
-    :param logfile: str or boolean (default: False). If str, it is the log file
-        path (whose directory must exist). If True, it will be inferred from the
-        output file or the Python file of the processing function, if given, by appending
-        ".[now].log" to the file path ([now] denotes the current timestamp and avoids
-        overwriting previous log files). If False, or True but no log file path can be
-        inferred, then logging is disabled.
-    :param verbose: if True (default: False) print some log information also on
-        the screen (messages of level info and critical), as well as a progress
-        bar showing the estimated remaining time. This option is set to True
-        when this function is invoked from the command line interface (`cli.py`)
-    :param multi_process: enable multi process (parallel sub-processes) to speed up
-        execution. When not boolean, this parameter can be an integer denoting the
+    :param logfile: str or boolean (default: False). The path of the file to log
+        :class:`stream2segmetn.process.SkipExeption`, when raised.
+        If True, it will be inferred from the output file or the Python file of the
+        processing function, if given, by appending ".[now].log" to the file path ([now]
+        denotes the current UTC timestamp). If False, empty string or in any case where
+        no log file path can be inferred, then logging is disabled
+    :param verbose: bool, default False. Print progress bar and estimated remaining time
+        to standard output (usually, the terminal window)
+    :param multi_process: enable multiprocessing to speed up execution.
+        When not boolean, this parameter can be an integer denoting the
         exact number of subprocesses to be allocated (only for advanced users. True is
-        fine in most cases). Please note that when multi process is activated, the
-        processing function must be pickable
+        fine in most cases). If multiprocessing is enabled `pyfunc` must be pickable
         (https://docs.python.org/3/library/pickle.html#pickle-picklable)
     :param chunksize: the size, in number of segments, of each chunk of data that will
         be loaded from the database. Increasing this number speeds up the load but also
-        increases memory consumption. None (the default) means: set size automatically
+        increases memory consumption. None (the default) will set the size automatically
     :param skip_exceptions: tuple of Python exceptions that will not interrupt the whole
         execution but will be logged to file, with the relative segment id. When missing
         or None, it defaults to :class:`stream2segmetn.process.SkipExeption`
     """
-    cfg_file = None  # we will overwrite the variable
-    if isinstance(config, str):
-        cfg_file = config
-        config = validate_param("config", config or {}, yaml_load)
-
-    pyfile = pyfunc.__name__ or 'n/a'
-    validate_param('pyfunc', pyfunc, _valid_pyfunc)
+    cfg_file = config if isinstance(config, str) else None
+    pyfile = getattr(pyfunc, "__name__", str(pyfunc))
 
     if logfile is True:
         logfile = '' if not outfile else logfilepath(outfile)  # auto create log file
@@ -162,23 +149,6 @@ def process(pyfunc, dburl, segments_selection=None, config=None, outfile=None,
                        writer_options, verbose, multi_process, chunksize, None)
 
 
-def _valid_pyfunc(pyfunc):
-    """Checks if the argument is a valid processing Python function by inspecting its
-    signature"""
-    params = inspect.signature(pyfunc).parameters  # dict[str, inspect.Parameter]
-    # less than two arguments? then function invalid:
-    if len(params) < 2:
-        raise ValueError('Python function should have 2 arguments '
-                         '`(segment, config)`, %d found' % len(params))
-    # more than 2 args? then we need to have them with a default set:
-    for pname, param in list(params.items())[2:]:
-        if param.kind not in (param.VAR_POSITIONAL, param.VAR_KEYWORD):
-            # it is not *args or **kwargs, does it have a default?
-            if not param.default == param.empty:
-                raise ValueError('Python function argument "%s" should have a '
-                                 'default, or be removed' % pname)
-
-
 def _run_and_write(pyfunc, dburl, segments_selection=None, config=None, outfile=None,
                    append=False, writer_options=None, show_progress=False,
                    multi_process=False, chunksize=None, skip_exceptions=None):
@@ -187,34 +157,24 @@ def _run_and_write(pyfunc, dburl, segments_selection=None, config=None, outfile=
 
     if config is None:
         config = {}
-    if segments_selection is None:
-        segments_selection = get_default_segments_selection()
 
-    session = validate_param("dburl", dburl, get_session)
     writer = get_writer(outfile, append, writer_options)
-    seg_ids = fetch_segments_ids(session, segments_selection, writer)
-    close_session(session)
+    seg_ids = fetch_segments_ids(dburl, segments_selection, writer)
 
     written = 0
-
+    write2file = not writer.isbasewriter
     with writer:
         for output, segment_id in \
                 run_and_yield(dburl, seg_ids, pyfunc, config, show_progress,
                               multi_process, chunksize, skip_exceptions):
-            if not writer.isbasewriter and output is not None:
+            if write2file and output is not None:
                 writer.write(segment_id, output)
                 written += 1
 
-    logger.info("%d of %d segment(s) successfully written to the provided output",
-                written, len(seg_ids))
+    if write2file:
+        logger.info("%d of %d segment(s) successfully written to the provided output",
+                    written, len(seg_ids))
 
-
-def get_default_segments_selection():
-    """Return a dict with a default segments selection for processing"""
-    return {
-        'has_valid_data': 'true',
-        'maxgap_numsamples': '[-0.5, 0.5]'
-    }
 
 def _valid_filewritable(filepath):
     """Check that the file is writable, i.e. that is a string and its
@@ -231,52 +191,52 @@ def _valid_filewritable(filepath):
 def imap(pyfunc, dburl, segments_selection=None, config=None,
          logfile='', verbose=False, multi_process=False, chunksize=None,
          skip_exceptions=None):
-    """Return an iterator that applies the function `pyfunc` to every segment
-    found on the database at the URL `dburl`, processing only segments matching
-    the given criteria (`segments_selection`). Yields the the output of `pyfunc`
+    """Return an iterator that applies a function (`pyfunc`) to every selected segment
+    (`segments_selection`) of a SQL database (`dburl`), yielding the function results.
 
-    :param pyfunc: a Python function with signature (= accepting arguments):
-        `(segment:Segment, config:dict)`. The first argument is the segment
-        object which will be automatically passed from this function
-    :param dburl: the database URL. Supported formats are Sqlite and Postgres
-        (See https://docs.sqlalchemy.org/en/14/core/engines.html#database-urls).
-    :param segments_selection: The segments to be processed. It can be a numeric array
-        of integers denoting the segment IDs, or a dict[str, str] of Segments attributes
-        mapped to a given selection expression, e.g.:
+
+    :param pyfunc: the processing function, i.e. a Python function with signature
+        (arguments) `(segment, config)`
+    :param dburl: str. The URL of the database where data has been previously downloaded
+    :param segments_selection: The segments to be processed. It can be a sequence of
+        integers (tuple, list, numpy array) denoting the segment IDs, or a dict[str, str]
+        of Segments attributes mapped to a given selection expression, e.g.:
         ```
         {
             'event.magnitude': '<=6',
             'channel.channel': 'HHZ',
             'maxgap_numsamples': '(-0.5, 0.5)',
-            'has_data': 'true'
+            'has_valid_data': 'true'
         }
         ```
-        (the last two keys assure segments with no gaps, and with data.
-        'has_data': 'true' is basically a default to be provided in most cases)
-    :param config: dict of additional needed arguments to be passed to `pyfunc`,
-        usually defining configuration parameters
-    :param skip_exceptions: tuple of Python exceptions that will not interrupt the whole
-        execution but will be logged to file, with the relative segment id. When missing
-        or None, it defaults to :class:`stream2segmetn.process.SkipExeption`
-    :param logfile: string. When not empty, it denotes the path of the log file
-        where exceptions will be logged, with the relative segment id
-    :param verbose: print progress bar to standard output (usually, the terminal
-        window) and estimated remaining time
-    :param multi_process: enable multi process (parallel sub-processes) to speed up
-        execution. When not boolean, this parameter can be an integer denoting the
+        If None or missing, it defaults to a dict with the last two keys listed above
+    :param config: dict or str. The `dict` with user-defined parameters to tune your
+        processing function (passed as 2nd argument to `pyfunc`).
+        If `str`, it is supposed to be a path to a YAML file that will be read as
+        Python `dict`. If missing or None, it will default to `{}` (empty dict, i.e. no
+        config)
+    :param logfile: string. the path of the file to log
+        :class:`stream2segmetn.process.SkipExeption`, when raised.
+        Empty string (the default) disables logging
+    :param verbose: bool, default False. Print progress bar and estimated remaining time
+        to standard output (usually, the terminal window)
+    :param multi_process: enable multiprocessing to speed up execution.
+        When not boolean, this parameter can be an integer denoting the
         exact number of subprocesses to be allocated (only for advanced users. True is
-        fine in most cases). If multi process is on `pyfunc` must be pickable
+        fine in most cases). If multiprocessing is enabled `pyfunc` must be pickable
         (https://docs.python.org/3/library/pickle.html#pickle-picklable)
     :param chunksize: the size, in number of segments, of each chunk of data that will
         be loaded from the database. Increasing this number speeds up the load but also
-        increases memory consumption. None (the default) means: set size automatically
+        increases memory consumption. None (the default) will set the size automatically
+    :param skip_exceptions: tuple of Python exceptions that will not interrupt the whole
+        execution but will be logged to file, with the relative segment id. When missing
+        or None, it defaults to :class:`stream2segmetn.process.SkipExeption`
     """
+    seg_ids = fetch_segments_ids(dburl, segments_selection)
     with _setup_logging(logfile, verbose):
-        session = validate_param('dburl', dburl, get_session)
-        segment_ids = fetch_segments_ids(session, segments_selection)
-        close_session(session)
-        for result, seg_id in run_and_yield(dburl, segment_ids, pyfunc, config, verbose,
-                                            multi_process, chunksize, skip_exceptions):
+        for result, seg_id in run_and_yield(dburl, seg_ids, pyfunc, config,
+                                            verbose, multi_process, chunksize,
+                                            skip_exceptions):
             yield result
 
 
@@ -291,7 +251,7 @@ def _setup_logging(logfile, verbose):
     except KeyboardInterrupt:
         logger.critical("Aborted by user")  # see comment above
         raise
-    except:  # @IgnorePep8 pylint: disable=broad-except
+    except:  # noqa
         logger.critical("Process aborted", exc_info=True)  # see comment above
         raise
     finally:
@@ -314,7 +274,7 @@ def run_and_yield(dburl, seg_ids, pyfunc, config, show_progress=False,
         file.
     :param config: dict of configuration parameters, usually the result of an associated
         YAML configuration file, to be passed as second argument of `pyfunc`
-    :param show_progress: (boolean, default False) whether or not to show progress bar
+    :param show_progress: (boolean, default False) whether to show progress bar
         and other info (e.g. remaining time, successfully processed segments) on the
         standard output (usually, the terminal window)
     :param multi_process: (bool, or numeric) Use multiprocessing.Pool. A numeric value
@@ -324,15 +284,21 @@ def run_and_yield(dburl, seg_ids, pyfunc, config, show_progress=False,
         execution but will be logged to file, with the relative segment id. When missing
         or None, it defaults to :class:`stream2segmetn.process.SkipExeption`
     """
+    # check params:
+    if isinstance(config, str):
+        config = validate_param("config", config or {}, yaml_load)
+    elif not config:
+        config = {}
+
+    validate_param('pyfunc', pyfunc, _valid_pyfunc)
+
     done, errors = 0, 0
     seg_len = len(seg_ids)
-
+    num_processes = 0
     if multi_process is True:
         num_processes = cpu_count()  # or None (let's set it directly here though)
     elif multi_process not in (0, False):
-        num_processes = int(multi_process)
-    else:
-        multi_process = False
+        num_processes = max(0, int(multi_process))
 
     if chunksize is None:
         chunksize = get_default_chunksize(seg_len, show_progress)
@@ -355,7 +321,7 @@ def run_and_yield(dburl, seg_ids, pyfunc, config, show_progress=False,
             time.sleep(0.5)
             pbar.render_progress()
 
-        if multi_process:
+        if num_processes:
             itr = process_mp(dburl, pyfunc, config, get_slices(seg_ids, chunksize),
                              pbar, num_processes, skip_exceptions)
         else:
@@ -377,18 +343,41 @@ def run_and_yield(dburl, seg_ids, pyfunc, config, show_progress=False,
                 "reported in the log file", errors, seg_len)
 
 
-def fetch_segments_ids(session, segments_selection, writer=None):
+def _valid_pyfunc(pyfunc):
+    """Checks if the argument is a valid processing Python function by inspecting its
+    signature"""
+    params = inspect.signature(pyfunc).parameters  # dict[str, inspect.Parameter]
+    # less than two arguments? then function invalid:
+    if len(params) < 2:
+        raise ValueError('Python function should have 2 arguments '
+                         '`(segment, config)`, %d found' % len(params))
+    # more than 2 args? then we need to have them with a default set:
+    for pname, param in list(params.items())[2:]:
+        if param.kind not in (param.VAR_POSITIONAL, param.VAR_KEYWORD):
+            # it is not *args or **kwargs, does it have a default?
+            if not param.default == param.empty:
+                raise ValueError('Python function argument "%s" should have a '
+                                 'default, or be removed' % pname)
+
+
+def fetch_segments_ids(dburl, segments_selection, writer=None):
     """Return the numpy array of segments ids to process
 
-    :param session: SQLAlchemy session object
+    :param dburl: database URL (str)
     :param segments_selection: dict[str, str] denoting a segment selection, or an
-        iterable of integers denoting the segment ids
+        iterable of integers denoting the segment ids. None will get a default
+        segment selection (see `get_default_segment_selection`)
     :param writer: A Writer or None. See :module:`stream2segment.process.writers`.
         If not None, the writer is used to fetch the already processed segments
         and return only segments to process
     :return: the numpy array of integers denoting the ids of the segments to process
         according to `config` and `writer` settings
     """
+    if segments_selection is None:
+        segments_selection = get_default_segments_selection()
+
+    session = validate_param('dburl', dburl, get_session)
+
     skip_already_processed = False
     if writer is not None:
         if writer.append:
@@ -440,7 +429,16 @@ def fetch_segments_ids(session, segments_selection, writer=None):
 
     logger.info("%d segment(s) found to process", len(seg_ids))
     logger.info('')
+    close_session(session)
     return seg_ids
+
+
+def get_default_segments_selection():
+    """Return a dict with a default segments selection for processing"""
+    return {
+        'has_valid_data': 'true',
+        'maxgap_numsamples': '(-0.5, 0.5)'
+    }
 
 
 def get_default_chunksize(segments_count, show_progress):
@@ -594,7 +592,7 @@ def process_segments(session, seg_ids_chunk, config, pyfunc, safe_exceptions_tup
     """
     # We reuse `query4process` for simplicity. The query will sort segments returning
     # them in the same order as the given indices (this is not a strict requirement but
-    # removing the sort does not improves significantly performances)
+    # removing the sort does not improve significantly performances)
     segments = query4process(session, conditions=None, ids_only=False).\
         filter(Segment.id.in_(seg_ids_chunk.tolist()))
 

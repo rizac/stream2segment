@@ -1,15 +1,11 @@
-# ========================================================================
-# Configuration file for the Stream2segment Graphical User Interface (GUI)
-# ========================================================================
+# =======================================================================
+# Stream2segment configuration file / visualization routine (Browser GUI)
+# =======================================================================
 #
-# This file represent the `config` argument accessible in all gui-decorated functions of
-# the associated Python module (stype `s2s show --help` for details). Put here everything
-# that is not code-related but is used as parameters to tune the code output
+# This is a configuration file for all gui-decorated functions in the
+# associated Python module (generated via `s2s init`)
 #
-# NOTE: This file is written in YAML syntax, which uses Python-style indentation to
-# indicate nesting, keep it in mind when editing. You can also use a more compact format
-# that uses [] for lists and {} for maps/objects. For info see:
-# http://docs.ansible.com/ansible/latest/YAMLSyntax.html
+# This file is written in YAML syntax. For info see: http://docs.ansible.com/ansible/latest/YAMLSyntax.html
 
 
 # settings for computing the 'signal' and 'noise' time windows on a segment waveform

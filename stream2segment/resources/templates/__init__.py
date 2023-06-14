@@ -1,6 +1,6 @@
 """This module holds doc strings to be injected via jinja2 into the templates when
 running `s2s init`.
-Any NON PRIVATE variable name (i.e., without leading underscore '_') of this module
+Any NON-PRIVATE variable name (i.e., without leading underscore '_') of this module
 can be injected in a template file in the usual way, e.g.:
 {{ PROCESS_PY_BANDPASSFUNC }}
 

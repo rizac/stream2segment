@@ -71,9 +71,9 @@ class Test:
                     cmdline_opts,
                     # fixtures:
                     pytestdir, db4process, capsys):
-        '''test the save2file python module, and also test a case when
+        """test the save2file python module, and also test a case when
         no output file is provided
-        '''
+        """
         # set values which will override the yaml config in templates folder:
         cfg = {'snr_threshold': 0}
         seg_sel = {'has_data': 'true', 'id': '>3'}
@@ -85,10 +85,10 @@ class Test:
         #                                    **config_overrides))
         # with capsys.disabled():
         def func(segment, config):
-            assert config == 'abc'
+            assert config == {}
             return segment.id
 
-        for res in imap(func, db4process.dburl, seg_sel, 'abc'):
+        for res in imap(func, db4process.dburl, seg_sel, None):
             # assert res == id
             assert res > 3
             pass
@@ -126,11 +126,18 @@ class Test:
             pass
         assert count == 0
 
+        def func(segment, config):
+            return segment.id
+
+        with pytest.raises(BadParam) as bparam:
+            for res in imap(func, db4process.dburl, seg_sel, 'abc'):
+                pass
+
 
 def test_imap_wrong_sqlite(# fixtures:
                            pytestdir):
-    '''test a non existing sqlite checking that we have the right error
-    '''
+    """test a non existing sqlite checking that we have the right error
+    """
 
     # first test, provide a fake dburl that does not exist:
     with pytest.raises(BadParam) as bparam:
@@ -138,7 +145,7 @@ def test_imap_wrong_sqlite(# fixtures:
         assert not os.path.isfile(fname)  # for safety
         dburl = 'sqlite:///' + fname
         assert not os.path.isfile(dburl[10:])
-        for res in imap(lambda *a, **v: 0, dburl, {}, 'abc'):
+        for res in imap(lambda *a, **v: 0, dburl, {}):
             pass
 
     assert 'dburl' in str(bparam.value)
