@@ -1,14 +1,11 @@
-# ====================================================================
-# Configuration file example for the Stream2segment processing routine
-# ====================================================================
+# ======================================================
+# Stream2segment configuration file / processing routine
+# ======================================================
 #
-# This is an example configuration file for the stream2segment `imap` and
-# `process` functions. See associated Python module for details
+# This is a configuration file for the stream2segment `imap` and `process` functions.
+# See associated Python module (generated via `s2s init`) for details
 #
-# NOTE: This file is written in YAML syntax, which uses Python-style indentation to
-# indicate nesting, keep it in mind when editing. You can also use a more compact format
-# that uses [] for lists and {} for maps/objects. For info see:
-# http://docs.ansible.com/ansible/latest/YAMLSyntax.html
+# This file is written in YAML syntax. For info see: http://docs.ansible.com/ansible/latest/YAMLSyntax.html
 
 
 # settings for computing the 'signal' and 'noise' time windows on a segment waveform

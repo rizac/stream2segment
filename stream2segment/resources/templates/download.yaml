@@ -1,8 +1,8 @@
-# =======================================================
-# Stream2segment config file to tune the download routine
-# =======================================================
+# ====================================================
+# Stream2segment configuration file / download routine
+# ====================================================
 
-# {{ YAML_WARN }}
+# This file is written in YAML syntax. For info see: http://docs.ansible.com/ansible/latest/YAMLSyntax.html
 
 
 # Database URL where to save downloaded data, either SQLite (local file db) or Postgres
