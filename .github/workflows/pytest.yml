@@ -4,13 +4,13 @@
 name: Python >= 3.8
 
 on:
-#  push:
-#    branches: [ dev ]
-#    paths-ignore:
-#      - "**/README.md"
-#      - "**/LICENSE"
-#      - "**/COPYING"
-#      - "stream2segment/resources/traveltimes/**"
+  push:
+    branches: [ master ]
+    paths-ignore:
+      - "**/README.md"
+      - "**/LICENSE"
+      - "**/COPYING"
+      - "stream2segment/resources/traveltimes/**"
       
   pull_request:
     branches: [ master ]
@@ -22,7 +22,8 @@ on:
 
 jobs:
   build:
-    # run if the oull request source is not dev (because for dev we already run this test, see above)
+    # Reminder (commented for the moment):
+    # here we run if the pull request source is not dev (because for dev we already run this test, see above)
     # https://github.com/orgs/community/discussions/30794#discussioncomment-3482788
     # https://docs.github.com/en/actions/learn-github-actions/contexts#github-context
     # if: ${{ github.head_ref || github.ref_name }} != 'dev'
@@ -72,15 +73,6 @@ jobs:
         pip install -r requirements.dev.txt
         pip install jupyterlab
         pip install .
-    # - name: Cleanup
-    #   run: |
-    #     find . \( -name '__pycache__' -or -name '*.pyc' \) -delete
-    #- name: Lint with flake8
-    #  run: |
-    #    # stop the build if there are Python syntax errors or undefined names
-    #    flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-    #    # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
-    #    flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
     - name: Test with pytest
       run: |
         pytest -xvvv --dburl postgresql://postgres:postgres@localhost/s2s_test
