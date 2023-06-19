@@ -37,12 +37,14 @@ from stream2segment.process.funclib.ndarrays import triangsmooth, snr
 
 def main(segment, config):
     """Main processing function, called iteratively for any segment selected from `imap`
-    or `process` functions of stream2segment. See section `if __name__ == "__main__"`
-    at the end of the module for details.
+    or `process` functions of stream2segment. If you just created this file with
+    `s2s init`, see section `if __name__ == "__main__"` at the end of the module for
+    details.
 
-    IMPORTANT: any exception raised here or from any sub-function will interrupt the
-    whole processing routine with one special case: `stream2segment.process.SkipSegment`
-    will resume from the next segment. Raise it to programmatically skip a segment, e.g.:
+    IMPORTANT: Any exception raised here or from any sub-function will interrupt the
+    whole processing routine (`imap` or `process`) with one special case:
+    `stream2segment.process.SkipSegment` will resume from the next segment.
+    Raise it to programmatically skip a segment, e.g.:
     ```
     if segment.sample_rate < 60:
         raise SkipSegment("segment sample rate too low")`
@@ -537,15 +539,18 @@ if __name__ == "__main__":
 
     # Example code: Check and customize before run
     # ------------------------------------
-    from stream2segment.process import yaml_load  # similar to yaml.safe_load
-    # Load config (below we assume to be a YAML file with the same name as this module):
+    # Setup config: you can build your own dict of parameters or load it from a YAML
+    # file as in the example below (change path according to your needs):
+    import yaml
     config_path = os.path.splitext(os.path.abspath(__file__))[0] + '.yaml'
-    config = yaml_load(config_path)
+    with open(config_path, 'r') as fpt:
+        config = yaml.safe_load(fpt)
     # get the database URL. Do NOT TYPE anywhere URLs with passwords (e.g. postgres), or
     # if you do, do not COMMIT the file and keep it local. A good solution is to read
     # the db URL used for downloading the data from its config. Example:
     download_path = os.path.join(os.path.dirname(__file__), 'download.yaml')
-    dburl = yaml_load(download_path)['dburl']
+    with open(download_path, 'r') as fpt:
+        dburl = yaml.safe_load(fpt)['dburl']
     # segments to process
     # For details, see {{ THE_SEGMENT_OBJECT_WIKI_URL_SEGMENT_SELECTION }}
     # The variable below can also be a list/numpy array of integers denoting the
