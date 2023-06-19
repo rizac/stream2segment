@@ -2,7 +2,6 @@ from sqlalchemy import orm
 import numpy as np
 
 from stream2segment.process.db import get_session
-from stream2segment.io import yaml_load  # utility functions for users: yaml_load(file)
 from stream2segment.io.db import close_session
 from stream2segment.process.db.models import (Segment, Channel, Event, Station,
                                               DataCenter, Download, Class)
