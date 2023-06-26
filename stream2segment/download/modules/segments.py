@@ -341,12 +341,6 @@ def download_save_segments(session, segments_df, dc_dataselect_manager,
                                   download_blocksize):
 
                 num_segments = len(dframe)
-                if max_thread_workers > 1 and \
-                        code in _RETRY_CODES and _RETRY_CODES[code] < max_thread_workers:
-                    skipped_dataframes.append(dframe)
-                    continue
-
-                pbar.update(num_segments)
                 url = get_host(request)
                 url_stats = stats[url]
 
@@ -360,6 +354,10 @@ def download_save_segments(session, segments_df, dc_dataselect_manager,
                     for kode, kount in get_counts(dframe, SEG.DWLCODE,
                                                   code_not_found):
                         url_stats[kode] += kount
+                elif max_thread_workers > 1 and \
+                        code in _RETRY_CODES and _RETRY_CODES[code] < max_thread_workers:
+                    skipped_dataframes.append(dframe)
+                    continue
                 else:
                     # here we are if: exc is not None OR data = b''
                     url_stats[code] += num_segments
@@ -395,6 +393,7 @@ def download_save_segments(session, segments_df, dc_dataselect_manager,
                         seg_logger.warn(request, url, code, exc)
 
                 segmanager.add(dframe)
+                pbar.update(num_segments)
 
             segmanager.flush()  # flush remaining stuff to insert / update, if any
 
@@ -424,29 +423,33 @@ def get_download_iterator(segments_df):
      dataframe row. The iterator is optimized to alternate datacenters when possible
      and group each dataframe by datacenter and time span
     """
-    groups = _get_download_groups(segments_df)
-    for sub_groups in zip_longest(*groups, fillvalue=None):
-        for sub_group in sub_groups:
-            if sub_group is not None:
-                yield sub_group[1]
+    for _, dc_df in segments_df.groupby([SEG.REQSTART, SEG.REQEND, SEG.DCID],
+                                        sort=False, observed=True):
+        yield dc_df
+    # groups = _get_download_groups(segments_df)
+    # for sub_groups in zip_longest(*groups, fillvalue=None):
+    #     for sub_group in sub_groups:
+    #         if sub_group is not None:
+    #             yield sub_group[1]
 
 
 def get_preferred_max_concurrent_downloads(segments_df):
     """Return an int denoting the preferred maximum number of concurrent downloads
     inferred from the given DataFrame `segments_df`
     """
-    n_downloads = (g.ngroups for g in _get_download_groups(segments_df))
+    n_downloads = segments_df.groupby(SEG.DCID, sort=False, observed=True).size().values
+    # n_downloads = (g.ngroups for g in _get_download_groups(segments_df))
     return get_max_concurrent_downloads(n_downloads)
 
 
-def _get_download_groups(segments_df):
-    """Return an iterable of pandas GroupBy objects, one for eac unique Datacenter of
-     `segmetns_df`. and each yielding the tuples ((start, end), dataframe)
-     where each dataframe contains all segments with same time span (one segment per
-     row)
-     """
-    return (dc_df.groupby([SEG.REQSTART, SEG.REQEND], sort=False, observed=True)
-            for _, dc_df in segments_df.groupby(SEG.DCID, sort=False, observed=True))
+# def _get_download_groups(segments_df):
+#     """Return an iterable of pandas GroupBy objects, one for eac unique Datacenter of
+#      `segmetns_df`. and each yielding the tuples ((start, end), dataframe)
+#      where each dataframe contains all segments with same time span (one segment per
+#      row)
+#      """
+#     return (dc_df.groupby([SEG.REQSTART, SEG.REQEND], sort=False, observed=True)
+#             for _, dc_df in segments_df.groupby(SEG.DCID, sort=False, observed=True))
 
 
 def get_dbmanager(session, update_datacenter, update_request_timebounds, db_bufsize):
