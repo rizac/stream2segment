@@ -20,11 +20,11 @@ from stream2segment.io.db.pdsql import dbquery2df, mergeupdate, DbManager
 from stream2segment.download.db.models import DataCenter, Segment
 from stream2segment.download.modules.utils import (DbExcLogger, logwarn_dataframe,
                                                    DownloadStats, formatmsg,
-                                                   s2scodes, url2str,
-                                                   get_max_concurrent_downloads)
+                                                   s2scodes, url2str)
 from stream2segment.download.exc import NothingToDownload
 from stream2segment.download.modules.mseedlite import MSeedError, unpack as mseedunpack
-from stream2segment.download.url import get_opener, get_host, read_async
+from stream2segment.download.url import get_opener, get_host, read_async, \
+    adjust_max_concurrent_downloads
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__)
@@ -114,6 +114,9 @@ def prepare_for_download(session, segments_df, dc_dataselect_manager, timespan,
                         SEG.DWLCODE] = np.nan
 
     segments_df.drop([SEG.RETRY], axis=1, inplace=True)
+    # sort values in order to 1. download first most recent events and 2: shuffle
+    # datacenters to try diversify the requests to different URLs
+    segments_df.sort_values(by=SEG.REQSTART, ascending=False, inplace=True)
 
     return segments_df, request_timebounds_need_update
 
@@ -325,7 +328,8 @@ def download_save_segments(session, segments_df, dc_dataselect_manager,
     skipped_same_code = 0
 
     if max_thread_workers is None:
-        max_thread_workers = get_preferred_max_concurrent_downloads(segments_df)
+        # set max thread workers here cause we might want to retry the download
+        max_thread_workers = adjust_max_concurrent_downloads()
 
     # report seg. errors only once per error type and data center:
     seg_logger = SegmentLogger()
@@ -423,33 +427,11 @@ def get_download_iterator(segments_df):
      dataframe row. The iterator is optimized to alternate datacenters when possible
      and group each dataframe by datacenter and time span
     """
+    # Note: remember that the dataframe has been sorted descending by time (see
+    # end of prepare_for_download for details):
     for _, dc_df in segments_df.groupby([SEG.REQSTART, SEG.REQEND, SEG.DCID],
                                         sort=False, observed=True):
         yield dc_df
-    # groups = _get_download_groups(segments_df)
-    # for sub_groups in zip_longest(*groups, fillvalue=None):
-    #     for sub_group in sub_groups:
-    #         if sub_group is not None:
-    #             yield sub_group[1]
-
-
-def get_preferred_max_concurrent_downloads(segments_df):
-    """Return an int denoting the preferred maximum number of concurrent downloads
-    inferred from the given DataFrame `segments_df`
-    """
-    n_downloads = segments_df.groupby(SEG.DCID, sort=False, observed=True).size().values
-    # n_downloads = (g.ngroups for g in _get_download_groups(segments_df))
-    return get_max_concurrent_downloads(n_downloads)
-
-
-# def _get_download_groups(segments_df):
-#     """Return an iterable of pandas GroupBy objects, one for eac unique Datacenter of
-#      `segmetns_df`. and each yielding the tuples ((start, end), dataframe)
-#      where each dataframe contains all segments with same time span (one segment per
-#      row)
-#      """
-#     return (dc_df.groupby([SEG.REQSTART, SEG.REQEND], sort=False, observed=True)
-#             for _, dc_df in segments_df.groupby(SEG.DCID, sort=False, observed=True))
 
 
 def get_dbmanager(session, update_datacenter, update_request_timebounds, db_bufsize):

@@ -22,8 +22,7 @@ from stream2segment.io.db.pdsql import DbManager, dbquery2df
 from stream2segment.download.db.models import DataCenter, Station, Segment
 from stream2segment.download.url import get_host, read_async
 from stream2segment.download.modules.utils import (DbExcLogger, formatmsg,
-                                                   url2str, err2str,
-                                                   get_max_concurrent_downloads)
+                                                   url2str, err2str)
 
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
@@ -75,15 +74,9 @@ def get_station_df_for_inventory_download(session, update_metadata):
     # set 'station_url' as categorical (might save some space):
     sta_url_key = DataCenter.station_url.key
     sta_df[sta_url_key] = sta_df[sta_url_key].astype('category')
-    # set rows to create alternate sequences of data centers, to minimize the risk
-    # to overload a single data center with many consecutive requests (but only if
-    # we have more than one data center):
-    if len(sta_df[sta_url_key].dtype.categories.values) > 1:
-        # https://stackoverflow.com/a/55942321:
-        tmp_col = '_._rank_._'
-        sta_df[tmp_col] = sta_df.groupby(sta_url_key).cumcount()
-        sta_df.sort_values([tmp_col], inplace=True)
-        sta_df.drop(columns=[tmp_col], inplace=True)
+    # sort values in order to 1. download first most recent events and 2: shuffle
+    # datacenters and try to diversify the requests to different URLs:
+    sta_df.sort_values(by=Station.start_time.key, ascending=False, inplace=True)
     return sta_df
 
 
@@ -124,10 +117,6 @@ def save_inventories(session, stations_df, max_thread_workers, timeout,
                           onupdate_err_callback=db_exc_logger.failed_update)
 
     with get_progressbar(show_progress, length=len(stations_df)) as pbar:
-
-        if max_thread_workers is None:
-            n_downloads = stations_df.groupby(DataCenter.station_url.key).size().values
-            max_thread_workers = get_max_concurrent_downloads(n_downloads)
 
         iterable = zip(stations_df[Station.id.key],
                        stations_df[DataCenter.station_url.key],
