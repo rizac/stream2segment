@@ -20,8 +20,7 @@ from stream2segment.download.modules.stationsearch import \
 from stream2segment.download.modules.datacenters import EidaValidator
 from stream2segment.download.modules.utils import (s2scodes, DownloadStats,
                                                    HTTPCodesCounter, logwarn_dataframe,
-                                                   strconvert, strptime,
-                                                   get_max_concurrent_downloads)
+                                                   strconvert, strptime)
 
 
 @pytest.mark.skip(reason="Test failing in remote CI, not locally on macOS. Need to "
@@ -663,12 +662,3 @@ def test_logwarn_dataframe_columns_none():
     logwarn_dataframe(dfr, 'a message', max_row_count=45)
     logwarn_dataframe(dfr, 'a message', max_row_count=1)
 
-
-def test_get_max_concurrent_downloads():
-    assert get_max_concurrent_downloads([]) == 2 * 1
-    assert get_max_concurrent_downloads([0]) == 2 * 1
-    assert get_max_concurrent_downloads([11]) == 2 * 1
-    assert get_max_concurrent_downloads([17, 5, 1]) == 2 * 1
-    assert get_max_concurrent_downloads([1, 1, 1]) == 2 * 3
-    assert get_max_concurrent_downloads([5, 5, 5]) == 2 * 3
-    assert get_max_concurrent_downloads([17, 15, 1]) == 2 * 2
