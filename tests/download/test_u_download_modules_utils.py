@@ -22,6 +22,7 @@ from stream2segment.download.modules.utils import (s2scodes, DownloadStats,
                                                    HTTPCodesCounter, logwarn_dataframe,
                                                    strconvert, strptime)
 
+
 def test_strptime():
     # test type error:
     with pytest.raises(TypeError):
