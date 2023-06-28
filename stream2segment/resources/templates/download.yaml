@@ -12,16 +12,14 @@
 # For info see: http://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls
 dburl: 'sqlite:///<local_file_path>'  # or, e.g.: postgresql://<user>:<password>@<host>/<dbname>
 
-# Limit to events / data centers / station / channels on or after the specified start
-# time. Specify an ISO-formatted date or date-time string, or an integer <=0 to denote
-# the number of days before today at midnight, e.g., start=-1 and end=0 means: fetch
-# events occurred yesterday
+# Download events (and data) on or after the specified time. Type an ISO-formatted
+# date, date-time string, or an integer in days, where 0 is the start of the current day.
+# E.g., start=-1 and end=0 means: fetch events occurred yesterday
 starttime: 2006-01-01T00:00:00
 
-# Limit to events / data centers / station / channels on or before the specified end
-# time. Specify an ISO formatted date or date-time string, or an integer <=0 to denote
-# the number of days before today at midnight, e.g., start=-1 and end=0 means: fetch
-# events occurred yesterday
+# Download events (and data) on or before the specified time. Type an ISO-formatted
+# date, date-time string, or an integer in days, where 0 is the start of the current day.
+# E.g., start=-1 and end=0 means: fetch events occurred yesterday
 endtime: 2016-12-25T00:00:00
 
 
