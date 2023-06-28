@@ -4,9 +4,13 @@ Created on Feb 4, 2016
 @author: riccardo
 """
 import sys
+from http.client import HTTPException
+from urllib.error import URLError
+
 from stream2segment.download.exc import NothingToDownload
 from io import StringIO
 from unittest.mock import patch
+import socket
 
 import pandas as pd
 import pytest
@@ -22,7 +26,7 @@ def no_connection():
     from stream2segment.download.url import HTTPError
     try:
         data, err, code = urlread("https://geofon.gfz-potsdam.de/")
-        return err is None or isinstance(err, HTTPError)
+        return err is None or isinstance(err, (socket.error, URLError, HTTPError, HTTPException))
     except Exception:  # noqa
         return True
 

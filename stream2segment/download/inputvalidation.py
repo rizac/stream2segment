@@ -421,14 +421,15 @@ def valid_date(obj):
     except (TypeError, ValueError) as _:
         try:
             days = int(obj)
-            now = datetime.utcnow()
-            endt = datetime(now.year, now.month, now.day, 0, 0, 0, 0)
-            return endt - timedelta(days=days)
+            if days <= 0:
+                now = datetime.utcnow().replace(hour=0, minute=0, second=0,
+                                                microsecond=0)
+                return now + timedelta(days=days)
         except Exception:
             pass
         if isinstance(_, TypeError):
-            raise TypeError(("iso-formatted datetime string, datetime "
-                             "object or int required, found %s") %
+            raise TypeError(("iso-formatted datetime string, datetime or date "
+                             "object, non-positive int required, found %s") %
                             str(type(obj)))
         else:
             raise _

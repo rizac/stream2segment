@@ -12,13 +12,12 @@ import os
 import sys
 import re
 from io import StringIO
-from datetime import datetime
+from datetime import datetime, date
 from itertools import chain
 from collections import OrderedDict
 from functools import cmp_to_key
 import logging
 
-import numpy as np
 from dateutil import parser as dateparser
 from dateutil.tz.tz import tzutc
 
@@ -29,7 +28,7 @@ from stream2segment.io.db.pdsql import harmonize_columns, dropnulls, syncdf
 from stream2segment.io.db.inspection import colnames
 from stream2segment.download.db.models import Event, Station, Channel
 from stream2segment.download.exc import FailedDownload
-from stream2segment.download.url import responses, adjust_max_concurrent_downloads
+from stream2segment.download.url import responses
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__)
@@ -931,8 +930,11 @@ def strptime(obj):
             raise ValueError(str(exc))
 
     if not isinstance(dtime, datetime):
-        raise TypeError('string or datetime required, found %s' %
-                        str(type(obj)))
+        if isinstance(dtime, date):  # note: check here (a datetime is also a date!)
+            dtime = datetime(year=dtime.year, month=dtime.month, day=dtime.day)
+        else:
+            raise TypeError('string or datetime required, found %s' %
+                            str(type(obj)))
 
     if dtime.tzinfo is not None:
         # if a time zone is specified, convert to utc and remove the timezone
