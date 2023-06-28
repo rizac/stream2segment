@@ -6,7 +6,7 @@ Created on May 23, 2017
 # as we patch os.path.isfile, this seems to be the correct way to store beforehand the
 # original functions (also in other packages, e.g. pytestdir in conftest does not break):
 from os.path import isfile, join, dirname
-from datetime import datetime
+from datetime import datetime, timedelta
 from itertools import product
 from unittest.mock import patch
 
@@ -162,7 +162,8 @@ class Test:
             result = run_cli_download(*args, **kwargs)
             assert result.exit_code != 0
             assert msgin('Error: Invalid value for "%s": ' % key, result.output)
-            assert msgin(' wat', result.output)
+            assert msgin(' wat', result.output) or msgin('"wat"', result.output) or \
+                   msgin("'wat'", result.output)
             # assert we did not write to the db, cause the error threw before setting up db:
             assert db.session.query(Download).count() == dcount
 
@@ -181,6 +182,19 @@ class Test:
         dcount += 1
         run_download_kwargs = self.mock_run_download.call_args_list[-1][1]
         assert run_download_kwargs['starttime'] == datetime(2006, 3, 14)
+        # assert we did not write to the db, cause the error threw before setting up db:
+        assert db.session.query(Download).count() == dcount
+
+        # test also when we change the yaml:
+        result = run_cli_download(starttime=-1, endtime=0)
+        assert result.exit_code == 0
+        dcount += 1
+        run_download_kwargs = self.mock_run_download.call_args_list[-1][1]
+        expected_end = datetime.utcnow().replace(hour=0, minute=0, second=0,
+                                                 microsecond=0)
+        expected_start = expected_end - timedelta(days=1)
+        assert run_download_kwargs['starttime'] == expected_start
+        assert run_download_kwargs['endtime'] == expected_end
         # assert we did not write to the db, cause the error threw before setting up db:
         assert db.session.query(Download).count() == dcount
 

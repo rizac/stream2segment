@@ -5,7 +5,7 @@ Created on Feb 4, 2016
 @author: riccardo
 """
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date, timezone
 from itertools import count, product
 import time
 
@@ -22,61 +22,35 @@ from stream2segment.download.modules.utils import (s2scodes, DownloadStats,
                                                    HTTPCodesCounter, logwarn_dataframe,
                                                    strconvert, strptime)
 
-
-@pytest.mark.skip(reason="Test failing in remote CI, not locally on macOS. Need to "
-                         "investigate this")
-@pytest.mark.parametrize('str_input, expected_diff, ',
-                          [
-                           ("2016-01-01", timedelta(minutes=60)),
-                           ("2016-01-01T01:11:15", timedelta(minutes=60)),
-                           ("2016-01-01 01:11:15", timedelta(minutes=60)),
-                           ("2016-01-01T01:11:15.556734", timedelta(minutes=60)),
-                           ("2016-01-01 01:11:15.556734", timedelta(minutes=60)),
-                           ("2016-07-01", timedelta(minutes=120)),
-                           ("2016-07-01T01:11:15", timedelta(minutes=120)),
-                           ("2016-07-01 01:11:15", timedelta(minutes=120)),
-                           ("2016-07-01T01:11:15.431778", timedelta(minutes=120)),
-                           ("2016-07-01 01:11:15.431778", timedelta(minutes=120)),
-                           ],
-                        )
-def test_strptime(str_input, expected_diff):
-
-    tzones = ('Z', 'UTC', 'CET')
-    if ":" in str_input:
-        arr = [str_input] + [str_input + tz for tz in tzones]
-    else:
-        arr = [str_input]
-    for ds1, ds2 in product(arr, arr):
-
-        d1 = strptime(ds1)
-        d2 = strptime(ds2)
-
-        tzone1 = ds1[-3:] if ds1[-3:] in tzones else ""
-        tzone2 = ds2[-3:] if ds2[-3:] in tzones else ""
-
-        if tzone1 == 'CET' and tzone2 in ('Z', 'UTC'):
-            # ds1 was CET, it means that d1 (which is UTC) is one hour
-            # less than d2 (which is UTC)
-            assert d1 == d2 - expected_diff
-        elif tzone1 in ('Z', 'UTC') and tzone2 == 'CET':
-            # ds2 was CET, it means that d2 (which is UTC) is one hour
-            # less than d1 (which is UTC)
-            assert d2 == d1 - expected_diff
-        elif (tzone1 and tzone2 and tzone1 == tzone2) or (not tzone1 and not tzone2):
-            assert d1 == d2
-        assert d1.tzinfo is None and d2.tzinfo is None
-        assert strptime(d1) == d1
-        assert strptime(d2) == d2
-
-    # test a valueerror:
-    if ":" not in str_input:
-        for dtimestr in [str_input+'Z', str_input+'CET']:
-            with pytest.raises(ValueError):
-                strptime(dtimestr)
-
+def test_strptime():
     # test type error:
     with pytest.raises(TypeError):
         strptime(5)
+
+    with pytest.raises(ValueError):
+        strptime('5')
+
+    dtime = datetime.utcnow()
+    # check that iso string and datetime can be passed as arg:
+    assert strptime(dtime) == dtime
+    assert strptime(dtime.isoformat()) == dtime
+    # check that dates are parsed, too:
+    assert strptime(date(year=dtime.year, month=dtime.month, day=dtime.day)) == \
+           dtime.replace(hour=0, minute=0, second=0, microsecond=0)
+    # check timezones - utc are not changed (but removed):
+    assert strptime(dtime.replace(tzinfo=timezone.utc)) == dtime
+    assert strptime(dtime.replace(tzinfo=timezone.utc)).isoformat() == dtime.isoformat()
+    # check timezones - non utc are converted to utc, and removed:
+    dtime = '2019-05-18T15:17:00+01:00'
+    dtime_utc = datetime(year=2019, month=5, day=18, hour=14, minute=17)
+    assert strptime(dtime) == dtime_utc
+    assert strptime(dtime).isoformat() == dtime_utc.isoformat()
+    # check date-times with microseconds:
+    dtime_str = '2019-05-18T15:17:00.123'
+    dtime = datetime(year=2019, month=5, day=18, hour=15, minute=17,
+                     microsecond=123000)
+    assert strptime(dtime_str) == dtime
+    assert strptime(dtime_str + '000') == dtime
 
 
 def test_strconvert():
