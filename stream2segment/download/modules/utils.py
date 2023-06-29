@@ -904,7 +904,10 @@ if sys.version_info[0] == 3 and sys.version_info[1] < 11:
         """fix py<3.11 datetime.fromisoformat where, e.g. microseconds given not in
         6 digits would raise. Use dateutil for that"""
         # https://stackoverflow.com/a/15228038
-        return dateutil.parser.isoparse(string)
+        try:
+            return dateutil.parser.isoparse(string)
+        except ValueError:  # make msg consistent with datetime.fromisoformat:
+            raise ValueError(f"Invalid isoformat string: '{string}'")
 else:
     def _fromisoformat(string):
         return datetime.fromisoformat(string)
