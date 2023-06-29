@@ -36,7 +36,8 @@ setup(
     # https://packaging.python.org/en/latest/single_source_version.html
     version=version,
 
-    description='A python project to download, process and visualize event-based seismic waveforms',
+    description='A python project to download, process and visualize '
+                'event-based seismic waveforms',
     long_description=long_description,
 
     # The project's main homepage.
@@ -67,11 +68,12 @@ setup(
 
         # Specify the Python versions you support here.
         # 'Programming Language :: Python :: 3.5',
-        'Programming Language :: Python :: 3.6',
-        'Programming Language :: Python :: 3.7',
+        # 'Programming Language :: Python :: 3.6',
+        # 'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',
         'Programming Language :: Python :: 3.9',
         'Programming Language :: Python :: 3.10',
+        'Programming Language :: Python :: 3.11',
     ],
 
     # What does your project relate to?

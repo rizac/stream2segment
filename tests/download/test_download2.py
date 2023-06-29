@@ -371,7 +371,7 @@ BS|VETAM||HNZ|43.0805|25.6367|224.0|0.0|0.0|-90.0|200|427475.0|0.02|M/S**2|100.0
                                         '-c', self.configfile,
                                         '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
-                                        '--end', '2016-05-08T9:00:00'])
+                                        '--end', '2016-05-08T09:00:00'])
         assert clirunner.ok(result)
         
         # check datetimes are correctly written (pd > 1.0 and DatetimeArrays):

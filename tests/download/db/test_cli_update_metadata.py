@@ -51,7 +51,7 @@ def tst_cmdline_inv_only(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
     result = clirunner.invoke(cli, ['download', '-c', self.configfile,
                                     '--dburl', db.dburl,
                                     '--start', '2016-05-08T00:00:00',
-                                    '--end', '2016-05-08T9:00:00'])
+                                    '--end', '2016-05-08T09:00:00'])
     assert clirunner.ok(result)
 
     # assert we called logger config with log2file rg not None (a file):
@@ -84,7 +84,7 @@ def tst_cmdline_inv_only(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
     result = clirunner.invoke(cli, ['download', '-c', self.configfile,
                                     '--dburl', db.dburl,
                                     '--start', '2016-05-08T00:00:00',
-                                    '--end', '2016-05-08T9:00:00',
+                                    '--end', '2016-05-08T09:00:00',
                                     '--update-metadata', 'only',
                                     '--inventory'])
     assert clirunner.ok(result)
@@ -117,7 +117,7 @@ def tst_cmdline_inv_only(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
     result = clirunner.invoke(cli, ['download', '-c', self.configfile,
                                     '--dburl', db.dburl,
                                     '--start', '2016-05-08T00:00:00',
-                                    '--end', '2016-05-08T9:00:00',
+                                    '--end', '2016-05-08T09:00:00',
                                     '--update-metadata', 'only',
                                     '--inventory'])
     assert clirunner.ok(result)
@@ -133,7 +133,7 @@ def tst_cmdline_inv_only(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
     result = clirunner.invoke(cli, ['download', '-c', self.configfile,
                                     '--dburl', db.dburl,
                                     '--start', '2016-05-08T00:00:00',
-                                    '--end', '2016-05-08T9:00:00',
+                                    '--end', '2016-05-08T09:00:00',
                                     '--update-metadata', 'false',
                                     '--inventory'])
     assert clirunner.ok(result)
@@ -180,7 +180,7 @@ def tst_cmdline_inv_only(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
     result = clirunner.invoke(cli, ['download', '-c', self.configfile,
                                     '--dburl', db.dburl,
                                     '--start', '2016-05-08T00:00:00',
-                                    '--end', '2016-05-08T9:00:00',
+                                    '--end', '2016-05-08T09:00:00',
                                     '-ds', new_dataselect,
                                     '--update-metadata', 'false',
                                     '--inventory'])
@@ -193,7 +193,7 @@ def tst_cmdline_inv_only(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
     result = clirunner.invoke(cli, ['download', '-c', self.configfile,
                                     '--dburl', db.dburl,
                                     '--start', '2016-05-08T00:00:00',
-                                    '--end', '2016-05-08T9:00:00',
+                                    '--end', '2016-05-08T09:00:00',
                                     '-ds', new_dataselect,
                                     '--update-metadata', 'true'])
     assert clirunner.ok(result)
@@ -245,7 +245,7 @@ def tst_cmdline_inv_only(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
         result = clirunner.invoke(cli, ['download', '-c', self.configfile,
                                         '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
-                                        '--end', '2016-05-08T9:00:00',
+                                        '--end', '2016-05-08T09:00:00',
                                         '-ds', new_dataselect,
                                         '--update-metadata', param,
                                         '--inventory'])

@@ -12,15 +12,11 @@ import os
 import sys
 import re
 from io import StringIO
-from datetime import datetime
+from datetime import datetime, date, timezone
 from itertools import chain
 from collections import OrderedDict
 from functools import cmp_to_key
 import logging
-
-import numpy as np
-from dateutil import parser as dateparser
-from dateutil.tz.tz import tzutc
 
 import pandas as pd
 
@@ -29,7 +25,7 @@ from stream2segment.io.db.pdsql import harmonize_columns, dropnulls, syncdf
 from stream2segment.io.db.inspection import colnames
 from stream2segment.download.db.models import Event, Station, Channel
 from stream2segment.download.exc import FailedDownload
-from stream2segment.download.url import responses, adjust_max_concurrent_downloads
+from stream2segment.download.url import responses
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__)
@@ -874,72 +870,47 @@ class strconvert:
 
 
 def strptime(obj):
-    """Convert `obj` to a `datetime` object **in UTC without tzinfo**. This
-    function should be used within this program as the opposite of
-    `datetime.isoformat()` for parsing date times from, e.g. web service
-    queries or command line inputs, under the assumption that no time zone
-    means UTC.
+    """Convert `obj` to a `datetime` object **in UTC without tzinfo** (if the datetime
+    is timezone aware, it will be converted to UTC and then its tzinfo removed).
 
-    If `obj` is string, creates a `datetime` object by parsing it. If `obj`
-    is not a date-time object, raises TypeError. Otherwise, uses `obj` as
-    `datetime` object. Then, if the datetime object has a tzinfo supplied,
-    converts it to UTC and removes the tzinfo attribute. Finally, returns the
-    datetime object
-
-    Implementation details: `datetime.strptime`does not keep time zone
-    information in the parsed date-time, nor it recognizes 'Z' as 'UTC' (raises
-    instead). The library `dateutil`, on the other hand, is too permissive and
-    has too many false "positives" (e.g. integers or strings such as  '5-7' are
-    successfully parsed into date-time). We choose `dateutil` as the code is
-    shorter, cleaner, and a single hack is needed: we simply check, after a
-    string `obj` is succesfully parsed into `dtime`, that `obj` contains at
-    least the string `dtime.strftime(format='%Y-%m-%d')` (such as e,g,
-    '2006-01-31')
-
-    :param obj: `datetime` object or string in ISO format (see examples below)
+    :param obj: datetime, date or datetime-string string in ISO format
 
     :return: a datetime object in UTC, with the tzinfo removed
     :raise: TypeError or ValueError
-    :Example. These are all equivalent:
-    ```
-    strptime("2016-06-01T00:00:00.000000Z")
-    strptime("2016-06-01T00.01.00CET")
-    strptime("2016-06-01 00:00:00.000000Z")
-    strptime("2016-06-01 00:00:00.000000")
-    strptime("2016-06-01 00:00:00")
-    strptime("2016-06-01 00:00:00Z")
-    strptime("2016-06-01")
-
-    This raises ValueError:
-    strptime("2016-06-01Z")
-
-    This raises TypeError:
-    strptime(45.5)
-    ```
     """
     dtime = obj
     if isinstance(obj, str):
-        try:
-            dtime = dateparser.parse(obj, fuzzy=False, fuzzy_with_tokens=False)
-            # now, dateperser is quite hacky on purpose, guessing too much.
-            # datetime.strptime, on the other hand, does not parse Z as UTC
-            # (raises in case) and does not include the timezone in the parsed
-            # date. The best (hacky) solution is to assert the bare minimum:
-            # that %Y-%m-%d is in dtime:
-            assert dtime.strftime('%Y-%m-%d') in obj
-        except Exception as exc:
-            raise ValueError(str(exc))
+        dtime = _fromisoformat(obj)
 
     if not isinstance(dtime, datetime):
-        raise TypeError('string or datetime required, found %s' %
-                        str(type(obj)))
+        if isinstance(dtime, date):  # note: check here (a datetime is also a date!)
+            dtime = datetime(year=dtime.year, month=dtime.month, day=dtime.day)
+        else:
+            raise TypeError('string or datetime required, found %s' %
+                            str(type(obj)))
 
     if dtime.tzinfo is not None:
         # if a time zone is specified, convert to utc and remove the timezone
-        dtime = dtime.astimezone(tzutc()).replace(tzinfo=None)
+        dtime = dtime.astimezone(timezone.utc).replace(tzinfo=None)
 
     # the datetime has no timezone provided AND is in UTC:
     return dtime
+
+
+if sys.version_info[0] == 3 and sys.version_info[1] < 11:
+    import dateutil.parser
+
+    def _fromisoformat(string):
+        """fix py<3.11 datetime.fromisoformat where, e.g. microseconds given not in
+        6 digits would raise. Use dateutil for that"""
+        # https://stackoverflow.com/a/15228038
+        try:
+            return dateutil.parser.isoparse(string)
+        except ValueError:  # make msg consistent with datetime.fromisoformat:
+            raise ValueError(f"Invalid isoformat string: '{string}'")
+else:
+    def _fromisoformat(string):
+        return datetime.fromisoformat(string)
 
 
 def urljoin(*urlpath, **query_args):

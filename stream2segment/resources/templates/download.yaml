@@ -12,16 +12,14 @@
 # For info see: http://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls
 dburl: 'sqlite:///<local_file_path>'  # or, e.g.: postgresql://<user>:<password>@<host>/<dbname>
 
-# Limit to events / data centers / station / channels on or after the specified start
-# time. Specify an ISO-formatted date or date-time string, or an integer >=0 to denote
-# the number of days before today at midnight, e.g., start=1 and end=0 means: fetch
-# events occurred yesterday
+# Download events (and data) on or after the specified time. Type an ISO-formatted
+# date, date-time string, or an integer in days, where 0 is the start of the current day.
+# E.g., start=-1 and end=0 means: fetch events occurred yesterday
 starttime: 2006-01-01T00:00:00
 
-# Limit to events / data centers / station / channels on or before the specified end
-# time. Specify an ISO formatted date or date-time string, or an integer >=0 to denote
-# the number of days before today at midnight, e.g., start=1 and end=0 means: fetch
-# events occurred yesterday
+# Download events (and data) on or before the specified time. Type an ISO-formatted
+# date, date-time string, or an integer in days, where 0 is the start of the current day.
+# E.g., start=-1 and end=0 means: fetch events occurred yesterday
 endtime: 2016-12-25T00:00:00
 
 
@@ -29,14 +27,16 @@ endtime: 2016-12-25T00:00:00
 # Events: https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=14
 # =======
 
-# The event catalog in form of URL or local file path.
-# The events list returned by the URL or in the supplied file must be in FDSN format
+# The event catalog in form of FDSN URL or local file path.
+# The events list, returned by the URL or in the supplied file, must be in FDSN format
 # (https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=16) or ISF format
-# (http://www.isc.ac.uk/standards/isf/download/isf.pdf), although the latter has limited
-# support (e.g. comments are not recognized and might break): use it at your own risk.
-# IMPORTANT: when providing a file, the file name will be used as catalog identifier:
-# renaming the file and downloading again on the same database will result in the events
-# and their segments being saved twice, most likely unnecessarily.
+# (http://www.isc.ac.uk/standards/isf/download/isf.pdf), although ISF has limited support
+# (e.g. comments are not recognized and should be removed): use it at your own risk.
+# IMPORTANT: If you perform a series of downloads with the same configuration (e.g., to
+# fetch as much data as possible) and an event file path, do not rename the file in
+# between two runs, because this would not update, but re-download all events and data
+# (the program identifies already downloaded events comparing their id and catalog URL.
+# If the catalog is a file, the file name will be used instead of the full URL).
 # You can also type these shortcut strings instead of URLs:
 # {{ DOWNLOAD_EVENTWS_LIST }}.
 events_url: 'http://seismicportal.eu/fdsnws/event/1/query'
@@ -168,37 +168,36 @@ search_radius:
 # Data (waveform segments) https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=8
 # ========================
 
-# List of URLs for downloading waveform data. All URLs must be
+# List of URLs for downloading waveform data segments. All URLs must be
 # FDSN-compliant (e.g.: https://service.iris.edu/fdsnws/dataselect/1/query). You can also
 # type two special values: 1) "iris" (Incorporated Research Institutions for Seismology),
 # shortcut for the URL above or 2) "eida", shortcut for several nodes - or data centers -
 # of the European Integrated Data Archive. Being FDSN compliant, all URLs are also used
-# to fetch automatically the stations and channels necessary for the waveforms download
+# to fetch automatically the necessary metadata (stations and channels)
 data_url:
   - 'eida'
   # - 'iris'
 
-# The segment's time span (i.e., the data time window to download): specify two
-# floats denoting the minutes to account for before and after the calculated arrival
-# time (negative numbers are allowed). Note that 3.5 means 3 minutes 30 seconds, and
-# that each segment window will be eventually rounded to the nearest second.
-# Implementation details: the rounding is necessary to avoid floating point errors when
-# checking for segments to re-download because of a changed window.
-timespan:
- - 1.0 # start of the waveform segment, in minutes *before* the calculated arrival time.
- - 3.0 # end of the waveform segment, in minutes *after* the calculated arrival time
+# The segment's time window to download: specify two floats denoting the start and end
+# time, in minutes relative to the calculated arrival time (negative numbers are usually
+# input for start). Note that 3.5 means 3 minutes 30 seconds, and each segment window
+# will be eventually rounded to the nearest second.
+# Implementation detail: segments already on the database whose window does not match
+# the requested window will be re-downloaded and overwritten
+time_window:
+ - -1.0
+ - 3.0
+
 
 # Credentials to download restricted data. When null, missing or "", only open waveforms
 # will be downloaded. When provided, it can be either a list of two strings (username and
 # password), or, for EIDA node(s), a string denoting the path of a token file (to get a
 # token, see https://geofon.gfz-potsdam.de/waveform/archive/auth/auth-overview.php)
-# IMPORTANT: You SHOULD NOT perform massive, time-consuming downloads when fetching
-# restricted data: first, it makes no sense: credentials are valid only for the
-# organization emitting them (thus there must be only one item in `data_url`) and second,
-# credentials might have an expiration time (e.g., roughly few hours for EIDA tokens).
-# Thus, try narrowing the search: e.g., shorter time bounds, network(s) or station(s) of
-# interest only (for advanced users: see also at `max_concurrent_downloads` in
-# `advanced_settings`).
+# IMPORTANT: credentials are valid only for the organization emitting them and often have
+# an expiration time (e.g., few hours for EIDA tokens). As such, it is advisable NOT to
+# perform massive downloads when fetching restricted data: target only the relative
+# data URL and - if available - the specific network, station or time period of interest
+# (for advanced users: see also `max_concurrent_downloads` in `advanced_settings`).
 # Implementation details: restricted segments previously downloaded with no credentials
 # (thus, with no waveform data) will be always re-downloaded ignoring all 'retry'
 # settings. If you need to provide username and password, remember indentation in YAML
@@ -239,10 +238,9 @@ retry_timespan_err: true
 # =====================================
 
 advanced_settings:
- # Maximum number of concurrent / simultaneous downloads allowed. The default (null) lets
- # the program optimize this number depending on the computer CPU and data centers.
- # We recommend to leave this parameter to null and set it to 1 (max 2) only in case you
- # need to maximize download efficiency over speed, e.g.:
+ # Maximum number of concurrent downloads allowed. We recommend to leave this parameter
+ # to null (let the program infer the number automatically) and set it to 1 (max 2) only
+ # in case you need to maximize download efficiency over speed, e.g.:
  # a) when fetching restricted data (see `restricted_data` parameter)
  # b) when retrying to fetch data from a specific datacenter which reported many download
  #    errors suggesting to "slow down", e.g. "Service Unavailable" (code 503) or
@@ -265,13 +263,11 @@ advanced_settings:
  # kind of data (event, waveform or station metadata). If 0, it will be converted to -1.
  # If negative, all data will be always read in a single call and one block.
  download_blocksize: 1048576  # = 1024*1024
- # The buffer size used when writing (inserting or updating) database data, in number of
- # segments. Increasing this number speeds up the download (we experienced performance
- # degradation when it's below the range [30, 50]) but increases the memory consumption.
- # Consider also that a single database error while writing a segment will unfortunately
- # affect all buffer segments, which must all be discarded
+ # The buffer size - in number of db rows - used when writing to the database. Increasing
+ # this number speeds up the download (as a rule of thumb, >= 50) but also increases the
+ # memory consumption and - in case of IO errors - the data to be discarded
  db_buf_size: 100
- # The model to asses the travel time of a wave from the event location to a station
+ # The model to assess the travel time of a wave from the event location to a station
  # location, which will be used to get the segment arrival time (travel time +
  # event time) and eventually the segment time window to download (see also `timespan`).
  # Type one of the 4 built-in models:

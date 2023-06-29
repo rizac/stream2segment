@@ -693,7 +693,6 @@ class Test:
             assert mock_islocalfile.call_args_list[-1][0][0] == filepath
             assert db.session.query(Event.id).count() == expected_events
 
-
     def test_isf2text(self, data):
         '''test isc format=isf with iris equivalent'''
         # this file is stored in test data  dir and represents the iris request:

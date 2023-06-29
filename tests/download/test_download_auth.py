@@ -313,7 +313,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                         '-c', yaml_file,
                                         '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
-                                        '--end', '2016-05-08T9:00:00'])
+                                        '--end', '2016-05-08T09:00:00'])
         assert clirunner.ok(result)
         assert 'Downloading 12 segments (open data only)' in result.output
         assert mock_get_data_open.called
@@ -341,7 +341,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                         '-c', yaml_file,
                                         '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
-                                        '--end', '2016-05-08T9:00:00'])
+                                        '--end', '2016-05-08T09:00:00'])
         assert not clirunner.ok(result)
         assert ('Error: Invalid value for "restricted_data": '
                 'downloading from EIDA requires a token') in result.output
@@ -356,7 +356,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                         '-c', yaml_file,
                                         '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
-                                        '--end', '2016-05-08T9:00:00'])
+                                        '--end', '2016-05-08T09:00:00'])
         assert not clirunner.ok(result)
         assert ('invalid token. If you passed a file path') in result.output
 
@@ -371,7 +371,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                         '-c', yaml_file,
                                         '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
-                                        '--end', '2016-05-08T9:00:00'])
+                                        '--end', '2016-05-08T09:00:00'])
         assert not clirunner.ok(result)
         assert ('invalid token. If you passed a file path') in result.output
 
@@ -440,7 +440,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                         '-c', yaml_file,
                                         '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
-                                        '--end', '2016-05-08T9:00:00'])
+                                        '--end', '2016-05-08T09:00:00'])
         assert clirunner.ok(result)
         assert 'Downloading 12 segments (open data only)' in result.output
         assert 'STEP 5 of 8: Acquiring credentials from token' in result.output
@@ -558,7 +558,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                             '-c', yaml_file,
                                             '--dburl', db.dburl,
                                             '--start', '2016-05-08T00:00:00',
-                                            '--end', '2016-05-08T9:00:00'])
+                                            '--end', '2016-05-08T09:00:00'])
             assert clirunner.ok(result)
             assert 'restricted_data: %s' % os.path.abspath(tokenfile) in result.output
             assert 'STEP 5 of 8: Acquiring credentials from token' in result.output
@@ -664,7 +664,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                         '-c', yaml_file,
                                         '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
-                                        '--end', '2016-05-08T9:00:00'])
+                                        '--end', '2016-05-08T09:00:00'])
         assert clirunner.ok(result)
         # get db data, sort by index and reset index to assure comparison across data frames:
         seg_df = dbquery2df(db.session.query(Segment.id, Segment.download_code,
@@ -741,7 +741,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                         '-c', yaml_file,
                                         '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
-                                        '--end', '2016-05-08T9:00:00'])
+                                        '--end', '2016-05-08T09:00:00'])
         DOWNLOADID += 1
         assert clirunner.ok(result)
         # get db data, sort by index and reset index to assure comparison across data frames:
@@ -773,7 +773,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                         '-c', yaml_file,
                                         '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
-                                        '--end', '2016-05-08T9:00:00'])
+                                        '--end', '2016-05-08T09:00:00'])
         DOWNLOADID += 1
         assert clirunner.ok(result)
         # get db data, sort by index and reset index to assure comparison across data frames:

@@ -80,10 +80,17 @@ def test_click_download(mock_download, mock_create_sess, mock_new_db_download,
     # assert dic['dburl'] == yamldic['dburl']
     assert result.exit_code == 0
 
+    (conffile, yamldic) = download_setup("download.yaml", starttime=1, endtime=0)
+    mock_download.reset_mock()
+    mock_create_sess.reset_mock()
+    result = runner.invoke(cli, ['download', '-c', conffile])
+    assert result.exit_code != 0
+    assert '"starttime"' in result.output or "'starttime'" in result.output
+
     # test start and end given as integers
     # provide values IN THE YAML. Which means we need to write 'starttime' and 'endtime'
     # as those are the values stored in-there:
-    (conffile, yamldic) = download_setup("download.yaml", starttime=1, endtime=0)
+    (conffile, yamldic) = download_setup("download.yaml", starttime=-1, endtime=0)
     mock_download.reset_mock()
     mock_create_sess.reset_mock()
     result = runner.invoke(cli, ['download', '-c', conffile])
@@ -101,7 +108,7 @@ def test_click_download(mock_download, mock_create_sess, mock_new_db_download,
     (conffile, yamldic) = download_setup("download.yaml")
     mock_download.reset_mock()
     mock_create_sess.reset_mock()
-    result = runner.invoke(cli, ['download', '-c', conffile, '-s', '30', '-e', '0'])
+    result = runner.invoke(cli, ['download', '-c', conffile, '-s', '-30', '-e', '0'])
     dic = mock_download.call_args_list[0][1]
     d = datetime.utcnow()
     startd = datetime(d.year, d.month, d.day) - timedelta(days=30)

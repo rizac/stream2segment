@@ -308,7 +308,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                         '-c', self.configfile,
                                         '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
-                                        '--end', '2016-05-08T9:00:00'])
+                                        '--end', '2016-05-08T09:00:00'])
         assert clirunner.ok(result)
 
         assert db.session.query(Station).count() == 4
@@ -376,7 +376,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
                                         '-c', self.configfile,
                                         '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
-                                        '--end', '2016-05-08T9:00:00'])
+                                        '--end', '2016-05-08T09:00:00'])
         assert clirunner.ok(result)
 
         assert len(db.session.query(Download.id).all()) == runs + 1
@@ -442,7 +442,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
                                         '-c', self.configfile,
                                         '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
-                                        '--end', '2016-05-08T9:00:00'])
+                                        '--end', '2016-05-08T09:00:00'])
         assert clirunner.ok(result)
 
         assert len(db.session.query(Download.id).all()) == runs + 1
@@ -483,7 +483,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
                                         '-c', self.configfile,
                                         '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
-                                        '--end', '2016-05-08T9:00:00'])
+                                        '--end', '2016-05-08T09:00:00'])
         assert clirunner.ok(result)
 
         dfres2 = dbquery2df(db.session.query(Segment.id, Segment.channel_id, Segment.datacenter_id,
@@ -530,7 +530,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
                                                                  retry_client_err=False),
                                         '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
-                                        '--end', '2016-05-08T9:00:00'])
+                                        '--end', '2016-05-08T09:00:00'])
         assert clirunner.ok(result)
         assert not mock_download_save_segments.called
 
@@ -547,7 +547,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
                                                                  retry_client_err=False),
                                         '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
-                                        '--end', '2016-05-08T9:00:00'])
+                                        '--end', '2016-05-08T09:00:00'])
         assert clirunner.ok(result)
         assert not mock_download_save_segments.called
         assert str_err in self.log_msg()
@@ -569,7 +569,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         result = clirunner.invoke(cli, ['download', '-c', self.configfile,
                                         '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
-                                        '--end', '2016-05-08T9:00:00'])
+                                        '--end', '2016-05-08T09:00:00'])
         assert clirunner.ok(result)
 
         assert str_err in self.log_msg()
@@ -588,7 +588,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         result = clirunner.invoke(cli, ['download', '-c', self.configfile,
                                         '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
-                                        '--end', '2016-05-08T9:00:00'])
+                                        '--end', '2016-05-08T09:00:00'])
         # assert we wrote again str_2:
         assert self.log_msg().rfind(str_2) > idx
         # reset to default:
@@ -616,7 +616,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         # result = clirunner.invoke(cli, ['download', '-c', self.configfile,
         #                                '--dburl', db.dburl,
         #                                '--start', '2016-05-08T00:00:00',
-        #                                '--end', '2016-05-08T9:00:00', '--inventory'])
+        #                                '--end', '2016-05-08T09:00:00', '--inventory'])
         # assert not clirunner.ok(result)
         # assert '--inventory' in result.output
 
@@ -624,7 +624,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         result = clirunner.invoke(cli, ['download', '-c', self.configfile,
                                         '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
-                                        '--end', '2016-05-08T9:00:00', '--inventory'])
+                                        '--end', '2016-05-08T09:00:00', '--inventory'])
         assert clirunner.ok(result)
 
         stainvs = db.session.query(Station).filter(Station.has_inventory).all()
@@ -645,7 +645,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         result = clirunner.invoke(cli, ['download', '-c', self.configfile,
                                         '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
-                                        '--end', '2016-05-08T9:00:00', '--inventory'])
+                                        '--end', '2016-05-08T09:00:00', '--inventory'])
         assert clirunner.ok(result)
         stainvs = db.session.query(Station).filter(Station.has_inventory).all()
         # assert we still have one station (the one we saved before):
@@ -658,7 +658,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         result = clirunner.invoke(cli, ['download', '-c', self.configfile,
                                         '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
-                                        '--end', '2016-05-08T9:00:00', '--inventory'])
+                                        '--end', '2016-05-08T09:00:00', '--inventory'])
         assert clirunner.ok(result)
         ix = db.session.query(Station.id, Station.inventory_xml).filter(Station.has_inventory).all()
         assert len(ix) == num_expected_inventories_to_download
@@ -669,7 +669,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         result = clirunner.invoke(cli, ['download', '-c', self.configfile,
                                         '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
-                                        '--end', '2016-05-08T9:00:00', '--inventory'])
+                                        '--end', '2016-05-08T09:00:00', '--inventory'])
         assert clirunner.ok(result)
         stainvs2 = db.session.query(Station).filter(Station.has_inventory).all()
         assert len(stainvs2) == num_expected_inventories_to_download
@@ -702,7 +702,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         result = clirunner.invoke(cli, ['download', '-c', self.configfile,
                                         '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
-                                        '--end', '2016-05-08T9:00:00', '--inventory'])
+                                        '--end', '2016-05-08T09:00:00', '--inventory'])
         assert clirunner.ok(result)
 
         # try to get
@@ -758,7 +758,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         result = clirunner.invoke(cli, ['download', '-c', self.configfile,
                                         '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
-                                        '--end', '2016-05-08T9:00:00', '--inventory'])
+                                        '--end', '2016-05-08T09:00:00', '--inventory'])
         assert clirunner.ok(result)
 
         # update_metadata False: assert nothing has been updated:
@@ -775,7 +775,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
                                         '--update-metadata', 'true',
                                         '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
-                                        '--end', '2016-05-08T9:00:00', '--inventory'])
+                                        '--end', '2016-05-08T09:00:00', '--inventory'])
         assert clirunner.ok(result)
 
         # assert that we overwritten the values set above, so we
@@ -808,7 +808,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         result = clirunner.invoke(cli, ['download', '-c', self.configfile,
                                         '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
-                                        '--end', '2016-05-08T9:00:00', '--inventory'])
+                                        '--end', '2016-05-08T09:00:00', '--inventory'])
         assert result.exception
         assert result.exc_info[0] == SystemExit
         logmsg = self.log_msg()
@@ -856,7 +856,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
                                             '-c', configfilename,
                                             # '--dburl', db.dburl,
                                             # '--start', '2016-05-08T00:00:00',
-                                            # '--end', '2016-05-08T9:00:00'
+                                            # '--end', '2016-05-08T09:00:00'
                                            ])
             args = mock_run.call_args_list
             assert len(args) == 1  # called just once (for safety)
@@ -889,7 +889,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
                                                 '-c', configfilename,
                                                 # '--dburl', db.dburl,
                                                 # '--start', '2016-05-08T00:00:00',
-                                                # '--end', '2016-05-08T9:00:00'
+                                                # '--end', '2016-05-08T09:00:00'
                                                 ])
                 assert result.exit_code != 0
                 assert 'Conflicting' in result.output
@@ -938,7 +938,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         runs = len(db.session.query(Download.id).all())
         result = clirunner.invoke(cli, ['download', '-c', self.configfile, '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
-                                        '--end', '2016-05-08T9:00:00'])
+                                        '--end', '2016-05-08T09:00:00'])
 
         assert clirunner.ok(result)
         # the currently written dataframe seg_df is:

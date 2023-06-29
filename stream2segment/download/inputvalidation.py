@@ -112,6 +112,15 @@ def load_config_for_download(config, validate, **param_overrides):
     pname, pval = pop_param(old_config, pnames, default=[])
     new_config[pnames[0]] = validate_param(pname, pval, valid_nslc)
 
+    pnames = ('time_window', 'timespan')
+    validated_params.update(pnames)
+    pname, pval = pop_param(old_config, pnames, default=None)
+    bounds = validate_param(pname, pval, lambda _: [float(_[0]), float(_[1])])
+    if pname == 'timespan':
+        # a positive timespan[0] is now the same as a negative time_window[0]:
+        bounds[0] = -bounds[0]
+    new_config[pnames[0]] = bounds
+
     # validate advanced_settings:
     pname = 'advanced_settings'
     # old configs had traveltimes_model as top-level param (now in advanced_settings):
@@ -421,14 +430,15 @@ def valid_date(obj):
     except (TypeError, ValueError) as _:
         try:
             days = int(obj)
-            now = datetime.utcnow()
-            endt = datetime(now.year, now.month, now.day, 0, 0, 0, 0)
-            return endt - timedelta(days=days)
+            if days <= 0:
+                now = datetime.utcnow().replace(hour=0, minute=0, second=0,
+                                                microsecond=0)
+                return now + timedelta(days=days)
         except Exception:
             pass
         if isinstance(_, TypeError):
-            raise TypeError(("iso-formatted datetime string, datetime "
-                             "object or int required, found %s") %
+            raise TypeError(("iso-formatted datetime string, datetime or date "
+                             "object, non-positive int required, found %s") %
                             str(type(obj)))
         else:
             raise _
