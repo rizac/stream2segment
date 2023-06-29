@@ -880,7 +880,7 @@ def strptime(obj):
     """
     dtime = obj
     if isinstance(obj, str):
-        dtime = datetime.fromisoformat(obj)
+        dtime = _fromisoformat(obj)
 
     if not isinstance(dtime, datetime):
         if isinstance(dtime, date):  # note: check here (a datetime is also a date!)
@@ -895,6 +895,19 @@ def strptime(obj):
 
     # the datetime has no timezone provided AND is in UTC:
     return dtime
+
+
+if sys.version_info[0] == 3 and sys.version_info[1] < 11:
+    import dateutil.parser
+
+    def _fromisoformat(string):
+        """fix py<3.11 datetime.fromisoformat where, e.g. microseconds given not in
+        6 digits would raise. Use dateutil for that"""
+        # https://stackoverflow.com/a/15228038
+        return dateutil.parser.isoparse(string)
+else:
+    def _fromisoformat(string):
+        return datetime.fromisoformat(string)
 
 
 def urljoin(*urlpath, **query_args):

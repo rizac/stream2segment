@@ -52,6 +52,15 @@ def test_strptime():
                      microsecond=123000)
     assert strptime(dtime_str) == dtime
     assert strptime(dtime_str + '000') == dtime
+    # test date times working py < 3.11:
+    dtime_str = '2019-05-18T15:17:00.70+01:00'
+    dtime = datetime(year=2019, month=5, day=18, hour=14, minute=17,
+                     microsecond=700000)
+    assert strptime(dtime_str) == dtime
+
+    with pytest.raises(ValueError):
+        strptime('2019-05-18T15:17:00.x0+01:00')
+
 
 
 def test_strconvert():
