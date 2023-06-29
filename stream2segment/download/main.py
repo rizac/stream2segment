@@ -192,7 +192,7 @@ def _pretty_printed_str(yaml_dict):
 
 def _run(session, download_id, events_url, starttime, endtime, data_url,
          events_extra_params, network, station, location, channel, min_sample_rate,
-         search_radius, update_metadata, inventory, timespan,
+         search_radius, update_metadata, inventory, time_window,
          retry_seg_not_found, retry_url_err, retry_mseed_err, retry_client_err,
          retry_server_err, retry_timespan_err, advanced_settings,
          authorizer, isterminal=False):
@@ -283,7 +283,7 @@ def _run(session, download_id, events_url, starttime, endtime, data_url,
         # raises NothingToDownload
         segments_df, request_timebounds_need_update = \
             prepare_for_download(session, segments_df,
-                                 dc_dataselect_manager, timespan,
+                                 dc_dataselect_manager, time_window,
                                  retry_seg_not_found, retry_url_err,
                                  retry_mseed_err, retry_client_err,
                                  retry_server_err, retry_timespan_err,

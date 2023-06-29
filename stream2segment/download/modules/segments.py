@@ -212,7 +212,7 @@ def set_requested_timebounds(segments_df, timespan):
     # non-NaT segments, set retry=True if the OLD time bounds are different
     # than the new ones (tstart, tend).
     td0, td1 = timedelta(minutes=timespan[0]), timedelta(minutes=timespan[1])
-    tstart, tend = (segments_df[SEG.ATIME] - td0).dt.round('s'), \
+    tstart, tend = (segments_df[SEG.ATIME] + td0).dt.round('s'), \
         (segments_df[SEG.ATIME] + td1).dt.round('s')
     retry_requests_timebounds = pd.notnull(segments_df[SEG.REQSTART]) & \
         ((segments_df[SEG.REQSTART] != tstart) |

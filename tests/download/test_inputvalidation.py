@@ -198,6 +198,8 @@ class Test:
         # assert we did not write to the db, cause the error threw before setting up db:
         assert db.session.query(Download).count() == dcount
 
+
+
     def test_download_bad_values_searchradius(self,
                                               # fixtures:
                                               db, run_cli_download):
@@ -313,6 +315,22 @@ class Test:
         # assert we did not write to the db, cause the error threw before setting up db:
         assert db.session.query(Download).count() == dcount
 
+    def test_download_bad_values_time_window(self,
+                                      # fixtures:
+                                      db, run_cli_download):
+        # INCREMENT THIS VARIABLE EVERY TIME YOU RUN A SUCCESSFUL DOWNLOAD
+        dcount = 0
+        result = run_cli_download(timespan={'a': 'b'})  # conflict
+        assert result.exit_code != 0
+        assert msgin('Error: Conflicting names "time_window" / "timespan"', result.output)
+        result = run_cli_download(timespan=[1, 2], removals=['time_window'])
+        assert result.exit_code == 0
+        assert 'timespan' in result.output
+        dcount += 1
+        result = run_cli_download(time_window=[1, 2])
+        assert result.exit_code == 0
+        dcount += 1
+        assert 'time_window' in result.output
 
     def test_download_bad_values_nslc(self,
                                       # fixtures:

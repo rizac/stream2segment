@@ -168,25 +168,26 @@ search_radius:
 # Data (waveform segments) https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=8
 # ========================
 
-# List of URLs for downloading waveform data. All URLs must be
+# List of URLs for downloading waveform data segments. All URLs must be
 # FDSN-compliant (e.g.: https://service.iris.edu/fdsnws/dataselect/1/query). You can also
 # type two special values: 1) "iris" (Incorporated Research Institutions for Seismology),
 # shortcut for the URL above or 2) "eida", shortcut for several nodes - or data centers -
 # of the European Integrated Data Archive. Being FDSN compliant, all URLs are also used
-# to fetch automatically the stations and channels necessary for the waveforms download
+# to fetch automatically the necessary metadata (stations and channels)
 data_url:
   - 'eida'
   # - 'iris'
 
-# The segment's time span (i.e., the data time window to download): specify two
-# floats denoting the minutes to account for before and after the calculated arrival
-# time (negative numbers are allowed). Note that 3.5 means 3 minutes 30 seconds, and
-# that each segment window will be eventually rounded to the nearest second.
-# Implementation details: the rounding is necessary to avoid floating point errors when
-# checking for segments to re-download because of a changed window.
-timespan:
- - 1.0 # start of the waveform segment, in minutes *before* the calculated arrival time.
- - 3.0 # end of the waveform segment, in minutes *after* the calculated arrival time
+# The segment's time window to download: specify two floats denoting the start and end
+# time, in minutes relative to the calculated arrival time (negative numbers are usually
+# input for start). Note that 3.5 means 3 minutes 30 seconds, and each segment window
+# will be eventually rounded to the nearest second.
+# Implementation detail: segments already on the database whose window does not match
+# the requested window will be re-downloaded and overwritten
+time_window:
+ - -1.0
+ - 3.0
+
 
 # Credentials to download restricted data. When null, missing or "", only open waveforms
 # will be downloaded. When provided, it can be either a list of two strings (username and
@@ -194,7 +195,7 @@ timespan:
 # token, see https://geofon.gfz-potsdam.de/waveform/archive/auth/auth-overview.php)
 # IMPORTANT: credentials are valid only for the organization emitting them and often have
 # an expiration time (e.g., few hours for EIDA tokens). As such, it is advisable NOT to
-# perform massive downloads when fetching restricted data, but target only the relative
+# perform massive downloads when fetching restricted data: target only the relative
 # data URL and - if available - the specific network, station or time period of interest
 # (for advanced users: see also `max_concurrent_downloads` in `advanced_settings`).
 # Implementation details: restricted segments previously downloaded with no credentials

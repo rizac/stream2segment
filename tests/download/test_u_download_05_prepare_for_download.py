@@ -4,7 +4,7 @@ Created on Feb 4, 2016
 
 @author: riccardo
 """
-from datetime import datetime
+from datetime import datetime, timedelta
 import math
 import socket
 from itertools import cycle, product
@@ -302,7 +302,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 #                                                         'ak135', mp_max_workers=1)
 
         expected = len(segments_df)  # no segment on db, we should have all segments to download
-        wtimespan = [1,2]
+        wtimespan = [-1.2, 2]
         assert Segment.id.key not in segments_df.columns
         assert Segment.download_id.key not in segments_df.columns
         orig_seg_df = segments_df.copy()
@@ -317,7 +317,17 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                  retry_server_err=True,
                                  retry_timespan_err=True,
                                  retry_timespan_warn=True)
+
         assert request_timebounds_need_update is False
+        # check that time bounds are correctly calculated:
+        zero = timedelta()
+        values = (segments_df['request_start'] -
+                  (orig_seg_df['arrival_time'] - timedelta(minutes=1.2)).dt.round('s'))
+        assert (values == zero).all()
+        values = (segments_df['request_end'] -
+                  (orig_seg_df['arrival_time'] + timedelta(minutes=2)).dt.round('s'))
+        assert (values == zero).all()
+
 
 # segments_df: (not really the real dataframe, some columns are removed but relevant data is ok):
 #    channel_id  datacenter_id network station location channel  event_distance_deg  event_id            arrival_time          start_time            end_time
