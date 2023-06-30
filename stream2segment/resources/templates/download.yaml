@@ -32,11 +32,10 @@ endtime: 2016-12-25T00:00:00
 # (https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=16) or ISF format
 # (http://www.isc.ac.uk/standards/isf/download/isf.pdf), although ISF has limited support
 # (e.g. comments are not recognized and should be removed): use it at your own risk.
-# IMPORTANT: If you perform a series of downloads with the same configuration (e.g., to
-# fetch as much data as possible) and an event file path, do not rename the file in
-# between two runs, because this would not update, but re-download all events and data
-# (the program identifies already downloaded events comparing their id and catalog URL.
-# If the catalog is a file, the file name will be used instead of the full URL).
+# IMPORTANT: when downloading on an existing database, the program identifies already
+# downloaded events comparing their id and catalog URL. If the catalog is a file, the
+# file name will be used instead: as such, pay attention to rename an events file, or you
+# might end up re-downloading all events and data unnecessarily.
 # You can also type these shortcut strings instead of URLs:
 # {{ DOWNLOAD_EVENTWS_LIST }}.
 events_url: 'http://seismicportal.eu/fdsnws/event/1/query'
@@ -200,9 +199,7 @@ time_window:
 # (for advanced users: see also `max_concurrent_downloads` in `advanced_settings`).
 # Implementation details: restricted segments previously downloaded with no credentials
 # (thus, with no waveform data) will be always re-downloaded ignoring all 'retry'
-# settings. If you need to provide username and password, remember indentation in YAML
-# (see parameter `timespan`). If you provide a token with a non-absolute path, its path
-# will be relative to the config file path
+# settings
 restricted_data: ""
 
 # Retry already downloaded segments if the database reports that the previous attempt was
@@ -228,8 +225,7 @@ retry_client_err: true
 retry_server_err: true
 
 # Retry already downloaded segments if the database reports that the previous attempt was
-# unsuccessful because received data was completely outside the requested time window
-# (see 'timespan' for details)
+# unsuccessful because the received data was completely outside the requested time window
 retry_timespan_err: true
 
 
@@ -267,10 +263,9 @@ advanced_settings:
  # this number speeds up the download (as a rule of thumb, >= 50) but also increases the
  # memory consumption and - in case of IO errors - the data to be discarded
  db_buf_size: 100
- # The model to assess the travel time of a wave from the event location to a station
- # location, which will be used to get the segment arrival time (travel time +
- # event time) and eventually the segment time window to download (see also `timespan`).
- # Type one of the 4 built-in models:
+ # The model to assess the travel time of a wave from the event to a station, which will
+ # be used to get the segments arrival time (travel time + event time) and eventually the
+ # segment time window to download. Type one of the 4 built-in models:
  #   ak135_ttp+: ak135 model for all ttp+ phases (P wave arrivals)
  #   ak135_tts+: ak135 model for all tts+ phases (S wave arrivals)
  #   iasp91_ttp+: iasp91 model for all ttp+ phases (P wave arrivals)
@@ -278,7 +273,5 @@ advanced_settings:
  # Implementation details: the models above are grids of pre-computed travel times
  # obtained from the corresponding model. The grids allow to speed up significantly the
  # computation introducing a negligible interpolation error (roughly in the order of
- # few milliseconds and never exceeding 0.5s). Disclaimer: you can also create your own
- # grid file and put its path here. However, the procedure is not maintained anymore, use
- # at your risk. For info type `python stream2segment/traveltimes/ttcreator.py --help`
+ # few milliseconds and never exceeding 0.5s)
  traveltimes_model: 'ak135_ttp+'
