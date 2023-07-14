@@ -726,13 +726,17 @@ def redirect(src=None, dst=os.devnull):
     :param src: file-like object with a fileno() method. Usually is either `sys.stdout`
         or `sys.stderr`.
     """
-
     # some tools (e.g., pytest) change sys.stderr. In that case, we do want this
     # function to yield and return without changing anything
     # Moreover, passing None as first argument means no redirection
-    try:
-        file_desc = src.fileno()
-    except (AttributeError, OSError, ValueError) as _:
+    just_yield = src is None
+    if not just_yield:
+        try:
+            file_desc = src.fileno()
+        except (AttributeError, OSError, ValueError) as _:
+            just_yield = True
+
+    if just_yield:
         yield
         return
 

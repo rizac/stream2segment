@@ -4,7 +4,7 @@ import numpy as np
 from stream2segment.process.db import get_session
 from stream2segment.io.db import close_session
 from stream2segment.process.db.models import (Segment, Channel, Event, Station,
-                                              DataCenter, Download, Class)
+                                              DataCenter, Download, Class, WebService)
 from stream2segment.process.db.sqlevalexpr import exprquery
 from stream2segment.process.main import (process, imap, SkipSegment,
                                          get_default_segments_selection)
