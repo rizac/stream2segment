@@ -717,7 +717,7 @@ def redirect(src=None, dst=os.devnull):
     https://stackoverflow.com/a/14797594
     and (final solution modified here):
 
-    Example
+    Example:
 
     with redirect(sys.stdout):
         print("from Python")
@@ -729,14 +729,13 @@ def redirect(src=None, dst=os.devnull):
     # some tools (e.g., pytest) change sys.stderr. In that case, we do want this
     # function to yield and return without changing anything
     # Moreover, passing None as first argument means no redirection
-    just_yield = src is None
-    if not just_yield:
-        try:
-            file_desc = src.fileno()
-        except (AttributeError, OSError, ValueError) as _:
-            just_yield = True
+    if src is None:
+        yield
+        return
 
-    if just_yield:
+    try:
+        file_desc = src.fileno()
+    except (AttributeError, OSError, ValueError) as _:
         yield
         return
 

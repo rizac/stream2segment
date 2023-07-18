@@ -1,13 +1,16 @@
+from contextlib import contextmanager
+
 from sqlalchemy import orm, func
 import numpy as np
 
 from stream2segment.process.db import get_session
 from stream2segment.io.db import close_session
-from stream2segment.process.db.models import (Segment, Channel, Event, Station,
+from stream2segment.process.db.models import (Segment, Event, Station, Channel,
                                               DataCenter, Download, Class, WebService)
 from stream2segment.process.db.sqlevalexpr import exprquery
 from stream2segment.process.main import (process, imap, SkipSegment,
-                                         get_default_segments_selection)
+                                         get_default_segments_selection,
+                                         create_processing_env as _create_processing_env)
 from stream2segment.process.funclib import traces
 
 
@@ -55,23 +58,32 @@ def get_db_items(db, item_type, conditions, *, load_only=None, defer=None, order
         a string column, and the second is either "asc" (ascending) or "desc"
         (descending). In the first case, the order is "asc" by default
     """
-
     sess = get_session(db) if isinstance(db, str) else db
     try:
         qry = exprquery(sess.query(item_type), conditions, orderby)
+        # As per-doc, `item_type` must be a model (Segment). Legacy / internal code is
+        # still allowed to pass InstrumentedAttributes instead (e.g. Segment.id). So
+        # let's assure that `item_type` is from now on a model instance:
+        item_type = qry.column_descriptions[0]['entity']
+        # (Note: as of v <=2.0, the parent model of an InstrumentedAttribute attr can be
+        # also obtained via: attr.parent.entity or attr.parent.class_, )
         if load_only:
-            if isinstance(load_only, str):
+            if not isinstance(load_only, list):
                 load_only = [load_only]
+            # sqlalchemy <2 needs model attributes, not strings:
+            load_only = [getattr(item_type, c) if isinstance(c, str) else c
+                         for c in load_only]
             qry = qry.options(orm.load_only(*load_only))
         if defer:
-            if isinstance(defer, str):
+            if not isinstance(defer, list):
                 defer = [defer]
-            # check:
-            common = set(defer) & set(load_only)
-            if common:
-                raise ValueError('You cannot supply the same column(s) in '
-                                 'both `load_only` and `defer`')
+            # sqlalchemy <2 needs model attributes, not strings:
+            defer = [getattr(item_type, c) if isinstance(c, str) else c
+                     for c in defer]
             qry = qry.options(orm.defer(*defer))
+        if defer and load_only and set(defer) & set(load_only):
+            raise ValueError('You cannot supply the same column(s) in '
+                             'both `load_only` and `defer`')
         yield from qry
     finally:
         if sess is not db:  # we created the session here, close it before returning
@@ -79,8 +91,8 @@ def get_db_items(db, item_type, conditions, *, load_only=None, defer=None, order
 
 
 def get_segments(db, conditions, *, load_only=None, defer=None, orderby=None):
-    """Yield Segments from the given database. See get_db_items for details"""
-    # legacy code
+    """Legacy code: yield Segments from the given database. See get_db_items for
+    details"""
     yield from get_db_items(db, Segment, conditions, load_only=load_only, defer=defer,
                             orderby=orderby)
 
@@ -89,6 +101,52 @@ def get_db_items_count(db, item_type, conditions):
     """Yield Segments from the given database. See get_db_items for details"""
     # legacy code
     return get_db_items(db, func.count(item_type), conditions).scalar()  # noqa
+
+
+@contextmanager
+def terminal_environment(progressbar_total_length=0,
+                         capture_external_stderr_printout=True,
+                         warnings_filter=None):
+    """Set up an environment for the execution of medium-to-long tasks on the terminal.
+    This method should be called once before starting your tasks on the main process
+    (i.e., if you use Python multiprocessing do NOT call this function in each child
+    process). The created environment assures that:
+    1. Undesired printouts (to stderr) that can easily pollute the terminal are captured
+    and not shown. Note that also external non-Python libraries (as used by some ObsPy
+    routines) are also captured
+    2. A progressbar can be initialized, incremented and decremented, and will be updated
+    on the terminal, showing also computed estimated time available. Use it when you have
+    code running in loop / iterables, and the total loops count is known beforehand
+    3. Undesired Python warnings can be filtered. By default, this is disabled (None)
+    because if you are using Python multiprocessing, you should probably filter warnings
+    on each child process. For possible string values, see:
+    https://docs.python.org/3/library/warnings.html#the-warnings-filter
+
+    Example:
+    ```
+    with terminal_environment(progressbar_total_length) as env:
+        for ...:  # custom for loop
+            # ... execute your code ...and update progressbar:
+            env.increment_progressbar(1)
+
+    # if you only need to capture external printouts to stderr:
+    with terminal_environment():
+        ... execute your code ...
+    ```
+    """
+    with _create_processing_env(length=progressbar_total_length,
+                                redirect_stderr=capture_external_stderr_printout,
+                                warnings_filter=warnings_filter) as pbar:
+        yield _TerminalEnv(pbar)
+
+
+class _TerminalEnv:
+    """Dummy private-like class for progressbar"""
+    def __init__(self, pbar):
+        self.pbar = pbar
+
+    def increment_progressbar(self, number: int):
+        self.pbar.update(number)
 
 
 def get_classlabels(db):
