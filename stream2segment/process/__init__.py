@@ -1,4 +1,4 @@
-from sqlalchemy import orm
+from sqlalchemy import orm, func
 import numpy as np
 
 from stream2segment.process.db import get_session
@@ -11,15 +11,13 @@ from stream2segment.process.main import (process, imap, SkipSegment,
 from stream2segment.process.funclib import traces
 
 
-def get_segments(db, conditions, *, load_only=None, defer=None, orderby=None):
-    """Return a query object (iterable of `Segment`s) from teh given conditions
-    Example of conditions (dict):
-    ```
-    {
-        'id' : '<6',
-        'has_valid_data': 'true'
-    }
-    ```
+def get_db_items(db, item_type, conditions, *, load_only=None, defer=None, orderby=None):
+    """Return a selection of items from the given database. `item_type` is the Python
+    class representing the requested db table (e.g Segment, Event) and each yielded item
+    is class instance representing a table row matching the given selection conditions.
+    The yielded objects are simple Python objects where the attributes are the row column
+    values, e.g. `event.magnitude` if `item_type=Event`.
+
     :param db: the database URL, as string, or a `session` object already created from
         an given URL (see :func:`get_session`). URLs must be given in this format:
         https://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls.
@@ -27,8 +25,13 @@ def get_segments(db, conditions, *, load_only=None, defer=None, orderby=None):
         function returns: afterwards, attributes returning related db objects (e.g.,
         `event`, `station`) might not be accessible anymore
     :param conditions: a dict of Segment attribute names (string) mapped to
-        an expression, *also as string*. E.g. "event.magnitude": "[4, 7]" or
-        "has_valid_data": "true" (note the quotes around true).
+        an expression, *also as string* (so values must be quoted). Example:
+        ```
+        {
+            'id' : "<6",
+            'has_valid_data': 'true'
+        }
+        ```
     :param load_only: str or list of Segment attribute(s) or attribute name(s)
         denoting database Table columns, that need to be loaded. If None, all
         attributes are loaded, but this might be inefficient for huge queries.
@@ -46,7 +49,7 @@ def get_segments(db, conditions, *, load_only=None, defer=None, orderby=None):
 
     sess = get_session(db) if isinstance(db, str) else db
     try:
-        qry = exprquery(sess.query(Segment), conditions, orderby)
+        qry = exprquery(sess.query(item_type), conditions, orderby)
         if load_only:
             if isinstance(load_only, str):
                 load_only = [load_only]
@@ -64,6 +67,19 @@ def get_segments(db, conditions, *, load_only=None, defer=None, orderby=None):
     finally:
         if sess is not db:  # we created the session here, close it before returning
             close_session(sess)
+
+
+def get_segments(db, conditions, *, load_only=None, defer=None, orderby=None):
+    """Yield Segments from the given database. See get_db_items for details"""
+    # legacy code
+    yield from get_db_items(db, Segment, conditions, load_only=load_only, defer=defer,
+                            orderby=orderby)
+
+
+def get_db_items_count(db, item_type, conditions):
+    """Yield Segments from the given database. See get_db_items for details"""
+    # legacy code
+    return get_db_items(db, func.count(item_type), conditions).scalar()  # noqa
 
 
 def get_classlabels(db):
