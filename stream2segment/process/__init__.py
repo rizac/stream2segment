@@ -13,10 +13,19 @@ from stream2segment.process.funclib import traces
 
 def get_db_items(db, item_type, conditions, *, load_only=None, defer=None, orderby=None):
     """Return a selection of items from the given database. `item_type` is the Python
-    class representing the requested db table (e.g Segment, Event) and each yielded item
-    is class instance representing a table row matching the given selection conditions.
-    The yielded objects are simple Python objects where the attributes are the row column
-    values, e.g. `event.magnitude` if `item_type=Event`.
+    class representing the requested db table (e.g., Segment, Event), each yielded item
+    is a class instance representing a table row matching the given selection conditions.
+    The yielded objects are simple Python objects where the column values are accessed
+    via the object atttributes. E.g.
+    ```
+        from stream2segment.process import get_db_items, Segment, Event
+
+        for event in get_db_items('..', Event, { 'magnitude' : '>=5' }, ...):
+            mag = event.magnitude
+
+        for segment in get_db_items('..', Segment, { 'has_valid_data': 'true' }, ...):
+            obspy_trace = segment.stream()
+    ```
 
     :param db: the database URL, as string, or a `session` object already created from
         an given URL (see :func:`get_session`). URLs must be given in this format:
