@@ -126,6 +126,9 @@ def process(pyfunc, dburl, segments_selection=None, config=None, outfile=None,
     :param skip_exceptions: tuple of Python exceptions that will not interrupt the whole
         execution but will be logged to file, with the relative segment id. When missing
         or None, it defaults to :class:`stream2segmetn.process.SkipExeption`
+
+    :return: the number of successfully processed segments. If a file is provided, it
+        is the number of written rows
     """
     cfg_file = config if isinstance(config, str) else None
     pyfile = getattr(pyfunc, "__name__", str(pyfunc))
@@ -145,8 +148,8 @@ def process(pyfunc, dburl, segments_selection=None, config=None, outfile=None,
             info.append("Config. file:        %s" % abp(cfg_file))
         logger.info(ascii_decorate("\n".join(info)))
 
-        _run_and_write(pyfunc, dburl, segments_selection, config, outfile, append,
-                       writer_options, verbose, multi_process, chunksize, None)
+        return _run_and_write(pyfunc, dburl, segments_selection, config, outfile, append,
+                              writer_options, verbose, multi_process, chunksize, None)
 
 
 def _run_and_write(pyfunc, dburl, segments_selection=None, config=None, outfile=None,
@@ -161,19 +164,22 @@ def _run_and_write(pyfunc, dburl, segments_selection=None, config=None, outfile=
     writer = get_writer(outfile, append, writer_options)
     seg_ids = fetch_segments_ids(dburl, segments_selection, writer)
 
-    written = 0
+    num_ok = 0
     write2file = not writer.isbasewriter
     with writer:
         for output, segment_id in \
                 run_and_yield(dburl, seg_ids, pyfunc, config, show_progress,
                               multi_process, chunksize, skip_exceptions):
-            if write2file and output is not None:
-                writer.write(segment_id, output)
-                written += 1
+            if output is not None:
+                num_ok += 1
+                if write2file:
+                    writer.write(segment_id, output)
 
     if write2file:
         logger.info("%d of %d segment(s) successfully written to the provided output",
-                    written, len(seg_ids))
+                    num_ok, len(seg_ids))
+
+    return num_ok
 
 
 def _valid_filewritable(filepath):

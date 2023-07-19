@@ -8,10 +8,14 @@ from stream2segment.io.db import close_session
 from stream2segment.process.db.models import (Segment, Event, Station, Channel,
                                               DataCenter, Download, Class, WebService)
 from stream2segment.process.db.sqlevalexpr import exprquery
-from stream2segment.process.main import (process, imap, SkipSegment,
+from stream2segment.process.main import (process as map, imap, SkipSegment,  # noqa
                                          get_default_segments_selection,
                                          create_processing_env as _create_processing_env)
 from stream2segment.process.funclib import traces
+
+
+# legacy code, allow map to be imported as `process`:
+process = map
 
 
 def get_db_items(db, item_type, conditions, *, load_only=None, defer=None, orderby=None):
