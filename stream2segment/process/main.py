@@ -346,7 +346,7 @@ def run_and_yield(dburl, seg_ids, pyfunc, config, show_progress=False,
     logger.info('')
     logger.info("%d of %d segment(s) successfully processed", done, seg_len)
     logger.info("%d of %d segment(s) skipped with error message "
-                "reported in the log file", errors, seg_len)
+                "reported in the log file, if provided", errors, seg_len)
 
 
 def _valid_pyfunc(pyfunc):
