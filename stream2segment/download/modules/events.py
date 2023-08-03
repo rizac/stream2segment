@@ -273,7 +273,7 @@ def _normalize(base_url, evt_query_args, start, end):
             evt_query_args['maxmagnitude'] = maxmag
 
     url = EVENTWS_MAPPING.get(base_url, base_url)
-    frmt = Formats.ISF if url == EVENTWS_MAPPING['isc'] else Formats.FDSN
+    frmt = Formats.FDSN
     evt_query_args.setdefault('format', frmt)
 
     return url, evt_query_args
