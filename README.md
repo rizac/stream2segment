@@ -40,6 +40,9 @@ will see all available subcommands for downloading
 and managing data, launching Python processing functions, creating class labels for segments 
 annotation, or producing graphical output, as shown below:
 
+![S2s GUI](https://raw.githubusercontent.com/wiki/rizac/stream2segment/images/screenshot_gui.png)
+
+<!--
 <table>
 	<tr>
 		<td align="center"><img width="90%" src="https://geofon.gfz-potsdam.de/software/stream2segment/processgui.png"/></td>
@@ -51,7 +54,9 @@ annotation, or producing graphical output, as shown below:
 	</tr>
 </table>
 
+
 <sub>Both image linked from https://geofon.gfz-potsdam.de/software/stream2segment/</sub>
+-->
 
 You start the program via the command `init` ( 
 `s2s init --help` for details) to create several fully documented
