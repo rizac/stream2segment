@@ -77,9 +77,7 @@ def configure_ws_fk(eventws_url, session, db_bufsize):
 # error string (constants, used in test so we can change them with no problem, hopefully)
 ERR_FETCH = "Unable to fetch events"
 ERR_FETCH_FDSN = "Unable to fetch events, data not in the supported FDSN format"
-ERR_FETCH_ISF = "Unable to fetch events, data not in the supported ISF format"
 ERR_READ_FDSN = "Unable to read events, data not in the supported FDSN format"
-ERR_READ_ISF = "Unable to read events, data not in the supported ISF format"
 ERR_FETCH_NODATA = "No event received, search parameters might be too strict"
 
 
@@ -92,21 +90,16 @@ def events_df_list(url, evt_query_args, start, end, timeout=15, show_progress=Fa
     urls_and_data = []
     is_local_file = islocalfile(url)
     if is_local_file:
-        frmt = evt_query_args.get('format') or Formats.get_format(url)
         try:
-            urls_and_data.append(events_data_from_file(url, frmt))
+            urls_and_data.append(events_data_from_file(url))
         except Exception as exc:
-            msg = ERR_READ_ISF if frmt == Formats.ISF else ERR_READ_FDSN
-            raise FailedDownload(formatmsg(msg, exc, tofileuri(url)))
+            raise FailedDownload(formatmsg(ERR_READ_FDSN, exc, tofileuri(url)))
     else:
         try:
             urls_and_data = list(events_iter_from_url(url, evt_query_args, start, end,
                                                       timeout, show_progress))
         except NothingToDownload:
             raise
-        except ISFParseError as isf_exc:
-            raise FailedDownload(formatmsg(ERR_FETCH_ISF, isf_exc,
-                                           normalize_url(url, evt_query_args, start, end)))
         except Exception as exc:
             raise FailedDownload(formatmsg(ERR_FETCH, exc,
                                            normalize_url(url, evt_query_args, start, end)))
@@ -142,36 +135,16 @@ def normalize_url(base_url, evt_query_args, start, end):
     return urljoin(_url, **_query_args)
 
 
-def events_data_from_file(file_path, format_=None):
+def events_data_from_file(file_path):
     """Yield the tuple (filepath, events_data) from a file, which must exist
     on the local computer.
-
-    :param format_: string: None will infqer the format (isf or txt), otherwise
-        it must be isf or txt. Note that support for isf is not fully complete
-        (e.g., no comments allowed)
+    The only supported format is txt.
     """
-    if format_ is None:
-        format_ = Formats.get_format(file_path)
     with open(file_path, encoding='utf-8') as opn:
         data = opn.read()
         if not data:
             raise ValueError('Empty file')
-        if format_ == Formats.ISF:
-            data = isfresponse2txt(data, catalog='', contributor='')
         return tofileuri(file_path), data
-
-
-class Formats:
-    """Container for the supported Web service recognized format strings"""
-
-    ISF = 'isf'
-    FDSN = 'text'
-
-    @staticmethod
-    def get_format(filepath):
-        with open(filepath, 'r') as _:
-            return Formats.ISF if _.readline().startswith('DATA_TYPE ') else \
-                Formats.FDSN
 
 
 def tofileuri(file_path):
@@ -197,11 +170,10 @@ def events_iter_from_url(base_url, evt_query_args, start, end, timeout,
     length > 1 if the request was too large and had to be split
     """
     base_url, evt_query_args = _normalize(base_url, evt_query_args, start, end)
-    is_isf_ = evt_query_args['format'] == Formats.ISF
     end_iso = evt_query_args['endtime']
 
     url = urljoin(base_url, **evt_query_args)
-    result = _urlread(url, timeout, is_isf_)
+    result = _urlread(url, timeout)
     if result is not _SUSPECTED_REQUEST_TOO_ARGE:
         if not result:
             raise NothingToDownload(formatmsg(ERR_FETCH_NODATA, "", url))
@@ -227,7 +199,7 @@ def events_iter_from_url(base_url, evt_query_args, start, end, timeout,
                 evt_q_args = _split_request(downloads.pop(0))
                 for i, evt_q_arg in enumerate(evt_q_args):
                     url = urljoin(base_url, **evt_q_arg)
-                    result = _urlread(url, timeout, is_isf_)
+                    result = _urlread(url, timeout)
                     if result is not _SUSPECTED_REQUEST_TOO_ARGE:
                         # update pbar only if the end of the request equals
                         # the global end_iso (when recursion is done on time, it
@@ -273,7 +245,7 @@ def _normalize(base_url, evt_query_args, start, end):
             evt_query_args['maxmagnitude'] = maxmag
 
     url = EVENTWS_MAPPING.get(base_url, base_url)
-    frmt = Formats.ISF if url == EVENTWS_MAPPING['isc'] else Formats.FDSN
+    frmt = "txt"
     evt_query_args.setdefault('format', frmt)
 
     return url, evt_query_args
@@ -282,7 +254,7 @@ def _normalize(base_url, evt_query_args, start, end):
 _SUSPECTED_REQUEST_TOO_ARGE = type('suspected_request_too_large', (object,), {})()
 
 
-def _urlread(url, timeout=None, is_isf=False):
+def _urlread(url, timeout=None):
     """Wrapper around `urlread` but returns None if the url should be split
     because of a too long request
     """
@@ -296,9 +268,6 @@ def _urlread(url, timeout=None, is_isf=False):
 
     if code == 204:
         raw_data = ''
-
-    if raw_data and is_isf:
-        raw_data = isfresponse2txt(raw_data)
 
     return raw_data
 
@@ -372,26 +341,6 @@ def _get_freq_mag_distrib(evt_query_args):
             ret = ret[index_of_minmag:]
 
     return minmag, step, ret
-
-
-class ISFParseError(Exception):
-    pass
-
-
-def isfresponse2txt(nonempty_text, catalog='ISC', contributor='ISC'):
-    """Convert an isf formatted string into an FDSN text formatted string
-    Expects text to be non empty, raises if no event could be parsed
-    """
-    sio = StringIO(nonempty_text)
-    sio.seek(0)
-    try:
-        ret = '\n'.join('|'.join(_) for _ in isf2text_iter(sio, catalog, contributor))
-        # if text is non empty, we can safely raise unformatted type:
-        if not ret:
-            raise Exception('Event block not found')  # caught and reraised below
-        return ret
-    except Exception as exc:  # pylint: disable=broad-except
-        raise ISFParseError(str(exc))
 
 
 def isf2text_iter(isf_filep, catalog='', contributor=''):

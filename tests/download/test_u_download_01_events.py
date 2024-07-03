@@ -17,11 +17,10 @@ import pandas as pd
 import pytest
 
 from stream2segment.download.db.models import Event, Download, WebService
-from stream2segment.download.modules.events import (get_events_df, isf2text_iter,
+from stream2segment.download.modules.events import (get_events_df,
                                                     _get_freq_mag_distrib,
                                                     islocalfile as o_islocalfile,
-                                                    ERR_FETCH_FDSN, ERR_FETCH_ISF,
-                                                    ERR_READ_FDSN, ERR_READ_ISF,
+                                                    ERR_FETCH_FDSN, ERR_READ_FDSN,
                                                     ERR_FETCH, ERR_FETCH_NODATA)
 from stream2segment.download.modules.utils import get_dataframe_from_fdsn, urljoin
 from stream2segment.download.exc import FailedDownload, NothingToDownload
@@ -596,165 +595,17 @@ class Test:
             assert self.mock_urlopen.called
             self.mock_urlopen.reset_mock()
 
-    @patch('stream2segment.download.modules.events.isf2text_iter', side_effect=isf2text_iter)
-    def test_get_events_eventws_from_isc(self, mock_isf_to_text,
+    def test_get_events_eventws_from_isc(self,
                                          # fixtures:
                                          db, data):
         '''test bad events from isc'''
 
-        # normal query from emsc, data exopected as FDSN, returend as FDSN
+        # normal query from emsc, data expected as FDSN, returned as FDSN
         _ = self.get_events_df(None, db.session, 'emsc', {},
                                start=datetime(2010, 1, 1),
                                end=datetime(2011, 1, 1),
                                db_bufsize=self.db_buf_size)
-        assert not mock_isf_to_text.called
         assert db.session.query(Event.id).count() == 2
-
-        # data expected as isf, returned as FDSN:
-        with pytest.raises(FailedDownload) as fld:
-            # now it should raise because of a 413:
-            _ = self.get_events_df(None, db.session, 'isc', {},
-                                   start=datetime(2010, 1, 1),
-                                   end=datetime(2011, 1, 1),
-                                   db_bufsize=self.db_buf_size)
-        assert ERR_FETCH_ISF in str(fld.value)
-        assert mock_isf_to_text.called
-        mock_isf_to_text.reset_mock()
-        assert not mock_isf_to_text.called
-
-        # now supply a valid isf file:
-        _ = self.get_events_df([data.read('event_request_sample_isc.isf').decode('utf8')],
-                               db.session, 'isc', {},
-                               start=datetime(2010, 1, 1),
-                               end=datetime(2011, 1, 1),
-                               db_bufsize=self.db_buf_size)
-        assert mock_isf_to_text.called
-        assert db.session.query(Event.id).count() == 5
-        # looking at the file, these three events should be written
-        assert db.session.query(Event.id).\
-            filter(Event.event_id.in_(['16868827', '600516599', '600516598'])).count() == 3
-        assert db.session.query(Event.contributor_id).\
-            filter(Event.event_id.in_(['16868827', '600516599', '600516598'])).count() == 3
-        # and this not:
-        assert db.session.query(Event.id).\
-            filter(Event.event_id.in_(['15916121'])).count() == 0
-        assert db.session.query(Event.contributor_id).\
-            filter(Event.event_id.in_(['15916121'])).count() == 0
-
-    @patch('stream2segment.download.modules.events.islocalfile', 
-           side_effect=o_islocalfile)
-    def test_get_events_eventws_format_param(self, mock_islocalfile,
-                                             # fixtures:
-                                             db, data, pytestdir):
-        '''test that format is inferred, unless explicitly set, and all combination
-            of these cases'''
-
-        isf_file = pytestdir.newfile(create=True)
-        shutil.copy(data.path('event_request_sample_isc.isf'), isf_file)
-
-        txt_file = pytestdir.newfile(create=True)
-        with open(txt_file, 'w') as _opn:
-            _opn.write(self._evt_urlread_sideeffect)
-        shutil.copy(data.path('event_request_sample_isc.isf'), isf_file)
-
-        # valid isf file, no format => infer it
-        for filepath, expected_events, evt_query_args in \
-            [(txt_file, 2, ({}, {'format': 'txt'})),
-             (isf_file, 3, ({}, {'format': 'isf'}))]:
-            for evt_query_arg in evt_query_args:
-                db.session.query(Event).delete()
-                _ = self.get_events_df([None],
-                                       db.session, filepath, evt_query_arg,
-                                       start=datetime(2010, 1, 1),
-                                       end=datetime(2011, 1, 1),
-                                       db_bufsize=self.db_buf_size)
-                assert mock_islocalfile.call_args_list[-1][0][0] == \
-                    filepath
-                assert db.session.query(Event.id).count() == expected_events
-
-        # two common errors in which the format is wrong:
-        for filepath, expected_events, evt_query_arg in \
-            [(txt_file, 0, {'format': 'isf'}),
-             (isf_file, 0, {'format': 'txt'})]:
-            db.session.query(Event).delete()
-            with pytest.raises(FailedDownload) as fdwl:
-                _ = self.get_events_df([None],
-                                       db.session, filepath, evt_query_arg,
-                                       start=datetime(2010, 1, 1),
-                                       end=datetime(2011, 1, 1),
-                                       db_bufsize=self.db_buf_size)
-            if filepath == txt_file:  # then we expected isf:
-                assert ERR_READ_ISF in str(fdwl.value)
-                assert 'Event block not found' in str(fdwl.value)
-            else:  # then we expected fdsn:
-                assert ERR_READ_FDSN in str(fdwl.value)
-            # assert "No event found. Check that the file is non empty and its content is valid" \
-            #     in str(fdwl)
-            assert mock_islocalfile.call_args_list[-1][0][0] == filepath
-            assert db.session.query(Event.id).count() == expected_events
-
-    def test_isf2text(self, data):
-        '''test isc format=isf with iris equivalent'''
-        # this file is stored in test data  dir and represents the iris request:
-        # https://service.iris.edu/fdsnws/event/1/query?starttime=2011-01-08T00:00:00&endtime=2011-01-08T00:05:00&format=text
-        iris_req_file = 'event_request_sample_iris.txt'
-
-        # this file is stored in test data dir and represents the same request
-        # on isc:
-        # http://www.isc.ac.uk/fdsnws/event/1/query?starttime=2011-01-08T00:00:00&endtime=2011-01-08T00:05:00&format=isf
-        isc_req_file = 'event_request_sample_isc.isf'
-
-        iris_df = get_dataframe_from_fdsn(data.read(iris_req_file).decode('utf8'),
-                                          'event')
-        ret = []
-        with open(data.path(isc_req_file)) as opn:
-            for lst in isf2text_iter(opn, 'ISC', 'ISC'):
-                ret.append('|'.join(lst))
-
-        isc_df = get_dataframe_from_fdsn('\n'.join(ret), 'event')
-
-        # sort values
-        iris_df.sort_values(by=[Event.contributor_id.key], inplace=True)
-        isc_df.sort_values(by=[Event.event_id.key], inplace=True)
-        # Now, Event with event_location_name 'POLAND' has no magnitude
-        # in isc_df, so first:
-        iris_df = iris_df[iris_df[Event.event_location_name.key].str.lower() != 'poland']
-
-        iris_df.reset_index(inplace=True, drop=True)
-        isc_df.reset_index(inplace=True, drop=True)
-
-        # 1. assert a value has correctly been parsed (by looking at the file content):
-        assert isc_df[isc_df[Event.event_id.key] == '16868827'].loc[0, Event.magnitude.key] == 2.1
-        # and set the value to the corresponding iris value, which IN THIS CASE
-        # differs (maybe due to the 'Err' field =0.2 reported in the isc file?):
-        isc_df.at[isc_df.loc[isc_df[Event.event_id.key] == '16868827'].index[0],
-                  Event.magnitude.key] = 2.0
-        # test we set the value:
-        assert isc_df[isc_df[Event.event_id.key] == '16868827'].loc[0, Event.magnitude.key] == 2.0
-
-        # 2. assert a value has correctly been parsed (by looking at the file content):
-        assert isc_df[isc_df[Event.event_id.key] == '16868827'].loc[0, Event.mag_author.key] \
-            == 'THE'
-        # and set the value to the corresponding iris value, which IN THIS CASE
-        # differs (why?):
-        isc_df.at[isc_df.loc[isc_df[Event.event_id.key] == '16868827'].index[0],
-                  Event.mag_author.key] = 'ATH'
-        # test we set the value:
-        assert isc_df[isc_df[Event.event_id.key] == '16868827'].loc[0, Event.mag_author.key] \
-            == 'ATH'
-
-        assert (isc_df[Event.event_id.key].values == iris_df[Event.contributor_id.key].values).all()
-        assert (isc_df[Event.event_id.key].values == isc_df[Event.contributor_id.key].values).all()
-
-        # assert the following columns are equal:. We omit columns where the values
-        # differ by spaces/upper cases / other minor stuff, like Event.event_location_name.key
-        # or because they MUST differ (Event.event_id):
-        for col in iris_df.columns:
-            if col not in (Event.event_id.key, # Event.time.key,
-                           Event.event_location_name.key,):
-                notna1, notna2 = iris_df[col].notna(), isc_df[col].notna()
-                assert (notna1 == notna2).all()
-                assert (iris_df[col][notna1].values == isc_df[col][notna2].values).all()
 
     @patch('stream2segment.download.modules.events.urljoin', side_effect=urljoin)
     def test_get_events_response_has_one_col_more(self, mock_urljoin, db):
