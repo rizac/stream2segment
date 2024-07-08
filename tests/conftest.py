@@ -522,7 +522,7 @@ def db4process(db, data):
             inv_xml = data.read("inventory_GE.APE.xml")
             s_ok = dbp.Station(datacenter_id=dtc.id, latitude=11, longitude=12, network='ok',
                            station='ok', start_time=datetime.utcnow(),
-                           inventory_xml=compress(inv_xml))
+                           stationxml=compress(inv_xml))
             session.add(s_ok)
             session.commit()
 

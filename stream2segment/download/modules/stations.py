@@ -111,7 +111,7 @@ def save_inventories(session, stations_df, max_thread_workers, timeout,
                                  Station.station.key, Station.start_time.key])
 
     dbmanager = DbManager(session, Station.id,
-                          update=[Station.inventory_xml.key],
+                          update=[Station.stationxml.key],
                           buf_size=db_bufsize,
                           oninsert_err_callback=db_exc_logger.failed_insert,
                           onupdate_err_callback=db_exc_logger.failed_update)
@@ -143,7 +143,7 @@ def save_inventories(session, stations_df, max_thread_workers, timeout,
                 else:
                     downloaded += 1
                     dfr = pd.DataFrame({Station.id.key: [sta_id],
-                                        Station.inventory_xml.key: [compress(data)]})
+                                        Station.stationxml.key: [compress(data)]})
                     dbmanager.add(dfr)
 
     dbmanager.close()

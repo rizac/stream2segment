@@ -291,7 +291,7 @@ class Station(Base):
     site_name = Column(String)
     start_time = Column(DateTime, nullable=False)
     end_time = Column(DateTime)
-    inventory_xml = Column(LargeBinary)
+    stationxml = Column(LargeBinary)
 
     @property
     def url(self):
@@ -301,11 +301,11 @@ class Station(Base):
 
     @hybrid_property
     def has_inventory(self):
-        return bool(self.inventory_xml)
+        return bool(self.stationxml)
 
     @has_inventory.expression
     def has_inventory(cls):  # pylint:disable=no-self-argument
-        return withdata(cls.inventory_xml)
+        return withdata(cls.stationxml)
 
     # relationships (implement here only those shared by download+process):
     @declared_attr

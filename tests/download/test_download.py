@@ -630,7 +630,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         stainvs = db.session.query(Station).filter(Station.has_inventory).all()
         assert len(stainvs) == 1
         assert "Inventory download error" in self.log_msg()
-        ix = db.session.query(Station.id, Station.inventory_xml).filter(Station.has_inventory).all()
+        ix = db.session.query(Station.id, Station.stationxml).filter(Station.has_inventory).all()
         num_downloaded_inventories_first_try = len(ix)
         assert len(ix) == num_downloaded_inventories_first_try
         staid, invdata = ix[0][0], ix[0][1]
@@ -660,7 +660,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
                                         '--start', '2016-05-08T00:00:00',
                                         '--end', '2016-05-08T09:00:00', '--inventory'])
         assert clirunner.ok(result)
-        ix = db.session.query(Station.id, Station.inventory_xml).filter(Station.has_inventory).all()
+        ix = db.session.query(Station.id, Station.stationxml).filter(Station.has_inventory).all()
         assert len(ix) == num_expected_inventories_to_download
 
         # check now that none is downloaded
@@ -746,7 +746,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         sta1.elevation = new_elevation
         sta_inv.site_name = new_sitename
         cha.sample_rate = new_srate
-        sta_inv.inventory_xml = new_sta_inv
+        sta_inv.stationxml = new_sta_inv
         db.session.commit()
 
         # assure some data is returned from inventoriy url:
@@ -767,7 +767,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         assert db.session.query(Channel).filter(Channel.sample_rate == new_srate).first()
         # assert segment without inventory has still No inventory:
         assert db.session.query(Station).filter(Station.id ==
-                                                sta_inv_id).first().inventory_xml == new_sta_inv
+                                                sta_inv_id).first().stationxml == new_sta_inv
 
         # NOW UPDATE METADATA
 
@@ -784,7 +784,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         # assert sta_inv has inventory re-downloaded:
         # assert segment without inventory has inventory:
         assert db.session.query(Station).filter(Station.id ==
-                                                sta_inv_id).first().inventory_xml != new_sta_inv
+                                                sta_inv_id).first().stationxml != new_sta_inv
         # and now this:
         assert db.session.query(Station).filter(Station.site_name == new_sitename).first()
         # WHY? because site_name has been implemented for compatibility when the query

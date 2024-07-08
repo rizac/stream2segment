@@ -97,7 +97,7 @@ def tst_cmdline_inv_only(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
     stainvs = db.session.query(Station).filter(Station.has_inventory).all()
     assert len(stainvs) == 1
     ix = \
-        db.session.query(Station.id, Station.inventory_xml).filter(
+        db.session.query(Station.id, Station.stationxml).filter(
             Station.has_inventory).all()
     num_downloaded_inventories_first_try = len(ix)
     assert len(ix) == num_downloaded_inventories_first_try
@@ -149,7 +149,7 @@ def tst_cmdline_inv_only(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
     # data center returning an already saved station. The saved station has
     # been downloaded from a different data center
 
-    # id datacenter_id inventory_xml
+    # id datacenter_id stationxml
     # 1 1              b'...'
     # 2 1              None
     # 3 2              b'...'
@@ -163,7 +163,7 @@ def tst_cmdline_inv_only(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
                     db.session.query(
                         Station.id,
                         Station.datacenter_id,
-                        Station.inventory_xml,
+                        Station.stationxml,
                         Station.network,
                         Station.station,
                         Station.start_time)

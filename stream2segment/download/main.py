@@ -344,7 +344,7 @@ def _run(session, download_id, events_url, starttime, endtime, data_url,
             session.close()
 
             # query station id, network station, datacenter_url
-            # for those stations with empty inventory_xml
+            # for those stations with empty stationxml
             # AND at least one segment non-empty/null
             # Download inventories for those stations only
             sta_df = get_station_df_for_inventory_download(session, update_metadata)

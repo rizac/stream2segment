@@ -147,7 +147,7 @@ class Test:
                     assert not mock_getinv.called
                 else:
                     assert mock_getinv.called
-                assert len(segment.station.inventory_xml) > 0
+                assert len(segment.station.stationxml) > 0
                 # re-call it with reload=True and assert we raise the previous
                 # exception, and that we called get_inv:
                 ccc = mock_getinv.call_count

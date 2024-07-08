@@ -194,7 +194,7 @@ def get_inventory(station):
     """Return the inventory object for the given station.
     Raises :class:`SkipSegment` if inventory data is empty
     """
-    data = station.inventory_xml
+    data = station.stationxml
     if not data:
         raise SkipSegment('no data')
     return get_inventory_from_bytes(data)
