@@ -607,6 +607,12 @@ class Test:
                                db_bufsize=self.db_buf_size)
         assert db.session.query(Event.id).count() == 2
 
+        _ = self.get_events_df(None, db.session, 'isc', {},
+                                start=datetime(2010, 1, 1),
+                                end=datetime(2011, 1, 1),
+                                db_bufsize=self.db_buf_size)
+        assert db.session.query(Event.id).count() == 4
+
     @patch('stream2segment.download.modules.events.urljoin', side_effect=urljoin)
     def test_get_events_response_has_one_col_more(self, mock_urljoin, db):
         """WARNING: THIS TEST MIGHT FAIL IN THE FUTURE IF NEW COLUMNS ARE ADDED TO OUR
