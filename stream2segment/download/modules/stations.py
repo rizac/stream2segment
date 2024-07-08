@@ -99,8 +99,8 @@ def _query4inventorydownload(session, force_update):
     return qry
 
 
-def save_inventories(session, stations_df, max_thread_workers, timeout,
-                     download_blocksize, db_bufsize, show_progress=False):
+def save_stationxml(session, stations_df, max_thread_workers, timeout,
+                    download_blocksize, db_bufsize, show_progress=False):
     """Save inventories. stations_df must not be empty (not checked here)"""
 
     inv_logger = InventoryLogger()
