@@ -198,7 +198,7 @@ class Event(Base):  # pylint: disable=too-few-public-methods
     mag_author = Column(String)
     event_location_name = Column(String)
     event_type = Column(String)
-    quakeml = Column(LargeBinary, nullable=True)
+    quakeml = Column(LargeBinary)
 
     @property
     def url(self):

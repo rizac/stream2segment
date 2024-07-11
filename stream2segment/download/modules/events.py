@@ -42,6 +42,7 @@ def get_events_df(session, url, evt_query_args, start, end,
     pd_df_list = events_df_list(url, evt_query_args, start, end, timeout, show_progress)
     # pd_df_list surely not empty (otherwise we raised FailedDownload)
     events_df = pd.concat(pd_df_list, axis=0, ignore_index=True, copy=False)
+    events_df.drop(columns=[Event.quakeml.key], inplace=True)
 
     events_df[Event.webservice_id.key] = eventws_id
     events_df = dbsyncdf(events_df, session,
