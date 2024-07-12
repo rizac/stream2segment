@@ -1,14 +1,9 @@
 """
-Events download functions
-
-:date: Dec 3, 2017
-
-.. moduleauthor:: <rizac@gfz-potsdam.de>
+Events download
 """
 import os
 from datetime import timedelta
 import logging
-from io import StringIO
 from urllib.request import Request
 
 import numpy as np
@@ -25,7 +20,7 @@ from stream2segment.download.modules.utils import (dbsyncdf, get_dataframe_from_
                                                    strptime,
                                                    urljoin,
                                                    DbExcLogger,
-                                                   OneTimeLogger,
+                                                   RequestErrorOnceLogger,
                                                    compress)
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
@@ -108,8 +103,8 @@ def events_df_list(url, evt_query_args, start, end, timeout=15, show_progress=Fa
         except NothingToDownload:
             raise
         except Exception as exc:
-            raise FailedDownload(formatmsg(ERR_FETCH, exc,
-                                           normalize_url(url, evt_query_args, start, end)))
+            _url_ = normalize_url(url, evt_query_args, start, end)
+            raise FailedDownload(formatmsg(ERR_FETCH, exc, _url_))
 
     pd_df_list = []
     for url_, data in urls_and_data:
@@ -347,18 +342,15 @@ def _get_freq_mag_distrib(evt_query_args):
             ret = ret[index_of_minmag:]
 
     return minmag, step, ret
-  
+
+
 def save_quakeml(session, events_df, max_thread_workers, timeout,
                  download_blocksize, db_bufsize, show_progress=False):
     """Save event's quakeML data. envents_df must not be empty"""
 
-    logger_header = "QuakeML"
-    evt_logger = OneTimeLogger(logger_header)
-
+    evt_logger = RequestErrorOnceLogger("QuakeML download errors")
     downloaded, errors, empty = 0, 0, 0
-
     db_exc_logger = DbExcLogger([Event.id.key])
-
     dbmanager = DbManager(session, Event.id,
                           update=[Event.quakeml.key],
                           buf_size=db_bufsize,

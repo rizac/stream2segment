@@ -254,10 +254,10 @@ def dblog(table, inserted, not_inserted, updated=0, not_updated=0):
         dolog(updated, not_updated, "%d %s updated", ", %d discarded")
 
 
-class OneTimeLogger(set):
-    """Class handling errors logging only once per error type
-    and host URL in order to avoid polluting the log file/stream
-    with hundreds of megabytes"""
+class RequestErrorOnceLogger(set):
+    """Class handling request errors by logging only once per error type
+    and URL host
+    """
 
     def __init__(self, header):
         """
@@ -267,7 +267,7 @@ class OneTimeLogger(set):
         self.header = header
 
     def warn(self, request, exc):
-        """Issue a logger.warn if the given error is not already reported
+        """log a warning if the given error is not already reported
 
         :param request: the Request object
         :param exc: the reported Exception or string message
@@ -276,11 +276,12 @@ class OneTimeLogger(set):
         item = (url, err2str(exc))  # use err2str to uniquely identify exc
         if item not in self:
             if not self:
-                logger.warning(f"{self.header} download errors")
-                logger.warning('(showing only first of each type per data center):')
+                logger.warning(self.header)
+                logger.warning('(for readability, errors of the same type and from '
+                               'the same URL domain will be showed only once):')
             self.add(item)
             request_str = url2str(request)
-            logger.warning(formatmsg(f"{self.header} Download error", exc, request_str))
+            logger.warning(formatmsg(exc, "", request_str))
 
 
 def compress(bytestr, compression='gzip', compresslevel=9):
@@ -1045,13 +1046,16 @@ def urljoin(*urlpath, **query_args):
 
 
 class _MemoryChecker:
-    """Legacy class for checking memory consumption. Initialize outside a loop and then
-    call `check_memory_consumption` in the loop. A FailedDownload will be raised if the
+    """Legacy class for checking memory consumption: Because these error happened
+    long ago on 8Gb machines only, as of 2023 memory checks are removed from the
+    codebase.
+
+    Initialize outside a loop and then call `check_memory_consumption` in the loop.
+    A FailedDownload will be raised if the
     memory consumption exceeds a certain threshold. Memory checks were implemented
     for each request and might be useful especially in the download of segments or
     inventories (see e.g. `download.modules.segments.get_responses`) to prevent the
-    program to exit with no clear message. Because these error happened long ago on 8Gb
-    machines only, as of 2023 memory checks are removed from the codebase
+    program to exit with no clear message.
     """
     def __init__(self, step=500, memory_max_percent=90):
         self.step = step
