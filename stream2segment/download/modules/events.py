@@ -347,8 +347,7 @@ def _get_freq_mag_distrib(evt_query_args):
             ret = ret[index_of_minmag:]
 
     return minmag, step, ret
-
-
+  
 def save_quakeml(session, events_df, max_thread_workers, timeout,
                  download_blocksize, db_bufsize, show_progress=False):
     """Save event's quakeML data. envents_df must not be empty"""
@@ -403,3 +402,4 @@ def _get_evt_request(evt_url, evt_eventid):
     QuakeML
     """
     return Request(url=f"{evt_url}?eventid={evt_eventid}")
+  
