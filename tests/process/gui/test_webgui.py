@@ -81,7 +81,7 @@ class Test:
         inv_xml = data.read("GE.FLT1.xml")
         s = Station(network='network', station='station', datacenter_id=dc.id, latitude=90,
                     longitude=-45,
-                    start_time=d, inventory_xml=inv_xml)
+                    start_time=d, stationxml=inv_xml)
         session.add(s)
 
         channels = [
@@ -261,10 +261,10 @@ class Test:
             a2 = data['metadata']
             
             # a2 = None  get_metadata(db.session, None)
-            # Station.inventory_xml, Segment.data, Download.log,
+            # Station.stationxml, Segment.data, Download.log,
             # Download.config, Download.errors, Download.warnings,
             # Download.program_version, Class.description
-            for excluded in ['station.inventory_xml', 'data', 'download.log',
+            for excluded in ['station.stationxml', 'data', 'download.log',
                              'download.config', 'download.errors', 'download.warnings',
                              'download.program_version', 'class.description']:
                 assert not any(_['label'] == excluded for _ in a2)
@@ -515,8 +515,8 @@ class Test:
         # store empty inventory xml in segment
         sess = db.session()
         sta = sess.query(Segment).filter(Segment.id == self.segment_id).one().station
-        inv_xml = sta.inventory_xml
-        sta.inventory_xml = b''
+        inv_xml = sta.stationxml
+        sta.stationxml = b''
         sess.commit()
         try:
             with self.app.test_request_context():
@@ -536,7 +536,7 @@ class Test:
                 assert isinstance(plots[""], str) \
                        and "Station inventory (xml) error" in plots[""]
         finally:
-            sta.inventory_xml = inv_xml
+            sta.stationxml = inv_xml
             sess.commit()
 
     @pytest.mark.parametrize('calculate_sn_spectra', [True, False])

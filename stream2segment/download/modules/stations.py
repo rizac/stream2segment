@@ -6,11 +6,6 @@ Stations (inventory) download functions
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
 from datetime import datetime
-from io import BytesIO
-import gzip
-import zipfile
-import zlib
-import bz2
 import logging
 from datetime import timedelta
 from urllib.request import Request
@@ -20,10 +15,8 @@ import pandas as pd
 from stream2segment.io.cli import get_progressbar
 from stream2segment.io.db.pdsql import DbManager, dbquery2df
 from stream2segment.download.db.models import DataCenter, Station, Segment
-from stream2segment.download.url import get_host, read_async
-from stream2segment.download.modules.utils import (DbExcLogger, formatmsg,
-                                                   url2str, err2str)
-
+from stream2segment.download.url import read_async
+from stream2segment.download.modules.utils import DbExcLogger, OneTimeLogger, compress
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__)
@@ -31,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 def _get_sta_request(datacenter_url, network, station, start_time, end_time):
     """Return a Request object from the given station arguments to download the
-    inventory xml
+    StationXML
     """
     # fix bug of ncedc and scedc whereby dates exactly on the start are not returned.
     # Adding 1s to the start time is heavily hacky but it fixes the problem easily:
@@ -99,11 +92,12 @@ def _query4inventorydownload(session, force_update):
     return qry
 
 
-def save_inventories(session, stations_df, max_thread_workers, timeout,
-                     download_blocksize, db_bufsize, show_progress=False):
-    """Save inventories. stations_df must not be empty (not checked here)"""
+def save_stationxml(session, stations_df, max_thread_workers, timeout,
+                    download_blocksize, db_bufsize, show_progress=False):
+    """Save StationXML data. stations_df must not be empty (not checked here)"""
 
-    inv_logger = InventoryLogger()
+    logger_header = "StationXML"
+    inv_logger = OneTimeLogger(logger_header)
 
     downloaded, errors, empty = 0, 0, 0
 
@@ -111,7 +105,7 @@ def save_inventories(session, stations_df, max_thread_workers, timeout,
                                  Station.station.key, Station.start_time.key])
 
     dbmanager = DbManager(session, Station.id,
-                          update=[Station.inventory_xml.key],
+                          update=[Station.stationxml.key],
                           buf_size=db_bufsize,
                           oninsert_err_callback=db_exc_logger.failed_insert,
                           onupdate_err_callback=db_exc_logger.failed_update)
@@ -143,71 +137,9 @@ def save_inventories(session, stations_df, max_thread_workers, timeout,
                 else:
                     downloaded += 1
                     dfr = pd.DataFrame({Station.id.key: [sta_id],
-                                        Station.inventory_xml.key: [compress(data)]})
+                                        Station.stationxml.key: [compress(data)]})
                     dbmanager.add(dfr)
 
     dbmanager.close()
 
     return downloaded, empty, errors
-
-
-def compress(bytestr, compression='gzip', compresslevel=9):
-    """Compress `bytestr` returning a new compressed byte sequence
-
-    :param bytestr: (string) a sequence of bytes to be compressed
-    :param compression: String, either ['bz2', 'zlib', 'gzip', 'zip'. Default: 'gzip']
-        The compression library to use (after serializing `obj` with the given format)
-        on the serialized data. If None or empty string, no compression is applied, and
-        `bytestr` is returned as it is
-    :param compresslevel: integer (9 by default). Ignored if `compression` is None,
-        empty or 'zip' (the latter does not accept this argument), this parameter
-        controls the level of compression; 1 is fastest and produces the least
-        compression, and 9 is slowest and produces the most compression
-    """
-    if compression == 'bz2':
-        return bz2.compress(bytestr, compresslevel=compresslevel)
-    elif compression == 'zlib':
-        return zlib.compress(bytestr, compresslevel)
-    elif compression:
-        sio = BytesIO()
-        if compression == 'gzip':
-            with gzip.GzipFile(mode='wb', fileobj=sio,
-                               compresslevel=compresslevel) as gzip_obj:
-                gzip_obj.write(bytestr)
-                # Note: DO NOT return sio.getvalue() WITHIN the with statement,
-                # the gzip file obj needs to be closed first. FIXME: ref?
-        elif compression == 'zip':
-            # In this case, use the compress argument to ZipFile to compress the data,
-            # since writestr() does not take compress as an argument. See:
-            # https://pymotw.com/2/zipfile/#writing-data-from-sources-other-than-files
-            with zipfile.ZipFile(sio, 'w', compression=zipfile.ZIP_DEFLATED) as zip_obj:
-                zip_obj.writestr("x", bytestr)  # first arg must be a nonempty str
-        else:
-            raise ValueError("compression '%s' not in ('gzip', 'zlib', 'bz2', 'zip')" %
-                             str(compression))
-
-        return sio.getvalue()
-
-    return bytestr
-
-
-class InventoryLogger(set):
-    """Class handling inventory errors and logging only once per error type
-    and datacenter to avoid polluting the log file/stream with hundreds of
-    megabytes"""
-
-    def warn(self, request, exc):
-        """Issue a logger.warn if the given error is not already reported
-
-        :param request: the Request object
-        :pram exc: the reported Exception or string message
-        """
-        url = get_host(request)
-        item = (url, err2str(exc))  # use err2str to uniquely identify exc
-        if item not in self:
-            if not self:
-                logger.warning('Detailed inventory download errors (showing '
-                               'only first of each type per data center):')
-            self.add(item)
-            request_str = url2str(request)
-            logger.warning(formatmsg("Inventory download error", exc, request_str))

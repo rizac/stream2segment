@@ -166,7 +166,7 @@ def get_metadata(segment_id=None):
     related_models_attrs = {
         'event': lambda attr: attr not in {'contributor', 'contributor_id',
                                            'mag_author', 'event_type', 'author'},
-        'station': lambda attr: attr != Station.inventory_xml.key,
+        'station': lambda attr: attr != Station.stationxml.key,
         'channel': lambda attr: True,
         'datacenter': lambda attr: attr in {'id', 'dataselect_url'},
         'download': lambda attr: attr in {'id', 'run_time'}

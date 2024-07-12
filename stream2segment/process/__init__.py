@@ -353,7 +353,7 @@ def get_segment_help(format='html', maxwidth=79, **print_kwargs):
                                   # assigned to  the segment"],
         ["classes.description", None],  # "int: the description(s) of the class labels
                                         #  assigned to the segment"],
-        ["station.inventory_xml", None],  # bytes
+        ["station.stationxml", None],  # bytes
         ["download.log", None],  # str
         ["download.warnings", None],  # int
         ["download.errors", None],  # int

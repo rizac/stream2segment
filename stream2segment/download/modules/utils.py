@@ -17,6 +17,11 @@ from itertools import chain
 from collections import OrderedDict
 from functools import cmp_to_key
 import logging
+from io import BytesIO
+import gzip
+import zipfile
+import zlib
+import bz2
 
 import pandas as pd
 
@@ -25,7 +30,8 @@ from stream2segment.io.db.pdsql import harmonize_columns, dropnulls, syncdf
 from stream2segment.io.db.inspection import colnames
 from stream2segment.download.db.models import Event, Station, Channel
 from stream2segment.download.exc import FailedDownload
-from stream2segment.download.url import responses
+from stream2segment.download.url import responses, get_host
+
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__)
@@ -246,6 +252,75 @@ def dblog(table, inserted, not_inserted, updated=0, not_updated=0):
 
         dolog(inserted, not_inserted, "%d new %s inserted", ", %d discarded")
         dolog(updated, not_updated, "%d %s updated", ", %d discarded")
+
+
+class OneTimeLogger(set):
+    """Class handling errors logging only once per error type
+    and host URL in order to avoid polluting the log file/stream
+    with hundreds of megabytes"""
+
+    def __init__(self, header):
+        """
+        :param header: str, the header to be shown in the log
+        """
+        super().__init__()
+        self.header = header
+
+    def warn(self, request, exc):
+        """Issue a logger.warn if the given error is not already reported
+
+        :param request: the Request object
+        :param exc: the reported Exception or string message
+        """
+        url = get_host(request)
+        item = (url, err2str(exc))  # use err2str to uniquely identify exc
+        if item not in self:
+            if not self:
+                logger.warning(f"{self.header} download errors")
+                logger.warning('(showing only first of each type per data center):')
+            self.add(item)
+            request_str = url2str(request)
+            logger.warning(formatmsg(f"{self.header} Download error", exc, request_str))
+
+
+def compress(bytestr, compression='gzip', compresslevel=9):
+    """Compress `bytestr` returning a new compressed byte sequence
+
+    :param bytestr: (string) a sequence of bytes to be compressed
+    :param compression: String, either ['bz2', 'zlib', 'gzip', 'zip'. Default: 'gzip']
+        The compression library to use (after serializing `obj` with the given format)
+        on the serialized data. If None or empty string, no compression is applied, and
+        `bytestr` is returned as it is
+    :param compresslevel: integer (9 by default). Ignored if `compression` is None,
+        empty or 'zip' (the latter does not accept this argument), this parameter
+        controls the level of compression; 1 is fastest and produces the least
+        compression, and 9 is slowest and produces the most compression
+    """
+    if compression == 'bz2':
+        return bz2.compress(bytestr, compresslevel=compresslevel)
+    elif compression == 'zlib':
+        return zlib.compress(bytestr, compresslevel)
+    elif compression:
+        sio = BytesIO()
+        if compression == 'gzip':
+            with gzip.GzipFile(mode='wb', fileobj=sio,
+                               compresslevel=compresslevel) as gzip_obj:
+                gzip_obj.write(bytestr)
+                # Note: DO NOT return sio.getvalue() WITHIN the with statement,
+                # the gzip file obj needs to be closed first. FIXME: ref?
+        elif compression == 'zip':
+            # In this case, use the compress argument to ZipFile to compress the data,
+            # since writestr() does not take compress as an argument. See:
+            # https://pymotw.com/2/zipfile/#writing-data-from-sources-other-than-files
+            with zipfile.ZipFile(sio, 'w', compression=zipfile.ZIP_DEFLATED) as zip_obj:
+                zip_obj.writestr("x", bytestr)  # first arg must be a nonempty str
+        else:
+            raise ValueError("compression '%s' not in ('gzip', 'zlib', 'bz2', 'zip')" %
+                             str(compression))
+
+        return sio.getvalue()
+
+    return bytestr
 
 
 def get_dataframe_from_fdsn(response_str, query_type, url=''):

@@ -619,10 +619,10 @@ class Test:
         Event MODEL. TO FIX THIS, EDIT THE RESPONSE BELOW IN ORDER TO HAVE ALWAYS ONE
         COLUMN MORE THAN IN OUR Event MODEL
          """
-        urlread_sideeffect = ["""#EventID|Time|Latitude|Longitude|Depth/km|Author|Catalog|Contributor|ContributorID|MagType|Magnitude|MagAuthor|EventLocationName|EventType|
-gfz2021edty|2021-02-28T23:37:15.211956|-17.565212|167.572067|10.0|||GFZ|gfz2021edty|M|5.787024361||Vanuatu Islands|earthquake|
-gfz2021edpn|2021-02-28T21:23:50.840903|-22.500320|172.554474|26.75543594|||GFZ|gfz2021edpn|mb|4.907085435||Southeast of Loyalty Islands|earthquake|
-gfz2021edoa|2021-02-28T20:37:40.931643|-22.658522|172.432373|30.70357132|||GFZ|gfz2021edoa|Mw|5.755797284||Southeast of Loyalty Islands|earthquake|
+        urlread_sideeffect = ["""#EventID|Time|Latitude|Longitude|Depth/km|Author|Catalog|Contributor|ContributorID|MagType|Magnitude|MagAuthor|EventLocationName|EventType||
+gfz2021edty|2021-02-28T23:37:15.211956|-17.565212|167.572067|10.0|||GFZ|gfz2021edty|M|5.787024361||Vanuatu Islands|earthquake||
+gfz2021edpn|2021-02-28T21:23:50.840903|-22.500320|172.554474|26.75543594|||GFZ|gfz2021edpn|mb|4.907085435||Southeast of Loyalty Islands|earthquake||
+gfz2021edoa|2021-02-28T20:37:40.931643|-22.658522|172.432373|30.70357132|||GFZ|gfz2021edoa|Mw|5.755797284||Southeast of Loyalty Islands|earthquake||
 """]
         with pytest.raises(FailedDownload) as fdw:
             data = self.get_events_df(urlread_sideeffect, db.session, "http://eventws", {},

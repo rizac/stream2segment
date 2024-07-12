@@ -35,8 +35,8 @@ def tst_cmdline_inv_only(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
         lambda *a, **v: self.get_datacenters_df(None, *a, **v)
     mock_get_channels_df.side_effect = lambda *a, **v: self.get_channels_df(None, *a,
                                                                             **v)
-    mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(None, *a,
-                                                                              **v)
+    mock_save_inventories.side_effect = lambda *a, **v: self.save_stationxml(None, *a,
+                                                                             **v)
     mock_download_save_segments.side_effect = \
         lambda *a, **v: self.download_save_segments(None, *a, **v)
     # mseed unpack is mocked by accepting only first arg (so that time bounds are not
@@ -76,7 +76,7 @@ def tst_cmdline_inv_only(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
     # and be more safe about the fact that we will have only ONE station inventory saved
     inv_urlread_ret_val = [self._inv_data, URLError('a')]
     mock_save_inventories.side_effect = \
-        lambda *a, **v: self.save_inventories(inv_urlread_ret_val, *a, **v)
+        lambda *a, **v: self.save_stationxml(inv_urlread_ret_val, *a, **v)
 
     mock_download_save_segments.reset_mock()
     old_log_msg = self.log_msg()
@@ -97,7 +97,7 @@ def tst_cmdline_inv_only(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
     stainvs = db.session.query(Station).filter(Station.has_inventory).all()
     assert len(stainvs) == 1
     ix = \
-        db.session.query(Station.id, Station.inventory_xml).filter(
+        db.session.query(Station.id, Station.stationxml).filter(
             Station.has_inventory).all()
     num_downloaded_inventories_first_try = len(ix)
     assert len(ix) == num_downloaded_inventories_first_try
@@ -111,8 +111,8 @@ def tst_cmdline_inv_only(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
 
     # Now write also to the second station inventory (the one
     # which raised before)
-    mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories([b"x"], *a,
-                                                                              **v)
+    mock_save_inventories.side_effect = lambda *a, **v: self.save_stationxml([b"x"], *a,
+                                                                             **v)
 
     result = clirunner.invoke(cli, ['download', '-c', self.configfile,
                                     '--dburl', db.dburl,
@@ -149,7 +149,7 @@ def tst_cmdline_inv_only(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
     # data center returning an already saved station. The saved station has
     # been downloaded from a different data center
 
-    # id datacenter_id inventory_xml
+    # id datacenter_id stationxml
     # 1 1              b'...'
     # 2 1              None
     # 3 2              b'...'
@@ -163,7 +163,7 @@ def tst_cmdline_inv_only(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
                     db.session.query(
                         Station.id,
                         Station.datacenter_id,
-                        Station.inventory_xml,
+                        Station.stationxml,
                         Station.network,
                         Station.station,
                         Station.start_time)

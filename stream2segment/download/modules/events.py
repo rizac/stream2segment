@@ -9,17 +9,24 @@ import os
 from datetime import timedelta
 import logging
 from io import StringIO
+from urllib.request import Request
 
 import numpy as np
 import pandas as pd
 
 from stream2segment.io.cli import get_progressbar
+from stream2segment.io.db.pdsql import DbManager
 from stream2segment.download.exc import FailedDownload, NothingToDownload
-from stream2segment.download.db.models import WebService, Event
-from stream2segment.download.url import urlread, socket, HTTPError
+from stream2segment.download.db.models import Event, WebService
+from stream2segment.download.url import urlread, socket, HTTPError, read_async
 from stream2segment.download.modules.utils import (dbsyncdf, get_dataframe_from_fdsn,
                                                    formatmsg,
-                                                   EVENTWS_MAPPING, strptime, urljoin)
+                                                   EVENTWS_MAPPING,
+                                                   strptime,
+                                                   urljoin,
+                                                   DbExcLogger,
+                                                   OneTimeLogger,
+                                                   compress)
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__)
@@ -340,3 +347,59 @@ def _get_freq_mag_distrib(evt_query_args):
             ret = ret[index_of_minmag:]
 
     return minmag, step, ret
+  
+def save_quakeml(session, events_df, max_thread_workers, timeout,
+                 download_blocksize, db_bufsize, show_progress=False):
+    """Save event's quakeML data. envents_df must not be empty"""
+
+    logger_header = "QuakeML"
+    evt_logger = OneTimeLogger(logger_header)
+
+    downloaded, errors, empty = 0, 0, 0
+
+    db_exc_logger = DbExcLogger([Event.id.key])
+
+    dbmanager = DbManager(session, Event.id,
+                          update=[Event.quakeml.key],
+                          buf_size=db_bufsize,
+                          oninsert_err_callback=db_exc_logger.failed_insert,
+                          onupdate_err_callback=db_exc_logger.failed_update)
+
+    with get_progressbar(show_progress, length=len(events_df)) as pbar:
+
+        iterable = zip(events_df[Event.id.key],
+                       events_df[WebService.url],
+                       events_df[Event.event_id.key])
+
+        reader = read_async(iterable,
+                            urlkey=lambda obj: _get_evt_request(*obj[1:]),
+                            max_workers=max_thread_workers,
+                            blocksize=download_blocksize, timeout=timeout)
+
+        for obj, request, data, exc, status_code in reader:
+            pbar.update(1)
+            evt_id = obj[0]
+            if exc:
+                evt_logger.warn(request, exc)
+                errors += 1
+            else:
+                if not data:
+                    evt_logger.warn(request, "empty response")
+                    empty += 1
+                else:
+                    downloaded += 1
+                    dfr = pd.DataFrame({Event.id.key: [evt_id],
+                                        Event.quakeml.key: [compress(data)]})
+                    dbmanager.add(dfr)
+
+    dbmanager.close()
+
+    return downloaded, empty, errors
+
+
+def _get_evt_request(evt_url, evt_eventid):
+    """Return a Request object from the given event arguments to download the
+    QuakeML
+    """
+    return Request(url=f"{evt_url}?eventid={evt_eventid}")
+  

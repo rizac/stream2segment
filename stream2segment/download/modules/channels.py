@@ -383,7 +383,7 @@ def save_stations_and_channels(session, channels_df, eidavalidator, update,
     if _update_stations:
         _update_stations = [_ for _ in shared_colnames(Station, channels_df,
                                                        pkey=False)
-                            if _ != Station.inventory_xml.key]
+                            if _ != Station.stationxml.key]
 
     # Add stations to db (Note: no need to check for `empty(channels_df)`,
     # `dbsyncdf` raises a `FailedDownload` in case). First set columns

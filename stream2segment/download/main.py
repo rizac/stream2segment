@@ -26,7 +26,7 @@ from stream2segment.download.modules.segments import (prepare_for_download,
                                                       download_save_segments,
                                                       DcDataselectManager)
 from stream2segment.download.modules.stations import \
-    (save_inventories, get_station_df_for_inventory_download)
+    (save_stationxml, get_station_df_for_inventory_download)
 
 
 # make the logger refer to the parent of this package (`rfind` below. For info:
@@ -344,7 +344,7 @@ def _run(session, download_id, events_url, starttime, endtime, data_url,
             session.close()
 
             # query station id, network station, datacenter_url
-            # for those stations with empty inventory_xml
+            # for those stations with empty stationxml
             # AND at least one segment non-empty/null
             # Download inventories for those stations only
             sta_df = get_station_df_for_inventory_download(session, update_metadata)
@@ -354,11 +354,11 @@ def _run(session, download_id, events_url, starttime, endtime, data_url,
             else:
                 stepinfo("Downloading %d station inventories", len(sta_df))
                 n_downloaded, n_empty, n_errors = \
-                    save_inventories(session, sta_df,
-                                     max_thread_workers,
-                                     advanced_settings['i_timeout'],
-                                     download_blocksize,
-                                     dbbufsize, isterminal)
+                    save_stationxml(session, sta_df,
+                                    max_thread_workers,
+                                    advanced_settings['i_timeout'],
+                                    download_blocksize,
+                                    dbbufsize, isterminal)
                 logger.info(("** Station inventories download summary **\n"
                              "- downloaded     %7d \n"
                              "- discarded      %7d (empty response)\n"

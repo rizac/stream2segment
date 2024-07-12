@@ -59,21 +59,21 @@ class Test:
         dumped_inv = compress(invdata,  compression='gzip', compresslevel=9)
 
         assert len(dumped_inv) < len(invdata)
-        e.inventory_xml = dumped_inv
+        e.stationxml = dumped_inv
 
         db.session.add(e)
         db.session.commit()
-        inv_xml = get_inventory_from_bytes(e.inventory_xml)
+        inv_xml = get_inventory_from_bytes(e.stationxml)
 
         assert isinstance(inv_xml, Inventory)
 
-        inv_count = db.session.query(Station).filter(Station.inventory_xml != None).count()
+        inv_count = db.session.query(Station).filter(Station.stationxml != None).count()
         stationsc = db.session.query(Station).count()
 
         # test what happens deleting it:
         ret = db.session.query(Station).\
-            filter(Station.inventory_xml!=None).\
-            update({Station.inventory_xml: None})
+            filter(Station.stationxml!=None).\
+            update({Station.stationxml: None})
         assert ret == inv_count
 
         db.session.commit()
@@ -85,7 +85,7 @@ class Test:
         assert ret == stationsc
         db.session.commit()
 
-        # SHIT< WE DELETED ALL STATIONS IN THE COMMAND ABOVE, NOT ONLY inventory_xml!!
+        # SHIT< WE DELETED ALL STATIONS IN THE COMMAND ABOVE, NOT ONLY stationxml!!
         # now delete only nonnull, should return zero:
         assert db.session.query(Station).count() == 0
 
@@ -710,7 +710,7 @@ class Test:
 
         # test has_inventory
         stas1 = db.session.query(Station.id).filter(Station.has_inventory)
-        stas2 = db.session.query(Station.id).filter(withdata(Station.inventory_xml))
+        stas2 = db.session.query(Station.id).filter(withdata(Station.stationxml))
         assert str(stas1) == str(stas2)
         assert sorted(x[0] for x in stas1.all()) == sorted(x[0] for x in stas2.all())
 
