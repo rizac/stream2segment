@@ -34,12 +34,17 @@ metadata. The main advantages of this approach are:
 
 ## Usage
 
+For full details, please consult the [wiki page](https://github.com/rizac/stream2segment/wiki)
+
 Stream2segment is a Python library and command line application available 
 after installation via the command `s2s` on the terminal. By typing `s2s --help` you
 will see all available subcommands for downloading 
 and managing data, launching Python processing functions, creating class labels for segments 
 annotation, or producing graphical output, as shown below:
 
+![S2s GUI](https://raw.githubusercontent.com/wiki/rizac/stream2segment/images/screenshot_gui.png)
+
+<!--
 <table>
 	<tr>
 		<td align="center"><img width="90%" src="https://geofon.gfz-potsdam.de/software/stream2segment/processgui.png"/></td>
@@ -51,7 +56,9 @@ annotation, or producing graphical output, as shown below:
 	</tr>
 </table>
 
+
 <sub>Both image linked from https://geofon.gfz-potsdam.de/software/stream2segment/</sub>
+-->
 
 You start the program via the command `init` ( 
 `s2s init --help` for details) to create several fully documented
@@ -90,12 +97,12 @@ In a nutshell:
        python paramtable.py ...
        ```
          
-    2. `gui.py`: visualize downloaded data in the user browser via the plots defined in the module:
+    2. `gui.py`: visualize downloaded data in the user browser via the plots defined in the module (an example in the figure above):
        ```console
        s2s show -d download.yaml -p gui.py -c gui.yaml ...
        ```
-       (Type `s2s show --help` for details)
-
+       (Type `s2s show --help` for details).
+       
     > **Note**: the associated YAML files (`paramtable.yaml`, `gui.yaml`) are not 
       mandatory but enforce the good practice of separating configuration settings (YAML)
       and the actual Python code. This way you can experiment 
