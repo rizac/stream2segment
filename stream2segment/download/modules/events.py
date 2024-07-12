@@ -245,8 +245,7 @@ def _normalize(base_url, evt_query_args, start, end):
             evt_query_args['maxmagnitude'] = maxmag
 
     url = EVENTWS_MAPPING.get(base_url, base_url)
-    frmt = "txt"
-    evt_query_args.setdefault('format', frmt)
+    evt_query_args.setdefault('format', "text")
 
     return url, evt_query_args
 
