@@ -104,7 +104,7 @@ def save_stationxml(session, stations_df, max_thread_workers, timeout,
                           oninsert_err_callback=db_exc_logger.failed_insert,
                           onupdate_err_callback=db_exc_logger.failed_update)
 
-    with get_progressbar(show_progress, length=len(stations_df)) as pbar:
+    with get_progressbar(len(stations_df) if show_progress else 0) as pbar:
 
         iterable = zip(stations_df[Station.id.key],
                        stations_df[DataCenter.station_url.key],

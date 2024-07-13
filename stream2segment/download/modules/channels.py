@@ -51,7 +51,7 @@ def get_channels_df(session, datacenters_df, eidavalidator, net, sta, loc, cha,
 
     ret = []
     url_failed_dc_ids = []
-    with get_progressbar(show_progress, length=len(datacenters_df)) as pbar:
+    with get_progressbar(len(datacenters_df) if show_progress else 0) as pbar:
         for obj, url, result, exc, status_code in \
                 read_async(iterable, urlkey=lambda obj: obj[-1], blocksize=blocksize,
                            max_workers=max_thread_workers, decode='utf8',

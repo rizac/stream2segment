@@ -67,7 +67,7 @@ def merge_events_stations(events_df, channels_df, search_radius,
 
     sourcedepths, eventtimes = [], []
 
-    with get_progressbar(show_progress, length=len(events_df)) as pbar:
+    with get_progressbar(len(events_df) if show_progress else 0) as pbar:
 
         min_radia, max_radia = get_serarch_radia(search_radius,
                                                  events_df[EVT_MAG].values)

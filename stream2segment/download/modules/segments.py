@@ -333,7 +333,7 @@ def download_save_segments(session, segments_df, dc_dataselect_manager,
 
     # report seg. errors only once per error type and data center:
     seg_logger = SegmentLogger()
-    with get_progressbar(show_progress, length=len(segments_df)) as pbar:
+    with get_progressbar(len(segments_df) if show_progress else 0) as pbar:
         # store dataframes with a 413 error and retry later:
         skipped_dataframes = []
         while not segments_df.empty:
@@ -712,7 +712,7 @@ class DcDataselectManager:
             return Request(url, data=token)
 
         data, errors = {}, {}
-        with get_progressbar(show_progress, length=len(dcid2fdsn)) as pbar:
+        with get_progressbar(len(dcid2fdsn) if show_progress else 0) as pbar:
             for dcid, url_, data_, exc, status_code in \
                     read_async(dcid2fdsn.keys(), urlkey=req, decode='utf8'):
 

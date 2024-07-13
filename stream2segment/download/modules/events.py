@@ -194,7 +194,7 @@ def events_iter_from_url(base_url, evt_query_args, start, end, timeout,
         #   by time and in this case only the last sub-request should advance the
         #   progress bar
         total_pbar_steps = _get_freq_mag_distrib(evt_query_args)[2].sum()
-        with get_progressbar(show_progress, length=total_pbar_steps) as pbar:
+        with get_progressbar(total_pbar_steps if show_progress else 0) as pbar:
             downloads = [evt_query_args]
 
             while downloads:
@@ -357,7 +357,7 @@ def save_quakeml(session, events_df, max_thread_workers, timeout,
                           oninsert_err_callback=db_exc_logger.failed_insert,
                           onupdate_err_callback=db_exc_logger.failed_update)
 
-    with get_progressbar(show_progress, length=len(events_df)) as pbar:
+    with get_progressbar(len(events_df) if show_progress else 0) as pbar:
 
         iterable = zip(events_df[Event.id.key],
                        events_df[WebService.url],

@@ -108,66 +108,45 @@ def test_utils_url_read(mock_urlopen):
 def test_secure_dburl(input, expected_result):
     assert secure_dburl(input) == expected_result
 
-# IF RUNNING WITH ECLIPSE, UNCOMMENT THE LINE BELOW:
-# @pytest.mark.skip(reason="fails if run from within n eclipse because of cryptic bytes vs string propblem")
+
+# IF RUNNING WITH ECLIPSE, UNCOMMENT THE LINES BELOW:
+@pytest.mark.skip(reason="fails if run from within eclipse "
+                         "because of cryptic bytes vs string propblem")
 @patch("stream2segment.io.cli.Nop", side_effect=lambda *a, **v: Nop(*a, **v))
 @patch("stream2segment.io.cli.click_progressbar", side_effect=lambda *a, **v: progressbar(*a, **v))
 def test_progressbar(mock_pbar, mock_nop):
-    '''this test has problems with eclipse'''
+    """this test has problems with eclipse"""
     N = 5
-    with get_progressbar(False) as bar:  # no-op
+    with get_progressbar(0) as bar:  # no-op
         for i in range(N):
             bar.update(i)
     assert mock_nop.call_count == 1
     assert mock_pbar.call_count == 0
 
-    with get_progressbar(False, length=0) as bar:  # no-op
+    with get_progressbar(1) as bar:  # normal progressbar
         for i in range(N):
             bar.update(i)
-    assert mock_nop.call_count == 2
-    assert mock_pbar.call_count == 0
-
-    with get_progressbar(False, length=10) as bar:  # normal progressbar
-        for i in range(N):
-            bar.update(i)
-    assert mock_nop.call_count == 3
-    assert mock_pbar.call_count == 0
-
-    with get_progressbar(True, length=0) as bar:  # normal progressbar
-        for i in range(N):
-            bar.update(i)
-    assert mock_nop.call_count == 4
-    assert mock_pbar.call_count == 0
-
-    with get_progressbar(True, length=10) as bar:  # normal progressbar
-        for i in range(N):
-            bar.update(i)
-    assert mock_nop.call_count == 4
+    assert mock_nop.call_count == 1
     assert mock_pbar.call_count == 1
 
+    with get_progressbar(1) as bar:  # normal progressbar
+        for i in range(N):
+            bar.update(i)
+    assert mock_nop.call_count == 1
+    assert mock_pbar.call_count == 2
 
-# IF RUNNING WITH ECLIPSE, UNCOMMENT THE LINE BELOW:
-# @pytest.mark.skip(reason="fails if run from within n eclipse because of cryptic bytes vs string propblem")
+
+# IF RUNNING WITH ECLIPSE, UNCOMMENT THE LINES BELOW:
+# @pytest.mark.skip(reason="fails if run from within eclipse "
+#                          "because of cryptic bytes vs string propblem")
 def test_progressbar_functional():
     """this test has problems with eclipse"""
     N = 5
-    with get_progressbar(False) as bar: # no-op
+    with get_progressbar(0) as bar:  # no-op
         for i in range(N):
             bar.update(i)
 
-    with get_progressbar(False, length=0) as bar:  # no-op
-        for i in range(N):
-            bar.update(i)
-
-    with get_progressbar(False, length=10) as bar:  # normal progressbar
-        for i in range(N):
-            bar.update(i)
-
-    with get_progressbar(True, length=0) as bar:  # normal progressbar
-        for i in range(N):
-            bar.update(i)
-
-    with get_progressbar(True, length=10) as bar:  # normal progressbar
+    with get_progressbar(10) as bar:  # normal progressbar
         for i in range(N):
             bar.update(i)
 

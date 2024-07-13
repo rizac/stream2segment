@@ -405,7 +405,7 @@ def computetts(model, sourcedepths, receiverdepths, distances, tts_matrix,
     print("%d total points to compute" % pts2compute)
 
     pool = Pool()
-    with get_progressbar(isterminal, length=pts2compute) as pbar:
+    with get_progressbar(pts2compute if isterminal else 0) as pbar:
         _tts_matrix = min_traveltimes(model, sourcedepths, receiverdepths,
                                       distances[_mask], phases,
                                       callback=lambda: pbar.update(1))

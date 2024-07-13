@@ -701,7 +701,7 @@ def create_processing_env(length=0, redirect_stderr=False, warnings_filter=None)
     :param warnings_filter: if None, it does not capture Python warnings. Otherwise it
         denotes the Python filter. E.g. 'ignore'. (FIXME: add link)
     """
-    with get_progressbar(length > 0, length=length) as pbar:  # no-op if length not > 0
+    with get_progressbar(length) as pbar:  # no-op if length not > 0
         with redirect(sys.stderr if redirect_stderr else None):
             # redirect is no-op if redirect_stderr=None
             if warnings_filter:

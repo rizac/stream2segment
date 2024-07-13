@@ -60,17 +60,17 @@ class Nop:
 
 
 @contextmanager
-def get_progressbar(show, **kw):
-    """Return a `click.progressbar` if `show` is True, otherwise a No-op
-    class, so that we can run programs by simply doing:
+def get_progressbar(length, **kw):
+    """Wrapper around `click.progressbar` (to be used in a `with` statement),
+    if `length>0` and the argument 'iterable' is not provided, return a No-op object
+    still usable in a with statement. Example
     ```
-    isterminal = True  # or False for no-op class
-    with get_progressbar(isterminal, length=..., ...) as bar:
+    with get_progressbar(<N>, ...) as bar:
         # do your stuff ... and then:
-        bar.update(num_increments)  # this is no-op if `isterminal` is False
+        bar.update(1)
     ```
     """
-    if not show or kw.get('length', 1) == 0:
+    if not length and 'iterable' not in kw:
         yield Nop(**kw)
     else:
         # some custom setup if missing:
@@ -81,5 +81,7 @@ def get_progressbar(show, **kw):
         kw.setdefault('fill_char', "▮" if is_linux else "●")
         kw.setdefault('empty_char', "▯" if is_linux else "○")
         kw.setdefault('bar_template', '%(label)s %(bar)s %(info)s')
+        if length:
+            kw['length'] = length
         with click_progressbar(**kw) as pbar:
             yield pbar
