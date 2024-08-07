@@ -10,7 +10,7 @@ import pandas as pd
 
 from stream2segment.io.cli import get_progressbar
 from stream2segment.io.db.pdsql import DbManager, dbquery2df
-from stream2segment.download.db.models import DataCenter, Station, Segment
+from stream2segment.download.db.models import WebService, Station, Segment
 from stream2segment.download.url import read_async
 from stream2segment.download.modules.utils import (DbExcLogger,
                                                    RequestErrorOnceLogger,
@@ -58,13 +58,11 @@ def get_station_df_for_inventory_download(session, update_metadata):
         segment with data, AND does not have an inventory saved yet
     :return:  a DataFrame that can be used to download inventories needed by the DB
         underlying the given session, with columns:
-         (Station.id, `Station.network`, `Station.station`, DataCenter.station_url,
+         (Station.id, `Station.network`, `Station.station`, WebService.url,
         Station.start_time, Station.end_time)
     """
     sta_df = dbquery2df(_query4inventorydownload(session, update_metadata))
-    # set 'station_url' as categorical (might save some space):
-    sta_url_key = DataCenter.station_url.key
-    sta_df[sta_url_key] = sta_df[sta_url_key].astype('category')
+    sta_df[WebService.url.key] = sta_df[WebService.url.key].astype('category')  # save space
     # sort values in order to 1. download first most recent events and 2: shuffle
     # datacenters and try to diversify the requests to different URLs:
     sta_df.sort_values(by=Station.start_time.key, ascending=False, inplace=True)
@@ -78,8 +76,8 @@ def _query4inventorydownload(session, force_update):
     See `get_station_df_for_inventory_download` for details
     """
     qry = session.query(Station.id, Station.network, Station.station,
-                        DataCenter.station_url, Station.start_time,
-                        Station.end_time).join(Station.datacenter)
+                        WebService.url, Station.start_time,
+                        Station.end_time).join(Station.webservice)
 
     if force_update:
         qry = qry.filter(Station.segments.any(Segment.has_data))  # noqa
@@ -107,7 +105,7 @@ def save_stationxml(session, stations_df, max_thread_workers, timeout,
     with get_progressbar(len(stations_df) if show_progress else 0) as pbar:
 
         iterable = zip(stations_df[Station.id.key],
-                       stations_df[DataCenter.station_url.key],
+                       stations_df[WebService.url.key],
                        stations_df[Station.network.key],
                        stations_df[Station.station.key],
                        stations_df[Station.start_time.key],

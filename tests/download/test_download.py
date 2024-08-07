@@ -21,7 +21,7 @@ from stream2segment.download.main import get_events_df, get_datacenters_df, \
     get_channels_df, download_save_segments, save_stationxml
 from stream2segment.download.log import configlog4download
 from stream2segment.download.db.models import Segment, Download, Station, Channel, \
-    Event, DataCenter
+    Event
 from stream2segment.io.db.models import withdata
 from stream2segment.io.db.pdsql import dbquery2df, insertdf, updatedf,\
     _get_max as _get_db_autoinc_col_max

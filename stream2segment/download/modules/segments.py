@@ -17,7 +17,7 @@ import pandas as pd
 from stream2segment.io import Fdsnws
 from stream2segment.io.cli import get_progressbar
 from stream2segment.io.db.pdsql import dbquery2df, mergeupdate, DbManager
-from stream2segment.download.db.models import DataCenter, Segment
+from stream2segment.download.db.models import WebService, Segment
 from stream2segment.download.modules.utils import (DbExcLogger, logwarn_dataframe,
                                                    DownloadStats, formatmsg,
                                                    s2scodes, url2str)
@@ -623,8 +623,8 @@ class DcDataselectManager:
 
     def __init__(self, datacenters_df, authorizer, show_progress=False):
         """Initialize a new DcDataselectManager"""
-        DC_ID = DataCenter.id.key  # noqa
-        DC_DSURL = DataCenter.dataselect_url.key  # noqa
+        DC_ID = WebService.id.key  # noqa
+        DC_DSURL = WebService.url.key  # noqa
 
         # there is a handy function:
         # datacenters_df.set_index(keys_col)[values_col].to_dict,

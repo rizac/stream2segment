@@ -514,7 +514,7 @@ def db4process(db, data):
             session.add_all([ev1, ev2, ev3])
             session.commit()
 
-            dtc = dbp.DataCenter(station_url='asd', dataselect_url='sdft')
+            dtc = dbp.WebService(station_url='asd', dataselect_url='sdft')
             session.add(dtc)
             session.commit()
 

@@ -14,7 +14,7 @@ from collections import defaultdict
 import pandas as pd
 
 from stream2segment.io import Fdsnws
-from stream2segment.download.db.models import DataCenter
+from stream2segment.download.db.models import WebService
 from stream2segment.download.modules.utils import dbsyncdf, formatmsg, \
     strconvert, strptime, urljoin
 from stream2segment.download.exc import FailedDownload
@@ -42,17 +42,9 @@ def get_datacenters_df(session, service, routing_service_url,
     :param service: (list[str] or str) the dataselect *or* station url(s) in
         FDSN format, or the shortcuts 'eida', or 'iris'
     """
-
-    # For convenience and readability, define once the mapped column names
-    # representing the dataframe columns that we need:
-    DC_SURL = DataCenter.station_url.key  # pylint: disable=invalid-name
-    DC_DURL = DataCenter.dataselect_url.key  # pylint: disable=invalid-name
-    DC_ORG = DataCenter.organization_name.key  # pylint: disable=invalid-name
-
     # eida response text will be needed anyway to create an EidaValidator
-
     eidars_response_text = get_eidars_response_text(routing_service_url)
-    dclist = []
+    dc_list = []
     discarded = 0
     if isinstance(service, str):
         service = [service]
@@ -69,23 +61,22 @@ def get_datacenters_df(session, service, routing_service_url,
         for _url in urls:
             try:
                 fdsn = Fdsnws(_url)
-                dclist.append({DC_SURL: fdsn.url(Fdsnws.STATION),
-                               DC_DURL: fdsn.url(Fdsnws.DATASEL),
-                               DC_ORG: organization})
+                dc_list.append({"url": fdsn.url(Fdsnws.DATASEL)})
+                dc_list.append({"url": fdsn.url(Fdsnws.STATION)})
             except ValueError as verr:
                 discarded += 1
                 logger.warning(formatmsg("Discarding data center",
                                          (str(verr)), _url))
 
     dc_df = pd.DataFrame()  # empty by default
-    if dclist:  # pandas raises if list is empty
+    if dc_list:  # pandas raises if list is empty
         # Note keep_duplicates = False below for simplicity (duplicates with stations
         # (and channels) are checked against the db, but in this case it's too complex,
         # and might not always result in a solution)
-        dc_df = dbsyncdf(pd.DataFrame(dclist), session, [DataCenter.station_url],
-                         DataCenter.id, buf_size=db_bufsize or len(dclist),
+        dc_df = dbsyncdf(pd.DataFrame(dc_list), session, [WebService.url],
+                         WebService.id, buf_size=db_bufsize or len(dc_list),
                          keep_duplicates=False)
-        discarded += len(dclist) - len(dc_df)
+        discarded += len(dc_list) - len(dc_df)
 
     if dc_df.empty:
         raise FailedDownload(Exception("No FDSN-compliant datacenter found"))
@@ -225,14 +216,12 @@ class EidaValidator(RoutingService):
         """
         super(EidaValidator, self).__init__()
         reg = re.compile("^(\\S+) (\\S+) (\\S+) (\\S+) (\\S+) (\\S+)$",
-                         re.MULTILINE)  # @UndefinedVariable
+                         re.MULTILINE)
         for url, postdata in eidarsiter(responsetext):
-            _ = datacenters_df[datacenters_df[DataCenter.dataselect_url.key] == url]
-            if _.empty:
-                _ = datacenters_df[datacenters_df[DataCenter.station_url.key] == url]
-            if len(_) != 1:
-                continue
-            dc_id = _[DataCenter.id.key].iloc[0]
+            dc_df = datacenters_df[datacenters_df[WebService.url.key] == url.replace("/dataselect/", "/station/")]
+            if len(dc_df) != 1:
+                continue  # FIXME: Better check?
+            dc_id = dc_df[WebService.id.key].iloc[0]
             for match in reg.finditer(postdata):
                 try:
                     net, sta, loc, cha, stime, etime = \

@@ -5,6 +5,7 @@ s2s database ORM
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
+from enum import Enum
 
 import sqlite3
 
@@ -71,13 +72,13 @@ class Base:
                               (len(val), elm, maxchar)
                     val = val[:maxchar]
                 ret.append("  %s: %s (%s%s)" % (
-                c, str(val), str(val.__class__.__name__), cut_str))
+                    c, str(val), str(val.__class__.__name__), cut_str))
                 loaded_cols += 1
             else:
                 ret.append("  %s" % c)
                 unloaded_cols += 1
         ret[idx] = ' attributes (%d of %d loaded):' % (
-        loaded_cols, loaded_cols + unloaded_cols)
+            loaded_cols, loaded_cols + unloaded_cols)
         idx = len(ret)
         ret.append('')
         loaded_rels, unloaded_rels = 0, 0
@@ -216,40 +217,15 @@ class Event(Base):  # pylint: disable=too-few-public-methods
 
 class WebService(Base):
     """Model representing a web service (e.g., event web service)"""
-    # NOTE: This class currently implements an FDSN event web service only.
-    # The name was left general in case in the future we want to merge
-    # DataCenter with this model. This is also why the intention of the
-    # 'type' column below, which currently has only 'event' implemented
-    # (no 'station' or 'dataselect')
 
-    # id = Column(Integer, primary_key=True, autoincrement=True)  # noqa
-    name = Column(String)
-    type = Column(String)  # e.g. event. See comment above
-    url = Column(String, nullable=False)  # if you change attr, see BELOW!
-
-    # segments = relationship("Segment", backref="data_centers")
-    # stations = relationship("Station", backref="data_centers")
+    url = Column(String, nullable=False)
 
     @declared_attr
     def __table_args__(cls):  # noqa  # https://stackoverflow.com/a/43993950
         return UniqueConstraint('url', name='url_uc'),  # <- tuple
 
 
-class DataCenter(Base):
-    """Model representing a Data center (data provider, e.g. EIDA Node)"""
-
-    # id = Column(Integer, primary_key=True, autoincrement=True)  # noqa
-    station_url = Column(String, nullable=False)
-    dataselect_url = Column(String, nullable=False)
-    organization_name = Column(String)  # e.g. EIDA (I guess?)
-
-    @declared_attr
-    def __table_args__(cls):  # noqa  # https://stackoverflow.com/a/43993950
-        return UniqueConstraint('station_url', 'dataselect_url',
-                                name='sta_data_uc'),  # <- tuple
-
-
-def check_datacenter_urls_fdsn(mapper, connection, target):
+def check_datacenter_urls_fdsn(target):
     """Check for datacenter URLs. To be used as argument for sqlalchemy.listen or
     listen_to (see implementation in this program), e.g.
     ```
@@ -261,19 +237,12 @@ def check_datacenter_urls_fdsn(mapper, connection, target):
     For info on validation see:
     https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf
     """
-    # Note: we though about using validators but we ended up with infinite
+    # Note: we thought about using validators, but we ended up with infinite
     # recursion loops
-    if (target.station_url is None) != (target.dataselect_url is None):
-        try:
-            fdsn = Fdsnws(target.station_url if target.dataselect_url is None
-                          else target.dataselect_url)
-            target.station_url = fdsn.url(Fdsnws.STATION)
-            target.dataselect_url = fdsn.url(Fdsnws.DATASEL)
-        except ValueError:
-            # the idea here is to populate a missing field, not to raise...
-            # however, raising might be a better solution but should be done not
-            # only when either field is None
-            pass
+    fdsn = Fdsnws(target.station_url if target.dataselect_url is None
+                  else target.dataselect_url)
+    target.station_url = fdsn.url(Fdsnws.STATION)
+    target.dataselect_url = fdsn.url(Fdsnws.DATASEL)
 
 
 class Station(Base):
@@ -282,7 +251,8 @@ class Station(Base):
     # id = Column(Integer, primary_key=True, autoincrement=True)
     @declared_attr
     def datacenter_id(cls):
-        return Column(Integer, ForeignKey("data_centers.id"), nullable=False)
+        return Column(Integer, ForeignKey("web_services.id"), nullable=False)
+
     network = Column(String, nullable=False)
     station = Column(String, nullable=False)
     latitude = Column(Float, nullable=False)
@@ -309,8 +279,8 @@ class Station(Base):
 
     # relationships (implement here only those shared by download+process):
     @declared_attr
-    def datacenter(cls):
-        return relationship("DataCenter", backref=backref("stations", lazy="dynamic"))
+    def webservice(cls):
+        return relationship("WebService", backref=backref("stations", lazy="dynamic"))
 
     @declared_attr
     def __table_args__(cls):  # noqa  # https://stackoverflow.com/a/43993950
@@ -325,6 +295,7 @@ class Channel(Base):
     @declared_attr
     def station_id(cls):
         return Column(Integer, ForeignKey("stations.id"), nullable=False)
+
     location = Column(String, nullable=False)
     channel = Column(String, nullable=False)
     depth = Column(Float)
@@ -366,7 +337,7 @@ class Segment(Base):
 
     @declared_attr
     def datacenter_id(cls):
-        return Column(Integer, ForeignKey("data_centers.id"), nullable=False)
+        return Column(Integer, ForeignKey("web_services.id"), nullable=False)
 
     data_seed_id = Column(String)
     event_distance_deg = Column(Float, nullable=False)
@@ -411,7 +382,7 @@ class Segment(Base):
     @hybrid_property
     def has_valid_data(self):
         return bool(self.data) and self.download_code is not None and \
-               self.download_code != MINISEED_READ_ERROR_CODE
+            self.download_code != MINISEED_READ_ERROR_CODE
 
     @has_valid_data.expression
     def has_valid_data(cls):  # pylint:disable=no-self-argument
@@ -420,8 +391,8 @@ class Segment(Base):
         # set. Note that by checking cls.download_code == 200 is not sufficient
         # as there are custom codes set during download
         return withdata(cls.data) & \
-               cls.download_code.isnot(None) & \
-               (cls.download_code != MINISEED_READ_ERROR_CODE)
+            cls.download_code.isnot(None) & \
+            (cls.download_code != MINISEED_READ_ERROR_CODE)
 
     # relationships (implement here only those shared by download+process):
     @declared_attr

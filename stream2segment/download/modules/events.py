@@ -56,7 +56,6 @@ def configure_ws_fk(eventws_url, session, db_bufsize):
     not exist and returning its id"""
     ws_name = ''
     if eventws_url in EVENTWS_MAPPING:
-        ws_name = eventws_url
         eventws_url = EVENTWS_MAPPING[eventws_url]
     elif islocalfile(eventws_url):
         eventws_url = tofileuri(eventws_url)
@@ -65,10 +64,7 @@ def configure_ws_fk(eventws_url, session, db_bufsize):
         filter(WebService.url == eventws_url).scalar()
 
     if eventws_id is None:  # write url to table
-        data = [("event", ws_name, eventws_url)]
-        dfr = pd.DataFrame(data, columns=[WebService.type.key,
-                                          WebService.name.key,
-                                          WebService.url.key])
+        dfr = pd.DataFrame((eventws_url,), columns=[WebService.url.key])
         dfr = dbsyncdf(dfr, session, [WebService.url], WebService.id,
                        buf_size=db_bufsize)
         eventws_id = dfr.iloc[0][WebService.id.key]

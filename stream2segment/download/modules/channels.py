@@ -15,7 +15,7 @@ from sqlalchemy import or_, and_
 
 from stream2segment.io.cli import get_progressbar
 from stream2segment.io.db.pdsql import dbquery2df, shared_colnames, mergeupdate
-from stream2segment.download.db.models import DataCenter, Station, Channel
+from stream2segment.download.db.models import WebService, Station, Channel
 from stream2segment.download.exc import FailedDownload
 from stream2segment.download.url import read_async
 from stream2segment.download.modules.utils import (get_dataframe_from_fdsn,
@@ -42,11 +42,10 @@ def get_channels_df(session, datacenters_df, eidavalidator, net, sta, loc, cha,
         for no-filtering (all channels)
     """
     postdata = get_post_data(net, sta, loc, cha, starttime, endtime)
-    dc_url_key, dc_id_key = DataCenter.station_url.key, DataCenter.id.key
     iterable = ((id_, Request(url, data=('format=text\nlevel=channel\n'+
                                          post_data_str).encode('utf8')))
-                for url, id_, post_data_str in zip(datacenters_df[dc_url_key],
-                                                   datacenters_df[dc_id_key],
+                for url, id_, post_data_str in zip(datacenters_df[WebService.url.key],
+                                                   datacenters_df[WebService.id.key],
                                                    cycle([postdata])))
 
     ret = []
@@ -74,12 +73,12 @@ def get_channels_df(session, datacenters_df, eidavalidator, net, sta, loc, cha,
     db_cha_df = pd.DataFrame()
     if url_failed_dc_ids:
         # if some datacenter does not return station, warn with INFO
-        dc_df_fromdb = datacenters_df.loc[datacenters_df[DataCenter.id.key].\
+        dc_df_fromdb = datacenters_df.loc[datacenters_df[WebService.id.key].\
             isin(url_failed_dc_ids)]
         logger.info(formatmsg("Fetching stations from database for %d (of %d) "
                               "data center(s)", "download errors occurred"),
                     len(dc_df_fromdb), len(datacenters_df))
-        logger.warning(dc_df_fromdb[DataCenter.dataselect_url.key].
+        logger.warning(dc_df_fromdb[WebService.url.key].
                        to_string(index=False))
         db_cha_df = get_channels_df_from_db(session, dc_df_fromdb, net, sta,
                                             loc, cha, starttime, endtime,
@@ -250,7 +249,7 @@ def get_channels_df_from_db(session, datacenters_df, net, sta, loc, cha,
         srate_be = Channel.sample_rate >= min_sample_rate
     # Select only relevant datacenters. Convert numnpy array `tolist()` because
     # database clauses work best with native Python objects:
-    dc_be = Station.datacenter_id.in_(datacenters_df[DataCenter.id.key].
+    dc_be = Station.datacenter_id.in_(datacenters_df[WebService.id.key].
                                       tolist())
     # Select by starttime and endtime (below). Note that it must hold
     # station.endtime > starttime AND station.starttime< endtime

@@ -22,7 +22,7 @@ from stream2segment.download.main import get_events_df, get_datacenters_df, \
     download_save_segments, save_stationxml
 from stream2segment.download.log import configlog4download
 from stream2segment.io import Fdsnws
-from stream2segment.download.db.models import DataCenter, Segment, Download, Station
+from stream2segment.download.db.models import WebService, Segment, Download, Station
 from stream2segment.io.db.pdsql import dbquery2df, insertdf, updatedf
 from stream2segment.download.modules.utils import s2scodes
 from stream2segment.download.modules.mseedlite import unpack
@@ -577,7 +577,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
             assert mock_get_opener.call_args_list[0][0][:] == (dc_token_ok, 'uzer', 'pazzword')
 
             dc_id = {Fdsnws(i[1]).site: i[0] for i in
-                     db.session.query(DataCenter.id, DataCenter.dataselect_url)}
+                     db.session.query(WebService.id, WebService.url).filter(WebService.url.contains("/dataselect/"))}
             # assert urlopen has been called only once with query and not queryauth:
             # get the segments dataframe we (re)downloaded:
             segments_df_to_download = mock_download_save_segments.call_args_list[-1][0][1]

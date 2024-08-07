@@ -71,17 +71,6 @@ class WebService(Base, models.WebService):
     pass
 
 
-class DataCenter(Base, models.DataCenter):
-    """Model representing a Data center (data provider, e.g. EIDA Node)"""
-    pass
-
-
-# listen for insertion and updates and check Datacenter URLS (the call below
-# is the same as decorating check_datacenter_urls_fdsn with '@event.listens_for'):
-event.listens_for(DataCenter, 'before_insert')(models.check_datacenter_urls_fdsn)
-event.listens_for(DataCenter, 'before_update')(models.check_datacenter_urls_fdsn)
-
-
 class Class(Base, models.Class):
     """Model representing a segment class label"""
     pass
@@ -646,7 +635,7 @@ class Segment(Base, models.Segment):
                            # `secondary` must be table name in metadata:
                            secondary="class_labellings",
                            backref=backref("segments", lazy="dynamic"))
-    datacenter = relationship("DataCenter", backref=backref("segments",
+    webservice = relationship("WebService", backref=backref("segments",
                                                             lazy="dynamic"))
     download = relationship("Download", backref=backref("segments",
                                                         lazy="dynamic"))

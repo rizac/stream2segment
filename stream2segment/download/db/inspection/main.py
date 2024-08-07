@@ -22,7 +22,7 @@ from stream2segment.io.db import close_session
 from stream2segment.io.db.sqlconstructs import concat
 from stream2segment.io.inputvalidation import validate_param, BadParam
 from stream2segment.download.db import get_session
-from stream2segment.download.db.models import Download, Segment, DataCenter, Station
+from stream2segment.download.db.models import Download, Segment, Station, WebService
 from stream2segment.download.modules.utils import EVENTWS_SAFE_PARAMS, DownloadStats
 
 
@@ -501,9 +501,9 @@ def get_datacenters(sess, dc_ids=None):
     """Return a dict of datacenters id mapped to the network location of their
     url
     """
-    query = sess.query(DataCenter.id, DataCenter.dataselect_url)
+    query = sess.query(WebService.id, WebService.url).filter(WebService.url.contains("/dataselect/"))
     if dc_ids is not None:
-        query = query.filter(DataCenter.id.in_(dc_ids))
+        query = query.filter(WebService.id.in_(dc_ids))
     ret = {}
     for (datacenter_id, dataselect_url) in query:
         try:

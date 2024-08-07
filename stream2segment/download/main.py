@@ -16,7 +16,7 @@ from stream2segment.io.log import logfilepath, close_logger, elapsed_time
 from stream2segment.io import yaml_safe_dump
 from stream2segment.io.db import secure_dburl, close_session
 from stream2segment.download.inputvalidation import load_config_for_download, pop_param
-from stream2segment.download.db.models import Download
+from stream2segment.download.db.models import Download, WebService
 from stream2segment.download.exc import NothingToDownload, FailedDownload
 from stream2segment.download.modules.events import get_events_df
 from stream2segment.download.modules.datacenters import get_datacenters_df
@@ -247,7 +247,8 @@ def _run(session, download_id, events_url, starttime, endtime, data_url,
         stepinfo("Fetching stations and channels from %d data-center%s",
                  len(datacenters_df), "" if len(datacenters_df) == 1 else "s")
         # get datacenters (might raise FailedDownload):
-        channels_df = get_channels_df(session, datacenters_df, eidavalidator,
+        ch_datacenters_df = datacenters_df[datacenters_df[WebService.url.key].str.contains("/station/")]
+        channels_df = get_channels_df(session, ch_datacenters_df, eidavalidator,
                                       network, station, location, channel,
                                       starttime, endtime,
                                       min_sample_rate, update_metadata,
@@ -275,7 +276,8 @@ def _run(session, download_id, events_url, starttime, endtime, data_url,
         if authorizer.token:
             stepinfo("Acquiring credentials from token in order to "
                      "download restricted data")
-        dc_dataselect_manager = DcDataselectManager(datacenters_df,
+        seg_datacenters_df = datacenters_df[datacenters_df[WebService.url.key].str.contains("/dataselect/")]
+        dc_dataselect_manager = DcDataselectManager(seg_datacenters_df,
                                                     authorizer, isterminal)
 
         stepinfo("%d segments found. Checking already downloaded segments",

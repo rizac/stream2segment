@@ -14,7 +14,7 @@ from click.testing import CliRunner
 
 from stream2segment.cli import cli
 from stream2segment.download.db.models import (Event, Station, WebService, Segment,
-                                               Channel, Download, DataCenter)
+                                               Channel, Download)
 from stream2segment.download.modules.utils import s2scodes
 
 
@@ -52,7 +52,7 @@ class Test:
         db.session.add_all([ev1])
         db.session.commit()
 
-        dc1 = DataCenter(station_url='asd', dataselect_url='www.dc1/dataselect/query')
+        dc1 = WebService(id=1, url='www.dc1/dataselect/query')
         db.session.add_all([dc1])
         db.session.commit()
 
