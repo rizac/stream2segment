@@ -64,7 +64,7 @@ def get_channels_df(session, datacenters_df, eidavalidator, net, sta, loc, cha,
                 try:
                     dframe = get_dataframe_from_fdsn(result, "channel", url)
                     if not dframe.empty:
-                        dframe[Station.datacenter_id.key] = dcen_id
+                        dframe[Station.webservice_id.key] = dcen_id
                         ret.append(dframe)
                 except ValueError as verr:
                     logger.warning(formatmsg("Discarding response data", verr,
@@ -123,7 +123,7 @@ def get_channels_df(session, datacenters_df, eidavalidator, net, sta, loc, cha,
     # the columns for the channels dataframe that will be returned
     return ret[[c.key for c in (Channel.id, Channel.station_id,
                                 Station.latitude, Station.longitude,
-                                Station.datacenter_id, Station.start_time,
+                                Station.webservice_id, Station.start_time,
                                 Station.end_time, Station.network,
                                 Station.station, Channel.location,
                                 Channel.channel)]].copy()
@@ -249,7 +249,7 @@ def get_channels_df_from_db(session, datacenters_df, net, sta, loc, cha,
         srate_be = Channel.sample_rate >= min_sample_rate
     # Select only relevant datacenters. Convert numnpy array `tolist()` because
     # database clauses work best with native Python objects:
-    dc_be = Station.datacenter_id.in_(datacenters_df[WebService.id.key].
+    dc_be = Station.webservice_id.in_(datacenters_df[WebService.id.key].
                                       tolist())
     # Select by starttime and endtime (below). Note that it must hold
     # station.endtime > starttime AND station.starttime< endtime
@@ -262,7 +262,7 @@ def get_channels_df_from_db(session, datacenters_df, net, sta, loc, cha,
     etime_be = (Station.start_time < endtime) if endtime else True  # noqa
     sa_cols = [Channel.id, Channel.station_id, Station.latitude,
                Station.longitude, Station.start_time, Station.end_time,
-               Station.datacenter_id, Station.network, Station.station,
+               Station.webservice_id, Station.network, Station.station,
                Channel.location, Channel.channel]
     # filter on net, sta, loc, cha, as specified in config and converted to
     # SQL-Alchemy binary expression:
@@ -344,7 +344,7 @@ class ST:  # noqa
     STA = Station.station.key  # pylint: disable=invalid-name
     STIME = Station.start_time.key  # pylint: disable=invalid-name
     ETIME = Station.end_time.key  # pylint: disable=invalid-name
-    DCID = Station.datacenter_id.key  # pylint: disable=invalid-name
+    DCID = Station.webservice_id.key  # pylint: disable=invalid-name
     # set columns to show in the log on error ("no row written"):
     ERRCOLS = [NET, STA, STIME, DCID]  # pylint: disable=invalid-name
 
@@ -491,7 +491,7 @@ def drop_duplicates(session, channels_df, eidavalidator):
                 if not dcids:
                     # eidavalidator null, or no dc_id found: query dc_id(s) from db:
                     dcids = [_[0] for _ in
-                             session.query(Station.datacenter_id).filter(
+                             session.query(Station.webservice_id).filter(
                                  (Station.network == net) &
                                  (Station.station == sta) &
                                  (Station.start_time == stime) &

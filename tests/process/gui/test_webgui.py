@@ -33,7 +33,7 @@ from stream2segment.process.gui.webapp.mainapp import db as db_module
 
 
 class Test:
-    __test__ = False  # FIXME: Disabled pytest, because of DataCenter refactoring
+    __test__ = False  # FIXME: (BP) Disabled pytest, because of DataCenter refactoring
 
     pyfile, configfile = get_templates_fpaths("gui.py", "gui.yaml")
 

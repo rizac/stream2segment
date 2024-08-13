@@ -17,7 +17,6 @@ from stream2segment.process.db.models import ClassLabelling, Class, Segment, Sta
 
 
 class Test:
-    __test__ = False  # FIXME: Disabled pytest, because of DataCenter refactoring
 
     # execute this fixture always even if not provided as argument:
     # https://docs.pytest.org/en/documentation-restructure/how-to/fixture.html#autouse-fixtures-xunit-setup-on-steroids
@@ -31,26 +30,14 @@ class Test:
         sess.add(run)
         sess.commit()
 
-        dcen = DataCenter(station_url="x/station/abc")  # invalid fdsn name
-        with pytest.raises(IntegrityError):
-            sess.add(dcen)
-            sess.commit()
-        sess.rollback()
-
-        dcen = DataCenter(station_url="x/station/fdsnws/station/1/")  # another invalid fdsn name
-        with pytest.raises(IntegrityError):
-            sess.add(dcen)
-            sess.commit()
-        sess.rollback()
-
         # https://service.iris.edu/fdsnws/station/1/
 
-        dcen = DataCenter(station_url="domain/fdsnws/station/1/")  # this is save (fdsn)
+        dcen = WebService(url="domain/fdsnws/station/1/")  # this is save (fdsn)
         sess.add(dcen)
         sess.commit()
 
         # this is safe (both provided): FIXME!! should we pass here??
-        dcen = DataCenter(station_url="x/station/abc", dataselect_url="x/station/abc")
+        dcen = WebService(url="x/station/abc")
         sess.add(dcen)
         sess.commit()
 
@@ -65,9 +52,9 @@ class Test:
         sess.add_all([event1, event2])
         sess.commit()
 
-        sta1 = Station(id=1, network='n1', station='s1', datacenter_id = dcen.id,
+        sta1 = Station(id=1, network='n1', station='s1', webservice_id = dcen.id,
                        latitude=66, longitude=67, start_time=datetime.utcnow())
-        sta2 = Station(id=2, network='n2', station='s1', datacenter_id = dcen.id,
+        sta2 = Station(id=2, network='n2', station='s1', webservice_id = dcen.id,
                        latitude=66, longitude=67, start_time=datetime.utcnow())
         sess.add_all([sta1, sta2])
         sess.commit()
@@ -80,7 +67,7 @@ class Test:
         sess.commit()
 
         # segment 1, with two class labels 'a' and 'b'
-        seg1 = Segment(event_id=event1.id, channel_id=cha3.id, datacenter_id=dcen.id,
+        seg1 = Segment(event_id=event1.id, channel_id=cha3.id, webservice_id=dcen.id,
                        event_distance_deg=5, download_id=run.id,
                        arrival_time=datetime.utcnow(), request_start=datetime.utcnow(),
                        request_end=datetime.utcnow())
@@ -100,7 +87,7 @@ class Test:
         sess.commit()
 
         # segment 2, with one class label 'a'
-        seg2 = Segment(event_id=event1.id, channel_id=cha2.id, datacenter_id=dcen.id,
+        seg2 = Segment(event_id=event1.id, channel_id=cha2.id, webservice_id=dcen.id,
                        event_distance_deg=6.6, download_id=run.id,
                        arrival_time=datetime.utcnow(), request_start=datetime.utcnow(),
                        request_end=datetime.utcnow())
@@ -114,7 +101,7 @@ class Test:
         sess.commit()
 
         # segment 3, no class label 'a' (and with data attr, useful later)
-        seg3 = Segment(event_id=event1.id, channel_id=cha1.id, datacenter_id=dcen.id,
+        seg3 = Segment(event_id=event1.id, channel_id=cha1.id, webservice_id=dcen.id,
                        event_distance_deg=7, download_id=run.id, data=b'data',
                        arrival_time=datetime.utcnow(), request_start=datetime.utcnow(),
                        request_end=datetime.utcnow())

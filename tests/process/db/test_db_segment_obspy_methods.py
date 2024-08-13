@@ -30,7 +30,7 @@ def readcsv(filename, header=True):
 
 
 class Test:
-    __test__ = False  # FIXME: Disabled pytest, because of DataCenter refactoring
+    __test__ = False  # FIXME: (BP) Disabled pytest, because of DataCenter refactoring
 
     pyfile = get_templates_fpath("paramtable.py")
 

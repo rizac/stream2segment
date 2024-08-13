@@ -518,7 +518,7 @@ class Segment(Base, models.Segment):
             # few optimizations avoiding loading a full object if we have a
             # corresponding foreign key. Let's avoid excessive optimization though
             # (e.g. avoid replacing station.id with channel.station_id):
-            if att in ('event.id', 'datacenter.id', 'download.id', 'channel.id'):
+            if att in ('event.id', 'webservice.id', 'download.id', 'channel.id'):
                 att = att.replace('.', '_')
             else:
                 try:

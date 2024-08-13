@@ -250,7 +250,7 @@ class Station(Base):
 
     # id = Column(Integer, primary_key=True, autoincrement=True)
     @declared_attr
-    def datacenter_id(cls):
+    def webservice_id(cls):
         return Column(Integer, ForeignKey("web_services.id"), nullable=False)
 
     network = Column(String, nullable=False)
@@ -267,7 +267,7 @@ class Station(Base):
     def url(self):
         qry_str = 'net=%s&sta=%s&start=%s' % \
                   (self.network, self.station, self.start_time.isoformat('T'))
-        return self.datacenter.station_url + '?%s' % qry_str
+        return self.webservice.url + '?%s' % qry_str
 
     @hybrid_property
     def has_inventory(self):
@@ -336,7 +336,7 @@ class Segment(Base):
         return Column(Integer, ForeignKey("channels.id"), nullable=False)
 
     @declared_attr
-    def datacenter_id(cls):
+    def webservice_id(cls):
         return Column(Integer, ForeignKey("web_services.id"), nullable=False)
 
     data_seed_id = Column(String)
@@ -369,7 +369,7 @@ class Segment(Base):
         qry_str = 'net=%s&sta=%s&loc=%s&cha=%s&start=%s&end=%s' % \
                   (net, sta, loc, cha, self.request_start.isoformat('T'),
                    self.request_end.isoformat('T'))
-        return self.datacenter.dataselect_url + '?%s' % qry_str
+        return self.webservice.url + '?%s' % qry_str
 
     @hybrid_property
     def has_data(self):

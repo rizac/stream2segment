@@ -55,7 +55,7 @@ def merge_events_stations(events_df, channels_df, search_radius,
     SEG_EVID = Segment.event_id.key  # noqa
     SEG_EVDIST = Segment.event_distance_deg.key  # noqa
     SEG_ATIME = Segment.arrival_time.key  # noqa
-    SEG_DCID = Segment.datacenter_id.key  # noqa
+    SEG_DCID = Segment.webservice_id.key  # noqa
     SEG_CHAID = Segment.channel_id.key  # noqa
 
     channels_df = channels_df.rename(columns={CHA_ID: SEG_CHAID})

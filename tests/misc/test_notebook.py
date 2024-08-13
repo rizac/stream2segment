@@ -24,7 +24,6 @@ def test_segment_help():
 @pytest.mark.skipif(nbformat is None,
                     reason="Jupyter not installed, not testing notebooks correctness")
 def test_notebook(data):
-
     # cwd = os.getcwd()
     for fle_ in ['Using-Stream2segment-in-your-Python-code.ipynb',
                  'The-Segment-object.ipynb']:
@@ -34,6 +33,7 @@ def test_notebook(data):
         ep = ExecutePreprocessor(timeout=600)  # , kernel_name='python3')
         cwd = os.path.dirname(fle)
         ep.preprocess(nb, {'metadata': {'path': cwd}})
+
 
 def test_imap(capsys):
     def my_processing_function(segment, config):
@@ -71,7 +71,7 @@ def test_imap(capsys):
 
     import os
     dbpath = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-                        'stream2segment', 'resources', 'templates', 'example.db.sqlite')
+                          'stream2segment', 'resources', 'templates', 'example.db.sqlite')
     dburl = 'sqlite:///' + dbpath
 
     from stream2segment.process import imap

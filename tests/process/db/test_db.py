@@ -27,8 +27,6 @@ from stream2segment.process.db.sqlevalexpr import exprquery
 
 
 class Test:
-    __test__ = False  # FIXME: Disabled pytest, because of DataCenter refactoring
-
     # execute this fixture always even if not provided as argument:
     # https://docs.pytest.org/en/documentation-restructure/how-to/fixture.html#autouse-fixtures-xunit-setup-on-steroids
     @pytest.fixture(autouse=True)
@@ -45,13 +43,13 @@ class Test:
 
     def test_inventory_io(self, db, data):
 
-        dc = DataCenter(station_url='http://www.orfeus-eu.org/fdsnws/station/1/query')
+        dc = WebService(url='http://www.orfeus-eu.org/fdsnws/station/1/query')
         db.session.add(dc)
         db.session.commit()
 
         from obspy.core.inventory.inventory import Inventory
         e = Station(network='abcwerwre', station='gwdgafsf',
-                    datacenter_id=dc.id,
+                    webservice_id=dc.id,
                     latitude=3,
                     longitude=3, start_time=datetime.utcnow())
 
@@ -144,14 +142,13 @@ class Test:
             # Note: the URL below should work (try in your browser in case):
             assert evt.url == 'http://www.isc.ac.uk/fdsnws/event/1/query?eventid=1435226'
             # now add it properly:
-            dc = DataCenter(
-                station_url='http://geofon.gfz-potsdam.de/fdsnws/station/1')
+            dc = WebService(url='http://geofon.gfz-potsdam.de/fdsnws/station/1/query')
             db.session.add(dc)
             db.session.commit()
             # Add station:
             start_time = datetime(2006, 11, 21)
             # now test auto id (this staion exists):
-            sta = Station(network='CX', datacenter_id=dc.id,
+            sta = Station(network='CX', webservice_id=dc.id,
                           station='HMBCX', latitude='-20.27822',
                           longitude='-69.88791', start_time=start_time)
             db.session.add(sta)
@@ -167,8 +164,10 @@ class Test:
             # Add segment:
             start, end = datetime(2020, 6, 3, 16, 9, 55), datetime(2020, 6, 3, 16, 11, 55)
             atime = datetime(2020, 6, 3, 16, 10, 1, 466642)
+            dc2 = WebService(url='http://geofon.gfz-potsdam.de/fdsnws/dataselect/1/query')
+            db.session.add(dc2)
             seg = Segment(channel_id=cha.id, request_start=start, request_end=end,
-                          download_id=dwl.id, datacenter_id = dc.id, event_id=evt.id,
+                          download_id=dwl.id, webservice_id = dc2.id, event_id=evt.id,
                           data=b'', event_distance_deg=2.85527805792742,
                           arrival_time=atime)
             # Note: we need to add the segment to the session to make relationship work
@@ -297,22 +296,14 @@ class Test:
         assert e.webservice is ws
 
         # create a datacenter WITHOUT the two fields stations and dataselect
-        dc = DataCenter()
+        dc = WebService()
         with pytest.raises(IntegrityError):
             db.session.add(dc)
             db.session.flush()
         db.session.rollback()
 
-        # Another error, incomplete FDSN URL
-        # (missing 'fdsnws/<station_dataselect>/<major_version>' part):
-        with pytest.raises(SQLAlchemyError):
-            dc = DataCenter(station_url='http://geofon.gfz-potsdam.de/')
-            db.session.add(dc)
-            db.session.commit()
-        db.session.rollback()
-
         # now add it properly:
-        dc = DataCenter(station_url='abc', dataselect_url='edf')
+        dc = WebService(url='edf')
         db.session.add(dc)
         db.session.commit()
 
@@ -328,7 +319,7 @@ class Test:
 
         start_time = datetime.utcnow()
         # now test auto id
-        e = Station(network='abc', datacenter_id=dc.id, station='f', latitude='89.5',
+        e = Station(network='abc', webservice_id=dc.id, station='f', latitude='89.5',
                     longitude='56', start_time = start_time)
         assert e.id == None
         db.session.add(e)
@@ -343,13 +334,13 @@ class Test:
         assert e__.id == e.id
 
         # test unique constraints by changing only network
-        sta = Station(network='a', datacenter_id=dc.id, station='f', latitude='89.5',
+        sta = Station(network='a', webservice_id=dc.id, station='f', latitude='89.5',
                       longitude='56', start_time = start_time)
         db.session.add(sta)
         db.session.commit()
         assert sta.id != e.id
         # now re-add it. Unique constraint failed
-        sta = Station(network='a', datacenter_id=dc.id, station='f', latitude='189.5',
+        sta = Station(network='a', webservice_id=dc.id, station='f', latitude='189.5',
                       longitude='156', start_time = start_time)
         db.session.add(sta)
         with pytest.raises(IntegrityError):
@@ -357,7 +348,7 @@ class Test:
         db.session.rollback()
 
         # test stations channels relationship:
-        sta = Station(network='ax', datacenter_id=dc.id, station='f', latitude='89.5',
+        sta = Station(network='ax', webservice_id=dc.id, station='f', latitude='89.5',
                       longitude='56', start_time = start_time)
         # write channels WITHOUT foreign key
         cha1 = Channel(location='l', channel='HHZ', sample_rate=56)
@@ -394,7 +385,7 @@ class Test:
         assert len(k) == 1
 
     def test_eventstachannelseg_hybridatts_colnames(self, db):
-        dc= DataCenter(station_url="345fbgfnyhtgrefs", dataselect_url='edfawrefdc')
+        dc= WebService(url='edfawrefdc')
         db.session.add(dc)
 
         utcnow = datetime.utcnow()
@@ -424,7 +415,7 @@ class Test:
 
         d = datetime.utcnow()
 
-        s = Station(network='sdf', datacenter_id=dc.id, station='_', latitude=90, longitude=-45,
+        s = Station(network='sdf', webservice_id=dc.id, station='_', latitude=90, longitude=-45,
                     start_time=d)
         db.session.add(s)
 
@@ -440,7 +431,7 @@ class Test:
             db.session.commit()
         db.session.rollback()
 
-        s = Station(network='sdf', datacenter_id=dc.id, station='_', latitude=90, longitude=-45,
+        s = Station(network='sdf', webservice_id=dc.id, station='_', latitude=90, longitude=-45,
                     start_time=d)
         with pytest.raises(IntegrityError):
             db.session.add(s)
@@ -462,7 +453,7 @@ class Test:
 
         # set necessary attributes
         seg.event_id = e.id
-        seg.datacenter_id = dc.id
+        seg.webservice_id = dc.id
         seg.download_id = run.id
         seg.channel_id = c.id
         # and now it will work:
@@ -997,7 +988,7 @@ class Test:
         method to optimize this, and we want to test it's faster'''
 
         # buildup a db first:
-        dc = DataCenter(station_url="345fbgfnyhtgrefs", dataselect_url='edfawrefdc')
+        dc = WebService(url='edfawrefdc')
         db.session.add(dc)
         db.session.commit()
         utcnow = datetime.utcnow()
@@ -1014,7 +1005,7 @@ class Test:
         db.session.add_all(events)
         db.session.commit()
         d = datetime.utcnow()
-        s = Station(network='sdf', datacenter_id=dc.id, station='_', latitude=90, longitude=-45,
+        s = Station(network='sdf', webservice_id=dc.id, station='_', latitude=90, longitude=-45,
                     start_time=d)
         db.session.add(s)
         c = Channel(location='tyu', channel='rty', sample_rate=6)
@@ -1022,7 +1013,7 @@ class Test:
         db.session.commit()
         segs= [Segment(event_id=event.id,
                channel_id=c.id,
-               datacenter_id=dc.id,
+               webservice_id=dc.id,
                download_id=run.id,
                request_start=datetime.utcnow(),
                request_end=datetime.utcnow(),
@@ -1206,7 +1197,7 @@ class Test:
         assert pd.notnull(dfx.loc[0, Event.latitude.key])
 
     def test_segment_siblings(self, db):
-        dc = DataCenter(station_url="345fbgfnyhtgrefs", dataselect_url='edfawrefdc')
+        dc = WebService(url='edfawrefdc')
         db.session.add(dc)
 
         utcnow = datetime.utcnow()
@@ -1238,11 +1229,11 @@ class Test:
         d1 = datetime.utcnow()
         d2 = datetime.utcnow() + timedelta(seconds=12)
 
-        s1a = Station(network='sdf', datacenter_id=dc.id, station='_', latitude=90, longitude=-45,
+        s1a = Station(network='sdf', webservice_id=dc.id, station='_', latitude=90, longitude=-45,
                       start_time=d1, end_time=d2)
-        s1b = Station(network='sdf', datacenter_id=dc.id, station='_', latitude=90, longitude=-45,
+        s1b = Station(network='sdf', webservice_id=dc.id, station='_', latitude=90, longitude=-45,
                       start_time=d2)
-        s2 = Station(network='sdf', datacenter_id=dc.id, station='__', latitude=90, longitude=-45,
+        s2 = Station(network='sdf', webservice_id=dc.id, station='__', latitude=90, longitude=-45,
                      start_time=d1)
         stations = [s1a, s1b, s2]
         db.session.add_all(stations)
@@ -1269,7 +1260,7 @@ class Test:
 
             # set necessary attributes
             seg.event_id = e.id
-            seg.datacenter_id = dc.id
+            seg.webservice_id = dc.id
             seg.download_id = run.id
             seg.channel_id = c.id
             # and now it will work:
@@ -1298,7 +1289,7 @@ class Test:
         for seg in segs:
             sib_evt = seg.siblings('event.id').all()  #  ('event')
 
-            sib_dc = seg.siblings('datacenter.id').all()  # ('datacenter')
+            sib_dc = seg.siblings('webservice.id').all()  # ('datacenter')
 
             sib_cha = seg.siblings('channel.id').all()  # ('channel')
 

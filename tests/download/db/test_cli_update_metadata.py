@@ -17,8 +17,9 @@ from stream2segment.io.db.pdsql import insertdf, updatedf, dbquery2df
 # Old test in test_downloads, when there was the "only" option for the update_metadata
 # parameter. As reference:
 
+# FIXME: this file isn't tested by pytest?
 
-@pytest.mark.skip()  # FIXME: Disabled pytest, because of DataCenter refactoring
+
 @patch('stream2segment.download.main.get_events_df')
 @patch('stream2segment.download.main.get_datacenters_df')
 @patch('stream2segment.download.main.get_channels_df')
@@ -165,7 +166,7 @@ def tst_cmdline_inv_only(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
                 dbquery2df(
                     db.session.query(
                         Station.id,
-                        Station.datacenter_id,
+                        Station.webservice_id,
                         Station.stationxml,
                         Station.network,
                         Station.station,
@@ -208,7 +209,7 @@ def tst_cmdline_inv_only(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
     new_stadf = get_stadf()
     expected_new_datacenter_id = sta_df.datacenter_id.max() + 1
     ids_changed = sta_df[sta_df.datacenter_id == 1].id
-    assert (new_stadf[new_stadf.id.isin(ids_changed)].datacenter_id ==
+    assert (new_stadf[new_stadf.id.isin(ids_changed)].webservice_id ==
             expected_new_datacenter_id).all()
     pd.testing.assert_frame_equal(
         sta_df[sta_df.datacenter_id != 1],
@@ -231,9 +232,9 @@ def tst_cmdline_inv_only(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
         stas = db.session.query(Station).all()
         segs = db.session.query(Segment).all()
         for sta in stas:
-            sta.datacenter_id = fake_dc_id
+            sta.webservice_id = fake_dc_id
         for seg in segs:
-            seg.datacenter_id = fake_dc_id
+            seg.webservice_id = fake_dc_id
         db.session.commit()
 
     fake_dc_id = dcn.id
@@ -270,18 +271,18 @@ def tst_cmdline_inv_only(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
             # no call to station inventories:
             assert not stainvs
             # assert we did not change any datacenter:
-            assert all(_.datacenter_id == fake_dc_id for _ in db.session.query(Station))
-            assert all(_.datacenter_id == fake_dc_id for _ in db.session.query(Segment))
+            assert all(_.webservice_id == fake_dc_id for _ in db.session.query(Station))
+            assert all(_.webservice_id == fake_dc_id for _ in db.session.query(Segment))
         else:
             assert any(new_dataselect.replace('dataselect', 'station')
                        in _ for _ in stainvs)
-            assert any(_.datacenter_id == fake_dc_id for _ in db.session.query(Station))
-            assert any(_.datacenter_id != fake_dc_id for _ in db.session.query(Station))
+            assert any(_.webservice_id == fake_dc_id for _ in db.session.query(Station))
+            assert any(_.webservice_id != fake_dc_id for _ in db.session.query(Station))
             if param == 'only':
                 assert all(
-                    _.datacenter_id == fake_dc_id for _ in db.session.query(Segment))
+                    _.webservice_id == fake_dc_id for _ in db.session.query(Segment))
             else:
                 assert any(
-                    _.datacenter_id == fake_dc_id for _ in db.session.query(Segment))
+                    _.webservice_id == fake_dc_id for _ in db.session.query(Segment))
                 assert any(
-                    _.datacenter_id != fake_dc_id for _ in db.session.query(Segment))
+                    _.webservice_id != fake_dc_id for _ in db.session.query(Segment))

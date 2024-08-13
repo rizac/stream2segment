@@ -360,12 +360,12 @@ def get_dstats_str_iter(session, download_ids=None, maxgap_threshold=0.5):
     maxgap_bexpr = get_maxgap_sql_expr(maxgap_threshold)
     qry = session.query(func.count(Segment.id),
                         Segment.download_code,
-                        Segment.datacenter_id,
+                        Segment.webservice_id,
                         Segment.download_id,
                         maxgap_bexpr)
 
     data = filterquery(qry, download_ids).group_by(Segment.download_id,
-                                                   Segment.datacenter_id,
+                                                   Segment.webservice_id,
                                                    Segment.download_code,
                                                    maxgap_bexpr)
 
@@ -571,13 +571,13 @@ def get_dstats_html_data(session, download_ids=None, maxgap_threshold=0.5):
                          concat(Station.network, '.', Station.station),
                          Station.latitude,
                          Station.longitude,
-                         Station.datacenter_id,
+                         Station.webservice_id,
                          Segment.download_id,
                          Segment.download_code,
                          maxgap_bexpr).join(Segment.station)
     data = filterquery(data, download_ids).group_by(Station.id, Segment.download_id,
                                                     Segment.download_code, maxgap_bexpr,
-                                                    Segment.datacenter_id)
+                                                    Segment.webservice_id)
 
     codesfound = set()
     dcidsfound = set()

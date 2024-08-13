@@ -25,7 +25,6 @@ class patches:
 
 
 class Test:
-    __test__ = False  # FIXME: Disabled pytest, because of DataCenter refactoring
 
     # define ONCE HERE THE command name, so if we change it in the cli it will be easier to fix here
     CMD_PREFIX_CONFIG = ['dl', 'config']
@@ -75,17 +74,17 @@ class Test:
         db.session.add_all([e1, e2, e3, e4, e5])
         db.session.commit()
 
-        d1 = DataCenter(station_url='asd', dataselect_url='www.dc1/dataselect/query')
-        d2 = DataCenter(station_url='asd', dataselect_url='www.dc2/dataselect/query')
+        d1 = WebService(url='www.dc1/dataselect/query')
+        d2 = WebService(url='www.dc2/dataselect/query')
         db.session.add_all([d1, d2])
         db.session.commit()
 
         # d1 has one station
-        s_d1 = Station(datacenter_id=d1.id, latitude=11, longitude=11, network='N1', station='S1',
+        s_d1 = Station(webservice_id=d1.id, latitude=11, longitude=11, network='N1', station='S1',
                        start_time=datetime.utcnow())
-        s_d2 = Station(datacenter_id=d1.id, latitude=22.1, longitude=22.1, network='N1',
+        s_d2 = Station(webservice_id=d1.id, latitude=22.1, longitude=22.1, network='N1',
                        station='S2a', start_time=datetime.utcnow())
-        s2_d2 = Station(datacenter_id=d1.id, latitude=22.2, longitude=22.2, network='N2',
+        s2_d2 = Station(webservice_id=d1.id, latitude=22.2, longitude=22.2, network='N2',
                         station='S2b', start_time=datetime.utcnow())
         db.session.add_all([s_d1, s_d2, s2_d2])
         db.session.commit()
@@ -118,7 +117,7 @@ class Test:
 
                 data, code, gap = seg_data[i]
                 i += 1
-                seg = Segment(channel_id=c.id, datacenter_id=s.datacenter_id,
+                seg = Segment(channel_id=c.id, webservice_id=s.webservice_id,
                               event_id=e1.id, download_id=r.id,
                               event_distance_deg=35, request_start=datetime.utcnow(),
                               arrival_time=datetime.utcnow(),

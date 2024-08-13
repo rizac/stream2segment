@@ -52,16 +52,16 @@ class Test:
         db.session.add_all([ev1])
         db.session.commit()
 
-        dc1 = WebService(id=1, url='www.dc1/dataselect/query')
+        dc1 = WebService(id=2, url='www.dc1/dataselect/query')
         db.session.add_all([dc1])
         db.session.commit()
 
         # d1 has one station
-        s_d1 = Station(datacenter_id=dc1.id, latitude=11, longitude=11, network='N1', station='S1',
+        s_d1 = Station(webservice_id=dc1.id, latitude=11, longitude=11, network='N1', station='S1',
                        start_time=datetime.utcnow())
-        s_d2 = Station(datacenter_id=dc1.id, latitude=22.1, longitude=22.1, network='N1',
+        s_d2 = Station(webservice_id=dc1.id, latitude=22.1, longitude=22.1, network='N1',
                        station='S2a', start_time=datetime.utcnow())
-        s2_d2 = Station(datacenter_id=dc1.id, latitude=22.2, longitude=22.2, network='N2',
+        s2_d2 = Station(webservice_id=dc1.id, latitude=22.2, longitude=22.2, network='N2',
                         station='S2b', start_time=datetime.utcnow())
         db.session.add_all([s_d1, s_d2, s2_d2])
         db.session.commit()
@@ -96,7 +96,7 @@ class Test:
 
                 data, code, gap, did = seg_data[i]
                 i += 1
-                seg = Segment(channel_id=c.id, datacenter_id=s.datacenter_id,
+                seg = Segment(channel_id=c.id, webservice_id=s.webservice_id,
                               event_id=ev1.id, download_id=did,
                               event_distance_deg=35, request_start=datetime.utcnow(),
                               arrival_time=datetime.utcnow(),

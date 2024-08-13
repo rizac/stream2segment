@@ -259,7 +259,7 @@ class SEG:  # noqa
     ATIME = Segment.arrival_time.key  # noqa
     REQSTART = Segment.request_start.key  # noqa
     REQEND = Segment.request_end.key  # noqa
-    DCID = Segment.datacenter_id.key  # noqa
+    DCID = Segment.webservice_id.key  # noqa
     ID = Segment.id.key  # noqa
     START = Segment.start_time.key  # noqa
     END = Segment.end_time.key  # noqa

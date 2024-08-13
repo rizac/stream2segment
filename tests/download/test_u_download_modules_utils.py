@@ -582,7 +582,7 @@ def eq(str1, str2):
     return True
 
 
-@pytest.mark.skip()  # FIXME: Disabled pytest, because of DataCenter refactoring
+@pytest.mark.skip()  # FIXME: (BP) Disabled pytest, because of DataCenter refactoring
 def test_eidavalidator():
     responsetext = """http://ws.resif.fr/fdsnws/station/1/query
 Z3 A001A * HL? 2000-01-01T00:00:00 2001-01-01T00:00:00
