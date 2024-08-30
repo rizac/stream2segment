@@ -24,6 +24,7 @@ from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import relationship, backref, load_only
 from sqlalchemy.orm.session import object_session
 from sqlalchemy.sql.expression import text, case, select, or_, func, and_
+from obspy.core.event import read_events
 from obspy.core.stream import _read  # noqa
 from obspy.core.inventory.inventory import read_inventory
 
@@ -61,9 +62,24 @@ class Download(Base, models.Download):  # pylint: disable=too-few-public-methods
     pass
 
 
-class Event(Base, models.Event):  # pylint: disable=too-few-public-methods
+class Event(Base,nt):
     """Model representing a seismic Event"""
-    pass
+
+    def event(self, reload=False):
+        event_ = getattr(self, "_event", None)
+        if reload and event_ is not None:
+            event_ = None
+        if event_ is None:
+            try:
+                event_ = self._event = get_event(self)
+            except Exception as exc:
+                event_ = self._event = \
+                    SkipSegment("MiniSeed error: %s" %
+                                (str(exc) or str(exc.__class__.__name__)))
+
+        if isinstance(event_, Exception):
+            raise event_
+        return event_
 
 
 class WebService(Base, models.WebService):
@@ -675,6 +691,16 @@ def get_stream(segment, format="MSEED", headonly=False, **kwargs):  # noqa
         return _read(BytesIO(data), format, headonly, **kwargs)
     except Exception as terr:
         raise SkipSegment(str(terr))
+
+
+def get_event(event_, format_="MSEED", **kwargs):
+    data = event_.data
+    if not data:
+        raise Exception  # FIXME raise a specific exception
+    try:
+        return read_events(BytesIO(data), format_, **kwargs).events[0]
+    except Exception as err:
+        raise Exception(str(err))  # FIXME raise a specific exception
 
 
 def get_classlabels(session, segments=False):
