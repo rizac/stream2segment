@@ -300,8 +300,9 @@ def get_plots(seg_id, plot_names, preprocessed, all_components, zooms):
 
 
 def get_plot(segment, preprocessed, func_name, zoom):
-    """Return a jsplot.Plot object corresponding to the given function
-    applied on the given segment
+    """Return a list of dicts where each dict represents a Plotly Trace.
+    The dict is the result of applying the given function
+    to the given segment
 
     :param segment: a Segment instance
     :param preprocessed: boolean, whether the function has to be applied on
@@ -315,7 +316,7 @@ def get_plot(segment, preprocessed, func_name, zoom):
         func = exec_func(segment, preprocessed, g_functions[func_name])
         return convert2plotly(func, zoom)
     except Exception as exc:
-        return 'Error ' + str(exc)
+        return str(exc)
 
 
 def exec_func(segment, preprocessed, function):
@@ -331,42 +332,34 @@ def exec_func(segment, preprocessed, function):
 @contextlib.contextmanager
 def prepare_for_function(segment, preprocessed=False):
     """contextmanager to be used before applying a custom function on a
-    segment
+    segment, stores temporarily the original streams so that in case of modifications
+    we can restore it
     """
-    # side note: we might cache the stream, the preprocessed stream and so
-    # on, so that each time we do not need to read or process the miniSEED,
-    # but this has no big impact. Caching ALL subplots is a pain (we
-    # already tried ending up with unmaintainable code). Note however that
-    # within the same request timespan, in case the same segment stream is
-    # needed, it is cached inside the Segment object (same holds for the
-    # segment's inventory (obspy Response object)
-    tmpstream = None
+    # the Stream object (or the Exception raised while retrieving it) is cached in a
+    # private segment attr (same for inventory), here we do the same for the
+    # pre-processed stream. Consider anyway that when moving to another segment the
+    # current one is destroyed (see Flask sessions doc for details)
+    tmp_stream = segment.stream().copy()
     try:
-        tmpstream = segment.stream().copy()
-        if not preprocessed:
-            yield
-        else:
+        if preprocessed:
             stream = getattr(segment, '_p_p_stream', None)
+            if stream is None:
+                try:
+                    stream = _preprocessfunc(segment, g_config)
+                    if isinstance(stream, Trace):
+                        stream = Stream([stream])
+                    elif not isinstance(stream, Stream):
+                        raise Exception(f"Trace or Stream object needed,\n"
+                                        f"found: {stream.__class__.__name__}")
+                except Exception as exc:
+                    stream = Exception(f"(@gui.preprocess):\n{str(exc)}")
+                setattr(segment, '_p_p_stream', stream)
             if isinstance(stream, Exception):
-                raise stream
-            elif stream is None:
-                stream = \
-                    _preprocessfunc(segment, g_config)
-                if isinstance(stream, Trace):
-                    stream = Stream([stream])
-                elif not isinstance(stream, Stream):
-                    raise Exception("The function decorated with "
-                                    "'gui.preprocess' must return "
-                                    "a Trace or Stream object")
-                segment._p_p_stream = stream
-            segment._stream = segment._p_p_stream.copy()
-            yield
-    except Exception as exc:
-        segment._p_p_stream = exc
-        raise exc
+                raise stream from None
+            setattr(segment, '_stream', stream.copy())
+        yield
     finally:
-        if tmpstream is not None:
-            segment._stream = tmpstream
+        setattr(segment, '_stream', tmp_stream)  # tmp_stream surely a Stream (no exc)
 
 
 def convert2plotly(funcres, zoom=None):

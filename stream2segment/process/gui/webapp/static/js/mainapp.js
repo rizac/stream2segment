@@ -193,7 +193,7 @@ function redrawPlot(divId, plotlyData, plotlyLayout){
 		})
 	}
 	// if data is a string, put it as message:
-	if (typeof data === 'string'){
+	if (typeof plotlyData === 'string'){
 		layout.annotations || (layout.annotations = []);
 		layout.annotations.push({
 			xref: 'paper',
@@ -202,7 +202,7 @@ function redrawPlot(divId, plotlyData, plotlyLayout){
 			xanchor: 'center',
 			y: 0.5, //.98,
 			yanchor: 'middle',
-			text: data,
+			text: plotlyData.replace("\n", "<br>"),
 			showarrow: false,
 			bordercolor: '#ffffff', // '#c7c7c7',
 			bgcolor: '#C0392B',
@@ -212,7 +212,7 @@ function redrawPlot(divId, plotlyData, plotlyLayout){
 				color: '#FFFFFF'
 			}
 		});
-		data = [];
+		plotlyData = [];
 	}
 	// plot (use plotly react if the plot is already set cause it's faster than newPlot):
 	if (!initialized){
