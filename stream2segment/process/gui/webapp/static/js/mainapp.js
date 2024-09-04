@@ -72,7 +72,7 @@ function getSegmentsSelection(inputElements){
 }
 
 function get_segment_data(segmentIndex, segmentsCount, plots, tracesArePreprocessed, mainPlotShowsAllComponents,
- 						  attrElements, classElements){
+ 						  attrElements, classElements, descElement){
 	/**
 	* Main function to update the GUI from a given segment.
 	* plots: Array of 3-elements Arrays, where the 3 elements are:
@@ -119,6 +119,9 @@ function get_segment_data(segmentIndex, segmentsCount, plots, tracesArePreproces
 			for (var att of response.data.attributes){
 				attrElements[att.label].innerHTML = att.value;
 				ret[att.label] = att.value;
+			}
+			if (descElement){
+				descElement.innerHTML = response.data.description
 			}
 		}
 		ret['class.id'] = [];

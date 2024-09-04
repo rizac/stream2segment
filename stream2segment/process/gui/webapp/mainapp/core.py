@@ -267,10 +267,14 @@ def get_segment_data(seg_id, plot_names, all_components, preprocessed,
     if plot_names:
         plots = get_plots(seg_id, plot_names, preprocessed, all_components, zooms)
 
+    metadata = [] if not attributes else db.get_metadata(seg_id)
+    desc = get_description_from_segment_attributes(metadata)
+
     return {
         'plots': plots,
-        'attributes': [] if not attributes else db.get_metadata(seg_id),
-        'classes': [] if not classes else db.get_classes(seg_id)
+        'attributes': metadata,
+        'classes': [] if not classes else db.get_classes(seg_id),
+        'description': desc
     }
 
 
@@ -443,3 +447,23 @@ def _jsonify(obj):
         return obj
     except ValueError:
         return obj
+
+
+def get_description_from_segment_attributes(attrs: dict):
+    """
+    :param attrs: the result of `db.get_metadata(segment)`
+    :return: a string description of the segment whose metadata is stored in `attrs`
+    """
+    desc = ['&#9432;', '', 'Recorded segment metadata:']
+    try:
+        mag = [_ for _ in attrs if _['label'] == 'event.magnitude'][0]['value']
+        mag_type = [_ for _ in attrs if _['label'] == 'event.mag_type'][0]['value']
+        if not mag_type:
+            mag_type = 'magnitude'
+        dist_km = [_ for _ in attrs if _['label'] == 'event_distance_km'][0]['value']
+        if mag and mag_type and dist_km:
+            desc[1] = (f'Event magnitude: <b>{mag} {mag_type}</b>. Recording station '
+                       f'distance: &#8776; <b>{round(dist_km, 2):,} km</b>.')
+    except (IndexError, KeyError):
+        pass
+    return " ".join(desc)

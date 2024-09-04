@@ -49,7 +49,6 @@ def main():
                            metadata=metadata,
                            classes=classes,
                            preprocess_func_on=pp_func_defined,
-                           seg_metadata_caption="&#9432; Segment metadata:",
                            preprocessfunc_doc=pp_func_doc)
 
 
