@@ -110,8 +110,10 @@ function get_segment_data(segmentIndex, segmentsCount, plots, tracesArePreproces
 
 	setInfoMessage("Fetching and computing data (it might take a while) ...");
 	return axios.post("/get_segment_data", params, {headers: {'Content-Type': 'application/json'}}).then(response => {
-		for (var name of Object.keys(response.data.plots)){
-			redrawPlot(funcName2ID[name], response.data.plots[name], funcName2Layout[name]);
+		for (var name of Object.keys(response.data.plotData)){
+			var data = response.data.plotData[name];
+			var layout = Object.assign({}, funcName2Layout[name], response.data.plotLayout[name] || {});
+			redrawPlot(funcName2ID[name], data, layout);
 		}
 		var ret = {};
 		// update metadata if needed:

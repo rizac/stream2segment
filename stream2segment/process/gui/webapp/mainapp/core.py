@@ -260,25 +260,31 @@ def get_segment_data(seg_id, plot_names, all_components, preprocessed,
     :param classes: boolean, whether to return the integers classes ids (if
         any) of the given segment
     """
-    plots = []
+
     if zooms is None and plot_names:
         zooms = [(None, None) for _ in plot_names]
 
+    plots = {}
+    layouts = {}
     if plot_names:
-        plots = get_plots(seg_id, plot_names, preprocessed, all_components, zooms)
+        plots, layouts = get_plotly_data_and_layout(
+            seg_id, plot_names, preprocessed, all_components, zooms)
 
     metadata = [] if not attributes else db.get_metadata(seg_id)
     desc = get_description_from_segment_attributes(metadata)
 
     return {
-        'plots': plots,
+        'plotData': plots,
+        'plotLayout': layouts,
         'attributes': metadata,
         'classes': [] if not classes else db.get_classes(seg_id),
         'description': desc
     }
 
 
-def get_plots(seg_id, plot_names, preprocessed, all_components, zooms):
+def get_plotly_data_and_layout(
+        seg_id, plot_names, preprocessed, all_components, zooms
+):
     """Return the plots
 
     :param all_components: if 0 is not in plot_indices, it is ignored.
@@ -288,6 +294,7 @@ def get_plots(seg_id, plot_names, preprocessed, all_components, zooms):
     """
     segment = get_segment(seg_id)
     plots = {}
+    layouts = {}
     for name in plot_names:
         zoom = None
         plot = get_plot(segment, preprocessed, name, zoom)
@@ -300,7 +307,35 @@ def get_plots(seg_id, plot_names, preprocessed, all_components, zooms):
                 else:
                     plot.extend(plt)
         plots[name] = plot
-    return plots
+        if name == '':
+            # main plot: add arrival time vertical line:
+            layouts[name] = {
+                'shapes': [{
+                    'type': 'line',
+                    'x0': _jsonify(segment.arrival_time),
+                    'y0': 0,
+                    'x1': _jsonify(segment.arrival_time),
+                    'yref': 'paper',
+                    'y1': 1,
+                    'line': {
+                        'color': '#008B8B',
+                        'width': 2,
+                        'dash': 'dot'
+                    }
+                }],
+                'annotations': [{
+                    'text': 'arrival<br>time',
+                    'align': 'right',
+                    'xanchor': "right",
+                    'x': _jsonify(segment.arrival_time),
+                    'y': 1,
+                    'yref': 'paper',
+                    'yanchor': 'top',
+                    'font': {'size': '10'},
+                    'showarrow': False
+                }]
+            }
+    return plots, layouts
 
 
 def get_plot(segment, preprocessed, func_name, zoom):
