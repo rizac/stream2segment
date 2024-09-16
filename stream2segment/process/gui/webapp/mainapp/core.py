@@ -53,6 +53,7 @@ def _default_preprocessfunc(segment, config):
 _preprocessfunc = _default_preprocessfunc
 g_functions = {}
 userdefined_plots = {}
+main_function_label = ""
 
 
 def _reset_global_functions():
@@ -60,7 +61,7 @@ def _reset_global_functions():
     global _preprocessfunc
     _preprocessfunc = _default_preprocessfunc
     global g_functions
-    g_functions = {"": lambda seg, cfg: seg.stream()}
+    g_functions = {main_function_label: lambda seg, cfg: seg.stream()}
     global userdefined_plots
     userdefined_plots = {}
 
@@ -285,12 +286,24 @@ def get_segment_data(seg_id, plot_names, all_components, preprocessed,
 def get_plotly_data_and_layout(
         seg_id, plot_names, preprocessed, all_components, zooms
 ):
-    """Return the plots
+    """Return the plots to display for the given segment, as the tuple:
 
+     plots:dict[str, list[dict]], layout: dict[str, dict]
+
+    both plots and layout keys are the elements of `plot_names`:
+     - in plots, a plot name is mapped to a list of dicts,
+       where each dict represents a plot trace
+     - in layout, a plot name is associated to a dict defining
+        the plot layout (e.g., shapes, annotations, and so on). Some of the properties
+        defined here might be overwritten in the frontend (e.g. axis scale or type
+        properties)
+
+    :param plot_names: the name (key) of each plot to draw
     :param all_components: if 0 is not in plot_indices, it is ignored.
         Otherwise returns in plot[I] all components
         (where I = argwhere(plot_indices == 0)
     :param zooms: list of x bounds to zoom or None, one for each plot (not used)
+    :return the tuple: plots:dict[str, list[dict]], layout: dict[str, dict]
     """
     segment = get_segment(seg_id)
     plots = {}
@@ -307,7 +320,7 @@ def get_plotly_data_and_layout(
                 else:
                     plot.extend(plt)
         plots[name] = plot
-        if name == '':
+        if name == main_function_label:
             # main plot: add arrival time vertical line:
             layouts[name] = {
                 'shapes': [{
