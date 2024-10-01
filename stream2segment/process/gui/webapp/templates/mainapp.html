@@ -268,8 +268,8 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 <div id="message-dialog" class="popup d-none flex-column align-items-center"
 	 style="z-index:1000; top:50%; left: 50%; transform: translate(-50%, -50%);">
 	<span class="loader"></span>
-	<div class="d-flex flex-row align-items-end">
-		<div class="message" style="margin-top:.5rem"></div>
+	<div class="d-flex flex-row align-items-start">
+		<div class="message" style="margin-top:.5rem;max-height: 80vh;overflow: auto;"></div>
 		<button type="button" class="btn-close ms-2" aria-label="Close"
 				onclick="toggleVisibility('message-dialog')">
 		</button>
