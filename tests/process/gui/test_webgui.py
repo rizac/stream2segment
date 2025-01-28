@@ -237,7 +237,8 @@ class Test:
             assert resp.status_code == 200
             # https: 
             data = self.jsonloads(resp.data)
-            assert ['attributes', 'classes', 'description',
+            assert ['attributes', 'classes',
+                    'description',
                     'plotData', 'plotLayout'] == sorted(data.keys())
 
     def test_init(self,
