@@ -6,7 +6,13 @@ name: Python >= 3.8
 on:
 
   workflow_dispatch:  # enable run manually the workflow
-  
+     branches: [ master, dev ]
+     paths-ignore:
+      - "**/README.md"
+      - "**/LICENSE"
+      - "**/COPYING"
+      - "stream2segment/resources/traveltimes/**"
+      
   push:
     branches: [ master ]
     paths-ignore:
