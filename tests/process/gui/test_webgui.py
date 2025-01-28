@@ -237,7 +237,8 @@ class Test:
             assert resp.status_code == 200
             # https: 
             data = self.jsonloads(resp.data)
-            assert ['attributes', 'classes', 'plots'] == sorted(data.keys())
+            assert ['attributes', 'classes', 'description',
+                    'plotData', 'plotLayout'] == sorted(data.keys())
 
     def test_init(self,
                   # fixtures:
@@ -456,12 +457,12 @@ class Test:
                 # https:
                 assert resp.status_code == 200
                 data = self.jsonloads(resp.data)
-                assert len(data['plots']) == len(d['plot_names'])
+                assert len(data['plotData']) == len(d['plot_names'])
                 assert bool(len(data['attributes'])) == attributes
                 assert bool(len(data['classes'])) == (classes and has_labellings)
 
                 if "" in plot_names:
-                    traces_in_first_plot = len(data['plots'][""])
+                    traces_in_first_plot = len(data['plotData'][""])
                     assert (traces_in_first_plot == 1 and not all_components) \
                            or traces_in_first_plot >= 1
                 # we should add a test for the pre_processed case also
@@ -508,7 +509,7 @@ class Test:
                             data=json.dumps(d),
                             headers={'Content-Type': 'application/json'})
             assert resp.status_code == 200
-            plots = self.jsonloads(resp.data)['plots']
+            plots = self.jsonloads(resp.data)['plotData']
             assert all(len(p['y']) for p in plots[""])
 
         # Now we exited the session, we try with pre_processed=True
@@ -532,7 +533,7 @@ class Test:
                                 data=json.dumps(d),
                                 headers={'Content-Type': 'application/json'})
                 assert resp.status_code == 200
-                plots = self.jsonloads(resp.data)['plots']
+                plots = self.jsonloads(resp.data)['plotData']
                 assert isinstance(plots[""], str) \
                        and "Station inventory (xml) error" in plots[""]
         finally:
@@ -594,8 +595,8 @@ class Test:
                 data1 = json.loads(resp1.data.decode('utf8'))
                 data2 = json.loads(resp2.data.decode('utf8'))
 
-            plots1 = data1['plots']
-            plots2 = data2['plots']
+            plots1 = data1['plotData']
+            plots2 = data2['plotData']
             assert len(plots1) == len(plots2) == len(plot_names)
 
             for name in plot_names:
