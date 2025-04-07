@@ -4,6 +4,9 @@
 name: Python >= 3.8
 
 on:
+
+  workflow_dispatch:  # enable run manually the workflow
+
   push:
     branches: [ master ]
     paths-ignore:
@@ -13,7 +16,7 @@ on:
       - "stream2segment/resources/traveltimes/**"
       
   pull_request:
-    branches: [ master ]
+    branches: [ master, dev ]
     paths-ignore:
       - "**/README.md"
       - "**/LICENSE"

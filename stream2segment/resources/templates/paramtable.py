@@ -24,6 +24,7 @@ import numpy as np
 # import obspy core classes (when working with times, use obspy UTCDateTime when
 # possible):
 from obspy import Trace, Stream, UTCDateTime
+from obspy.core.util.obspy_types import ObsPyException
 from obspy.geodetics import degrees2kilometers as d2km
 # decorators needed to setup this module @gui.preprocess @gui.plot:
 from stream2segment.process import SkipSegment
@@ -135,8 +136,8 @@ def main(segment, config):
     # segment only (logging the error message):
     try:
         trace = bandpass_remresp(segment, config)
-    except TypeError as type_error:
-        raise SkipSegment("Error in 'bandpass_remresp': %s" % str(type_error))
+    except (TypeError, ObsPyException) as resp_error:
+        raise SkipSegment("Error in 'bandpass_remresp': %s" % str(resp_error))
 
     spectra = signal_noise_spectra(segment, config)
     normal_f0, normal_df, normal_spe = spectra['Signal']

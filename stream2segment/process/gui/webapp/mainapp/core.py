@@ -53,6 +53,7 @@ def _default_preprocessfunc(segment, config):
 _preprocessfunc = _default_preprocessfunc
 g_functions = {}
 userdefined_plots = {}
+main_function_label = ""
 
 
 def _reset_global_functions():
@@ -60,7 +61,7 @@ def _reset_global_functions():
     global _preprocessfunc
     _preprocessfunc = _default_preprocessfunc
     global g_functions
-    g_functions = {"": lambda seg, cfg: seg.stream()}
+    g_functions = {main_function_label: lambda seg, cfg: seg.stream()}
     global userdefined_plots
     userdefined_plots = {}
 
@@ -260,30 +261,53 @@ def get_segment_data(seg_id, plot_names, all_components, preprocessed,
     :param classes: boolean, whether to return the integers classes ids (if
         any) of the given segment
     """
-    plots = []
+
     if zooms is None and plot_names:
         zooms = [(None, None) for _ in plot_names]
 
+    plots = {}
+    layouts = {}
     if plot_names:
-        plots = get_plots(seg_id, plot_names, preprocessed, all_components, zooms)
+        plots, layouts = get_plotly_data_and_layout(
+            seg_id, plot_names, preprocessed, all_components, zooms)
+
+    metadata = [] if not attributes else db.get_metadata(seg_id)
+    desc = get_description_from_segment_attributes(metadata)
 
     return {
-        'plots': plots,
-        'attributes': [] if not attributes else db.get_metadata(seg_id),
-        'classes': [] if not classes else db.get_classes(seg_id)
+        'plotData': plots,
+        'plotLayout': layouts,
+        'attributes': metadata,
+        'classes': [] if not classes else db.get_classes(seg_id),
+        'description': desc
     }
 
 
-def get_plots(seg_id, plot_names, preprocessed, all_components, zooms):
-    """Return the plots
+def get_plotly_data_and_layout(
+        seg_id, plot_names, preprocessed, all_components, zooms
+):
+    """Return the plots to display for the given segment, as the tuple:
 
+     plots:dict[str, list[dict]], layout: dict[str, dict]
+
+    both plots and layout keys are the elements of `plot_names`:
+     - in plots, a plot name is mapped to a list of dicts,
+       where each dict represents a plot trace
+     - in layout, a plot name is associated to a dict defining
+        the plot layout (e.g., shapes, annotations, and so on). Some of the properties
+        defined here might be overwritten in the frontend (e.g. axis scale or type
+        properties)
+
+    :param plot_names: the name (key) of each plot to draw
     :param all_components: if 0 is not in plot_indices, it is ignored.
         Otherwise returns in plot[I] all components
         (where I = argwhere(plot_indices == 0)
     :param zooms: list of x bounds to zoom or None, one for each plot (not used)
+    :return the tuple: plots:dict[str, list[dict]], layout: dict[str, dict]
     """
     segment = get_segment(seg_id)
     plots = {}
+    layouts = {}
     for name in plot_names:
         zoom = None
         plot = get_plot(segment, preprocessed, name, zoom)
@@ -296,12 +320,41 @@ def get_plots(seg_id, plot_names, preprocessed, all_components, zooms):
                 else:
                     plot.extend(plt)
         plots[name] = plot
-    return plots
+        if name == main_function_label:
+            # main plot: add arrival time vertical line:
+            layouts[name] = {
+                'shapes': [{
+                    'type': 'line',
+                    'x0': _jsonify(segment.arrival_time),
+                    'y0': 0,
+                    'x1': _jsonify(segment.arrival_time),
+                    'yref': 'paper',
+                    'y1': 1,
+                    'line': {
+                        'color': '#008B8B',
+                        'width': 2,
+                        'dash': 'dot'
+                    }
+                }],
+                'annotations': [{
+                    'text': 'arrival<br>time',
+                    'align': 'right',
+                    'xanchor': "right",
+                    'x': _jsonify(segment.arrival_time),
+                    'y': 1,
+                    'yref': 'paper',
+                    'yanchor': 'top',
+                    'font': {'size': '10'},
+                    'showarrow': False
+                }]
+            }
+    return plots, layouts
 
 
 def get_plot(segment, preprocessed, func_name, zoom):
-    """Return a jsplot.Plot object corresponding to the given function
-    applied on the given segment
+    """Return a list of dicts where each dict represents a Plotly Trace.
+    The dict is the result of applying the given function
+    to the given segment
 
     :param segment: a Segment instance
     :param preprocessed: boolean, whether the function has to be applied on
@@ -315,7 +368,7 @@ def get_plot(segment, preprocessed, func_name, zoom):
         func = exec_func(segment, preprocessed, g_functions[func_name])
         return convert2plotly(func, zoom)
     except Exception as exc:
-        return 'Error ' + str(exc)
+        return str(exc)
 
 
 def exec_func(segment, preprocessed, function):
@@ -331,42 +384,34 @@ def exec_func(segment, preprocessed, function):
 @contextlib.contextmanager
 def prepare_for_function(segment, preprocessed=False):
     """contextmanager to be used before applying a custom function on a
-    segment
+    segment, stores temporarily the original streams so that in case of modifications
+    we can restore it
     """
-    # side note: we might cache the stream, the preprocessed stream and so
-    # on, so that each time we do not need to read or process the miniSEED,
-    # but this has no big impact. Caching ALL subplots is a pain (we
-    # already tried ending up with unmaintainable code). Note however that
-    # within the same request timespan, in case the same segment stream is
-    # needed, it is cached inside the Segment object (same holds for the
-    # segment's inventory (obspy Response object)
-    tmpstream = None
+    # the Stream object (or the Exception raised while retrieving it) is cached in a
+    # private segment attr (same for inventory), here we do the same for the
+    # pre-processed stream. Consider anyway that when moving to another segment the
+    # current one is destroyed (see Flask sessions doc for details)
+    tmp_stream = segment.stream().copy()
     try:
-        tmpstream = segment.stream().copy()
-        if not preprocessed:
-            yield
-        else:
+        if preprocessed:
             stream = getattr(segment, '_p_p_stream', None)
+            if stream is None:
+                try:
+                    stream = _preprocessfunc(segment, g_config)
+                    if isinstance(stream, Trace):
+                        stream = Stream([stream])
+                    elif not isinstance(stream, Stream):
+                        raise Exception(f"Trace or Stream object needed,\n"
+                                        f"found: {stream.__class__.__name__}")
+                except Exception as exc:
+                    stream = Exception(f"(@gui.preprocess):\n{str(exc)}")
+                setattr(segment, '_p_p_stream', stream)
             if isinstance(stream, Exception):
-                raise stream
-            elif stream is None:
-                stream = \
-                    _preprocessfunc(segment, g_config)
-                if isinstance(stream, Trace):
-                    stream = Stream([stream])
-                elif not isinstance(stream, Stream):
-                    raise Exception("The function decorated with "
-                                    "'gui.preprocess' must return "
-                                    "a Trace or Stream object")
-                segment._p_p_stream = stream
-            segment._stream = segment._p_p_stream.copy()
-            yield
-    except Exception as exc:
-        segment._p_p_stream = exc
-        raise exc
+                raise stream from None
+            setattr(segment, '_stream', stream.copy())
+        yield
     finally:
-        if tmpstream is not None:
-            segment._stream = tmpstream
+        setattr(segment, '_stream', tmp_stream)  # tmp_stream surely a Stream (no exc)
 
 
 def convert2plotly(funcres, zoom=None):
@@ -450,3 +495,23 @@ def _jsonify(obj):
         return obj
     except ValueError:
         return obj
+
+
+def get_description_from_segment_attributes(attrs: dict):
+    """
+    :param attrs: the result of `db.get_metadata(segment)`
+    :return: a string description of the segment whose metadata is stored in `attrs`
+    """
+    desc = ['&#9432;', '', 'Recorded segment metadata:']
+    try:
+        mag = [_ for _ in attrs if _['label'] == 'event.magnitude'][0]['value']
+        mag_type = [_ for _ in attrs if _['label'] == 'event.mag_type'][0]['value']
+        if not mag_type:
+            mag_type = 'magnitude'
+        dist_km = [_ for _ in attrs if _['label'] == 'event_distance_km'][0]['value']
+        if mag and mag_type and dist_km:
+            desc[1] = (f'Event magnitude: <b>{mag} {mag_type}</b>. Recording station '
+                       f'distance: &#8776; <b>{round(dist_km, 2):,} km</b>.')
+    except (IndexError, KeyError):
+        pass
+    return " ".join(desc)

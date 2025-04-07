@@ -72,7 +72,7 @@ function getSegmentsSelection(inputElements){
 }
 
 function get_segment_data(segmentIndex, segmentsCount, plots, tracesArePreprocessed, mainPlotShowsAllComponents,
- 						  attrElements, classElements){
+ 						  attrElements, classElements, descElement){
 	/**
 	* Main function to update the GUI from a given segment.
 	* plots: Array of 3-elements Arrays, where the 3 elements are:
@@ -110,8 +110,10 @@ function get_segment_data(segmentIndex, segmentsCount, plots, tracesArePreproces
 
 	setInfoMessage("Fetching and computing data (it might take a while) ...");
 	return axios.post("/get_segment_data", params, {headers: {'Content-Type': 'application/json'}}).then(response => {
-		for (var name of Object.keys(response.data.plots)){
-			redrawPlot(funcName2ID[name], response.data.plots[name], funcName2Layout[name]);
+		for (var name of Object.keys(response.data.plotData)){
+			var data = response.data.plotData[name];
+			var layout = Object.assign({}, funcName2Layout[name], response.data.plotLayout[name] || {});
+			redrawPlot(funcName2ID[name], data, layout);
 		}
 		var ret = {};
 		// update metadata if needed:
@@ -119,6 +121,9 @@ function get_segment_data(segmentIndex, segmentsCount, plots, tracesArePreproces
 			for (var att of response.data.attributes){
 				attrElements[att.label].innerHTML = att.value;
 				ret[att.label] = att.value;
+			}
+			if (descElement){
+				descElement.innerHTML = response.data.description
 			}
 		}
 		ret['class.id'] = [];
@@ -193,7 +198,7 @@ function redrawPlot(divId, plotlyData, plotlyLayout){
 		})
 	}
 	// if data is a string, put it as message:
-	if (typeof data === 'string'){
+	if (typeof plotlyData === 'string'){
 		layout.annotations || (layout.annotations = []);
 		layout.annotations.push({
 			xref: 'paper',
@@ -202,7 +207,7 @@ function redrawPlot(divId, plotlyData, plotlyLayout){
 			xanchor: 'center',
 			y: 0.5, //.98,
 			yanchor: 'middle',
-			text: data,
+			text: plotlyData.replace("\n", "<br>"),
 			showarrow: false,
 			bordercolor: '#ffffff', // '#c7c7c7',
 			bgcolor: '#C0392B',
@@ -212,7 +217,7 @@ function redrawPlot(divId, plotlyData, plotlyLayout){
 				color: '#FFFFFF'
 			}
 		});
-		data = [];
+		plotlyData = [];
 	}
 	// plot (use plotly react if the plot is already set cause it's faster than newPlot):
 	if (!initialized){

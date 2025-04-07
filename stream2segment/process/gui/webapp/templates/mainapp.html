@@ -107,7 +107,7 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 		</div>
 		<div class="d-flex flex-row align-items-baseline" style="flex: 1 1 50%">  <!-- right plot controls -->
 			{%- if rightPlots|length < 1 -%}
-			{{ seg_metadata_caption | safe }}
+			<span data-id='segment-description'></span>
 			{%- else -%}
 			{% for plot in rightPlots %}
 			<input type="radio" class="btn-check"
@@ -159,7 +159,7 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 					<div style="position:absolute;top:0;right:0;bottom:0;left:0;overflow:auto">
 						<table class='mt-2' style="width:100%;">
 							{%- if rightPlots|length > 0 -%}
-							<thead><tr><th colspan="2">{{ seg_metadata_caption | safe }}</th></tr></thead>
+							<thead><tr><th colspan="2" data-id='segment-description'></th></tr></thead>
 							{%- endif %}
 							<tbody data-is-segment-metadata>
 							{% for class in classes -%}
@@ -268,8 +268,8 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 <div id="message-dialog" class="popup d-none flex-column align-items-center"
 	 style="z-index:1000; top:50%; left: 50%; transform: translate(-50%, -50%);">
 	<span class="loader"></span>
-	<div class="d-flex flex-row align-items-end">
-		<div class="message" style="margin-top:.5rem"></div>
+	<div class="d-flex flex-row align-items-start">
+		<div class="message" style="margin-top:.5rem;max-height: 80vh;overflow: auto;"></div>
 		<button type="button" class="btn-close ms-2" aria-label="Close"
 				onclick="toggleVisibility('message-dialog')">
 		</button>
@@ -361,9 +361,10 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 				elm.checked = false;
 				classElements[parseInt(elm.getAttribute('data-segment-class-id'))] = elm;
 			});
+			var descElement = document.querySelector('[data-id=segment-description]');
 			get_segment_data(index, SEGMENTS_COUNT,
 							 getPlotDataToRecompute(), tracesArePreprocessed(), mainPlotShowsAllComponents(),
-	 						 attrElements, classElements).then(segmentAttrs => {
+	 						 attrElements, classElements, descElement).then(segmentAttrs => {
 				SELECTED_SEGMENT_INDEX = index;
 				document.getElementById('current_segment_index').innerHTML = (SELECTED_SEGMENT_INDEX + 1).toLocaleString('en-US');
 				var seedIdElm = document.getElementById('seed_id');
@@ -375,7 +376,7 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 		function recomputeAllPlots(){
 			get_segment_data(SELECTED_SEGMENT_INDEX, SEGMENTS_COUNT,
 							 getPlotDataToRecompute(), tracesArePreprocessed(), mainPlotShowsAllComponents(),
-	 						 null, null);
+	 						 null, null, null);
 		}
 
 		function getPlotDataToRecompute(){
@@ -391,7 +392,7 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 		function recomputePlot(funcName, divId, layout){
 			get_segment_data(SELECTED_SEGMENT_INDEX, SEGMENTS_COUNT,
 							 [[funcName, divId, layout]], tracesArePreprocessed(), mainPlotShowsAllComponents(),
-	 						 null, null);
+	 						 null, null, null);
 		}
 
 		function setClassLabel(classId, value){

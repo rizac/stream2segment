@@ -38,7 +38,9 @@ def main():
     metadata = data['metadata']
     r_plots = [{**p, 'name': n} for n, p in ud_plots.items() if p['position'] == 'r']
     b_plots = [{**p, 'name': n} for n, p in ud_plots.items() if p['position'] == 'b']
-    preprocessfunc_doc = core.get_func_doc(core.get_preprocess_function())
+    pp_func = core.get_preprocess_function()
+    pp_func_doc = core.get_func_doc(pp_func)
+    pp_func_defined = pp_func not in (core._default_preprocessfunc, None)
     return render_template('mainapp.html',
                            num_segments=len(core.g_segment_ids),
                            title=core.get_db_url(safe=True),
@@ -46,9 +48,8 @@ def main():
                            bottomPlots=b_plots,
                            metadata=metadata,
                            classes=classes,
-                           preprocess_func_on=False,
-                           seg_metadata_caption="&#9432; Segment metadata:",
-                           preprocessfunc_doc=preprocessfunc_doc)
+                           preprocess_func_on=pp_func_defined,
+                           preprocessfunc_doc=pp_func_doc)
 
 
 @main_app.route("/get_config", methods=['POST'])
