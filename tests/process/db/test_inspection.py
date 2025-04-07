@@ -82,7 +82,7 @@ def test_attnames():
         relnames = set(get_related_models(Segment).keys())
         assert sorted(attnames(rel=True)) == sorted(relnames)
         assert not (relnames - {'download', 'station', 'classes', 'channel',
-                                'event', 'webservice'})
+                                'event', 'datacenter'})
 
     finally:
         if hasattr(Segment, '_non_queriable_att'):

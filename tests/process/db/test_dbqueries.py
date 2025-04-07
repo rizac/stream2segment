@@ -8,11 +8,10 @@ from datetime import datetime
 import pytest
 
 from stream2segment.process.db.models import (Event, WebService, Channel, Station, \
-                                              Segment, Download)
+                                              DataCenter, Segment, Download)
 
 
 class Test:
-    __test__ = False  # FIXME: (BP) Disabled pytest, because of DataCenter refactoring
 
     # execute this fixture always even if not provided as argument:
     # https://docs.pytest.org/en/documentation-restructure/how-to/fixture.html#autouse-fixtures-xunit-setup-on-steroids

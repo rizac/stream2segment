@@ -11,7 +11,7 @@ import pytest
 from stream2segment.resources import get_templates_fpath
 from stream2segment.process.db.models import (get_inventory, get_stream,
                                               Event, Station, Segment,
-                                              Channel, Download, WebService)
+                                              Channel, Download, DataCenter)
 from stream2segment.process.main import query4process
 from stream2segment.process.log import configlog4processing as o_configlog4processing
 
@@ -30,7 +30,6 @@ def readcsv(filename, header=True):
 
 
 class Test:
-    __test__ = False  # FIXME: (BP) Disabled pytest, because of DataCenter refactoring
 
     pyfile = get_templates_fpath("paramtable.py")
 
@@ -148,7 +147,7 @@ class Test:
                     assert not mock_getinv.called
                 else:
                     assert mock_getinv.called
-                assert len(segment.station.stationxml) > 0
+                assert len(segment.station.inventory_xml) > 0
                 # re-call it with reload=True and assert we raise the previous
                 # exception, and that we called get_inv:
                 ccc = mock_getinv.call_count

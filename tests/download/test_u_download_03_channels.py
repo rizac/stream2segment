@@ -15,7 +15,7 @@ from unittest.mock import Mock, patch, MagicMock
 import numpy as np
 import pytest
 
-from stream2segment.download.db.models import Download, Station, Channel, WebService
+from stream2segment.download.db.models import DataCenter, Download, Station, Channel
 from stream2segment.download.modules.events import get_events_df
 from stream2segment.download.modules.datacenters import get_datacenters_df
 from stream2segment.download.modules.channels import get_channels_df
@@ -34,7 +34,6 @@ def tt_ak135_tts(request, data):
 
 
 class Test:
-    __test__ = False  # FIXME: (BP) Disabled pytest, because of DataCenter refactoring
 
     # execute this fixture always even if not provided as argument:
     # https://docs.pytest.org/en/documentation-restructure/how-to/fixture.html#autouse-fixtures-xunit-setup-on-steroids
@@ -316,7 +315,7 @@ level=channel
             "http://ws.resif.fr/fdsnws/station/1/query"
         # assert all downloaded stations have datacenter_id of the second datacenter:
         dcid = datacenters_df.iloc[1].id
-        assert all(sid[0] == dcid for sid in db.session.query(Station.webservice_id).all())
+        assert all(sid[0] == dcid for sid in db.session.query(Station.datacenter_id).all())
         # assert all downloaded channels have station_id in the set of downloaded stations only:
         sta_ids = [x[0] for x in db.session.query(Station.id).all()]
         assert all(c_staid[0] in sta_ids for c_staid in db.session.query(Channel.station_id).all())
@@ -497,7 +496,7 @@ E|F|11|HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|8388
         # We want to test the mixed case: some fetched from db, some from the web
         # ---------------------------------------------------
         # first we query the db to check what we have:
-        cha_df = dbquery2df(db.session.query(Channel.id, Station.webservice_id,
+        cha_df = dbquery2df(db.session.query(Channel.id, Station.datacenter_id,
                                              Station.network).join(Station))
         # build a new network:
         newnetwork = 'U'
@@ -519,17 +518,17 @@ E|F|11|HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|8388
 
         # we should have the channel with network 'U' to the first datacenter
         dcid = datacenters_df.iloc[0][DataCenter.id.key]
-        assert len(cha_df_[cha_df_[Station.webservice_id.key] == dcid]) == 1
-        assert cha_df_[cha_df_[Station.webservice_id.key] == dcid][Station.network.key][0] == \
-               newnetwork
+        assert len(cha_df_[cha_df_[Station.datacenter_id.key] == dcid]) == 1
+        assert cha_df_[cha_df_[Station.datacenter_id.key] == dcid][Station.network.key][0] == \
+            newnetwork
         # but we did not query other channels for datacenter id = dcid, as the web response
         # was successful, we rely on that. Conversely, for the other datacenter we should have all
         # channels fetched from db
         dcid = datacenters_df.iloc[1][DataCenter.id.key]
         chaids_of_dcid = \
-            cha_df_[cha_df_[Station.webservice_id.key] == dcid][Channel.id.key].tolist()
+            cha_df_[cha_df_[Station.datacenter_id.key] == dcid][Channel.id.key].tolist()
         db_chaids_of_dcid = \
-            cha_df[cha_df[Station.webservice_id.key] == dcid][Channel.id.key].tolist()
+            cha_df[cha_df[Station.datacenter_id.key] == dcid][Channel.id.key].tolist()
         assert chaids_of_dcid == db_chaids_of_dcid
 
     def test_get_channels_df_eidavalidator_station_and_channel_duplicates(self, db):

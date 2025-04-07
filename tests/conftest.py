@@ -514,19 +514,19 @@ def db4process(db, data):
             session.add_all([ev1, ev2, ev3])
             session.commit()
 
-            dtc = dbp.WebService(url='asd')
+            dtc = dbp.DataCenter(station_url='asd', dataselect_url='sdft')
             session.add(dtc)
             session.commit()
 
             # s_ok stations have lat and lon > 11, other stations do not
             inv_xml = data.read("inventory_GE.APE.xml")
-            s_ok = dbp.Station(webservice_id=dtc.id, latitude=11, longitude=12, network='ok',
+            s_ok = dbp.Station(datacenter_id=dtc.id, latitude=11, longitude=12, network='ok',
                            station='ok', start_time=datetime.utcnow(),
-                           stationxml=compress(inv_xml))
+                           inventory_xml=compress(inv_xml))
             session.add(s_ok)
             session.commit()
 
-            s_none = dbp.Station(webservice_id=dtc.id, latitude=-31, longitude=-32, network='no',
+            s_none = dbp.Station(datacenter_id=dtc.id, latitude=-31, longitude=-32, network='no',
                              station='no', start_time=datetime.utcnow())
             session.add(s_none)
             session.commit()
@@ -547,13 +547,13 @@ def db4process(db, data):
 
                 # ch_.location  below reflects if the station has inv
                 atts = dict(atts_ok, data_seed_id='%s.ok' % ch_.location, download_code=200)
-                sg1 = dbp.Segment(channel_id=ch_.id, webservice_id=dtc.id, event_id=ev1.id,
+                sg1 = dbp.Segment(channel_id=ch_.id, datacenter_id=dtc.id, event_id=ev1.id,
                               download_id=dwl.id, event_distance_deg=35, **atts)
                 atts = dict(atts_gap, data_seed_id='%s.gap' % ch_.location, download_code=200)
-                sg2 = dbp.Segment(channel_id=ch_.id, webservice_id=dtc.id, event_id=ev2.id,
+                sg2 = dbp.Segment(channel_id=ch_.id, datacenter_id=dtc.id, event_id=ev2.id,
                               download_id=dwl.id, event_distance_deg=35, **atts)
                 atts = dict(atts_none, data_seed_id='%s.no' % ch_.location, download_code=204)
-                sg3 = dbp.Segment(channel_id=ch_.id, webservice_id=dtc.id, event_id=ev3.id,
+                sg3 = dbp.Segment(channel_id=ch_.id, datacenter_id=dtc.id, event_id=ev3.id,
                               download_id=dwl.id, event_distance_deg=35, **atts)
                 session.add_all([sg1, sg2, sg3])
                 session.commit()

@@ -18,10 +18,10 @@ import pandas as pd
 
 from stream2segment.cli import cli
 from stream2segment.download.main import get_events_df, get_datacenters_df, \
-    get_channels_df, download_save_segments, save_stationxml
+    get_channels_df, download_save_segments, save_inventories
 from stream2segment.download.log import configlog4download
 from stream2segment.download.db.models import Segment, Download, Station, Channel, \
-    Event
+    Event, DataCenter
 from stream2segment.io.db.models import withdata
 from stream2segment.io.db.pdsql import dbquery2df, insertdf, updatedf,\
     _get_max as _get_db_autoinc_col_max
@@ -33,7 +33,6 @@ from stream2segment.io import yaml_load
 
 
 class Test:
-    __test__ = False  # FIXME: (BP) Does not pass the test
 
     # execute this fixture always even if not provided as argument:
     # https://docs.pytest.org/en/documentation-restructure/how-to/fixture.html#autouse-fixtures-xunit-setup-on-steroids
@@ -248,22 +247,22 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                            else url_read_side_effect)
         return download_save_segments(*a, **kw)
 
-    def save_stationxml(self, url_read_side_effect, *a, **v):
+    def save_inventories(self, url_read_side_effect, *a, **v):
         self.setup_urlopen(self._inv_data if url_read_side_effect is None
                            else url_read_side_effect)
-        return save_stationxml(*a, **v)
+        return save_inventories(*a, **v)
 
     @patch('stream2segment.io.db.pdsql._get_max')
     @patch('stream2segment.download.main.get_events_df')
     @patch('stream2segment.download.main.get_datacenters_df')
     @patch('stream2segment.download.main.get_channels_df')
-    @patch('stream2segment.download.main.save_stationxml')
+    @patch('stream2segment.download.main.save_inventories')
     @patch('stream2segment.download.main.download_save_segments')
     @patch('stream2segment.download.modules.segments.mseedunpack')
     @patch('stream2segment.io.db.pdsql.insertdf')
     @patch('stream2segment.io.db.pdsql.updatedf')
     def test_cmdline_dberr(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
-                           mock_download_save_segments, mock_save_stationxml,
+                           mock_download_save_segments, mock_save_inventories,
                            mock_get_channels_df, mock_get_datacenters_df, mock_get_events_df,
                            mock_autoinc_db,
                            # fixtures:
@@ -273,7 +272,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         mock_get_datacenters_df.side_effect = \
             lambda *a, **v: self.get_datacenters_df(None, *a, **v) 
         mock_get_channels_df.side_effect = lambda *a, **v: self.get_channels_df(None, *a, **v)
-        mock_save_stationxml.side_effect = lambda *a, **v: self.save_stationxml(None, *a, **v)
+        mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(None, *a, **v)
 
         def dss(*a, **v):
             """Call self.download_save_segments after setting dbbufsize (a[9]) to 1"""
@@ -345,13 +344,13 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
     @patch('stream2segment.download.main.get_events_df')
     @patch('stream2segment.download.main.get_datacenters_df')
     @patch('stream2segment.download.main.get_channels_df')
-    @patch('stream2segment.download.main.save_stationxml')
+    @patch('stream2segment.download.main.save_inventories')
     @patch('stream2segment.download.main.download_save_segments')
     @patch('stream2segment.download.modules.segments.mseedunpack')
     @patch('stream2segment.io.db.pdsql.insertdf')
     @patch('stream2segment.io.db.pdsql.updatedf')
     def test_cmdline_outofbounds(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
-                                 mock_download_save_segments, mock_save_stationxml,
+                                 mock_download_save_segments, mock_save_inventories,
                                  mock_get_channels_df,
                                  mock_get_datacenters_df, mock_get_events_df,
                                  # fixtures:
@@ -361,7 +360,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         mock_get_datacenters_df.side_effect = \
             lambda *a, **v: self.get_datacenters_df(None, *a, **v)
         mock_get_channels_df.side_effect = lambda *a, **v: self.get_channels_df(None, *a, **v)
-        mock_save_stationxml.side_effect = lambda *a, **v: self.save_stationxml(None, *a, **v)
+        mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(None, *a, **v)
         mock_download_save_segments.side_effect = \
             lambda *a, **v: self.download_save_segments(None, *a, **v)
         mock_mseed_unpack.side_effect = lambda *a, **v: unpack(*a, **v)
@@ -392,7 +391,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         assert not mock_updatedf.called
         assert mock_insertdf.called
 
-        dfres1 = dbquery2df(db.session.query(Segment.id, Segment.channel_id, Segment.webservice_id,
+        dfres1 = dbquery2df(db.session.query(Segment.id, Segment.channel_id, Segment.datacenter_id,
                                              Segment.event_id, Segment.download_code, Segment.data,
                                              Segment.maxgap_numsamples, Segment.download_id,
                                              Segment.sample_rate, Segment.data_seed_id))
@@ -410,13 +409,13 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
     @patch('stream2segment.download.main.get_events_df')
     @patch('stream2segment.download.main.get_datacenters_df')
     @patch('stream2segment.download.main.get_channels_df')
-    @patch('stream2segment.download.main.save_stationxml')
+    @patch('stream2segment.download.main.save_inventories')
     @patch('stream2segment.download.main.download_save_segments')
     @patch('stream2segment.download.modules.segments.mseedunpack')
     @patch('stream2segment.io.db.pdsql.insertdf')
     @patch('stream2segment.io.db.pdsql.updatedf')
     def tst_cmdline(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
-                     mock_download_save_segments, mock_save_stationxml, mock_get_channels_df,
+                     mock_download_save_segments, mock_save_inventories, mock_get_channels_df,
                      mock_get_datacenters_df, mock_get_events_df,
                      # fixtures:
                      db, clirunner, pytestdir):
@@ -425,7 +424,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         mock_get_datacenters_df.side_effect = \
             lambda *a, **v: self.get_datacenters_df(None, *a, **v)
         mock_get_channels_df.side_effect = lambda *a, **v: self.get_channels_df(None, *a, **v)
-        mock_save_stationxml.side_effect = lambda *a, **v: self.save_stationxml(None, *a, **v)
+        mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(None, *a, **v)
         mock_download_save_segments.side_effect = \
             lambda *a, **v: self.download_save_segments(None, *a, **v)
         # mseed unpack is mocked by accepting only first arg (so that time bounds are not
@@ -459,7 +458,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         assert mock_insertdf.called
 
         dfres1 = dbquery2df(db.session.query(Segment.id, Segment.channel_id,
-                                             Segment.webservice_id, Segment.event_id,
+                                             Segment.datacenter_id, Segment.event_id,
                                              Segment.download_code, Segment.data,
                                              Segment.maxgap_numsamples, Segment.download_id,
                                              Segment.sample_rate, Segment.data_seed_id))
@@ -487,7 +486,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
                                         '--end', '2016-05-08T09:00:00'])
         assert clirunner.ok(result)
 
-        dfres2 = dbquery2df(db.session.query(Segment.id, Segment.channel_id, Segment.webservice_id,
+        dfres2 = dbquery2df(db.session.query(Segment.id, Segment.channel_id, Segment.datacenter_id,
                                              Segment.event_id,
                                              Segment.download_code, Segment.data,
                                              Segment.maxgap_numsamples, Segment.download_id,
@@ -609,8 +608,8 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         assert num_expected_inventories_to_download == 2  # just in order to set the value below
         # and be more safe about the fact that we will have only ONE station inventory saved
         inv_urlread_ret_val = [self._inv_data, URLError('a')]
-        mock_save_stationxml.side_effect = \
-            lambda *a, **v: self.save_stationxml(inv_urlread_ret_val, *a, **v)
+        mock_save_inventories.side_effect = \
+            lambda *a, **v: self.save_inventories(inv_urlread_ret_val, *a, **v)
 
         # SKIP THIS TEST (not valid anymore):
         # first check that we issue an error if we provide inventory as flag (old behaviour):
@@ -631,17 +630,17 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         stainvs = db.session.query(Station).filter(Station.has_inventory).all()
         assert len(stainvs) == 1
         assert "Inventory download error" in self.log_msg()
-        ix = db.session.query(Station.id, Station.stationxml).filter(Station.has_inventory).all()
+        ix = db.session.query(Station.id, Station.inventory_xml).filter(Station.has_inventory).all()
         num_downloaded_inventories_first_try = len(ix)
         assert len(ix) == num_downloaded_inventories_first_try
         staid, invdata = ix[0][0], ix[0][1]
         expected_invs_to_download_ids.remove(staid)  # remove the saved inventory
         assert not invdata.startswith(b'<?xml ')  # assert we compressed data
-        assert mock_save_stationxml.called
-        mock_save_stationxml.reset_mock()
+        assert mock_save_inventories.called
+        mock_save_inventories.reset_mock()
 
         # Now mock empty data:
-        mock_save_stationxml.side_effect = lambda *a, **v: self.save_stationxml([b""], *a, **v)
+        mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories([b""], *a, **v)
 
         result = clirunner.invoke(cli, ['download', '-c', self.configfile,
                                         '--dburl', db.dburl,
@@ -651,21 +650,21 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         stainvs = db.session.query(Station).filter(Station.has_inventory).all()
         # assert we still have one station (the one we saved before):
         assert len(stainvs) == num_downloaded_inventories_first_try
-        mock_save_stationxml.reset_mock()
+        mock_save_inventories.reset_mock()
 
         # now mock url returning always data (the default: it returns self._inv_data:
-        mock_save_stationxml.side_effect = lambda *a, **v: self.save_stationxml(None, *a, **v)
+        mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(None, *a, **v)
 
         result = clirunner.invoke(cli, ['download', '-c', self.configfile,
                                         '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
                                         '--end', '2016-05-08T09:00:00', '--inventory'])
         assert clirunner.ok(result)
-        ix = db.session.query(Station.id, Station.stationxml).filter(Station.has_inventory).all()
+        ix = db.session.query(Station.id, Station.inventory_xml).filter(Station.has_inventory).all()
         assert len(ix) == num_expected_inventories_to_download
 
         # check now that none is downloaded
-        mock_save_stationxml.reset_mock()
+        mock_save_inventories.reset_mock()
 
         result = clirunner.invoke(cli, ['download', '-c', self.configfile,
                                         '--dburl', db.dburl,
@@ -674,13 +673,13 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         assert clirunner.ok(result)
         stainvs2 = db.session.query(Station).filter(Station.has_inventory).all()
         assert len(stainvs2) == num_expected_inventories_to_download
-        assert not mock_save_stationxml.called
+        assert not mock_save_inventories.called
 
         # now test that if a station chanbges datacenter "owner", then the new datacenter
         # is used. Test also that if we remove a single miniseed component of a download that
         # miniseed only is downloaded again
         dfz = dbquery2df(db.session.query(Segment.id, Segment.data_seed_id,
-                                          Segment.webservice_id, Channel.station_id).
+                                          Segment.datacenter_id, Channel.station_id).
                          join(Segment.station, Segment.channel).filter(Segment.has_data))
 
         # dfz:
@@ -708,7 +707,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
 
         # try to get
         dfz2 = dbquery2df(db.session.query(Segment.id, Segment.data_seed_id,
-                                           Segment.webservice_id, Channel.station_id,
+                                           Segment.datacenter_id, Channel.station_id,
                                            Station.network, Station.station, Channel.location,
                                            Channel.channel).
                           join(Segment.station, Segment.channel))
@@ -726,8 +725,8 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         assert seed_redownloaded[Channel.station_id.key] == \
             seed_to_redownload[Channel.station_id.key]
         # but different datacenters:
-        assert seed_redownloaded[Segment.webservice_id.key] != \
-               seed_to_redownload[Segment.webservice_id.key]
+        assert seed_redownloaded[Segment.datacenter_id.key] != \
+            seed_to_redownload[Segment.datacenter_id.key]
 
         # restore default:
         self._sta_urlread_sideeffect = oldst_se
@@ -747,13 +746,13 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         sta1.elevation = new_elevation
         sta_inv.site_name = new_sitename
         cha.sample_rate = new_srate
-        sta_inv.stationxml = new_sta_inv
+        sta_inv.inventory_xml = new_sta_inv
         db.session.commit()
 
         # assure some data is returned from inventoriy url:
         inv_urlread_ret_val = self._inv_data
-        mock_save_stationxml.side_effect = \
-            lambda *a, **v: self.save_stationxml(inv_urlread_ret_val, *a, **v)
+        mock_save_inventories.side_effect = \
+            lambda *a, **v: self.save_inventories(inv_urlread_ret_val, *a, **v)
 
         # run without flag update on:
         result = clirunner.invoke(cli, ['download', '-c', self.configfile,
@@ -768,7 +767,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         assert db.session.query(Channel).filter(Channel.sample_rate == new_srate).first()
         # assert segment without inventory has still No inventory:
         assert db.session.query(Station).filter(Station.id ==
-                                                sta_inv_id).first().stationxml == new_sta_inv
+                                                sta_inv_id).first().inventory_xml == new_sta_inv
 
         # NOW UPDATE METADATA
 
@@ -785,7 +784,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         # assert sta_inv has inventory re-downloaded:
         # assert segment without inventory has inventory:
         assert db.session.query(Station).filter(Station.id ==
-                                                sta_inv_id).first().stationxml != new_sta_inv
+                                                sta_inv_id).first().inventory_xml != new_sta_inv
         # and now this:
         assert db.session.query(Station).filter(Station.site_name == new_sitename).first()
         # WHY? because site_name has been implemented for compatibility when the query
@@ -898,13 +897,13 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
     @patch('stream2segment.download.main.get_events_df')
     @patch('stream2segment.download.main.get_datacenters_df')
     @patch('stream2segment.download.main.get_channels_df')
-    @patch('stream2segment.download.main.save_stationxml')
+    @patch('stream2segment.download.main.save_inventories')
     @patch('stream2segment.download.main.download_save_segments')
     @patch('stream2segment.download.modules.segments.mseedunpack')
     @patch('stream2segment.io.db.pdsql.insertdf')
     @patch('stream2segment.io.db.pdsql.updatedf')
     def test_segerrors_reported_only_once(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
-                                          mock_download_save_segments, mock_save_stationxml,
+                                          mock_download_save_segments, mock_save_inventories,
                                           mock_get_channels_df, mock_get_datacenters_df,
                                           mock_get_events_df,
                                           # fixtures:
@@ -918,7 +917,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         mock_get_datacenters_df.side_effect = \
             lambda *a, **v: self.get_datacenters_df(None, *a, **v)
         mock_get_channels_df.side_effect = lambda *a, **v: self.get_channels_df(None, *a, **v)
-        mock_save_stationxml.side_effect = lambda *a, **v: self.save_stationxml(None, *a, **v)
+        mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(None, *a, **v)
 
         # =========================
         # HERE IS THE IMPORTANT PART

@@ -19,7 +19,7 @@ from obspy.core.stream import read
 
 # from stream2segment.process import get_default_segments_selection
 from stream2segment.process.db.models import (Event, WebService, Channel, Station,
-                                              Segment, Class, Download,
+                                              DataCenter, Segment, Class, Download,
                                               ClassLabelling)
 from stream2segment.process.inspectimport import load_source
 from stream2segment.process.db import get_session
@@ -33,8 +33,6 @@ from stream2segment.process.gui.webapp.mainapp import db as db_module
 
 
 class Test:
-    __test__ = False  # FIXME: (BP) Disabled pytest, because of DataCenter refactoring
-
     pyfile, configfile = get_templates_fpaths("gui.py", "gui.yaml")
 
     pymodule = load_source(pyfile)
@@ -83,7 +81,7 @@ class Test:
         inv_xml = data.read("GE.FLT1.xml")
         s = Station(network='network', station='station', datacenter_id=dc.id, latitude=90,
                     longitude=-45,
-                    start_time=d, stationxml=inv_xml)
+                    start_time=d, inventory_xml=inv_xml)
         session.add(s)
 
         channels = [
@@ -239,7 +237,8 @@ class Test:
             assert resp.status_code == 200
             # https: 
             data = self.jsonloads(resp.data)
-            assert ['attributes', 'classes', 'plots'] == sorted(data.keys())
+            assert ['attributes', 'classes', 'description',
+                    'plotData', 'plotLayout'] == sorted(data.keys())
 
     def test_init(self,
                   # fixtures:
@@ -263,10 +262,10 @@ class Test:
             a2 = data['metadata']
             
             # a2 = None  get_metadata(db.session, None)
-            # Station.stationxml, Segment.data, Download.log,
+            # Station.inventory_xml, Segment.data, Download.log,
             # Download.config, Download.errors, Download.warnings,
             # Download.program_version, Class.description
-            for excluded in ['station.stationxml', 'data', 'download.log',
+            for excluded in ['station.inventory_xml', 'data', 'download.log',
                              'download.config', 'download.errors', 'download.warnings',
                              'download.program_version', 'class.description']:
                 assert not any(_['label'] == excluded for _ in a2)
@@ -458,12 +457,12 @@ class Test:
                 # https:
                 assert resp.status_code == 200
                 data = self.jsonloads(resp.data)
-                assert len(data['plots']) == len(d['plot_names'])
+                assert len(data['plotData']) == len(d['plot_names'])
                 assert bool(len(data['attributes'])) == attributes
                 assert bool(len(data['classes'])) == (classes and has_labellings)
 
                 if "" in plot_names:
-                    traces_in_first_plot = len(data['plots'][""])
+                    traces_in_first_plot = len(data['plotData'][""])
                     assert (traces_in_first_plot == 1 and not all_components) \
                            or traces_in_first_plot >= 1
                 # we should add a test for the pre_processed case also
@@ -510,15 +509,15 @@ class Test:
                             data=json.dumps(d),
                             headers={'Content-Type': 'application/json'})
             assert resp.status_code == 200
-            plots = self.jsonloads(resp.data)['plots']
+            plots = self.jsonloads(resp.data)['plotData']
             assert all(len(p['y']) for p in plots[""])
 
         # Now we exited the session, we try with pre_processed=True
         # store empty inventory xml in segment
         sess = db.session()
         sta = sess.query(Segment).filter(Segment.id == self.segment_id).one().station
-        inv_xml = sta.stationxml
-        sta.stationxml = b''
+        inv_xml = sta.inventory_xml
+        sta.inventory_xml = b''
         sess.commit()
         try:
             with self.app.test_request_context():
@@ -534,11 +533,11 @@ class Test:
                                 data=json.dumps(d),
                                 headers={'Content-Type': 'application/json'})
                 assert resp.status_code == 200
-                plots = self.jsonloads(resp.data)['plots']
+                plots = self.jsonloads(resp.data)['plotData']
                 assert isinstance(plots[""], str) \
                        and "Station inventory (xml) error" in plots[""]
         finally:
-            sta.stationxml = inv_xml
+            sta.inventory_xml = inv_xml
             sess.commit()
 
     @pytest.mark.parametrize('calculate_sn_spectra', [True, False])
@@ -596,8 +595,8 @@ class Test:
                 data1 = json.loads(resp1.data.decode('utf8'))
                 data2 = json.loads(resp2.data.decode('utf8'))
 
-            plots1 = data1['plots']
-            plots2 = data2['plots']
+            plots1 = data1['plotData']
+            plots2 = data2['plotData']
             assert len(plots1) == len(plots2) == len(plot_names)
 
             for name in plot_names:

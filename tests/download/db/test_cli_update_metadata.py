@@ -6,18 +6,14 @@ from io import StringIO
 from unittest.mock import patch
 
 import pandas as pd
-import pytest
-
 from stream2segment.cli import cli
-from stream2segment.download.db.models import Segment, Download, Station, WebService
+from stream2segment.download.db.models import Segment, Download, Station, DataCenter
 
 from stream2segment.download.modules.mseedlite import unpack
 from stream2segment.io.db.pdsql import insertdf, updatedf, dbquery2df
 
 # Old test in test_downloads, when there was the "only" option for the update_metadata
 # parameter. As reference:
-
-# FIXME: this file isn't tested by pytest?
 
 
 @patch('stream2segment.download.main.get_events_df')
@@ -39,8 +35,8 @@ def tst_cmdline_inv_only(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
         lambda *a, **v: self.get_datacenters_df(None, *a, **v)
     mock_get_channels_df.side_effect = lambda *a, **v: self.get_channels_df(None, *a,
                                                                             **v)
-    mock_save_inventories.side_effect = lambda *a, **v: self.save_stationxml(None, *a,
-                                                                             **v)
+    mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(None, *a,
+                                                                              **v)
     mock_download_save_segments.side_effect = \
         lambda *a, **v: self.download_save_segments(None, *a, **v)
     # mseed unpack is mocked by accepting only first arg (so that time bounds are not
@@ -80,7 +76,7 @@ def tst_cmdline_inv_only(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
     # and be more safe about the fact that we will have only ONE station inventory saved
     inv_urlread_ret_val = [self._inv_data, URLError('a')]
     mock_save_inventories.side_effect = \
-        lambda *a, **v: self.save_stationxml(inv_urlread_ret_val, *a, **v)
+        lambda *a, **v: self.save_inventories(inv_urlread_ret_val, *a, **v)
 
     mock_download_save_segments.reset_mock()
     old_log_msg = self.log_msg()
@@ -101,7 +97,7 @@ def tst_cmdline_inv_only(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
     stainvs = db.session.query(Station).filter(Station.has_inventory).all()
     assert len(stainvs) == 1
     ix = \
-        db.session.query(Station.id, Station.stationxml).filter(
+        db.session.query(Station.id, Station.inventory_xml).filter(
             Station.has_inventory).all()
     num_downloaded_inventories_first_try = len(ix)
     assert len(ix) == num_downloaded_inventories_first_try
@@ -115,8 +111,8 @@ def tst_cmdline_inv_only(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
 
     # Now write also to the second station inventory (the one
     # which raised before)
-    mock_save_inventories.side_effect = lambda *a, **v: self.save_stationxml([b"x"], *a,
-                                                                             **v)
+    mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories([b"x"], *a,
+                                                                              **v)
 
     result = clirunner.invoke(cli, ['download', '-c', self.configfile,
                                     '--dburl', db.dburl,
@@ -153,7 +149,7 @@ def tst_cmdline_inv_only(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
     # data center returning an already saved station. The saved station has
     # been downloaded from a different data center
 
-    # id datacenter_id stationxml
+    # id datacenter_id inventory_xml
     # 1 1              b'...'
     # 2 1              None
     # 3 2              b'...'
@@ -166,8 +162,8 @@ def tst_cmdline_inv_only(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
                 dbquery2df(
                     db.session.query(
                         Station.id,
-                        Station.webservice_id,
-                        Station.stationxml,
+                        Station.datacenter_id,
+                        Station.inventory_xml,
                         Station.network,
                         Station.station,
                         Station.start_time)
@@ -209,7 +205,7 @@ def tst_cmdline_inv_only(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
     new_stadf = get_stadf()
     expected_new_datacenter_id = sta_df.datacenter_id.max() + 1
     ids_changed = sta_df[sta_df.datacenter_id == 1].id
-    assert (new_stadf[new_stadf.id.isin(ids_changed)].webservice_id ==
+    assert (new_stadf[new_stadf.id.isin(ids_changed)].datacenter_id ==
             expected_new_datacenter_id).all()
     pd.testing.assert_frame_equal(
         sta_df[sta_df.datacenter_id != 1],
@@ -232,9 +228,9 @@ def tst_cmdline_inv_only(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
         stas = db.session.query(Station).all()
         segs = db.session.query(Segment).all()
         for sta in stas:
-            sta.webservice_id = fake_dc_id
+            sta.datacenter_id = fake_dc_id
         for seg in segs:
-            seg.webservice_id = fake_dc_id
+            seg.datacenter_id = fake_dc_id
         db.session.commit()
 
     fake_dc_id = dcn.id
@@ -271,18 +267,18 @@ def tst_cmdline_inv_only(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
             # no call to station inventories:
             assert not stainvs
             # assert we did not change any datacenter:
-            assert all(_.webservice_id == fake_dc_id for _ in db.session.query(Station))
-            assert all(_.webservice_id == fake_dc_id for _ in db.session.query(Segment))
+            assert all(_.datacenter_id == fake_dc_id for _ in db.session.query(Station))
+            assert all(_.datacenter_id == fake_dc_id for _ in db.session.query(Segment))
         else:
             assert any(new_dataselect.replace('dataselect', 'station')
                        in _ for _ in stainvs)
-            assert any(_.webservice_id == fake_dc_id for _ in db.session.query(Station))
-            assert any(_.webservice_id != fake_dc_id for _ in db.session.query(Station))
+            assert any(_.datacenter_id == fake_dc_id for _ in db.session.query(Station))
+            assert any(_.datacenter_id != fake_dc_id for _ in db.session.query(Station))
             if param == 'only':
                 assert all(
-                    _.webservice_id == fake_dc_id for _ in db.session.query(Segment))
+                    _.datacenter_id == fake_dc_id for _ in db.session.query(Segment))
             else:
                 assert any(
-                    _.webservice_id == fake_dc_id for _ in db.session.query(Segment))
+                    _.datacenter_id == fake_dc_id for _ in db.session.query(Segment))
                 assert any(
-                    _.webservice_id != fake_dc_id for _ in db.session.query(Segment))
+                    _.datacenter_id != fake_dc_id for _ in db.session.query(Segment))

@@ -7,7 +7,10 @@ Library functions operating on `numpy` arrays
 from math import floor, ceil, sqrt
 
 import numpy as np
-from scipy.integrate import cumtrapz
+try:
+    from scipy.integrate import cumulative_trapezoid as cumtrapz  # legacy code
+except ImportError:
+    from scipy.integrate import cumtrapz
 
 
 def powspec(signal, signal_is_fft=False):
