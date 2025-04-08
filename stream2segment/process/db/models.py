@@ -62,7 +62,7 @@ class Download(Base, models.Download):  # pylint: disable=too-few-public-methods
     pass
 
 
-class Event(Base,nt):
+class Event(Base):
     """Model representing a seismic Event"""
 
     def event(self, reload=False):

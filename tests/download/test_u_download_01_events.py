@@ -17,11 +17,11 @@ import pandas as pd
 import pytest
 
 from stream2segment.download.db.models import Event, Download, WebService
-from stream2segment.download.modules.events import (get_events_df, isf2text_iter,
+from stream2segment.download.modules.events import (get_events_df,
                                                     _get_freq_mag_distrib,
                                                     islocalfile as o_islocalfile,
-                                                    ERR_FETCH_FDSN, ERR_FETCH_ISF,
-                                                    ERR_READ_FDSN, ERR_READ_ISF,
+                                                    ERR_FETCH_FDSN,
+                                                    ERR_READ_FDSN,
                                                     ERR_FETCH, ERR_FETCH_NODATA)
 from stream2segment.download.modules.utils import get_dataframe_from_fdsn, urljoin
 from stream2segment.download.exc import FailedDownload, NothingToDownload
@@ -596,19 +596,27 @@ class Test:
             assert self.mock_urlopen.called
             self.mock_urlopen.reset_mock()
 
-    @patch('stream2segment.download.modules.events.isf2text_iter', side_effect=isf2text_iter)
-    def test_get_events_eventws_from_isc(self, mock_isf_to_text,
+    def test_get_events_eventws_from_isc(self,
                                          # fixtures:
                                          db, data):
-        '''test bad events from isc'''
+        """test bad events from isc"""
+
+        url = 'http://www.isc.ac.uk/fdsnws/event/1/query?eventid=600800693'
 
         # normal query from emsc, data exopected as FDSN, returend as FDSN
         _ = self.get_events_df(None, db.session, 'emsc', {},
                                start=datetime(2010, 1, 1),
                                end=datetime(2011, 1, 1),
                                db_bufsize=self.db_buf_size)
-        assert not mock_isf_to_text.called
         assert db.session.query(Event.id).count() == 2
+
+        _ = get_events_df(db.session, 'http://www.isc.ac.uk/fdsnws/event/1/query', {
+                                    'eventid': 600800693
+                                },
+                               start=datetime(2025, 4, 7),
+                               end=datetime(2025, 4, 7),
+                               db_bufsize=self.db_buf_size)
+        assert db.session.query(Event.id).count() == 3
 
         # data expected as isf, returned as FDSN:
         with pytest.raises(FailedDownload) as fld:

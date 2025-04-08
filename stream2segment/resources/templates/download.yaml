@@ -29,9 +29,7 @@ endtime: 2016-12-25T00:00:00
 
 # The event catalog in form of FDSN URL or local file path.
 # The events list, returned by the URL or in the supplied file, must be in FDSN format
-# (https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=16) or ISF format
-# (http://www.isc.ac.uk/standards/isf/download/isf.pdf), although ISF has limited support
-# (e.g. comments are not recognized and should be removed): use it at your own risk.
+# (https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=16).
 # IMPORTANT: when downloading on an existing database, the program identifies already
 # downloaded events comparing their id and catalog URL. If the catalog is a file, the
 # file name will be used instead: as such, pay attention to rename an events file, or you
