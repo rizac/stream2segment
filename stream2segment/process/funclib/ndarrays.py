@@ -54,9 +54,6 @@ def fft(signal):
     :func:`stream2segment.process.funclib.ndarrays.freqs`, respectively
 
     :param signal: the time-series input signal (numeric array)
-    :param signal_is_fft: boolean (default:False). If True, the signal is already a Fft of some
-        signal. Otherwise, :func:`stream2segment.process.funclib.ndarrays.fft`(signal)
-        will be computed first
 
     :return: numpy array representing the signal Fast-Fourier transform
     """
