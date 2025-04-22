@@ -178,7 +178,7 @@ class Test:
 
     def get_events_df(self, url_read_side_effect, session, url, evt_query_args, start, end,
                       db_bufsize=30, timeout=15,
-                      show_progress=False):
+                      show_progress=True):
         self.setup_urlopen(self._evt_urlread_sideeffect if url_read_side_effect is None else
                            url_read_side_effect)
         return get_events_df(session, url, evt_query_args, start, end,
@@ -260,7 +260,7 @@ class Test:
         assert "maximum recursion depth reached" in str(fld)
 
     def test_get_events_eventws_not_saved(self, db):
-        '''test request splitted, but failing due to a http error'''
+        """test request split, but failing due to a http error"""
         urlread_sideeffect = [socket.timeout, 500]
 
         # we want to return all times 413, and see that we raise a ValueError:
@@ -287,7 +287,7 @@ class Test:
     @patch('stream2segment.download.modules.events.get_progressbar')
     @patch('stream2segment.download.modules.events.urljoin', side_effect=urljoin)
     def test_pbar1(self, mock_urljoin, mock_pbar, db):
-        '''test request splitted, but failing due to a http error'''
+        """test request split, but failing due to a http error"""
 
         class Pbar:
 
@@ -315,7 +315,7 @@ class Test:
                                    end=datetime(2011, 1, 1),
                                    db_bufsize=self.db_buf_size)
         # test that we did not increment the pbar (exceptions)
-        assert mock_pbar.call_args[1]['length'] == self.get_pbar_total_steps()
+        assert mock_pbar.call_args[0][0] == self.get_pbar_total_steps()
         assert mock_pbar.return_value.updates == []
 
         # Now let's supply a bad response response, the
@@ -368,10 +368,10 @@ class Test:
         logmsg = self.log_msg()
         assert 'Duplicated instances' in logmsg
         # test that we did not increment the pbar (exceptions)
-        assert mock_pbar.call_args[1]['length'] == self.get_pbar_total_steps()
+        assert mock_pbar.call_args[0][0] == self.get_pbar_total_steps()
         # the first 413 produces a magnitude split 1part vs 9parts,
         # the second 413 produces a split 1vs9 on the 9 parts, thus 1*9 and 9*9:
-        assert sum(mock_pbar.return_value.updates) == mock_pbar.call_args[1]['length']
+        assert sum(mock_pbar.return_value.updates) == mock_pbar.call_args[0][0]
         assert "Request seems to be too large, splitting into" in logmsg
 
         # =================================================================
@@ -386,8 +386,8 @@ class Test:
                                   db_bufsize=self.db_buf_size)
         assert 'Duplicated instances' in self.log_msg()
         # test that we did not increment the pbar (exceptions)
-        assert mock_pbar.call_args[1]['length'] < self.get_pbar_total_steps()
-        assert sum(mock_pbar.return_value.updates) == mock_pbar.call_args[1]['length']
+        assert mock_pbar.call_args[0][0] < self.get_pbar_total_steps()
+        assert sum(mock_pbar.return_value.updates) == mock_pbar.call_args[0][0]
         # assert that we do not have maxmagnitude in the first request,
         # but in the first sub-request (index 1) (do not test other sub requests)
         req_kwargs = [_[1] for _ in mock_urljoin.call_args_list]
@@ -406,8 +406,8 @@ class Test:
                                   db_bufsize=self.db_buf_size)
         assert 'Duplicated instances' in self.log_msg()
         # test that we did not increment the pbar (exceptions)
-        assert mock_pbar.call_args[1]['length'] < self.get_pbar_total_steps()
-        assert sum(mock_pbar.return_value.updates) == mock_pbar.call_args[1]['length']
+        assert mock_pbar.call_args[0][0] < self.get_pbar_total_steps()
+        assert sum(mock_pbar.return_value.updates) == mock_pbar.call_args[0][0]
         # assert that we do not have minmagnitude in the first two sub-request (from index 1),
         # but in the third (do not test other sub requests)
         req_kwargs = [_[1] for _ in mock_urljoin.call_args_list]
@@ -418,13 +418,12 @@ class Test:
         assert any(['minmagnitude' in req_kwargs[2],
                     'minmag' in req_kwargs[2]])
 
-
     @pytest.mark.parametrize('args', [{'minmag': 2.1}, {'minmag': 2.11},
                                        {'minmag': 0, 'maxmag': 1.9},
                                        {'minmag': 2, 'maxmag': 8}])
     @patch('stream2segment.download.modules.events.get_progressbar')
     def test_pbar2(self, mock_pbar, args, db):
-        '''test request splitted, but failing due to a http error'''
+        """test request splitted, but failing due to a http error"""
 
         urlread_sideeffect = [413,
                               '''20160508_0000129|2016-05-08 05:17:11.500000|40.57|52.23|60.0|AZER|EMSC-RTS|AZER|505483|ml|3.1|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN''',
@@ -454,8 +453,8 @@ class Test:
                                   db_bufsize=self.db_buf_size)
         assert 'Duplicated instances' in self.log_msg()
         # test that we did not increment the pbar (exceptions)
-        assert mock_pbar.call_args[1]['length'] < self.get_pbar_total_steps()
-        assert sum(mock_pbar.return_value.updates) == mock_pbar.call_args[1]['length']
+        assert mock_pbar.call_args[0][0] < self.get_pbar_total_steps()
+        assert sum(mock_pbar.return_value.updates) == mock_pbar.call_args[0][0]
 
     def test_get_events_eventws_from_file(self,
                                           # fixtures:
@@ -599,76 +598,43 @@ class Test:
     def test_get_events_eventws_from_isc(self,
                                          # fixtures:
                                          db, data):
-        """test bad events from isc"""
+        """test events from isc works (legacy code parsed isf format, now it is
+        handled normally)"""
 
-        url = 'http://www.isc.ac.uk/fdsnws/event/1/query?eventid=600800693'
+        url = 'http://www.isc.ac.uk/fdsnws/event/1/query'  # ?eventid=600800693'
 
-        # normal query from emsc, data exopected as FDSN, returend as FDSN
-        _ = self.get_events_df(None, db.session, 'emsc', {},
-                               start=datetime(2010, 1, 1),
-                               end=datetime(2011, 1, 1),
-                               db_bufsize=self.db_buf_size)
-        assert db.session.query(Event.id).count() == 2
-
-        _ = get_events_df(db.session, 'http://www.isc.ac.uk/fdsnws/event/1/query', {
-                                    'eventid': 600800693
-                                },
-                               start=datetime(2025, 4, 7),
-                               end=datetime(2025, 4, 7),
-                               db_bufsize=self.db_buf_size)
-        assert db.session.query(Event.id).count() == 3
-
-        # data expected as isf, returned as FDSN:
-        with pytest.raises(FailedDownload) as fld:
-            # now it should raise because of a 413:
-            _ = self.get_events_df(None, db.session, 'isc', {},
+        # this raises because FDSN do not allow event_id with other params:
+        with pytest.raises(FailedDownload) as fd:
+            _ = self.get_events_df([data.read('isc_response.txt')],
+                                   db.session, '', {},
                                    start=datetime(2010, 1, 1),
                                    end=datetime(2011, 1, 1),
                                    db_bufsize=self.db_buf_size)
-        assert ERR_FETCH_ISF in str(fld.value)
-        assert mock_isf_to_text.called
-        mock_isf_to_text.reset_mock()
-        assert not mock_isf_to_text.called
+            # _ = get_events_df(db.session, url, {
+            #                     'eventid': 600800693
+            #                   },
+            #                   start=datetime(2012, 3, 20, 0, 39),
+            #                   end=datetime(2012, 3, 20, 0, 40),
+            #                   db_bufsize=self.db_buf_size)
+        assert 'supported FDSN format' in str(fd.value)
 
-        # now supply a valid isf file:
-        _ = self.get_events_df([data.read('event_request_sample_isc.isf').decode('utf8')],
-                               db.session, 'isc', {},
-                               start=datetime(2010, 1, 1),
-                               end=datetime(2011, 1, 1),
-                               db_bufsize=self.db_buf_size)
-        assert mock_isf_to_text.called
-        assert db.session.query(Event.id).count() == 5
-        # looking at the file, these three events should be written
-        assert db.session.query(Event.id).\
-            filter(Event.event_id.in_(['16868827', '600516599', '600516598'])).count() == 3
-        assert db.session.query(Event.contributor_id).\
-            filter(Event.event_id.in_(['16868827', '600516599', '600516598'])).count() == 3
-        # and this not:
-        assert db.session.query(Event.id).\
-            filter(Event.event_id.in_(['15916121'])).count() == 0
-        assert db.session.query(Event.contributor_id).\
-            filter(Event.event_id.in_(['15916121'])).count() == 0
+
 
     @patch('stream2segment.download.modules.events.islocalfile', 
            side_effect=o_islocalfile)
     def test_get_events_eventws_format_param(self, mock_islocalfile,
                                              # fixtures:
                                              db, data, pytestdir):
-        '''test that format is inferred, unless explicitly set, and all combination
-            of these cases'''
-
-        isf_file = pytestdir.newfile(create=True)
-        shutil.copy(data.path('event_request_sample_isc.isf'), isf_file)
+        """test that format is inferred, unless explicitly set, and all combination
+            of these cases"""
 
         txt_file = pytestdir.newfile(create=True)
         with open(txt_file, 'w') as _opn:
             _opn.write(self._evt_urlread_sideeffect)
-        shutil.copy(data.path('event_request_sample_isc.isf'), isf_file)
 
         # valid isf file, no format => infer it
         for filepath, expected_events, evt_query_args in \
-            [(txt_file, 2, ({}, {'format': 'txt'})),
-             (isf_file, 3, ({}, {'format': 'isf'}))]:
+            [(txt_file, 2, ({}, {'format': 'txt'})),]:
             for evt_query_arg in evt_query_args:
                 db.session.query(Event).delete()
                 _ = self.get_events_df([None],
@@ -680,100 +646,16 @@ class Test:
                     filepath
                 assert db.session.query(Event.id).count() == expected_events
 
-        # two common errors in which the format is wrong:
-        for filepath, expected_events, evt_query_arg in \
-            [(txt_file, 0, {'format': 'isf'}),
-             (isf_file, 0, {'format': 'txt'})]:
-            db.session.query(Event).delete()
-            with pytest.raises(FailedDownload) as fdwl:
-                _ = self.get_events_df([None],
-                                       db.session, filepath, evt_query_arg,
-                                       start=datetime(2010, 1, 1),
-                                       end=datetime(2011, 1, 1),
-                                       db_bufsize=self.db_buf_size)
-            if filepath == txt_file:  # then we expected isf:
-                assert ERR_READ_ISF in str(fdwl.value)
-                assert 'Event block not found' in str(fdwl.value)
-            else:  # then we expected fdsn:
-                assert ERR_READ_FDSN in str(fdwl.value)
-            # assert "No event found. Check that the file is non empty and its content is valid" \
-            #     in str(fdwl)
-            assert mock_islocalfile.call_args_list[-1][0][0] == filepath
-            assert db.session.query(Event.id).count() == expected_events
-
-    def test_isf2text(self, data):
-        '''test isc format=isf with iris equivalent'''
-        # this file is stored in test data  dir and represents the iris request:
-        # https://service.iris.edu/fdsnws/event/1/query?starttime=2011-01-08T00:00:00&endtime=2011-01-08T00:05:00&format=text
-        iris_req_file = 'event_request_sample_iris.txt'
-
-        # this file is stored in test data dir and represents the same request
-        # on isc:
-        # http://www.isc.ac.uk/fdsnws/event/1/query?starttime=2011-01-08T00:00:00&endtime=2011-01-08T00:05:00&format=isf
-        isc_req_file = 'event_request_sample_isc.isf'
-
-        iris_df = get_dataframe_from_fdsn(data.read(iris_req_file).decode('utf8'),
-                                          'event')
-        ret = []
-        with open(data.path(isc_req_file)) as opn:
-            for lst in isf2text_iter(opn, 'ISC', 'ISC'):
-                ret.append('|'.join(lst))
-
-        isc_df = get_dataframe_from_fdsn('\n'.join(ret), 'event')
-
-        # sort values
-        iris_df.sort_values(by=[Event.contributor_id.key], inplace=True)
-        isc_df.sort_values(by=[Event.event_id.key], inplace=True)
-        # Now, Event with event_location_name 'POLAND' has no magnitude
-        # in isc_df, so first:
-        iris_df = iris_df[iris_df[Event.event_location_name.key].str.lower() != 'poland']
-
-        iris_df.reset_index(inplace=True, drop=True)
-        isc_df.reset_index(inplace=True, drop=True)
-
-        # 1. assert a value has correctly been parsed (by looking at the file content):
-        assert isc_df[isc_df[Event.event_id.key] == '16868827'].loc[0, Event.magnitude.key] == 2.1
-        # and set the value to the corresponding iris value, which IN THIS CASE
-        # differs (maybe due to the 'Err' field =0.2 reported in the isc file?):
-        isc_df.at[isc_df.loc[isc_df[Event.event_id.key] == '16868827'].index[0],
-                  Event.magnitude.key] = 2.0
-        # test we set the value:
-        assert isc_df[isc_df[Event.event_id.key] == '16868827'].loc[0, Event.magnitude.key] == 2.0
-
-        # 2. assert a value has correctly been parsed (by looking at the file content):
-        assert isc_df[isc_df[Event.event_id.key] == '16868827'].loc[0, Event.mag_author.key] \
-            == 'THE'
-        # and set the value to the corresponding iris value, which IN THIS CASE
-        # differs (why?):
-        isc_df.at[isc_df.loc[isc_df[Event.event_id.key] == '16868827'].index[0],
-                  Event.mag_author.key] = 'ATH'
-        # test we set the value:
-        assert isc_df[isc_df[Event.event_id.key] == '16868827'].loc[0, Event.mag_author.key] \
-            == 'ATH'
-
-        assert (isc_df[Event.event_id.key].values == iris_df[Event.contributor_id.key].values).all()
-        assert (isc_df[Event.event_id.key].values == isc_df[Event.contributor_id.key].values).all()
-
-        # assert the following columns are equal:. We omit columns where the values
-        # differ by spaces/upper cases / other minor stuff, like Event.event_location_name.key
-        # or because they MUST differ (Event.event_id):
-        for col in iris_df.columns:
-            if col not in (Event.event_id.key, # Event.time.key,
-                           Event.event_location_name.key,):
-                notna1, notna2 = iris_df[col].notna(), isc_df[col].notna()
-                assert (notna1 == notna2).all()
-                assert (iris_df[col][notna1].values == isc_df[col][notna2].values).all()
-
     @patch('stream2segment.download.modules.events.urljoin', side_effect=urljoin)
     def test_get_events_response_has_one_col_more(self, mock_urljoin, db):
         """WARNING: THIS TEST MIGHT FAIL IN THE FUTURE IF NEW COLUMNS ARE ADDED TO OUR
-        Event MODEL. TO FIX THIS, EDIT THE RESPONSE BELOW IN ORDER TO HAVE ALWAYS ONE
-        COLUMN MORE THAN IN OUR Event MODEL
+        Event MODEL. TO FIX THIS, EDIT `urlread_sideeffect` below adding a "|" at the
+        end of each row from the second row on
          """
-        urlread_sideeffect = ["""#EventID|Time|Latitude|Longitude|Depth/km|Author|Catalog|Contributor|ContributorID|MagType|Magnitude|MagAuthor|EventLocationName|EventType|
-gfz2021edty|2021-02-28T23:37:15.211956|-17.565212|167.572067|10.0|||GFZ|gfz2021edty|M|5.787024361||Vanuatu Islands|earthquake|
-gfz2021edpn|2021-02-28T21:23:50.840903|-22.500320|172.554474|26.75543594|||GFZ|gfz2021edpn|mb|4.907085435||Southeast of Loyalty Islands|earthquake|
-gfz2021edoa|2021-02-28T20:37:40.931643|-22.658522|172.432373|30.70357132|||GFZ|gfz2021edoa|Mw|5.755797284||Southeast of Loyalty Islands|earthquake|
+        urlread_sideeffect = ["""#EventID|Time|Latitude|Longitude|Depth/km|Author|Catalog|Contributor|ContributorID|MagType|Magnitude|MagAuthor|EventLocationName|EventType||
+gfz2021edty|2021-02-28T23:37:15.211956|-17.565212|167.572067|10.0|||GFZ|gfz2021edty|M|5.787024361||Vanuatu Islands|earthquake||
+gfz2021edpn|2021-02-28T21:23:50.840903|-22.500320|172.554474|26.75543594|||GFZ|gfz2021edpn|mb|4.907085435||Southeast of Loyalty Islands|earthquake||
+gfz2021edoa|2021-02-28T20:37:40.931643|-22.658522|172.432373|30.70357132|||GFZ|gfz2021edoa|Mw|5.755797284||Southeast of Loyalty Islands|earthquake||
 """]
         with pytest.raises(FailedDownload) as fdw:
             data = self.get_events_df(urlread_sideeffect, db.session, "http://eventws", {},

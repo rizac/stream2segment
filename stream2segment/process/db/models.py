@@ -74,7 +74,7 @@ class Event(Base):
                 event_ = self._event = get_event(self)
             except Exception as exc:
                 event_ = self._event = \
-                    SkipSegment("MiniSeed error: %s" %
+                    SkipSegment("QuakeML error: %s" %
                                 (str(exc) or str(exc.__class__.__name__)))
 
         if isinstance(event_, Exception):
