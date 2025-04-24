@@ -247,7 +247,8 @@ def _run(session, download_id, events_url, starttime, endtime, data_url,
         stepinfo("Fetching stations and channels from %d data-center%s",
                  len(datacenters_df), "" if len(datacenters_df) == 1 else "s")
         # get datacenters (might raise FailedDownload):
-        ch_datacenters_df = datacenters_df[datacenters_df[WebService.url.key].str.contains("/station/")]
+        ch_datacenters_df = datacenters_df[datacenters_df[WebService.url.key].\
+            str.contains("/station/")]
         channels_df = get_channels_df(session, ch_datacenters_df, eidavalidator,
                                       network, station, location, channel,
                                       starttime, endtime,

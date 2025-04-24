@@ -342,7 +342,7 @@ def _get_freq_mag_distrib(evt_query_args):
 
 def save_quakeml(session, events_df, max_thread_workers, timeout,
                  download_blocksize, db_bufsize, show_progress=False):
-    """Save event's quakeML data. envents_df must not be empty"""
+    """Save event's quakeML data. events_df must not be empty"""
 
     evt_logger = RequestErrorOnceLogger("QuakeML download errors")
     downloaded, errors, empty = 0, 0, 0
