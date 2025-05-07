@@ -8,7 +8,6 @@ Segments download functions
 from datetime import timedelta
 from collections import OrderedDict
 import logging
-from itertools import zip_longest
 from urllib.request import Request
 
 import numpy as np
@@ -17,10 +16,10 @@ import pandas as pd
 from stream2segment.io import Fdsnws
 from stream2segment.io.cli import get_progressbar
 from stream2segment.io.db.pdsql import dbquery2df, mergeupdate, DbManager
-from stream2segment.download.db.models import WebService, Segment
+from stream2segment.download.db.models import WebService, Segment, Station, Channel,
 from stream2segment.download.modules.utils import (DbExcLogger, logwarn_dataframe,
                                                    DownloadStats, formatmsg,
-                                                   s2scodes, url2str)
+                                                   s2scodes, url2str, fdsn_url)
 from stream2segment.download.exc import NothingToDownload
 from stream2segment.download.modules.mseedlite import MSeedError, unpack as mseedunpack
 from stream2segment.download.url import get_opener, get_host, read_async, \
@@ -272,6 +271,10 @@ class SEG:  # noqa
     QAUTH = Segment.queryauth.key  # noqa
     # non-db column temporary set to get what segment has to be re-downloaded:
     RETRY = "__do.download__"  # noqa
+    NET = Station.network.key
+    STA = Station.station.key
+    LOC = Channel.location.key
+    CHA = Channel.channel.key
 
 
 _RETRY_CODES = {
@@ -283,7 +286,7 @@ _RETRY_CODES = {
 
 
 def download_save_segments(session, segments_df, dc_dataselect_manager,
-                           chaid2mseedid, download_id, update_datacenters,
+                           download_id, update_datacenters,
                            update_request_timebounds, max_thread_workers,
                            timeout, download_blocksize, db_bufsize,
                            show_progress=False):
@@ -297,8 +300,6 @@ def download_save_segments(session, segments_df, dc_dataselect_manager,
         new segments, or segments for which the update has to be forced,
         whatever code is obtained (e.g., queryauth when previously a simple
         query was used)
-    :param chaid2mseedid: dict of channel ids (int) mapped to mseed ids
-        (strings in "Network.station.location.channel" format)
     """
     # set queryauth column here, outside the loop:
     restricted_enable_dcids = dc_dataselect_manager.restricted_enabled_ids
@@ -461,29 +462,28 @@ def get_dbmanager(session, update_datacenter, update_request_timebounds, db_bufs
                      onupdate_err_callback=db_exc_logger.failed_update)
 
 
-def get_responses(dataframes, dc_dataselect_manager, chaid2mseedid,
+def get_responses(dataframes, dc_dataselect_manager,
                   max_thread_workers, timeout, download_blocksize):
     """Download segments and yields results
 
     :param dataframes: iterable of dataframes, one dataframe per request, one row
         per requested waveform. Moreover, each dataframe row is assumed to refer to the
-        same data center and have the same time span (start end)
+        same data center (base URL) and have the same time span (start end)
     """
-    def req(dframe):
-        """Create a Request object from the given dataframe"""
-        dc_url = dc_dataselect_manager.baseurl(dframe[SEG.DCID].iloc[0])
-        return get_seg_request(dframe, dc_url, chaid2mseedid)
-
     def openerfunc(dframe):
         """Return a Opener (or None) from the given dataframe. An Opener is the
         object needed to download restricted data"""
         return dc_dataselect_manager.opener(dframe[SEG.DCID].iloc[0])
 
     code_url_err, code_mseed_err = s2scodes.url_err, s2scodes.mseed_err
-    for dframe, request, data, exc, code in \
-            read_async(dataframes, urlkey=req, max_workers=max_thread_workers,
-                       timeout=timeout, blocksize=download_blocksize,
-                       openers=openerfunc):
+    for dframe, request, data, exc, code in read_async(
+            dataframes,
+            urlkey=get_seg_request,
+            max_workers=max_thread_workers,
+            timeout=timeout,
+            blocksize=download_blocksize,
+            openers=openerfunc
+    ):
         if exc:
             data = None  # for safety
             if code is None:
@@ -505,21 +505,36 @@ def get_responses(dataframes, dc_dataselect_manager, chaid2mseedid,
         yield data, exc, code, request, dframe
 
 
-def get_seg_request(segments_df, datacenter_url, chaid2mseedid):
-    """Return a Request object from the given segments_df
+def get_seg_request(segments_df):
+    """Return a Request object from the given segments_df in form of URL string
 
-    :param chaid2mseedid: dict of channel ids (int) mapped to mseed ids
-        (strings in "Network.station.location.channel" format)
+    :paramsegments_df:  The dataframe denoting the segments to download. Each dataframe
+        row is  assumed to refer to the same data center (base URL) and have the same
+        time span (start end)
     """
-    stime = segments_df[SEG.REQSTART].iloc[0].isoformat()
-    etime = segments_df[SEG.REQEND].iloc[0].isoformat()
+    dc_url = segments_df['webservice_url'].iloc[0]
+    params = {
+        'start': segments_df[SEG.REQSTART].iloc[0],
+        'end': segments_df[SEG.REQEND].iloc[0],
+        'net': ','.join(sorted(segments_df[SEG.NET].unique())) or None,
+        'sta': ','.join(sorted(segments_df[SEG.STA].unique())) or None,
+        'loc': ','.join(sorted(segments_df[SEG.LOC].unique())) or None,
+        'cha': ','.join(sorted(segments_df[SEG.CHA].unique())) or None,
+    }
 
-    post_data = "\n".join("{} {} {}".format(*(chaid2mseedid[chaid].
-                                              replace("..", ".--.").
-                                              replace(".", " "), stime, etime))
-                          for chaid in segments_df[SEG.CHAID]
-                          if chaid in chaid2mseedid)
-    return Request(url=datacenter_url, data=post_data.encode('utf8'))
+    return fdsn_url(dc_url, **params)
+
+    # FIXME REMOVE
+    # stime = segments_df[SEG.REQSTART].iloc[0]
+    # etime = segments_df[SEG.REQEND].iloc[0]
+    #
+    #
+    # post_data = "\n".join("{} {} {}".format(*(chaid2mseedid[chaid].
+    #                                           replace("..", ".--.").
+    #                                           replace(".", " "), stime, etime))
+    #                       for chaid in segments_df[SEG.CHAID]
+    #                       if chaid in chaid2mseedid)
+    # return Request(url=datacenter_url, data=post_data.encode('utf8'))
 
 
 def populate_dataframe(resdict, code, dframe, chaid2mseedid):

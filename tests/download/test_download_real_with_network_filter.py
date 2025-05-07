@@ -55,8 +55,8 @@ class patches:
 @patch(patches.configlog4download)
 @patch(patches.download_save_segments)
 @patch(patches.get_events_df)
-@patch(patches.get_post_data)
-def test_real_run_old_buggy_network_filter(mock_get_post_data,
+# @patch(patches.get_post_data)  # FIXME REMOVE?
+def test_real_run_old_buggy_network_filter( # mock_get_post_data,  # FIXME REMOVE
                                            mock_get_events_df,
                                            mock_download_save_segments,
                                            mock_config4download,
@@ -104,10 +104,11 @@ def test_real_run_old_buggy_network_filter(mock_get_post_data,
 
     mock_config4download.side_effect = c4d
 
-    def mock_get_post_data_side_effect(*a, **kw):
-        ret = origi_get_post_data(*a, **kw)
-        return ret.replace('*', '')
-    mock_get_post_data.side_effect = mock_get_post_data_side_effect
+    # FIXME REMOVE?
+    # def mock_get_post_data_side_effect(*a, **kw):
+    #     ret = origi_get_post_data(*a, **kw)
+    #     return ret.replace('*', '')
+    # mock_get_post_data.side_effect = mock_get_post_data_side_effect
 
     # mock download save segments: raise NothingToDownload to speed up things:
     def func_(*a, **kw):

@@ -6,18 +6,16 @@ Stations/Channels download functions
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
 import re
-from itertools import cycle
 import logging
-from urllib.request import Request
 
 import pandas as pd
 from sqlalchemy import or_, and_
 
 from stream2segment.io.cli import get_progressbar
 from stream2segment.io.db.pdsql import dbquery2df, shared_colnames, mergeupdate
-from stream2segment.download.db.models import WebService, Station, Channel
+from stream2segment.download.db.models import Station, Channel
 from stream2segment.download.exc import FailedDownload
-from stream2segment.download.url import read_async
+from stream2segment.download.url import read_async_new
 from stream2segment.download.modules.utils import (get_dataframe_from_fdsn,
                                                    dbsyncdf, formatmsg,
                                                    logwarn_dataframe, strconvert)
@@ -26,7 +24,7 @@ from stream2segment.download.modules.utils import (get_dataframe_from_fdsn,
 logger = logging.getLogger(__name__)
 
 
-def get_channels_df(session, datacenters_df, eidavalidator, net, sta, loc, cha,
+def get_channels_df(session, datacenters_df, net, sta, loc, cha,
                     starttime, endtime, min_sample_rate, update,
                     max_thread_workers, timeout, blocksize, db_bufsize,
                     show_progress=False):
@@ -36,75 +34,68 @@ def get_channels_df(session, datacenters_df, eidavalidator, net, sta, loc, cha,
 
     :param datacenters_df: (DataFrame) the first item resulting from
         `get_datacenters_df`
-    :param eidavalidator: None, or an instance of
-        :class:`stream2segment.download.modules.datacenter.EidaValidator`
     :param min_sample_rate: minimum sampling rate, set to negative value
         for no-filtering (all channels)
     """
-    postdata = get_post_data(net, sta, loc, cha, starttime, endtime)
-    iterable = ((id_, Request(url, data=('format=text\nlevel=channel\n'+
-                                         post_data_str).encode('utf8')))
-                for url, id_, post_data_str in zip(datacenters_df[WebService.url.key],
-                                                   datacenters_df[WebService.id.key],
-                                                   cycle([postdata])))
+
+    urls = [
+        f"{r.station_url}?net={r.net}&sta={r.sta}"
+        f"&loc={r.loc}&cha={r.cha}&start={r.start}&end={r.end}"
+        for r in datacenters_df.itertuples(index=False)
+    ]
 
     ret = []
     url_failed_dc_ids = []
-    with get_progressbar(len(datacenters_df) if show_progress else 0) as pbar:
-        for obj, url, result, exc, status_code in \
-                read_async(iterable, urlkey=lambda obj: obj[-1], blocksize=blocksize,
-                           max_workers=max_thread_workers, decode='utf8',
-                           timeout=timeout):
+    from_db = 0
+    with get_progressbar(len(urls) if show_progress else 0) as pbar:
+        for idx, url, result, exc, status_code in \
+                read_async_new(urls, blocksize=blocksize,
+                               max_workers=max_thread_workers, decode='utf8',
+                               timeout=timeout):
             pbar.update(1)
-            dcen_id = obj[0]
             if exc:
-                url_failed_dc_ids.append(dcen_id)
                 logger.warning(formatmsg("Unable to fetch stations", exc, url))
+                dframe = get_channels_df_from_db(session,
+                                                 datacenters_df['station_ws_id'][idx],
+                                                 net, sta, loc, cha, starttime, endtime,
+                                                 min_sample_rate)
+                logger.warning(formatmsg("Fetching stations from database: "
+                                         f"{len(dframe)} stations found"))
+                from_db += len(dframe)
             else:
                 try:
                     dframe = get_dataframe_from_fdsn(result, "channel", url)
-                    if not dframe.empty:
-                        dframe[Station.webservice_id.key] = dcen_id
-                        ret.append(dframe)
                 except ValueError as verr:
                     logger.warning(formatmsg("Discarding response data", verr,
                                              url))
+                    continue
 
-    db_cha_df = pd.DataFrame()
-    if url_failed_dc_ids:
-        # if some datacenter does not return station, warn with INFO
-        dc_df_fromdb = datacenters_df.loc[datacenters_df[WebService.id.key].\
-            isin(url_failed_dc_ids)]
-        logger.info(formatmsg("Fetching stations from database for %d (of %d) "
-                              "data center(s)", "download errors occurred"),
-                    len(dc_df_fromdb), len(datacenters_df))
-        logger.warning(dc_df_fromdb[WebService.url.key].
-                       to_string(index=False))
-        db_cha_df = get_channels_df_from_db(session, dc_df_fromdb, net, sta,
-                                            loc, cha, starttime, endtime,
-                                            min_sample_rate)
+            if not dframe.empty:
+                for c in ['dataselect_ws_id', 'dataselect_url',
+                          'station_ws_id', 'station_url']:
+                    dframe[c] = pd.Series(
+                        [datacenters_df[c][idx]] * len(dframe),
+                        dtype=datacenters_df[c].dtype
+                    )
+                ret.append(dframe)
+
+    if from_db > 0:
+        logger.info(formatmsg(f"Fetching stations data from database for {from_db} "
+                              "station(s)", "download errors occurred"))
 
     # build two dataframes which we will concatenate afterwards
-    web_cha_df = pd.DataFrame()
+    cha_df = pd.DataFrame()
     if ret:  # pd.concat complains for empty list
-        try:
-            web_cha_df = filter_channels_df(pd.concat(ret, axis=0,
-                                                      ignore_index=True,
-                                                      copy=False),
-                                            net, sta, loc, cha,
-                                            min_sample_rate)
+        cha_df = filter_out_channels_df(pd.concat(ret, axis=0,
+                                                  ignore_index=True,
+                                                  copy=False),
+                                        net, sta, loc, cha,
+                                        min_sample_rate)
 
-            # this raises FailedDownload if we cannot save any element:
-            web_cha_df = save_stations_and_channels(session, web_cha_df,
-                                                    eidavalidator, update,
-                                                    db_bufsize)
-        except FailedDownload as qexc:
-            if db_cha_df.empty:
-                raise
-            else:
-                logger.warning(qexc)
+        # this raises FailedDownload if we cannot save any element:
+        cha_df = save_stations_and_channels(session, cha_df, update, db_bufsize)
 
-    if db_cha_df.empty and web_cha_df.empty:
+    if cha_df.empty:
         # ok, now let's see if we have remaining datacenters to be
         # fetched from the db
         raise FailedDownload(formatmsg("No station found",
@@ -112,64 +103,23 @@ def get_channels_df(session, datacenters_df, eidavalidator, net, sta, loc, cha,
                                        "data-centers, no data to fetch from "
                                        "the database. Check config and log "
                                        "for details"))
-    ret = None
-    if db_cha_df.empty:
-        ret = web_cha_df
-    elif web_cha_df.empty:
-        ret = db_cha_df
-    else:
-        ret = pd.concat((web_cha_df, db_cha_df), axis=0, ignore_index=True,
-                        sort=False)
+
     # the columns for the channels dataframe that will be returned
-    return ret[[c.key for c in (Channel.id, Channel.station_id,
-                                Station.latitude, Station.longitude,
-                                Station.webservice_id, Station.start_time,
-                                Station.end_time, Station.network,
-                                Station.station, Channel.location,
-                                Channel.channel)]].copy()
+    ret = cha_df[[c.key for c in (Channel.id, Channel.station_id,
+                                  Station.latitude, Station.longitude,
+                                  Station.webservice_id, Station.start_time,
+                                  Station.end_time, Station.network,
+                                  Station.station, Channel.location,
+                                  Channel.channel, 'dataselect_ws_url')]]
+    # convert to categorical type:
+    for c in (Station.network, Station.station, Channel.location, Channel.channel,
+              'dataselect_ws_url'):
+        ret[c.key] = ret[c.key].astype('category')
+    # return a copy:
+    return ret.copy()
 
 
-def get_post_data(net, sta, loc, cha, starttime=None, endtime=None):
-    """Return the string for a FDSN POST request according to the given
-        net(works), sta(tions), loc(ations) and cha(nnels), all iterable of
-        strings returned by :func:`stream2segment.download.utils.nslc_lists`
-
-    Example:
-    ```
-    >>> get_post_data([], ['ABC'], [''], ['!A*', 'HH?', 'HN?'], None, None)
-    '* ABC -- HH?,HN? * *'
-    ```
-    Note negations (!A*) not included: strings starting with "!" mean 'NOT' in
-    this program's syntax: as this feature is not supported in an FDSN query it
-    cannot be forwarded to any web service. The feature is used here in other
-    module functions *after* downloading data
-
-    Arguments are usually the output of
-    :func:`stream2segment.download.utils.nslc_lists`:
-
-    :param net: an iterable of strings denoting networks.
-    :param sta: an iterable of strings denoting stations.
-    :param loc: an iterable of strings denoting locations.
-    :param cha: an iterable of strings denoting channels.
-    """
-    args = []
-    for i, lst in enumerate([net, sta, loc, cha]):
-        parsearg = '*'
-        # parse arguments if given, and not all negations (in the latter case, just
-        # provide * = accept all. We will filter out later, on the returned response)
-        if lst and not all(v[0:1] == '!' for v in lst):
-            parsearg = ",".join(v for v in lst if v[0:1] != '!')
-            if i == 3 and not parsearg:  # loc: empty has to be input as '--'
-                parsearg = '--'
-        args.append(parsearg)
-
-    args.append("*" if not starttime else starttime.isoformat())
-    args.append("*" if not endtime else endtime.isoformat())
-
-    return "{} {} {} {} {} {}".format(*args)
-
-
-def filter_channels_df(channels_df, net, sta, loc, cha, min_sample_rate):
+def filter_out_channels_df(channels_df, net, sta, loc, cha, min_sample_rate):
     """Filter out `channels_df` according to the given parameters. Raise
     `FailedDownload` if the returned filtered data frame woul be empty
 
@@ -238,7 +188,7 @@ def filter_channels_df(channels_df, net, sta, loc, cha, min_sample_rate):
     return ret
 
 
-def get_channels_df_from_db(session, datacenters_df, net, sta, loc, cha,
+def get_channels_df_from_db(session, station_ws_db_id, net, sta, loc, cha,
                             starttime, endtime, min_sample_rate):
     """Return a Dataframe of the database channels according to the
     arguments"""
@@ -247,10 +197,8 @@ def get_channels_df_from_db(session, datacenters_df, net, sta, loc, cha,
     srate_be = True
     if min_sample_rate > 0:
         srate_be = Channel.sample_rate >= min_sample_rate
-    # Select only relevant datacenters. Convert numnpy array `tolist()` because
-    # database clauses work best with native Python objects:
-    dc_be = Station.webservice_id.in_(datacenters_df[WebService.id.key].
-                                      tolist())
+    # Select only relevant datacenters:
+    dc_be = Station.webservice_id == station_ws_db_id
     # Select by starttime and endtime (below). Note that it must hold
     # station.endtime > starttime AND station.starttime< endtime
     stime_be = True
@@ -344,9 +292,9 @@ class ST:  # noqa
     STA = Station.station.key  # pylint: disable=invalid-name
     STIME = Station.start_time.key  # pylint: disable=invalid-name
     ETIME = Station.end_time.key  # pylint: disable=invalid-name
-    DCID = Station.webservice_id.key  # pylint: disable=invalid-name
+    WSID = Station.webservice_id.key  # pylint: disable=invalid-name
     # set columns to show in the log on error ("no row written"):
-    ERRCOLS = [NET, STA, STIME, DCID]  # pylint: disable=invalid-name
+    ERRCOLS = [NET, STA, STIME, WSID]  # pylint: disable=invalid-name
 
 
 class CH:  # noqa
@@ -358,11 +306,10 @@ class CH:  # noqa
     LOC = Channel.location.key  # pylint: disable=invalid-name
     CHA = Channel.channel.key  # pylint: disable=invalid-name
     # set columns to show in the log on error ("no row written"):
-    ERRCOLS = [ST.NET, ST.STA, LOC, CHA, ST.STIME, ST.DCID]  # noqa
+    ERRCOLS = [ST.NET, ST.STA, LOC, CHA, ST.STIME, ST.WSID]  # noqa
 
 
-def save_stations_and_channels(session, channels_df, eidavalidator, update,
-                               db_bufsize):
+def save_stations_and_channels(session, channels_df, update, db_bufsize):
     """Saves to db channels (and their stations) and returns a dataframe with
     only channels saved. The returned Dataframe will have the column 'id'
     (`Station.id`) renamed to 'station_id' (`Channel.station_id`) and a new
@@ -371,7 +318,7 @@ def save_stations_and_channels(session, channels_df, eidavalidator, update,
     :param channels_df: pandas DataFrame
     """
     channels_df, conflict_between, conflict_within = \
-        drop_duplicates(session, channels_df, eidavalidator)
+        drop_duplicates(session, channels_df)
 
     if channels_df.empty:
         raise FailedDownload('No channel left after cleanup '
@@ -389,16 +336,13 @@ def save_stations_and_channels(session, channels_df, eidavalidator, update,
     # defining channel identity (db unique constraint):
     cols = [Station.network, Station.station, Station.start_time]
     # Then add (sync actually, already existing stations are not inserted):
-    sta_df = dbsyncdf(channels_df.drop_duplicates(subset=[ST.NET, ST.STA,
-                                                          ST.STIME, ST.DCID]),
+    sta_df = dbsyncdf(channels_df.drop_duplicates(subset=[ST.NET, ST.STA, ST.WSID]),
                       session, cols, Station.id, _update_stations,
                       buf_size=db_bufsize, keep_duplicates=False,
                       cols_to_print_on_err=ST.ERRCOLS)
     # `sta_df` will have the STA_ID columns, `channels_df` not: set it from the
     # former to the latter:
-    channels_df = mergeupdate(channels_df, sta_df,
-                              [ST.NET, ST.STA, ST.STIME, ST.DCID],
-                              [ST.ID])
+    channels_df = mergeupdate(channels_df, sta_df, [ST.NET, ST.STA, ST.WSID], [ST.ID])
     # rename now 'id' to 'station_id' before writing the channels to db:
     channels_df.rename(columns={ST.ID: CH.STAID}, inplace=True)
 
@@ -424,7 +368,7 @@ def save_stations_and_channels(session, channels_df, eidavalidator, update,
     return channels_df
 
 
-def drop_duplicates(session, channels_df, eidavalidator):
+def drop_duplicates(session, channels_df):
     """Drop from channels_df duplicates (same station between or within data
     centers). For duplicates between data centers, uses `eidavalidator` or the
     database accessible via the session object, if `eidavalidator` is None.
@@ -460,78 +404,52 @@ def drop_duplicates(session, channels_df, eidavalidator):
     # first drop duplicates (all columns the same):
     channels_df = channels_df.drop_duplicates()
 
-    # From now on do not use anymore duplicated or drop_duplicates: the removal
-    # of duplicates now is more tricky.
-    # Let's  group by (net, sta, starttime), which is a unique constraints of
-    # the station table, and analyse what we get:
-    for (net, sta, stime), df_ in channels_df.\
-            groupby([ST.NET, ST.STA, ST.STIME], sort=False):
+    # group by (net, sta), which is a unique constraints, and analyse what we get:
+    for (net, sta), df_ in channels_df.groupby([ST.NET, ST.STA], sort=False):
         # if we have only ONE dc_id, skip "if" below.. Otherwise:
-        if len(pd.unique(df_[ST.DCID])) > 1:
+        if len(pd.unique(df_[ST.WSID])) > 1:
             # We have more than one data center mapped to the tuple
-            # (net, sta, stime): get all ids from the eidavalidator (=object
-            # representing the eida routing service) and put them in the set
-            # below:
-            real_dc_ids = set()
-            # group stations by tuples (net, sta, stime, etime), because etime
-            # is needed by the eidavalidator.get_dc_id. (pd.to_datetime fixes
-            # https://github.com/pandas-dev/pandas/issues/35449)
-            for etime in pd.to_datetime(pd.unique(df_[ST.ETIME])):
-                # eidavalidator and session.query below expect Nones, not pd.NaT:
-                stime = None if pd.isnull(stime) else stime  # should never be the case
-                etime = None if pd.isnull(etime) else etime
-
-                dcids = []
-                if eidavalidator is not None:
-                    # get the datacenter id(s) at a station level
-                    # (loc, cha = None):
-                    dcids = eidavalidator.get_dc_ids(net, sta, loc=None, cha=None,
-                                                     stime=stime, etime=etime)
-
-                if not dcids:
-                    # eidavalidator null, or no dc_id found: query dc_id(s) from db:
-                    dcids = [_[0] for _ in
-                             session.query(Station.webservice_id).filter(
+            # (net, sta, stime): get all ids from the db:
+            real_dc_ids = set(
+                _[0] for _ in session.query(Station.webservice_id).filter(
                                  (Station.network == net) &
-                                 (Station.station == sta) &
-                                 (Station.start_time == stime) &
-                                 (Station.end_time == etime)).all()
-                             ]
+                                 (Station.station == sta)).all()
+            )
 
-                real_dc_ids.update(dcids)
-
-            # Reminder: we are here if we have more than one datacenter mapped
-            # to the same tuple (net, sta, stime). Now, real_dc_ids (the
-            # real/reliable datacenter ids) might be one or more than one:
             if len(real_dc_ids) != 1:
                 # The real datacenter ids are more than one => we can not save
                 # the station: empty (=> discard) the dataframe
                 conflict_between_dc.append(df_)
-                df_ = df_[0:0]  # simply empty dataframe, with same columns
-            else:
-                # The real datacenter id is only one
-                # => discard all (net, sta, stime) with different datacenter id
-                dcid = list(real_dc_ids)[0]
-                conflicting = df_[ST.DCID] != dcid
-                conflict_between_dc.append(df_[conflicting])
-                df_ = df_[~conflicting]
+                continue
 
-        # df_ now HAS SURELY ONE AND ONLY ONE dc_id, and same (net, sta, stime)
-        if not df_.empty:
-            # Last check: df_ will be written as ONE station (one row of the
-            # "stations" table) and then, with the station_id, each df_ row
-            # will be written as a different channel. The "channels" table has
-            # as unique constraint the tuple (station_id, location, channel),
-            # thus we need to drop NOW duplicated values of (location,
-            # channel). PS: in case you wonder, yes, this has already happened
-            # (e.g. two channels with all fields equal except `endtime`)
-            dupes = df_.duplicated(subset=[CH.LOC, CH.CHA], keep=False)
-            if dupes.any():
-                conflict_within_dc.append(df_[dupes])
-                df_ = df_[~dupes]
+            # The real datacenter id is only one
+            # => discard all (net, sta, stime) with different datacenter id
+            dcid = list(real_dc_ids)[0]
+            conflicting = df_[ST.WSID] != dcid
+            conflict_between_dc.append(df_[conflicting])
+            if conflicting.all():  # noqa
+                continue
+            df_ = df_[~conflicting]
 
-        if not df_.empty:
-            oks.append(df_)
+        # df_ now HAS SURELY ONE AND ONLY ONE (dc_id, net, sta).
+        # Check now duplicated (net, sta, loc, cha):
+        dupes = df_.duplicated(subset=[CH.LOC, CH.CHA], keep=False)
+        if dupes.any():
+            conflict_within_dc.append(df_[dupes])
+            if dupes.all():
+                continue
+
+            # take min of stimes, and max of etimes:
+            tmp = df_.groupby([CH.LOC, CH.CHA], as_index=False, sort=False).agg({
+                ST.STIME: 'min',
+                ST.ETIME: 'max'
+            })
+            # restore dtypes (might be lost during agg function):
+            for c in df_.columns:
+                tmp[c] = tmp[c].astype(df_[c].dtype)
+            df_ = tmp
+
+        oks.append(df_)
 
     oks = pd.DataFrame() if not oks else \
         pd.concat(oks, axis=0, sort=False, ignore_index=True, copy=True)
@@ -557,7 +475,7 @@ def log_unsaved_channels(conflict_between, conflict_within,
         occurs)
     """
     max_row_count = 50
-    cols2show = [ST.NET, ST.STA, ST.STIME, ST.ETIME, ST.DCID]
+    cols2show = [ST.NET, ST.STA, ST.STIME, ST.ETIME, ST.WSID]
     if not conflict_between.empty:
         # conflict_between happen at a station level (avoid unnecessary channel
         # details):
@@ -569,7 +487,7 @@ def log_unsaved_channels(conflict_between, conflict_within,
                         'services or already saved stations')
         logwarn_dataframe(_, msg, cols2show, max_row_count)
 
-    cols2show = [ST.NET, ST.STA, CH.LOC, CH.CHA, ST.STIME, ST.ETIME, ST.DCID]
+    cols2show = [ST.NET, ST.STA, CH.LOC, CH.CHA, ST.STIME, ST.ETIME, ST.WSID]
     if not conflict_within.empty:
         # Do not count stations here, as some of those stations might have been
         # saved as part of other correct channels
@@ -584,36 +502,3 @@ def log_unsaved_channels(conflict_between, conflict_within,
                         len(conflict_null_sta_id),
                         'station id not found, unknown cause')
         logwarn_dataframe(conflict_null_sta_id, msg, cols2show, max_row_count)
-
-
-def chaid2mseedid_dict(channels_df, drop_mseedid_columns=True):
-    """Return a dict of the form {channel_id: mseed_id} from `channels_df`,
-    where mseed_id is a string of the form
-    "[network].[station].[location].[channel]"
-
-    :param channels_df: pandas Dataframe (one channel per row)
-    :param drop_mseedid_columns: boolean (default: True), remove all columns
-        related to the mseed id from `channels_df`. This might save up a lor
-        of memory: pandas strings are stored as Python objects
-        (https://www.dataquest.io/blog/pandas-big-data/)
-    """
-    net = channels_df[ST.NET].str.cat
-    sta = channels_df[ST.STA].str.cat
-    loc = channels_df[CH.LOC].str.cat
-    cha = channels_df[CH.CHA]
-    _mseedids = net(sta(loc(cha, sep='.', na_rep=''), sep='.', na_rep=''),
-                    sep='.', na_rep='')
-
-    if drop_mseedid_columns:
-        # remove string columns, we do not need it anymore and
-        # will save a lot of memory for subsequent operations
-        channels_df.drop([ST.NET, ST.STA, CH.LOC, CH.CHA], axis=1,
-                         inplace=True)
-    # we could return
-    # pd.DataFrame(index=channels_df[CHA_ID], {'mseed_id': _mseedids})
-    # but the latter does NOT consume less memory (strings are python string in
-    # pandas) and the search for an mseed_id given a loc[channel_id] is slower
-    # than python dicts. As the returned element is intended for searching,
-    # then return a dict:
-    return {chaid: mseedid
-            for chaid, mseedid in zip(channels_df[CH.ID], _mseedids)}

@@ -57,6 +57,10 @@ def merge_events_stations(events_df, channels_df, search_radius,
     SEG_ATIME = Segment.arrival_time.key  # noqa
     SEG_DCID = Segment.webservice_id.key  # noqa
     SEG_CHAID = Segment.channel_id.key  # noqa
+    STA_NET = Station.network.jey
+    STA_STA = Station.station.key
+    CHA_LOC = Channel.location.key
+    CHA_CHA = Channel.channel.key
 
     channels_df = channels_df.rename(columns={CHA_ID: SEG_CHAID})
     # get unique stations, rename Channel.id into Segment.channel_id now so we
@@ -69,8 +73,8 @@ def merge_events_stations(events_df, channels_df, search_radius,
 
     with get_progressbar(len(events_df) if show_progress else 0) as pbar:
 
-        min_radia, max_radia = get_serarch_radia(search_radius,
-                                                 events_df[EVT_MAG].values)
+        min_radia, max_radia = get_search_radia(search_radius,
+                                                events_df[EVT_MAG].values)
 
         radia_event_iter = zip(min_radia, max_radia,
                                events_df[[EVT_ID, EVT_LAT, EVT_LON, EVT_TIME,
@@ -120,7 +124,8 @@ def merge_events_stations(events_df, channels_df, search_radius,
             sourcedepths += [ev_depth] * len(cha_df)
             eventtimes += [ev_time] * len(cha_df)
             # Append only relevant columns:
-            ret.append(cha_df[[SEG_CHAID, SEG_EVID, SEG_DCID, SEG_EVDIST]])
+            ret.append(cha_df[[SEG_CHAID, SEG_EVID, SEG_DCID, SEG_EVDIST,
+                               STA_NET, STA_STA, CHA_LOC, CHA_CHA]])
 
     # create total segments dataframe:
     # first check we have data:
@@ -129,6 +134,11 @@ def merge_events_stations(events_df, channels_df, search_radius,
                                        "No station within search radia"))
     # now concat:
     ret = pd.concat(ret, axis=0, ignore_index=True, copy=True)
+    # check categoricals are preserved:
+    for c in [STA_NET, STA_STA, CHA_LOC, CHA_CHA]:
+        if not pd.api.types.is_categorical_dtype(ret[c]):
+            ret[c] = ret[c].astype('category')
+
     # compute travel times. Doing it on a single array is much faster
     sourcedepths = np.array(sourcedepths)
     distances = ret[SEG_EVDIST].values
@@ -189,7 +199,7 @@ def locations2degrees(lat1, lon1, lat2, lon2):
     return ret
 
 
-def get_serarch_radia(search_radius, magnitudes):
+def get_search_radia(search_radius, magnitudes):
     """Return two iterables denoting the minima and maxima radia for
     stations search. Any element of the iterables might be None to indicate:
     no restriction for that element

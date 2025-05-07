@@ -205,6 +205,101 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024, dec
     tpool.close()
 
 
+def read_async_new(urls, max_workers=None, blocksize=1024*1024, decode=None,
+                   timeout=None, unordered=True, openers=None, **kwargs):  # noqa
+    """Wrapper around `multiprocessing.pool.ThreadPool()` for  downloading
+    data asynchronously from different urls iteratively. Specifically designed for
+    large downloads, each download is executed on a separate *worker thread*, yielding
+    the result of each `url` read.
+
+    For each url of the iterable `urls`, this function yields the tuple:
+    ```
+        url_position[int],
+        url[str | Request],
+        response_data[str | bytes | None],
+        response_error[Exception | None],
+        response_code[int | None]
+    ```
+    Notes:
+
+      - either `response_data` and `response_error` are None, but not both. If the latter
+        is not None, then the request failed. `response_error` can be any of the
+        following URL-related exceptions: `urllib.error.URLError`,
+        `http.client.HTTPException`, `socket.error` `urllib.error.HTTPError`. Any other
+        Exception raises "normally"
+      - `response_code` is the int denoting the status code (e.g. 200), which might be
+         None (e.g., a failed request with `response_error` not `urllib.error.HTTPError`)
+
+    :param urls: an iterable of URL addresses to be read. Each element of the iterable
+        can be string or `Request` object
+    :param max_workers: integer or None (the default) denoting the max worker threads
+        used. When None, the threads allocated are relative to the machine CPU
+    :param blocksize: integer defaulting to 1024*1024 specifying, when connecting to one
+        of the given urls, the mximum number of bytes to be read at each call of
+        `urlopen.read`. If the size argument is negative or omitted, read all data until
+        EOF is reached
+    :param decode: string or None (default: None) optional decoding (e.g., 'utf-8') to
+        convert the result of the url request from `bytes` (the default) into `str`
+    :param timeout: timeout parameter specifies a timeout in seconds for blocking
+        operations like the connection attempt (if not specified, None or non-positive,
+        the global default timeout setting will be used). This actually only works for
+        HTTP, HTTPS and FTP connections.
+    :param unordered: boolean (default False): tells whether the download results are
+        yielded in the same order they are input in `iterable`. Theoretically (tests did
+        not show any remarkable difference), False (the default) might execute faster,
+        but results are not guaranteed to be yielded in the same order as `iterable`.
+    :param openers: a function behaving like `urlkey`, should return a specific opener
+        for the given item of iterable. When None, the default opener is used. See
+        :func:`get_opener` for creating an opener from given base URL, user and password
+    :param kwargs: optional arguments to be passed to the underlying python `urlopen`
+        function. These arguments are ignored if a custom `openers` function is provided
+
+    Implementation details:
+
+    ThreadPool vs ThreadPoolExecutor: this function changed from using
+    `concurrent.futures.ThreadPoolExecutor` into the "old"
+    `multiprocessing.pool.ThreadPool`: the latter consumes in most cases less memory
+    (about 30% less), especially if `iterable` is not a list in memory but a python
+    iterable (`concurrent.futures.ThreadPoolExecutor` builds a `set` of `Future`s object
+    from `iterable`, whereas `multiprocessing.pool.ThreadPool` seems just to execute each
+    element in iterable)
+
+    killing threads / handling exceptions: this function handles any kind of unexpected
+    exception (particularly relevant in case of e.g., `KeyboardInterrupt`) by canceling
+    all worker threads before raising
+    """
+    # flag for CTRL-C or cancelled tasks
+    kill = False
+
+    # function called from within urlread to check if go on or not
+    def urlwrapper(index, url):
+        if kill:
+            return None
+        opener = openers(url) if openers is not None else None
+        return (index, url) + urlread(url, blocksize, decode, timeout, opener, **kwargs)
+
+    tpool = ThreadPool(adjust_max_concurrent_downloads(max_workers))
+    threadpoolmap = tpool.imap_unordered if unordered else tpool.imap
+    # note above: chunksize argument for threads (not processes)
+    # seems to slow down download. Omit the argument and leave chunksize=1 (default)
+    try:
+        # this try is for the keyboard interrupt, which will be caught inside the
+        # as_completed below
+        for result_tuple in threadpoolmap(urlwrapper, enumerate(urls)):
+            if kill:
+                continue  # (for safety: we should never enter here)
+            yield result_tuple
+    except:
+        # According to https://stackoverflow.com/a/29237343, after a `KeyboardInterrupt`
+        # this method does not return until all working threads have finished. Set
+        # `kill = True` to make them finish quicker (see `urlwrapper` above):
+        kill = True
+        # (the time from now until 'raise' below is the time taken to finish all threads)
+        raise
+
+    tpool.close()
+
+
 def adjust_max_concurrent_downloads(preferred_max_concurrent_downloads=None):
     """Return the maximum number of concurrent downloads adjusting the argument
     in order not to exceed the computer CPU

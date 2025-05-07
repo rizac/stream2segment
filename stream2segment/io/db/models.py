@@ -349,6 +349,9 @@ class Segment(Base):
     sample_rate = Column(Float)
     maxgap_numsamples = Column(Float)
 
+    # NOTE: implement a download_code, request_start, request_end, station, channel, web_service, arrival_time, has_data (bool)
+    # Separate MiniSeed table: foreign key + primary key to segments table, and data column (BLOB)
+
     @declared_attr
     def download_id(cls):
         return Column(Integer, ForeignKey("downloads.id"), nullable=False)

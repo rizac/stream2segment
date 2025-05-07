@@ -5,8 +5,8 @@ Created on Feb 4, 2016
 @author: riccardo
 """
 import re
-from datetime import datetime, timedelta, date, timezone
-from itertools import count, product
+from datetime import datetime, date, timezone
+from itertools import count
 import time
 
 import pytest
@@ -14,10 +14,9 @@ import numpy as np
 import pandas as pd
 from obspy.geodetics.base import locations2degrees as obspyloc2deg
 
-from stream2segment.download.db.models import DataCenter
-from stream2segment.download.modules.stationsearch import \
+from stream2segment.download.modules.stationsearch import (
     locations2degrees as s2sloc2deg, get_magdep_search_radius
-from stream2segment.download.modules.datacenters import EidaValidator
+)
 from stream2segment.download.modules.utils import (s2scodes, DownloadStats,
                                                    HTTPCodesCounter, logwarn_dataframe,
                                                    strconvert, strptime)
@@ -580,60 +579,6 @@ def eq(str1, str2):
             return False
 
     return True
-
-
-def test_eidavalidator():
-    responsetext = """http://ws.resif.fr/fdsnws/station/1/query
-Z3 A001A * HL? 2000-01-01T00:00:00 2001-01-01T00:00:00
-YF * * H?? * *
-ZE ABC * * 2000-01-01T00:00:00 2001-01-01T00:00:00
-
-http://eida.ethz.ch/fdsnws/station/1/query
-Z3 A291A * HH? 2000-01-01T00:00:00 2001-01-01T00:00:00
-ZE ABC * * 2001-01-01T00:00:00 2002-01-01T00:00:00
-
-http:wrong
-"""
-    dc_df = pd.DataFrame(columns=[DataCenter.id.key, DataCenter.station_url.key,
-                                  DataCenter.dataselect_url.key],
-                         data=[[1, 'http://ws.resif.fr/fdsnws/station/1/query',
-                                'http://ws.resif.fr/fdsnws/dataselect/1/query'],
-                               [2, 'http://eida.ethz.ch/fdsnws/station/1/query',
-                                'http://eida.ethz.ch/fdsnws/dataselect/1/query']])
-    eidavalidator = EidaValidator(dc_df, responsetext)
-
-    tests = {
-        ('Z3', 'A001A', '01', 'HLLL', None, None): None,
-        ('Z3', 'A001A', '01', 'HLL', None, None): [1],
-        ('', '', '', '', None, None): None,
-        ('', '', '', '', None, None): None,
-        ('Z3', 'A002a', '01', 'HLL', None, None): None,
-        ('Z3', 'A001A', '01', 'HLO', None, None): [1],
-        ('Z3', 'A001A', '', 'HLL', None, None): [1],
-        ('Z3', 'A291A', '01', 'HHL', None, None): [2],
-        ('Z3', 'A291A', '01', 'HH', None, None): None,
-        ('Z3', 'A291A', '01', 'HH?', None, None): [2],
-        ('YF', '*', '01', 'HH?', None, None): [1],
-        ('YF', '*', '01', 'abc', None, None): None,
-        ('YF', '*', '01', 'HLW', None, None): [1],
-        ('YF', '*fwe', 'bla', 'HL?', None, None): [1],
-        ('YF', 'aewf*', '', 'HDF', None, None): [1],
-        ('YFA', 'aewf*', '', 'HHH', None, None): None,
-        ('YFA', 'aewf*', '', 'HHH', None, None): None,
-        # time bounds:
-        ('ZE', 'ABC', None, None, None, None): [1, 2],
-        ('ZE', 'ABC', None, None,  None, datetime(2000, 4, 1)): [1],
-        ('ZE', 'ABC', '01', 'HLL', datetime(2020, 1, 1), None): None,
-        ('ZE', 'ABC', '02', 'ABC', datetime(1990, 1, 1), None): [1, 2],
-        ('ZE', 'ABC', '02', 'ABC', None, datetime(1990, 1, 1)): None,
-        ('ZE', 'ABC', '03', 'XYZ', datetime(2000, 6, 1), None): [1, 2],
-        ('ZE', 'ABC', '04', 'ELE', datetime(2001, 4, 1), None): [2],
-        }
-
-    for k, expected in tests.items():
-        # convert to new values:
-        expected = set() if expected is None else set(expected)
-        assert eidavalidator.get_dc_ids(*k) == expected
 
 
 def test_logwarn_dataframe_columns_none():

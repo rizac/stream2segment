@@ -238,34 +238,23 @@ def _run(session, download_id, events_url, starttime, endtime, data_url,
         # (db rows) correctly added
         stepinfo("Fetching data-centers")
         # get dacatanters (might raise FailedDownload):
-        datacenters_df, eidavalidator = \
-            get_datacenters_df(session, data_url,
-                               advanced_settings['routing_service_url'],
-                               network, station, location, channel, starttime,
-                               endtime, dbbufsize)
+        datacenters_df = get_datacenters_df(
+            session, data_url, advanced_settings['routing_service_url'],
+            network, station, location, channel, starttime,
+            endtime, dbbufsize
+        )
 
         stepinfo("Fetching stations and channels from %d data-center%s",
                  len(datacenters_df), "" if len(datacenters_df) == 1 else "s")
-        # get datacenters (might raise FailedDownload):
-        ch_datacenters_df = datacenters_df[datacenters_df[WebService.url.key].\
-            str.contains("/station/")]
-        channels_df = get_channels_df(session, ch_datacenters_df, eidavalidator,
-                                      network, station, location, channel,
-                                      starttime, endtime,
-                                      min_sample_rate, update_metadata,
-                                      max_thread_workers,
-                                      advanced_settings['s_timeout'],
-                                      download_blocksize,
-                                      dbbufsize, isterminal)
+        channels_df = get_channels_df(
+            session, datacenters_df, network, station, location, channel,
+            starttime, endtime, min_sample_rate, update_metadata,
+            max_thread_workers, advanced_settings['s_timeout'],
+            download_blocksize, dbbufsize, isterminal
+        )
 
-        # get channel id to mseed id dict and purge channels_df. The dict
-        # will be used to download the segments later, but we use it now to
-        # drop unnecessary columns and save space (and time)
-        chaid2mseedid = chaid2mseedid_dict(channels_df,
-                                           drop_mseedid_columns=True)
-
-        stepinfo("Selecting stations within search area from %d events",
-                 len(events_df))
+        stepinfo(f"Selecting station channels ({len(channels_df):,}) "
+                 f"within search area around each event ({len(events_df):,})")
         # merge vents and stations (might raise FailedDownload):
         segments_df = merge_events_stations(events_df, channels_df,
                                             search_radius, tt_table,
@@ -304,7 +293,7 @@ def _run(session, download_id, events_url, starttime, endtime, data_url,
 
         d_stats = download_save_segments(session, segments_df,
                                          dc_dataselect_manager,
-                                         chaid2mseedid, download_id,
+                                         download_id,
                                          update_metadata,
                                          request_timebounds_need_update,
                                          max_thread_workers,

@@ -22,6 +22,7 @@ import gzip
 import zipfile
 import zlib
 import bz2
+from urllib.parse import urljoin, urlencode, unquote
 
 import pandas as pd
 
@@ -106,7 +107,8 @@ def url2str(obj, maxlen=None):
                         (data[:maxlen], maxlen))
             url = "%s, POST data:\n%s" % (url, data)
     except AttributeError:
-        url = str(obj)
+        # unquote removes % characters which might be confused with str interpolation
+        url = unquote(str(obj))
     return url
 
 
@@ -989,87 +991,90 @@ else:
         return datetime.fromisoformat(string)
 
 
-def urljoin(*urlpath, **query_args):
-    """Join urls and appends to it the query string obtained by kwargs
-    Note that this function is intended to be simple and fast: No check is made
-    about white-spaces in strings, no encoding is done, and if some value of
-    `query_args` needs special formatting (e.g., "%1.1f"), that needs to be
-    done before calling this function
+# def urljoin(*urlpath, **query_args):
+#     """Join urls and appends to it the query string obtained by kwargs
+#     Note that this function is intended to be simple and fast: No check is made
+#     about white-spaces in strings, no encoding is done, and if some value of
+#     `query_args` needs special formatting (e.g., "%1.1f"), that needs to be
+#     done before calling this function
+#
+#     :param urlpath: portion of urls which will build the query url Q. For more
+#         complex url functions see `urlparse` library: this function builds the
+#         url path via a simple join stripping slashes:
+#         ```
+#         '/'.join(url.strip('/') for url in urlpath)
+#         ```
+#         So to preserve slashes (e.g., at the beginning) pass "/" or "" as
+#         arguments (e.g. as first argument to preserve relative paths).
+#     :query_args: keyword arguments which will build the query string
+#
+#     :return: a query url built from arguments (string)
+#
+#     Examples:
+#     ```
+#     >>> urljoin("https://abc", start='2015-01-01T00:05:00', mag=5.1, arg=True)
+#     'https://abc?start=2015-01-01T00:05:00&mag=5.1&arg=True'
+#
+#     >>> urljoin("http://abc", "data", start='2015-01-01', mag=5.459, arg=True)
+#     'http://abc/data?start=2015-01-01&mag=5.459&arg=True'
+#
+#     Note how slashes are handled in urlpath. These two examples give the
+#     same url path:
+#
+#     >>> urljoin("http://www.domain", "data")
+#     'http://www.domain/data?'
+#
+#     >>> urljoin("http://www.domain/", "/data")
+#     'http://www.domain/data?'
+#
+#     # leading and trailing slashes on each element of urlpath are removed:
+#
+#     >>> urljoin("/www.domain/", "/data")
+#     'www.domain/data?'
+#
+#     # so if you want to preserve them, provide an empty argument or a slash:
+#
+#     >>> urljoin("", "/www.domain/", "/data")
+#     '/www.domain/data?'
+#
+#     >>> urljoin("/", "/www.domain/", "/data")
+#     '/www.domain/data?'
+#     ```
+#     """
+#     # For a discussion, see https://stackoverflow.com/q/1793261
+#     return "{}?{}".format('/'.join(url.strip('/') for url in urlpath),
+#                           "&".join("{}={}".format(k, v)
+#                                    for k, v in query_args.items()))
 
-    :param urlpath: portion of urls which will build the query url Q. For more
-        complex url functions see `urlparse` library: this function builds the
-        url path via a simple join stripping slashes:
-        ```
-        '/'.join(url.strip('/') for url in urlpath)
-        ```
-        So to preserve slashes (e.g., at the beginning) pass "/" or "" as
-        arguments (e.g. as first argument to preserve relative paths).
-    :query_args: keyword arguments which will build the query string
 
-    :return: a query url built from arguments (string)
-
-    Examples:
-    ```
-    >>> urljoin("https://abc", start='2015-01-01T00:05:00', mag=5.1, arg=True)
-    'https://abc?start=2015-01-01T00:05:00&mag=5.1&arg=True'
-
-    >>> urljoin("http://abc", "data", start='2015-01-01', mag=5.459, arg=True)
-    'http://abc/data?start=2015-01-01&mag=5.459&arg=True'
-
-    Note how slashes are handled in urlpath. These two examples give the
-    same url path:
-
-    >>> urljoin("http://www.domain", "data")
-    'http://www.domain/data?'
-
-    >>> urljoin("http://www.domain/", "/data")
-    'http://www.domain/data?'
-
-    # leading and trailing slashes on each element of urlpath are removed:
-
-    >>> urljoin("/www.domain/", "/data")
-    'www.domain/data?'
-
-    # so if you want to preserve them, provide an empty argument or a slash:
-
-    >>> urljoin("", "/www.domain/", "/data")
-    '/www.domain/data?'
-
-    >>> urljoin("/", "/www.domain/", "/data")
-    '/www.domain/data?'
-    ```
+def fdsn_url(base_url: str, **query_args):
+    """Build a valid FDSN URL from the arguments, using `urljoin(*url_parts)` and
+    `urlparse(**query_args)`, performing some pre-processing steps beforehand:
+    Any query arg value key mapped to None will be removed. In addition:
+    - net, sta, loc, cha (and their long-name variants, e.g. network)
+      will be removed if '*'.
+    - start, end (and their long-name variants) will be converted to ISO format strings
+      if datetime
+    - lat, lon, depth, mag, minmag, maxmag, minlon, maxlon, minlat, maxlat
+      (and their long-name variants) will be converted to string if float
+    Duplicates (e.g. 'mag', 'magnitude') are not checked for
     """
-    # For a discussion, see https://stackoverflow.com/q/1793261
-    return "{}?{}".format('/'.join(url.strip('/') for url in urlpath),
-                          "&".join("{}={}".format(k, v)
-                                   for k, v in query_args.items()))
-
-
-class _MemoryChecker:
-    """Legacy class for checking memory consumption: Because these error happened
-    long ago on 8Gb machines only, as of 2023 memory checks are removed from the
-    codebase.
-
-    Initialize outside a loop and then call `check_memory_consumption` in the loop.
-    A FailedDownload will be raised if the
-    memory consumption exceeds a certain threshold. Memory checks were implemented
-    for each request and might be useful especially in the download of segments or
-    inventories (see e.g. `download.modules.segments.get_responses`) to prevent the
-    program to exit with no clear message.
-    """
-    def __init__(self, step=500, memory_max_percent=90):
-        self.step = step
-        self.counter = 0
-        self.memory_max_percent = memory_max_percent
-        import psutil
-        self.process = psutil.Process(os.getpid())
-
-    def check_memory_consumption(self):
-        self.counter += 1
-        if self.counter % self.step == 0:
-            self.counter = 0
-            mem_percent = self.process.memory_percent()
-            if mem_percent > self.memory_max_percent:
-                raise FailedDownload(("Memory overflow: %.2f%% (used) > "
-                                      "%.2f%% (threshold)") %
-                                     (mem_percent, self.memory_max_percent))
+    qs = {}
+    c_params = {'net', 'network', 'sta', 'station', 'cha', 'channel', 'loc', 'location'}
+    n_params = {
+        'lat', 'latitude', 'minlat', 'minlatitude', 'maxlat', 'maxlatitude',
+        'lon', 'longitude', 'minlon', 'minlongitude', 'maxlon', 'maxlongitude',
+        'mag', 'magnitude', 'minmag', 'minmagnitude', 'maxmag', 'maxmagnitude',
+    }
+    d_params = {'start', 'starttime', 'end', 'endtime'}
+    for k, v in query_args.items():
+        if v is None:
+            continue
+        if k in c_params and v.strip() == '*':
+            continue
+        if k in n_params and isinstance(v, float):
+            v = str(v)
+        if k in d_params and isinstance(v, (date, datetime)):
+            v = v.isoformat('T')
+        qs[k] = v
+    return f'{base_url}?{urlencode(qs)}'

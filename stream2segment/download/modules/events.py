@@ -18,7 +18,7 @@ from stream2segment.download.modules.utils import (dbsyncdf, get_dataframe_from_
                                                    formatmsg,
                                                    EVENTWS_MAPPING,
                                                    strptime,
-                                                   urljoin,
+                                                   fdsn_url,
                                                    DbExcLogger,
                                                    RequestErrorOnceLogger,
                                                    compress)
@@ -130,7 +130,7 @@ def normalize_url(base_url, evt_query_args, start, end):
     4. Adds a custom format 'text' unless the base_url is not EVENTWS_MAPPING['isc']
     """
     _url, _query_args = _normalize(base_url, evt_query_args, start, end)
-    return urljoin(_url, **_query_args)
+    return fdsn_url(_url, **_query_args)
 
 
 def events_data_from_file(file_path):
@@ -170,7 +170,7 @@ def events_iter_from_url(base_url, evt_query_args, start, end, timeout,
     base_url, evt_query_args = _normalize(base_url, evt_query_args, start, end)
     end_iso = evt_query_args['endtime']
 
-    url = urljoin(base_url, **evt_query_args)
+    url = fdsn_url(base_url, **evt_query_args)
     result = _urlread(url, timeout)
     if result is not _SUSPECTED_REQUEST_TOO_ARGE:
         if not result:
@@ -196,7 +196,7 @@ def events_iter_from_url(base_url, evt_query_args, start, end, timeout,
             while downloads:
                 evt_q_args = _split_request(downloads.pop(0))
                 for i, evt_q_arg in enumerate(evt_q_args):
-                    url = urljoin(base_url, **evt_q_arg)
+                    url = fdsn_url(base_url, **evt_q_arg)
                     result = _urlread(url, timeout)
                     if result is not _SUSPECTED_REQUEST_TOO_ARGE:
                         # update pbar only if the end of the request equals
@@ -220,17 +220,15 @@ def _normalize(base_url, evt_query_args, start, end):
     2. Set event_query_args 'starttime' and 'endtime' equal to the provided arguments
        `start` and `end` (handling duplicate names such as 'start' / 'startime')
     3. Converts 'minmag' 'maxmag' in `evt_query_args` to 'minmagnitude', 'maxmagnitude'
-    4. Adds a custom format 'text' unless the base_url is not EVENTWS_MAPPING['isc']
+    4. Adds a custom format 'text'
     """
-    start_iso = start.isoformat()
-    end_iso = end.isoformat()
     # This should never happen but let's be safe: override start and end
     if 'start' in evt_query_args:
         evt_query_args.pop('start')
-    evt_query_args['starttime'] = start_iso
+    evt_query_args['starttime'] = start
     if 'end' in evt_query_args:
         evt_query_args.pop('end')
-    evt_query_args['endtime'] = end_iso
+    evt_query_args['endtime'] = end
     # assure that we have 'minmagnitude' and 'maxmagnitude' as mag parameters,
     # if any:
     if 'minmag' in evt_query_args:

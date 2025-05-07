@@ -93,10 +93,10 @@ events_extra_params:
 # Limit the search to the specified channels (if missing, defaults to '*', i.e. fetch all
 # channels). For info see https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf.
 # You can also filter out specific channels by placing the special character "!" in front
-# of them. This is a non standard FDSN syntax implemented in this program only, and thus
-# will be applied after the list of channels is obtained. Consequently, pay attention to
-# inconsistencies such as "!B*,BHZ" that will first fetch all channels "BHZ" and then
-# remove ("!") all channels starting with "B" ("B*"), causing no channel to be selected.
+# of them. This is a non-standard syntax implemented in this program and will be applied
+# after the data is downloaded. Consequently, pay attention to inconsistencies, e.g.
+# "!B*,BHZ" will first fetch all channels "BHZ" and then remove them, because "!B*" will
+# remove channels starting with "B".
 # Implementation details: You can also specify a YAML sequence of strings instead of
 # comma-separated strings. E.g., these are equivalent:
 # channels: "A,B"
@@ -241,8 +241,12 @@ advanced_settings:
  #    "Too Many Requests" (code 429). You can inspect errors in the summary table printed
  #    after all segments are downloaded, or via the command `s2s dl report`
  max_concurrent_downloads: null
- # Routing service used to fetch the EIDA nodes and relative network/stations
- routing_service_url: "http://www.orfeus-eu.org/eidaws/routing/1/query"
+ # Routing service(s) used to fetch EIDA nodes and relative network/stations. Urls
+ # will be queried in the given order, stopping when the first url provides valid data
+ routing_service_url:
+   - "http://www.orfeus-eu.org/eidaws/routing/1/query"
+   - "http://geofon.gfz.de/eidaws/routing/1/query"
+   - "http://eida.ethz.ch/eidaws/routing/1/query"
  # Max time to wait (in seconds) for a single request while downloading events
  e_timeout: 120
  # Max time to wait (in seconds) for a single request while downloading stations+channel
