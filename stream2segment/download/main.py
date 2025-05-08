@@ -20,7 +20,7 @@ from stream2segment.download.db.models import Download, WebService
 from stream2segment.download.exc import NothingToDownload, FailedDownload
 from stream2segment.download.modules.events import get_events_df
 from stream2segment.download.modules.datacenters import get_datacenters_df
-from stream2segment.download.modules.channels import get_channels_df, chaid2mseedid_dict
+from stream2segment.download.modules.channels import get_channels_df
 from stream2segment.download.modules.stationsearch import merge_events_stations
 from stream2segment.download.modules.segments import (prepare_for_download,
                                                       download_save_segments,

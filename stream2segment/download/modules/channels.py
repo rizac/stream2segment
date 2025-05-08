@@ -2,8 +2,6 @@
 Stations/Channels download functions
 
 :date: Dec 3, 2017
-
-.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
 import re
 import logging
@@ -18,7 +16,8 @@ from stream2segment.download.exc import FailedDownload
 from stream2segment.download.url import read_async_new
 from stream2segment.download.modules.utils import (get_dataframe_from_fdsn,
                                                    dbsyncdf, formatmsg,
-                                                   logwarn_dataframe, strconvert)
+                                                   logwarn_dataframe, strconvert,
+                                                   fdsn_url)
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__)
@@ -41,6 +40,12 @@ def get_channels_df(session, datacenters_df, net, sta, loc, cha,
     urls = [
         f"{r.station_url}?net={r.net}&sta={r.sta}"
         f"&loc={r.loc}&cha={r.cha}&start={r.start}&end={r.end}"
+        for r in datacenters_df.itertuples(index=False)
+    ]
+
+    urls = [
+        fdsn_url(r.station_url, net=r.net, sta=r.sta, loc=r.loc, cha=r.cha,
+                 start=r.start, end=r.end)
         for r in datacenters_df.itertuples(index=False)
     ]
 
@@ -283,32 +288,6 @@ def get_sqla_binexp(net, sta, loc, cha):
     return True if not sa_bin_exprs else and_(*sa_bin_exprs)
 
 
-class ST:  # noqa
-    """Simple enum-like container of strings defining the station's related
-    database/dataframe columns needed in this module
-    """
-    ID = Station.id.key  # pylint: disable=invalid-name
-    NET = Station.network.key  # pylint: disable=invalid-name
-    STA = Station.station.key  # pylint: disable=invalid-name
-    STIME = Station.start_time.key  # pylint: disable=invalid-name
-    ETIME = Station.end_time.key  # pylint: disable=invalid-name
-    WSID = Station.webservice_id.key  # pylint: disable=invalid-name
-    # set columns to show in the log on error ("no row written"):
-    ERRCOLS = [NET, STA, STIME, WSID]  # pylint: disable=invalid-name
-
-
-class CH:  # noqa
-    """Simple enum-like container of strings defining the channel's related
-    database/dataframe columns needed in this module
-    """
-    ID = Channel.id.key  # pylint: disable=invalid-name
-    STAID = Channel.station_id.key  # pylint: disable=invalid-name
-    LOC = Channel.location.key  # pylint: disable=invalid-name
-    CHA = Channel.channel.key  # pylint: disable=invalid-name
-    # set columns to show in the log on error ("no row written"):
-    ERRCOLS = [ST.NET, ST.STA, LOC, CHA, ST.STIME, ST.WSID]  # noqa
-
-
 def save_stations_and_channels(session, channels_df, update, db_bufsize):
     """Saves to db channels (and their stations) and returns a dataframe with
     only channels saved. The returned Dataframe will have the column 'id'
@@ -334,21 +313,22 @@ def save_stations_and_channels(session, channels_df, update, db_bufsize):
     # Add stations to db (Note: no need to check for `empty(channels_df)`,
     # `dbsyncdf` raises a `FailedDownload` in case). First set columns
     # defining channel identity (db unique constraint):
-    cols = [Station.network, Station.station, Station.start_time]
+    cols = [Station.network, Station.station, Station.webservice_id]
+    colnames = [c.key for c in cols]
     # Then add (sync actually, already existing stations are not inserted):
-    sta_df = dbsyncdf(channels_df.drop_duplicates(subset=[ST.NET, ST.STA, ST.WSID]),
+    sta_df = dbsyncdf(channels_df.drop_duplicates(subset=colnames),
                       session, cols, Station.id, _update_stations,
                       buf_size=db_bufsize, keep_duplicates=False,
-                      cols_to_print_on_err=ST.ERRCOLS)
+                      cols_to_print_on_err=colnames)
     # `sta_df` will have the STA_ID columns, `channels_df` not: set it from the
     # former to the latter:
-    channels_df = mergeupdate(channels_df, sta_df, [ST.NET, ST.STA, ST.WSID], [ST.ID])
+    channels_df = mergeupdate(channels_df, sta_df, colnames, Station.id.key)
     # rename now 'id' to 'station_id' before writing the channels to db:
-    channels_df.rename(columns={ST.ID: CH.STAID}, inplace=True)
+    channels_df.rename(columns={Station.id.key: Channel.station_id.key}, inplace=True)
 
     # check channels with empty station id (should never happen, let's be
     # picky):
-    null_sta_id = channels_df[CH.STAID].isnull()
+    null_sta_id = channels_df[Channel.station_id.key].isnull()
     conflict_null_sta_id = pd.DataFrame()
     if null_sta_id.any():
         conflict_null_sta_id = channels_df[null_sta_id]
@@ -357,10 +337,12 @@ def save_stations_and_channels(session, channels_df, update, db_bufsize):
     # Add channels to db. First seet columns defining channel identity (db
     # unique constraint):
     cols = [Channel.station_id, Channel.location, Channel.channel]
+    colnames = [Station.network.key, Station.station.key,
+                Channel.location.key, Channel.channel.key]
     # Then add (sync actually, already existing channels are not inserted):
     channels_df = dbsyncdf(channels_df, session, cols, Channel.id, update,
                            buf_size=db_bufsize, keep_duplicates=False,
-                           cols_to_print_on_err=CH.ERRCOLS)
+                           cols_to_print_on_err=colnames)
 
     log_unsaved_channels(conflict_between, conflict_within,
                          conflict_null_sta_id)
@@ -403,11 +385,13 @@ def drop_duplicates(session, channels_df):
 
     # first drop duplicates (all columns the same):
     channels_df = channels_df.drop_duplicates()
-
+    net_sta_cols = [Station.network.key, Station.station.key]
+    loc_cha_cols = [Channel.location.key, Channel.channel.key]
+    sta_ws_id_col = Station.webservice_id.key
     # group by (net, sta), which is a unique constraints, and analyse what we get:
-    for (net, sta), df_ in channels_df.groupby([ST.NET, ST.STA], sort=False):
+    for (net, sta), df_ in channels_df.groupby(net_sta_cols, sort=False):
         # if we have only ONE dc_id, skip "if" below.. Otherwise:
-        if len(pd.unique(df_[ST.WSID])) > 1:
+        if len(pd.unique(df_[sta_ws_id_col])) > 1:
             # We have more than one data center mapped to the tuple
             # (net, sta, stime): get all ids from the db:
             real_dc_ids = set(
@@ -425,7 +409,7 @@ def drop_duplicates(session, channels_df):
             # The real datacenter id is only one
             # => discard all (net, sta, stime) with different datacenter id
             dcid = list(real_dc_ids)[0]
-            conflicting = df_[ST.WSID] != dcid
+            conflicting = df_[sta_ws_id_col] != dcid
             conflict_between_dc.append(df_[conflicting])
             if conflicting.all():  # noqa
                 continue
@@ -433,16 +417,16 @@ def drop_duplicates(session, channels_df):
 
         # df_ now HAS SURELY ONE AND ONLY ONE (dc_id, net, sta).
         # Check now duplicated (net, sta, loc, cha):
-        dupes = df_.duplicated(subset=[CH.LOC, CH.CHA], keep=False)
+        dupes = df_.duplicated(subset=loc_cha_cols, keep=False)
         if dupes.any():
             conflict_within_dc.append(df_[dupes])
             if dupes.all():
                 continue
 
             # take min of stimes, and max of etimes:
-            tmp = df_.groupby([CH.LOC, CH.CHA], as_index=False, sort=False).agg({
-                ST.STIME: 'min',
-                ST.ETIME: 'max'
+            tmp = df_.groupby(loc_cha_cols, as_index=False, sort=False).agg({
+                Station.start_time.key: 'min',
+                Station.end_time.key: 'max'
             })
             # restore dtypes (might be lost during agg function):
             for c in df_.columns:
@@ -475,11 +459,11 @@ def log_unsaved_channels(conflict_between, conflict_within,
         occurs)
     """
     max_row_count = 50
-    cols2show = [ST.NET, ST.STA, ST.STIME, ST.ETIME, ST.WSID]
+    cols2show = [Station.newtork.key, Station.station.key, Station.webservice_id.key]
     if not conflict_between.empty:
         # conflict_between happen at a station level (avoid unnecessary channel
         # details):
-        _ = conflict_between.drop_duplicates(subset=[ST.NET, ST.STA, ST.STIME],
+        _ = conflict_between.drop_duplicates(subset=cols2show,
                                              keep='first')
         msg = formatmsg('%d station(s) and %d channel(s) not saved to db' %
                         (len(_), len(conflict_between)),
@@ -487,7 +471,8 @@ def log_unsaved_channels(conflict_between, conflict_within,
                         'services or already saved stations')
         logwarn_dataframe(_, msg, cols2show, max_row_count)
 
-    cols2show = [ST.NET, ST.STA, CH.LOC, CH.CHA, ST.STIME, ST.ETIME, ST.WSID]
+    cols2show = [Station.newtork.key, Station.station.key, Channel.location,
+                 Channel.channel.key, Station.webservice_id.key]
     if not conflict_within.empty:
         # Do not count stations here, as some of those stations might have been
         # saved as part of other correct channels

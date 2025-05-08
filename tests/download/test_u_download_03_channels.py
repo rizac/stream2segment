@@ -15,7 +15,7 @@ from unittest.mock import Mock, patch, MagicMock
 import numpy as np
 import pytest
 
-from stream2segment.download.db.models import DataCenter, Download, Station, Channel
+from stream2segment.download.db.models import Download, Station, Channel
 from stream2segment.download.modules.events import get_events_df
 from stream2segment.download.modules.datacenters import get_datacenters_df
 from stream2segment.download.modules.channels import get_channels_df
@@ -36,7 +36,6 @@ def tt_ak135_tts(request, data):
 class Test:
 
     # execute this fixture always even if not provided as argument:
-    # https://docs.pytest.org/en/documentation-restructure/how-to/fixture.html#autouse-fixtures-xunit-setup-on-steroids
     @pytest.fixture(autouse=True)
     def init(self, request, db, data):
         # re-init a sqlite database (no-op if the db is not sqlite):
@@ -46,39 +45,6 @@ class Test:
         db.session.add(rdw)
         db.session.commit()
         self.run = rdw
-
-        # side effects:
-        self._evt_urlread_sideeffect = """#EventID | Time | Latitude | Longitude | Depth/km | Author | Catalog | Contributor | ContributorID | MagType | Magnitude | MagAuthor | EventLocationName
-20160508_0000129|2016-05-08 05:17:11.500000|1|1|60.0|AZER|EMSC-RTS|AZER|505483|ml|3|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN
-20160508_0000004|2016-05-08 01:45:30.300000|90|90|2.0|EMSC|EMSC-RTS|EMSC|505183|ml|4|EMSC|CROATIA
-"""
-        self._dc_urlread_sideeffect = """http://geofon.gfz-potsdam.de/fdsnws/dataselect/1/query
-ZZ * * * 2002-09-01T00:00:00 2005-10-20T00:00:00
-UP ARJ * * 2013-08-01T00:00:00 2017-04-25
-
-http://ws.resif.fr/fdsnws/dataselect/1/query
-ZU * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
-
-"""
-
-# Note: by default we set sta_urlsideeffect to return such a channels which result in 12
-# segments (see lat and lon of channels vs lat and lon of events above)
-        self._sta_urlread_sideeffect = ["""#Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|Azimuth|Dip|SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|StartTime|EndTime
-GE|FLT1||HHE|1|1|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2003-01-01T00:00:00|
-GE|FLT1||HHN|1|1|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2003-01-01T00:00:00|
-GE|FLT1||HHZ|1|1|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2003-01-01T00:00:00|
-n1|s||c1|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2009-01-01T00:00:00|
-n1|s||c2|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2009-01-01T00:00:00|
-n1|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2009-01-01T00:00:00|
-""",
-"""#Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|Azimuth|Dip|SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|StartTime|EndTime
-IA|BAKI||BHE|1|1|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2003-01-01T00:00:00|
-IA|BAKI||BHN|1|1|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2003-01-01T00:00:00|
-IA|BAKI||BHZ|1|1|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2003-01-01T00:00:00|
-n2|s||c1|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2009-01-01T00:00:00|
-n2|s||c2|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2009-01-01T00:00:00|
-n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2009-01-01T00:00:00|
-"""]
 
         self._mintraveltime_sideeffect = cycle([1])
         self._seg_data = data.read("GE.FLT1..HH?.mseed")
@@ -99,12 +65,13 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # THIS IS A HACK:
         query_logger.setLevel(logging.INFO)  # necessary to forward to handlers
         # if we called closing (we are testing the whole chain) the level will be reset
-        # (to level.INFO) otherwise it stays what we set two lines above. Problems might arise
+        # (to level.INFO) otherwise it stays what we set two lines above. Problems might
+        # arise
         # if closing sets a different level, but for the moment who cares
         query_logger.addHandler(handler)
 
-        # define class level patchers (we do not use a yiled as we need to do more stuff in the
-        # finalizer, see below
+        # define class level patchers (we do not use a yiled as we need to do more stuff
+        # in the finalizer, see below
         patchers = [
             patch('stream2segment.download.url.urlopen'),
             patch('stream2segment.download.url.ThreadPool')
@@ -112,7 +79,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 
         self.mock_urlopen = patchers[-2].start()
 
-        # mock ThreadPool (tp) to run one instance at a time, so we get deterministic results:
+        # mock ThreadPool (tp) to run sequenctially so we get deterministic results:
         class MockThreadPool:
 
             def __init__(self, *a, **kw):
@@ -156,14 +123,20 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 
     def setup_urlopen(self, urlread_side_effect):
         """setup urlopen return value.
-        :param urlread_side_effect: a LIST of strings or exceptions returned by urlopen.read,
-            that will be converted to an itertools.cycle(side_effect) REMEMBER that any
-            element of urlread_side_effect which is a nonempty string must be followed by an
-            EMPTY STRINGS TO STOP reading otherwise we fall into an infinite loop if the
-            argument blocksize of url read is not negative !"""
+        :param urlread_side_effect: a LIST of strings or exceptions returned by urlopen.
+            read, that will be converted to an itertools.cycle(side_effect) REMEMBER that
+            any element of urlread_side_effect which is a nonempty string must be
+            followed by an EMPTY STRINGS TO STOP reading otherwise we fall into an i
+            nfinite loop if the argument blocksize of url read is not negative !"""
 
         self.mock_urlopen.reset_mock()
-        # convert returned values to the given urlread return value (tuple data, code, msg)
+
+        if urlread_side_effect is None:
+            from urllib.request import urlopen as u
+            self.mock_urlopen.side_effect = u
+            return
+
+        # convert returned values to the given urlread return value (data, code, msg)
         # if k is an int, convert to an HTTPError
         retvals = []
         # Check if we have an iterable (where strings are considered not iterables):
@@ -205,24 +178,23 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         self.mock_urlopen.side_effect = cycle(retvals)
 
     def get_events_df(self, url_read_side_effect, session):
-        self.setup_urlopen(self._evt_urlread_sideeffect if url_read_side_effect is None else
-                           url_read_side_effect)
-        return get_events_df(session, "http://eventws", {}, datetime.utcnow(), datetime.utcnow())
+        """1st arg. mocks `urllib.urlopen.read`: None, no mocking. Otherwise, it is the
+        sequence of returned values of each url opened within this function call"""
+        self.setup_urlopen(url_read_side_effect)
+        now = datetime.utcnow()
+        return get_events_df(session, "http://eventws", {}, now, datetime.utcnow())
 
     def get_datacenters_df(self, url_read_side_effect, *a, **v):
-        self.setup_urlopen(self._dc_urlread_sideeffect if url_read_side_effect is None else
-                           url_read_side_effect)
+        """1st arg. mocks `urllib.urlopen.read`: None, no mocking. Otherwise, it is the
+        sequence of returned values of each url opened within this function call"""
+        self.setup_urlopen(url_read_side_effect)
         return get_datacenters_df(*a, **v)
 
     def get_channels_df(self, url_read_side_effect, *a, **kw):
-        self.setup_urlopen(self._sta_urlread_sideeffect if url_read_side_effect is None else
-                           url_read_side_effect)
+        """1st arg. mocks `urllib.urlopen.read`: None, no mocking. Otherwise, it is the
+        sequence of returned values of each url opened within this function call"""
+        self.setup_urlopen(url_read_side_effect)
         return get_channels_df(*a, **kw)
-    # def get_channels_df(session, datacenters_df, eidavalidator, # <- can be none
-    #                     net, sta, loc, cha, starttime, endtime,
-    #                     min_sample_rate, update,
-    #                     max_thread_workers, timeout, blocksize, db_bufsize,
-    #                     show_progress=False):
 
     def test_get_channels_df(self, db):
         urlread_sideeffect = """1|2|3|4|5|6|7|8|9|10|11|12|13
@@ -231,7 +203,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 20160508_0000113|2016-05-08 22:37:20.100000|45.68|26.64|163.0|BUC|EMSC-RTS|BUC|505351|ml|3.4|BUC|ROMANIA
 20160508_0000113|2016-05-08 22:37:20.100000|45.68|26.64|163.0|BUC|EMSC-RTS|BUC|505351|ml|3.4|BUC|ROMANIA
 --- ERRROR --- THIS IS MALFORMED 20160508_abc0113|2016-05-08 22:37:20.100000| --- ERROR --- |26.64|163.0|BUC|EMSC-RTS|BUC|505351|ml|3.4|BUC|ROMANIA
-"""
+"""  # noqa
         events_df = self.get_events_df(urlread_sideeffect, db.session)
 
         urlread_sideeffect = """http://geofon.gfz-potsdam.de/fdsnws/dataselect/1/query
@@ -245,19 +217,21 @@ ZU * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
         assert "Duplicated instances violate db constraint" in self.log_msg()
 
         net, sta, loc, cha = [], [], [], []
-        datacenters_df, eidavalidator = \
-            self.get_datacenters_df(urlread_sideeffect, db.session, self.service, self.routing_service,
-                                    net, sta, loc, cha, db_bufsize=self.db_buf_size)
-        # first we mock url errors in all queries. We still did not write anything in the db
+        datacenters_df = self.get_datacenters_df(urlread_sideeffect, db.session,
+                                                 self.service, self.routing_service,
+                                                 net, sta, loc, cha,
+                                                 db_bufsize=self.db_buf_size)
+        # mock url errors in all queries. We still did not write anything in the db
         # so we should quit:
         with pytest.raises(FailedDownload) as qd:
             _ = self.get_channels_df(URLError('urlerror_wat'), db.session,
-                                     datacenters_df, eidavalidator,
+                                     datacenters_df,
                                      net, sta, loc, cha, None, None, 100,
                                      False, None, None, -1, self.db_buf_size)
-        assert 'urlerror_wat' in self.log_msg()
-        assert "Unable to fetch stations" in self.log_msg()
-        assert "Fetching stations from database for 2 (of 2) data center(s)" in self.log_msg()
+        log_msg = self.log_msg()
+        assert 'urlerror_wat' in log_msg
+        assert "Unable to fetch stations" in log_msg
+        assert "Fetching stations from database: " in log_msg
         # Test that the exception message is correct
         # note that this message is in the log if we run the method from the main
         # function (which is not the case here):
@@ -266,13 +240,13 @@ ZU * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
                 "Check config and log for details") in str(qd.value)
 
         # now get channels with a mocked custom urlread_sideeffect below:
-        # IMPORTANT: url read for channels: Note: first response data raises, second has an
-        # error and that error is skipped (the other channels are added)
+        # IMPORTANT: url read for channels: Note: first response data raises, second has
+        # an error and that error is skipped (the other channels are added)
         urlread_sideeffect = ["""#Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|Azimuth|Dip|SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|StartTime|EndTime
 --- ERROR --- MALFORMED|12T00:00:00|
 HT|AGG||HHZ|39.0211|22.336|622.0|0.0|0.0|-90.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|50.0|2008-02-12T00:00:00|
 HT|LKD2||HHE|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2009-01-01T00:00:00|
-""",
+""",  # noqa
 # NOTE THAT THE CHANNELS ABOVE WILL BE OVERRIDDEN BY THE ONES BELOW (MULTIPLE NAMES< WE
 # SHOULD NOT HAVE THIS CASE WITH THE EDIAWS ROUTING SERVICE BUT WE TEST HERE THE CASE)
 # NOTE THE USE OF HTß as SensorDescription (to check non-asci characters do not raise)
@@ -284,10 +258,11 @@ HT|LKD2||HHE|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
 HT|LKD2||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|90.0|2009-01-01T00:00:00|
 BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2009-01-01T00:00:00|2019-01-01T00:00:00
 BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2018-01-01T00:00:00|
-"""]
+"""  # noqa
+                              ]
 
         cha_df = self.get_channels_df(urlread_sideeffect, db.session,
-                                      datacenters_df, eidavalidator,
+                                      datacenters_df,
                                       net, sta, loc, cha, None, None, 90,
                                       False, None, None, -1, self.db_buf_size)
         # assert we have a message for discarding the response data
@@ -297,15 +272,17 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         assert self.mock_urlopen.call_count == len(datacenters_df)
         assert len(db.session.query(Station.id).all()) == 4
         # the last two channels of the second item of `urlread_sideeffect` are from two
-        # stations (BLA|BLA|...) with only different start time. Thus they should both be added:
+        # stations (BLA|BLA|...) with only different start time. Thus they should
+        # both be added:
         assert len(db.session.query(Channel.id).all()) == 6
-        # as net, sta, loc, cha are all empty lists and start = end = None (all default=>no filter),
+        # as net, sta, loc, cha are all empty lists and start = end = None
+        # (all default=>no filter),
         # this is the post data passed to urlread for the 1st datacenter:
         assert self.mock_urlopen.call_args_list[0][0][0].data == b"""format=text
 level=channel
 * * * * * *"""
-        # as net, sta, loc, cha are all empty lists and start = end = None (all default=>no filter),
-        # this is the post data passed to urlread for the 2nd datacenter:
+        # as net, sta, loc, cha are all empty lists and start = end = None (all default
+        # => no filter),this is the post data passed to urlread for the 2nd datacenter:
         assert self.mock_urlopen.call_args_list[1][0][0].data == b"""format=text
 level=channel
 * * * * * *"""
@@ -315,42 +292,46 @@ level=channel
             "http://ws.resif.fr/fdsnws/station/1/query"
         # assert all downloaded stations have datacenter_id of the second datacenter:
         dcid = datacenters_df.iloc[1].id
-        assert all(sid[0] == dcid for sid in db.session.query(Station.datacenter_id).all())
-        # assert all downloaded channels have station_id in the set of downloaded stations only:
+        assert all(sid[0] == dcid for sid in db.session.query(Station.datacenter_id).
+                   all())
+        # assert all downloaded channels have station_id in the set of downloaded
+        # stations only:
         sta_ids = [x[0] for x in db.session.query(Station.id).all()]
-        assert all(c_staid[0] in sta_ids for c_staid in db.session.query(Channel.station_id).all())
+        assert all(c_staid[0] in sta_ids for c_staid in db.session.query(
+            Channel.station_id).all())
 
         # now mock again url errors in all queries. As we wrote something in the db
         # so we should NOT quit
         cha_df2 = self.get_channels_df(URLError('urlerror_wat'), db.session,
                                        datacenters_df,
-                                       eidavalidator,
-                                       net, sta, loc, cha, datetime(2020, 1, 1), None, 100,
-                                       False, None, None, -1, self.db_buf_size)
+                                       net, sta, loc, cha, datetime(2020, 1, 1), None,
+                                       100, False, None, None, -1, self.db_buf_size)
 
-        # Note above that min sample rate = 100 and a starttime proivded should return 3 channels:
+        # Note above that min sample rate = 100 and a starttime proivded should return
+        # 3 channels:
         assert len(cha_df2) == 3
-        assert "Fetching stations from database for 2 (of 2) data center(s)" in self.log_msg()
+        assert "Fetching stations from database for 2 (of 2) data center(s)" in \
+               self.log_msg()
 
         # now test again with a socket timeout
         cha_df2 = self.get_channels_df(socket.timeout(), db.session,
                                        datacenters_df,
-                                       eidavalidator,
                                        net, sta, loc, cha, None, None, 100,
                                        False, None, None, -1, self.db_buf_size)
         assert 'timeout' in self.log_msg() or 'TimeoutError' in self.log_msg()
-        assert "Fetching stations from database for 2 (of 2) data center(s)" in self.log_msg()
+        assert "Fetching stations from database for 2 (of 2) data center(s)" in \
+               self.log_msg()
 
         # now mixed case:
 
         # now change min sampling rate and see that we should get one channel less
         cha_df3 = self.get_channels_df(urlread_sideeffect, db.session,
                                        datacenters_df,
-                                       eidavalidator,
                                        net, sta, loc, cha, None, None,  100,
                                        False, None, None, -1, self.db_buf_size)
         assert len(cha_df3) == len(cha_df)-2
-        assert "2 channel(s) discarded according to current configuration filters" in self.log_msg()
+        assert "2 channel(s) discarded according to current configuration filters" \
+               in self.log_msg()
 
         # now change this:
 
@@ -358,10 +339,12 @@ level=channel
 """#Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|Azimuth|Dip|SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|StartTime|EndTime
 A|B|10|HBE|39.0211|22.336|622.0|0.0|0.0|-90.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2003-02-12T00:00:00|2010-02-12T00:00:00
 E|F|11|HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2019-01-01T00:00:00|
-""",  URLError('wat'), socket.timeout()]
+""",  # noqa
+                               URLError('wat'), socket.timeout()]
 
-        # now change channels=['B??']. In the urlread_sideeffect above, for the 1st, 3rd and 4th
-        # case we fallback to a db query, but we do not have such a channel, so nothing is returned
+        # now change channels=['B??']. In the urlread_sideeffect above, for the 1st,
+        # 3rd and 4th case we fallback to a db query, but we do not have such a channel,
+        # so nothing is returned
         # The dataframe currently saved on db is:
         #    id channel start_time   end_time  sample_rate  datacenter_id
         # 0  1   HLE    2008-02-12 NaT         100.0        2
@@ -371,34 +354,34 @@ E|F|11|HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|8388
         # 4  5   HHZ    2009-01-01 2019-01-01  100.0        2
         # 5  6   HHZ    2018-01-01 NaT         100.0        2
         # for the second case, the mocked response returns two channels and in this case
-        # we might put whatever filter here below. Assert that the number of channels returned is 2
+        # we might put whatever filter here below. Assert that the number of channels
+        # returned is 2
         cha_df = self.get_channels_df(urlread_sideeffect, db.session,
                                       datacenters_df,
-                                      eidavalidator,
                                       net, sta, loc, ['B??'], None, None, 10,
                                       False, None, None, -1, self.db_buf_size)
         assert len(cha_df) == 2
 
-        # test channels and startime + entimes provided when querying the db (postdata None)
-        # by iussuing the command:
+        # test channels and startime + entimes provided when querying the db (postdata
+        # None) by iussuing the command:
         # dbquery2df(db.session.query(Channel.id, Station.network, Station.station,
         #  Channel.location, Channel.channel, Station.start_time,Station.end_time,
         #  Channel.sample_rate, Station.datacenter_id).join(Channel.station))
         # This is the actual state of the db:
         # ----------------------------------------------
-        # channel_id network station location channel start_time    end_time   sample_rate  datacenter_id
-        #          1      HT     AGG              HLE    2008-02-12 NaT              100.0              2
-        #          2      HT     AGG              HLZ    2008-02-12 NaT              100.0              2
-        #          3      HT     LKD2             HHE    2009-01-01 NaT              90.0               2
-        #          4      HT     LKD2             HHZ    2009-01-01 NaT              90.0               2
-        #          5      BLA    BLA              HHZ    2009-01-01 2019-01-01       100.0              2
-        #          6      BLA    BLA              HHZ    2018-01-01 NaT              100.0              2
-        #          7      A      B         10     HBE    2003-02-12 2010-02-12       100.0              2
-        #          8      E      F         11     HHZ    2019-01-01 NaT              100.0              2
+        # channel_id network station location channel start_time    end_time   sample_rate  datacenter_id      # noqa
+        #          1      HT     AGG              HLE    2008-02-12 NaT              100.0              2      # noqa
+        #          2      HT     AGG              HLZ    2008-02-12 NaT              100.0              2      # noqa
+        #          3      HT     LKD2             HHE    2009-01-01 NaT              90.0               2      # noqa
+        #          4      HT     LKD2             HHZ    2009-01-01 NaT              90.0               2      # noqa
+        #          5      BLA    BLA              HHZ    2009-01-01 2019-01-01       100.0              2      # noqa
+        #          6      BLA    BLA              HHZ    2018-01-01 NaT              100.0              2      # noqa
+        #          7      A      B         10     HBE    2003-02-12 2010-02-12       100.0              2      # noqa
+        #          8      E      F         11     HHZ    2019-01-01 NaT              100.0              2      # noqa
         # ----------------------------------------------
         # Now according to the table above set a list of arguments:
-        # Each key is: the argument, each value IS A LIST OF BOOLEAN MAPPED TO EACH ROW OF THE
-        # DATAFRAME ABOVE, telling if the row matches according to the argument:
+        # Each key is: the argument, each value IS A LIST OF BOOLEAN MAPPED TO EACH ROW
+        # OF THE DATAFRAME ABOVE, telling if the row matches according to the argument:
         nets = {('*',): [1, 1, 1, 1, 1, 1, 1, 1],
                 # ('HT', 'BLA'): [1, 1, 1, 1, 1, 1, 0, 0],
                 ('*A*',): [0, 0, 0, 0, 1, 1, 1, 0]
@@ -425,13 +408,14 @@ E|F|11|HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|8388
                  105: [0, 0, 0, 0, 0, 0, 0, 0]}
         # no url read: set socket.tiomeout as urlread side effect. This will force
         # querying the database to test that the filtering works as expected:
-        for n, s, l, c, st, e, m in product(nets, stas, locs, chans, stimes, etimes, minsr):
+        for n, s, l, c, st, e, m in product(nets, stas, locs, chans, stimes, etimes,
+                                            minsr):
             matches = np.array(nets[n]) * np.array(stas[s]) * np.array(locs[l]) * \
                 np.array(chans[c]) * np.array(stimes[st]) * np.array(etimes[e]) * \
                 np.array(minsr[m])
             expected_length = matches.sum()
-            # Now: if expected length is zero, it means we do not have data matches on the db
-            # This raises a quitdownload (avoiding pytest.raises cause in this
+            # Now: if expected length is zero, it means we do not have data matches on
+            # the db. This raises a quitdownload (avoiding pytest.raises cause in this
             # case it's easier like done below):
             try:
                 __dc_df = datacenters_df.loc[datacenters_df[DataCenter.id.key] == 2]
@@ -443,21 +427,22 @@ E|F|11|HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|8388
                 assert expected_length == 0
                 assert "Unable to fetch stations from all data-centers" in str(qd)
 
-        # Same test as above, but test negative assertions with "!". Reminder: data on db is:
+        # Same test as above, but test negative assertions with "!". Reminder: data on
+        # db is:
         # ----------------------------------------------
-        # channel_id network station location channel start_time    end_time   sample_rate  datacenter_id
-        #          1      HT     AGG              HLE    2008-02-12 NaT              100.0              2
-        #          2      HT     AGG              HLZ    2008-02-12 NaT              100.0              2
-        #          3      HT     LKD2             HHE    2009-01-01 NaT              90.0               2
-        #          4      HT     LKD2             HHZ    2009-01-01 NaT              90.0               2
-        #          5      BLA    BLA              HHZ    2009-01-01 2019-01-01       100.0              2
-        #          6      BLA    BLA              HHZ    2018-01-01 NaT              100.0              2
-        #          7      A      B         10     HBE    2003-02-12 2010-02-12       100.0              2
-        #          8      E      F         11     HHZ    2019-01-01 NaT              100.0              2
+        # channel_id network station location channel start_time    end_time   sample_rate  datacenter_id     # noqa
+        #          1      HT     AGG              HLE    2008-02-12 NaT              100.0              2     # noqa
+        #          2      HT     AGG              HLZ    2008-02-12 NaT              100.0              2     # noqa
+        #          3      HT     LKD2             HHE    2009-01-01 NaT              90.0               2     # noqa
+        #          4      HT     LKD2             HHZ    2009-01-01 NaT              90.0               2     # noqa
+        #          5      BLA    BLA              HHZ    2009-01-01 2019-01-01       100.0              2     # noqa
+        #          6      BLA    BLA              HHZ    2018-01-01 NaT              100.0              2     # noqa
+        #          7      A      B         10     HBE    2003-02-12 2010-02-12       100.0              2     # noqa
+        #          8      E      F         11     HHZ    2019-01-01 NaT              100.0              2     # noqa
         # ----------------------------------------------
         # Now according to the table above set a list of arguments:
-        # Each key is: the argument, each value IS A LIST OF BOOLEAN MAPPED TO EACH ROW OF THE
-        # DATAFRAME ABOVE, telling if the row matches according to the argument:
+        # Each key is: the argument, each value IS A LIST OF BOOLEAN MAPPED TO EACH ROW
+        # OF THE DATAFRAME ABOVE, telling if the row matches according to the argument:
         nets = {('!*A*', 'A'): [1, 1, 1, 1, 0, 0, 1, 1],
                 ('E', 'A'): [0, 0, 0, 0, 0, 0, 1, 1]
                 }
@@ -474,12 +459,14 @@ E|F|11|HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|8388
         minsr = {-1: [1, 1, 1, 1, 1, 1, 1, 1]}
         # no url read: set socket.tiomeout as urlread side effect. This will force
         # querying the database to test that the filtering works as expected:
-        for n, s, l, c, st, e, m in product(nets, stas, locs, chans, stimes, etimes, minsr):
+        for n, s, l, c, st, e, m in product(nets, stas, locs, chans, stimes, etimes,
+                                            minsr):
             matches = np.array(nets[n]) * np.array(stas[s]) * np.array(locs[l]) * \
-                np.array(chans[c]) * np.array(stimes[st]) * np.array(etimes[e]) * np.array(minsr[m])
+                np.array(chans[c]) * np.array(stimes[st]) * np.array(etimes[e]) * \
+                      np.array(minsr[m])
             expected_length = matches.sum()
-            # Now: if expected length is zero, it means we do not have data matches on the db
-            # This raises a quitdownload (avoiding pytest.raises cause in this
+            # Now: if expected length is zero, it means we do not have data matches on t
+            # he db. This raises a quitdownload (avoiding pytest.raises cause in this
             # case it's easier like done below):
             try:
                 __dc_df = datacenters_df.loc[datacenters_df[DataCenter.id.key] == 2]
@@ -491,8 +478,8 @@ E|F|11|HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|8388
                 assert expected_length == 0
                 assert "Unable to fetch stations from all data-centers" in str(qd)
 
-        # now make the second url_side_effect raise => force query from db, and the first good
-        # => fetch from the web
+        # now make the second url_side_effect raise => force query from db, and the
+        # first good => fetch from the web
         # We want to test the mixed case: some fetched from db, some from the web
         # ---------------------------------------------------
         # first we query the db to check what we have:
@@ -504,26 +491,26 @@ E|F|11|HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|8388
             newnetwork += 'U'
         urlread_sideeffect2  = ["""#Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|Azimuth|Dip|SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|StartTime|EndTime
 %s|W||HBE|39.0211|22.336|622.0|0.0|0.0|-90.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|50.0|2008-02-12T00:00:00|2010-02-12T00:00:00
-""" % newnetwork,  socket.timeout()]
-        # now note: the first url read raised, now it does not: write the channel above with
-        # network = newnetwork (surely non existing to the db)
-        #  The second url read did not raise, now it does (socket.timeout): fetch from the db
-        # we issue a ['???'] as 'channel' argument in order to fetch everything from the db
-        # (we would have got the same by passing None as 'channel' argument)
-        # The three [] before ['???'] are net, sta, loc and mean: no filter on those params
+""" % newnetwork,  socket.timeout()]  # noqa
+        # now note: the first url read raised, now it does not: write the channel
+        # above with network = newnetwork (surely non existing to the db). The second
+        # url read did not raise, now it does (socket.timeout): fetch from the db we
+        # issue a ['???'] as 'channel' argument in order to fetch everything from the db
+        # (we would have got the same by passing None as 'channel' argument). The three
+        # [] before ['???'] are net, sta, loc and mean: no filter on those params
         cha_df_ = self.get_channels_df(urlread_sideeffect2, db.session,
-                                       datacenters_df, eidavalidator,
+                                       datacenters_df,
                                        [], [], [], ['???'], None, None, 10,
                                        False, None, None, -1, self.db_buf_size)
 
         # we should have the channel with network 'U' to the first datacenter
         dcid = datacenters_df.iloc[0][DataCenter.id.key]
         assert len(cha_df_[cha_df_[Station.datacenter_id.key] == dcid]) == 1
-        assert cha_df_[cha_df_[Station.datacenter_id.key] == dcid][Station.network.key][0] == \
-            newnetwork
-        # but we did not query other channels for datacenter id = dcid, as the web response
-        # was successful, we rely on that. Conversely, for the other datacenter we should have all
-        # channels fetched from db
+        assert cha_df_[cha_df_[Station.datacenter_id.key]
+                       == dcid][Station.network.key][0] == newnetwork
+        # but we did not query other channels for datacenter id = dcid, as the web
+        # response was successful, we rely on that. Conversely, for the other
+        # datacenter we should have all channels fetched from db
         dcid = datacenters_df.iloc[1][DataCenter.id.key]
         chaids_of_dcid = \
             cha_df_[cha_df_[Station.datacenter_id.key] == dcid][Channel.id.key].tolist()
@@ -538,7 +525,7 @@ E|F|11|HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|8388
 20160508_0000113|2016-05-08 22:37:20.100000|45.68|26.64|163.0|BUC|EMSC-RTS|BUC|505351|ml|3.4|BUC|ROMANIA
 20160508_0000113|2016-05-08 22:37:20.100000|45.68|26.64|163.0|BUC|EMSC-RTS|BUC|505351|ml|3.4|BUC|ROMANIA
 --- ERRROR --- THIS IS MALFORMED 20160508_abc0113|2016-05-08 22:37:20.100000| --- ERROR --- |26.64|163.0|BUC|EMSC-RTS|BUC|505351|ml|3.4|BUC|ROMANIA
-"""
+"""  # noqa
         events_df = self.get_events_df(urlread_sideeffect, db.session)
 
         # urlread for datacenters: will be called only if we have eida (the case here)
@@ -555,11 +542,12 @@ YY yy * DE? 2013-08-01T00:00:00 2017-04-25
 """
         net, sta, loc, cha = [], [], [], []
         datacenters_df, eidavalidator = \
-            self.get_datacenters_df(urlread_sideeffect, db.session, self.service, self.routing_service,
+            self.get_datacenters_df(urlread_sideeffect, db.session, self.service,
+                                    self.routing_service,
                                     net, sta, loc, cha, db_bufsize=self.db_buf_size)
 
-        # MOCK THE CASE OF DUPLICATED STATIONS (I.E., RETURNED BY MORE THAN ONE DATACENTER)
-        # Look at the Sensor description (starting with "OK: " or "NO: " 
+        # MOCK THE CASE OF DUPLICATED STATIONS (I.E., RETURNED BY MORE THAN ONE
+        # DATACENTER). Look at the Sensor description (starting with "OK: " or "NO: "
         # to know if the given channel should be taken or not
         # EXCEPT the first two channels (IV.BOTM)
         # because they are real cases of conflicts that should NOT be saved
@@ -571,7 +559,7 @@ A2|ww||NNL|3|4|6|0|0|0|OK:                                                |8|0.1
 A2|xx||DNL|3|4|6|0|0|0|NO: station also in other dc, eida_rs says not found      |8|0.1|M/S|50.0|2008-02-12T00:00:00|
 XX|xx||DEL|3|4|6|0|0|0|NO: station also in other dc, eida_rs says should be in both (conflict)        |8|0.1|M/S|50.0|2008-02-12T00:00:00|2020-02-12
 YY|yy||DEL|3|4|6|0|0|0|NO: station also in other dc, eida_rs says this dc is wrong  |8|0.1|M/S|50.0|2008-02-12T00:00:00|
-""",
+""",  # noqa
 """#Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|Azimuth|Dip|SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|StartTime|EndTime
 A1|aa||DNZ|3|4|6|0|0|0|NO: station also in other dc, eida_rs says this dc is wrong |8|0.1|M/S|50.0|2008-02-12T00:00:00|
 A1|aa||NNZ|3|4|6|0|0|0|OK: station also in other dc, but starttime changed -> new station               |8|0.1|M/S|50.0|2018-02-12T00:00:00|
@@ -581,7 +569,7 @@ A2|a2||NNL|3|4|6|0|0|0|OK: note that eida_rs says this dc is wrong but we ignore
 XX|xx||DEL|3|4|6|0|0|0|NO: station also in other dc, eida_rs says should be in both (conflict)       |8|0.1|M/S|50.0|2008-02-12T00:00:00|2020-02-12
 YY|yy||DEL|3|4|6|0|0|0|NO: station also in other dc, eida_rs says this dc is ok but station cannot be saved (some channels in one dc, some not) |8|0.1|M/S|50.0|2008-02-12T00:00:00|
 B1|bb||NEZ|3|4|6|0|0|0|OK:                                                                 |8|0.1|M/S|50.0|2008-02-12T00:00:00|
-"""]  # NOTE: the last line (B1|bb...) is ON PURPOSE THE SAME AS THE THIRD, IT SHOULD BE IGNORED
+"""]  # NOTE: the last line (B1|bb...) is ON PURPOSE THE SAME AS THE THIRD, IT SHOULD BE IGNORED   # noqa
 
         EXPECTED_SAVED_CHANNELS = 5
 
@@ -638,9 +626,10 @@ B1|bb||NEZ|3|4|6|0|0|0|OK:                                                      
                                        net, sta, loc, cha, None, None, 10,
                                        False, None, None, -1, self.db_buf_size)
 
-        assert not cha_df3.equals(cha_df4)  # WHY?? cause they are not sorted, we might have
-        # updated some portion of dataframe and inserted the rest on dbmanager.close,
-        # or the other way around
+        assert not cha_df3.equals(cha_df4)  # WHY?? cause they are not sorted, we
+        # might have updated some portion of dataframe and inserted the rest on
+        # dbmanager.close, or the other way around
         # sort them by id, reset dataframes indices... and they should be the same:
         assert cha_df3.sort_values(by=['id']).\
-            reset_index(drop=True).equals(cha_df4.sort_values(by=['id']).reset_index(drop=True))
+            reset_index(drop=True).equals(cha_df4.sort_values(by=['id']).
+                                          reset_index(drop=True))

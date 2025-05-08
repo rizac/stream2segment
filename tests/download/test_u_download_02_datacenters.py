@@ -179,6 +179,8 @@ class Test:
         self.mock_urlopen.side_effect = cycle(retvals)
 
     def get_datacenters_df(self, url_read_side_effect, *a, **v):
+        """1st arg. mocks `urllib.urlopen.read`: None, no mocking. Otherwise, it is the
+        sequence of returned values of each url opened within this function call"""
         self.setup_urlopen(url_read_side_effect)
         return get_datacenters_df(*a, **v)
 

@@ -98,17 +98,17 @@ def url2str(obj, maxlen=None):
     "{obj.get_full_url()}, data: '{obj.get_data()[:I]}'" otherwise
     (I=obj.get_data().find('\n')`)
     """
+    # unquote removes % characters which might be confused with str interpolation
     try:
-        url = str(obj.get_full_url())
+        url = unquote(str(obj.get_full_url()))
         data = str(obj.data or '')
         if data:
-            if maxlen is not None and len(data) > maxlen:
-                data = ("%s\n...(showing first %d characters only)" %
-                        (data[:maxlen], maxlen))
             url = "%s, POST data:\n%s" % (url, data)
     except AttributeError:
-        # unquote removes % characters which might be confused with str interpolation
         url = unquote(str(obj))
+    if maxlen is not None and len(url) > maxlen + 10:
+        url = url[:maxlen] + \
+               f"... ({len(url) - maxlen:,} remaining characters not shown)"
     return url
 
 
