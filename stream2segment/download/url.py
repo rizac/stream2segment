@@ -19,9 +19,10 @@ from urllib.request import (urlopen, build_opener,HTTPPasswordMgrWithDefaultReal
 
 
 # https://docs.python.org/3/library/urllib.request.html#request-objects
-def get_host(request):
-    """Returns the host (string) from a Request object"""
-    return request.host
+def get_host(url_or_request):
+    """Returns the host (string) from a Request object or url path as str"""
+    # Handle both url as Request obj. (use attr. host) or string (use urlparse):
+    return getattr(url_or_request, 'host', urlparse(url_or_request).netloc)
 
 
 def get_opener(url, user, password):
@@ -82,7 +83,11 @@ def urlread(url, blocksize=-1, decode=None, timeout=None, opener=None, **kwargs)
         if timeout is not None and timeout > 0:
             kwargs['timeout'] = timeout
 
-        open_conn = urlopen(url, **kwargs) if opener is None else opener.open(url, **kwargs)
+        if opener is None:
+            open_conn = urlopen(url, **kwargs)
+        else:
+            open_conn = opener.open(url, **kwargs)
+
         with open_conn as conn:
             if blocksize < 0:  # https://docs.python.org/2.4/lib/bltin-file-objects.html
                 ret = conn.read()
@@ -105,8 +110,8 @@ def urlread(url, blocksize=-1, decode=None, timeout=None, opener=None, **kwargs)
 def read_async(iterable,
                url_callback=None,
                max_workers=None,
-               max_cuncurrent_per_domain=None,
-               blocksize=1024*1024,
+               max_cuncurrent_per_domain=2,
+               blocksize=-1,
                decode=None,
                timeout=None, unordered=True, openers=None, **kwargs):  # noqa
     """Wrapper around `multiprocessing.pool.ThreadPool()` for  downloading
@@ -116,16 +121,13 @@ def read_async(iterable,
 
     For each item `obj` of iterable, this function yields the tuple:
     ```
-        obj: Any, int],
-        url: str | Request,
+        obj: [Any],
         response_data: str | bytes | None,
         response_error: Exception | None,
         response_code: int | None
     ```
     Notes:
 
-      - `If `iterable` is an iterable of `Request` objects or url strings, then `obj`
-        will be an integer denoting the url position in `iterable`
       - either `response_data` and `response_error` are None, but not both. If the latter
         is not None, then the request failed. `response_error` can be any of the
         following URL-related exceptions: `urllib.error.URLError`,
@@ -135,17 +137,20 @@ def read_async(iterable,
          None (e.g., a failed request with `response_error` not `urllib.error.HTTPError`)
 
     :param iterable: an iterable of objects representing the urls addresses to be read:
-        if its elements are neither strings nor `Request` objects, the `urlkey` argument
-        (see below) must be specified to map each element to a valid url string or
-        Request
+        if its elements are neither strings nor `Request` objects, the `url_callback`
+        argument must be specified to map each element to a valid url string or Request
     :param url_callback: function or None. When None (the default), all elements of
         `iterable` must be url strings or Request objects. If callable, it will be
         called with each element of `iterable` as argument, and must return the mapped
         url address or Request.
     :param max_workers: integer or None (the default) denoting the max worker threads
         used. When None, the threads allocated are relative to the machine CPU
+    :param max_cuncurrent_per_domain: integer or None (default: 2) denoting the max
+        worker threads *per URL domain*. Increasing this number leads faster downloads
+        but also potentially fewer data received, if it overcomes the maximum concurrent
+        requests configured in some server, which might be as low as 2 or 3.
     :param blocksize: integer defaulting to 1024*1024 specifying, when connecting to one
-        of the given urls, the mximum number of bytes to be read at each call of
+        of the given urls, the maximum number of bytes to be read at each call of
         `urlopen.read`. If the size argument is negative or omitted, read all data until
         EOF is reached
     :param decode: string or None (default: None) optional decoding (e.g., 'utf-8') to
@@ -191,20 +196,18 @@ def read_async(iterable,
     def url_wrapper(obj):
         if kill:
             return None
-        if url_callback is None:
-            obj, url = obj  # obj is the integer position now
-        else:
+        url = obj
+        if url_callback is not None:
             url = url_callback(obj)
         opener = openers(obj) if openers is not None else None
         if semaphores is None:
             sem = null_context
         else:
-            # Handle both url as Request obj. (use attr. host) or string (use urlparse):
-            domain = getattr(url, 'host', urlparse(url).netloc)
-            sem = semaphores.setdefault(domain, Semaphore(max_cuncurrent_per_domain))
+            sem = semaphores.setdefault(
+                get_host(url), Semaphore(max_cuncurrent_per_domain)
+            )
         with sem:
-            return (obj, url) + urlread(url, blocksize, decode, timeout, opener,
-                                        **kwargs)
+            return (obj,) + urlread(url, blocksize, decode, timeout, opener, **kwargs)
 
     tpool = ThreadPool(adjust_max_concurrent_downloads(max_workers))
     threadpoolmap = tpool.imap_unordered if unordered else tpool.imap
@@ -213,8 +216,6 @@ def read_async(iterable,
     try:
         # this try is for the keyboard interrupt, which will be caught inside the
         # as_completed below
-        if url_callback is None:
-            iterable = enumerate(iterable)
         for result_tuple in threadpoolmap(url_wrapper, iterable):
             if result_tuple is not None:  # (just for extreme safety: see urlwrapper)
                 yield result_tuple

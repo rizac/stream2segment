@@ -14,35 +14,10 @@ from stream2segment.download.db.models import WebService, Station, Segment
 from stream2segment.download.url import read_async
 from stream2segment.download.modules.utils import (DbExcLogger,
                                                    RequestErrorOnceLogger,
-                                                   compress)
+                                                   compress, fdsn_url)
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__)
-
-
-def _get_sta_request(datacenter_url, network, station, start_time, end_time):
-    """Return a Request object from the given station arguments to download the
-    StationXML
-    """
-    # fix bug of ncedc and scedc whereby dates exactly on the start are not returned.
-    # Adding 1s to the start time is heavily hacky, but it fixes the problem easily:
-    one_sec = timedelta(seconds=1)
-    stime_iso = (start_time + one_sec).isoformat()
-
-    # we need an endtime (ingv does not accept * as last param)
-    if pd.isnull(end_time):  # pd.isnull is more general (e.g. NAT nan return true)
-        end_time = datetime.utcnow().replace(microsecond=0)
-    else:
-        # etiem is given, thus it might fall exactly on a "new" inventory that we do not
-        # want. Decrease etime to be sure:
-        end_time -= one_sec
-
-    etime_iso = end_time.isoformat()
-
-    post_data = " ".join("*" if not x else x for x in
-                         [network, station, "*", "*", stime_iso, etime_iso])
-    return Request(url=datacenter_url, data="level=response\n{}".format(post_data).
-                   encode('utf8'))
 
 
 def get_station_df_for_inventory_download(session, update_metadata):
@@ -107,24 +82,27 @@ def save_stationxml(session, stations_df, max_thread_workers, timeout,
         iterable = zip(stations_df[Station.id.key],
                        stations_df[WebService.url.key],
                        stations_df[Station.network.key],
-                       stations_df[Station.station.key],
-                       stations_df[Station.start_time.key],
-                       stations_df[Station.end_time.key])
+                       stations_df[Station.station.key]
+                       )
+
+        def url_builder(row):
+            """build url (str) from each item yielded by the previous iterable"""
+            return fdsn_url(row[1], net=row[2], sta=row[3], level='response')
 
         reader = read_async(iterable,
-                            urlkey=lambda obj: _get_sta_request(*obj[1:]),
+                            url_callback=url_builder,
                             max_workers=max_thread_workers,
                             blocksize=download_blocksize, timeout=timeout)
 
-        for obj, request, data, exc, status_code in reader:
+        for obj, data, exc, status_code in reader:
             pbar.update(1)
             sta_id = obj[0]
             if exc:
-                inv_logger.warn(request, exc)
+                inv_logger.warn(url_builder(obj), exc)
                 errors += 1
             else:
                 if not data:
-                    inv_logger.warn(request, "empty response")
+                    inv_logger.warn(url_builder(obj), "empty response")
                     empty += 1
                 else:
                     downloaded += 1

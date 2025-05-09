@@ -64,7 +64,7 @@ level=channel"""
                               data=('format=text\nlevel=channel\n'+post_data_str).encode('utf8')))
                 for url, id_ in zip(urls, ids))
 
-    for obj, url, result, exc, code in read_async(iterable, urlkey=lambda obj: obj[-1],
+    for obj, result, exc, code in read_async(iterable, urlkey=lambda obj: obj[-1],
                                                        blocksize=1048576,
                                                        max_workers=None,
                                                        decode='utf8', timeout=120):

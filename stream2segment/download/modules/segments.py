@@ -340,13 +340,13 @@ def download_save_segments(session, segments_df, dc_dataselect_manager,
         while not segments_df.empty:
 
             dataframes = get_download_iterator(segments_df)
-            for data, exc, code, request, dframe in \
+            for dframe, data, exc, code in \
                     get_responses(dataframes, dc_dataselect_manager,
-                                  chaid2mseedid, max_thread_workers, timeout,
+                                  max_thread_workers, timeout,
                                   download_blocksize):
 
                 num_segments = len(dframe)
-                url = get_host(request)
+                url = get_host(dframe['webservice_url'].iloc[0])
                 url_stats = stats[url]
 
                 if exc is None and data != b'':
@@ -476,7 +476,7 @@ def get_responses(dataframes, dc_dataselect_manager,
         return dc_dataselect_manager.opener(dframe[SEG.DCID].iloc[0])
 
     code_url_err, code_mseed_err = s2scodes.url_err, s2scodes.mseed_err
-    for dframe, request, data, exc, code in read_async(
+    for dframe, data, exc, code in read_async(
             dataframes,
             urlkey=get_seg_request,
             max_workers=max_thread_workers,
@@ -502,7 +502,7 @@ def get_responses(dataframes, dc_dataselect_manager,
                     exc = mseedexc
                     data = None  # for safety
 
-        yield data, exc, code, request, dframe
+        yield dframe, data, exc, code
 
 
 def get_seg_request(segments_df):
@@ -728,7 +728,7 @@ class DcDataselectManager:
 
         data, errors = {}, {}
         with get_progressbar(len(dcid2fdsn) if show_progress else 0) as pbar:
-            for dcid, url_, data_, exc, status_code in \
+            for dcid, data_, exc, status_code in \
                     read_async(dcid2fdsn.keys(), urlkey=req, decode='utf8'):
 
                 pbar.update(1)

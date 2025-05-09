@@ -357,20 +357,24 @@ def save_quakeml(session, events_df, max_thread_workers, timeout,
                        events_df[WebService.url],
                        events_df[Event.event_id.key])
 
+        def url_builder(row):
+            """build url (str) from each item yielded by the previous iterable"""
+            return fdsn_url(obj[1], eventid=obj[2])
+
         reader = read_async(iterable,
-                            urlkey=lambda obj: _get_evt_request(*obj[1:]),
+                            url_callback=url_builder,
                             max_workers=max_thread_workers,
                             blocksize=download_blocksize, timeout=timeout)
 
-        for obj, request, data, exc, status_code in reader:
+        for obj, data, exc, status_code in reader:
             pbar.update(1)
             evt_id = obj[0]
             if exc:
-                evt_logger.warn(request, exc)
+                evt_logger.warn(url_builder(obj), exc)
                 errors += 1
             else:
                 if not data:
-                    evt_logger.warn(request, "empty response")
+                    evt_logger.warn(url_builder(obj), "empty response")
                     empty += 1
                 else:
                     downloaded += 1
@@ -381,11 +385,3 @@ def save_quakeml(session, events_df, max_thread_workers, timeout,
     dbmanager.close()
 
     return downloaded, empty, errors
-
-
-def _get_evt_request(evt_url, evt_eventid):
-    """Return a Request object from the given event arguments to download the
-    QuakeML
-    """
-    return Request(url=f"{evt_url}?eventid={evt_eventid}")
-  

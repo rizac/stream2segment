@@ -40,7 +40,7 @@ class Test:
             yield
 
     def read_async(self, *a, **v):
-        for obj, url, result, exc, code in read_async(*a, **v):
+        for obj, result, exc, code in read_async(*a, **v):
             assert _ismainthread()
             self.progress += 1
             if exc:
@@ -52,7 +52,7 @@ class Test:
         """it is easy to check what happens if an unknown exception is raised from urllib: just mock it
         but what about an exception raised in the caller body, if urlread is ok? Check it here
         """
-        for obj, url, result, exc, code in read_async(*a, **v):
+        for obj, result, exc, code in read_async(*a, **v):
             assert _ismainthread()
             raise KeyboardInterrupt()
             # self.progress += 1
