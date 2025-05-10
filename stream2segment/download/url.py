@@ -20,9 +20,9 @@ from urllib.request import (urlopen, build_opener,HTTPPasswordMgrWithDefaultReal
 
 # https://docs.python.org/3/library/urllib.request.html#request-objects
 def get_host(url_or_request):
-    """Returns the host (string) from a Request object or url path as str"""
+    """Returns the host (string) from a urllib.request.Request object or str (URL)"""
     # Handle both url as Request obj. (use attr. host) or string (use urlparse):
-    return getattr(url_or_request, 'host', urlparse(url_or_request).netloc)
+    return urlparse(getattr(url_or_request, 'full_url', url_or_request)).hostname
 
 
 def get_opener(url, user, password):
@@ -30,7 +30,7 @@ def get_opener(url, user, password):
     All arguments should be strings.
 
     :param url: the domain name of the given url
-    :param: string, the user name
+    :param: user: string, the user name
     :param password: the password
 
     :return: an urllib opener

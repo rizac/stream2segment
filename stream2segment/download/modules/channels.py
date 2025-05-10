@@ -7,17 +7,20 @@ import re
 import logging
 
 import pandas as pd
+from pandas.core.dtypes.common import is_categorical_dtype
 from sqlalchemy import or_, and_
 
 from stream2segment.io.cli import get_progressbar
 from stream2segment.io.db.pdsql import dbquery2df, shared_colnames, mergeupdate
-from stream2segment.download.db.models import Station, Channel
+from stream2segment.download.db.models import Station, Channel, Segment
 from stream2segment.download.exc import FailedDownload
-from stream2segment.download.url import read_async_new
-from stream2segment.download.modules.utils import (get_dataframe_from_fdsn,
+from stream2segment.download.url import read_async
+from stream2segment.download.modules.datacenters import STATION_WS_URL_COL, \
+    STATION_WS_ID_COL, SEGMENT_WS_ID_COL, SEGMENT_WS_URL_COL
+from stream2segment.download.modules.utils import (harmonize_dataframe_to_fdsn,
                                                    dbsyncdf, formatmsg,
                                                    logwarn_dataframe, strconvert,
-                                                   fdsn_url)
+                                                   fdsn_url, response_text_to_df)
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__)
@@ -36,52 +39,70 @@ def get_channels_df(session, datacenters_df, net, sta, loc, cha,
     :param min_sample_rate: minimum sampling rate, set to negative value
         for no-filtering (all channels)
     """
+    iterable = zip(
+        datacenters_df[STATION_WS_URL_COL],
+        datacenters_df['net'],
+        datacenters_df['sta'],
+        datacenters_df['loc'],
+        datacenters_df['cha'],
+        datacenters_df['start'],
+        datacenters_df['end'],
+        datacenters_df[STATION_WS_ID_COL],
+        datacenters_df[SEGMENT_WS_URL_COL],
+        datacenters_df[SEGMENT_WS_ID_COL],
+    )
 
-    urls = [
-        f"{r.station_url}?net={r.net}&sta={r.sta}"
-        f"&loc={r.loc}&cha={r.cha}&start={r.start}&end={r.end}"
-        for r in datacenters_df.itertuples(index=False)
-    ]
-
-    urls = [
-        fdsn_url(r.station_url, net=r.net, sta=r.sta, loc=r.loc, cha=r.cha,
-                 start=r.start, end=r.end)
-        for r in datacenters_df.itertuples(index=False)
-    ]
+    def url_builder(row):
+        """build url (str) from each item yielded by the previous iterable"""
+        return fdsn_url(row[0], net=row[1], sta=row[2], loc=row[3], cha=row[4],
+                        start=pd.isna(row[5]) or None, end=pd.isna(row[6]) or None,
+                        level='channel', format='text')
 
     ret = []
-    url_failed_dc_ids = []
     from_db = 0
-    with get_progressbar(len(urls) if show_progress else 0) as pbar:
-        for idx, url, result, exc, status_code in \
-                read_async_new(urls, blocksize=blocksize,
-                               max_workers=max_thread_workers, decode='utf8',
-                               timeout=timeout):
+    with get_progressbar(len(datacenters_df) if show_progress else 0) as pbar:
+        for obj, result, exc, status_code in \
+                read_async(iterable, url_callback=url_builder, blocksize=blocksize,
+                           max_workers=max_thread_workers, decode='utf8',
+                           timeout=timeout):
             pbar.update(1)
+            sta_ws_url = obj[0]
+            sta_ws_id = obj[7]
+            seg_ws_url = obj[8]
+            seg_ws_id = obj[9]
             if exc:
-                logger.warning(formatmsg("Unable to fetch stations", exc, url))
-                dframe = get_channels_df_from_db(session,
-                                                 datacenters_df['station_ws_id'][idx],
-                                                 net, sta, loc, cha, starttime, endtime,
-                                                 min_sample_rate)
+                logger.warning(formatmsg("Unable to fetch stations", exc,
+                                         url_builder(obj)))
+                dframe = get_channels_df_from_db(session, sta_ws_id, net, sta, loc, cha,
+                                                 starttime, endtime, min_sample_rate)
                 logger.warning(formatmsg("Fetching stations from database: "
                                          f"{len(dframe)} stations found"))
                 from_db += len(dframe)
             else:
                 try:
-                    dframe = get_dataframe_from_fdsn(result, "channel", url)
+                    dframe = response_text_to_df(result)
+                    old_len = len(dframe)
+                    dframe = harmonize_dataframe_to_fdsn(dframe, "channel")
+                    discarded = old_len - len(dframe)
+                    if discarded > 0:
+                        logger.warning(formatmsg(f"{discarded} row(s) discarded",
+                                                 "malformed text data",
+                                                 url_builder(obj)))
                 except ValueError as verr:
                     logger.warning(formatmsg("Discarding response data", verr,
-                                             url))
+                                             url_builder(obj)))
                     continue
 
             if not dframe.empty:
-                for c in ['dataselect_ws_id', 'dataselect_url',
-                          'station_ws_id', 'station_url']:
-                    dframe[c] = pd.Series(
-                        [datacenters_df[c][idx]] * len(dframe),
-                        dtype=datacenters_df[c].dtype
-                    )
+                for col, val in (
+                    (STATION_WS_ID_COL, sta_ws_id),
+                    (STATION_WS_URL_COL, sta_ws_url),
+                    (SEGMENT_WS_ID_COL, seg_ws_id),
+                    (SEGMENT_WS_URL_COL, seg_ws_url),
+                ):
+                    dframe[col] = val
+                    dtype = datacenters_df[col].dtype
+                    dframe[col] = dframe[col].astype(dtype)
                 ret.append(dframe)
 
     if from_db > 0:
@@ -96,8 +117,8 @@ def get_channels_df(session, datacenters_df, net, sta, loc, cha,
                                                   copy=False),
                                         net, sta, loc, cha,
                                         min_sample_rate)
-
         # this raises FailedDownload if we cannot save any element:
+        cha_df = cha_df.rename(columns={STATION_WS_ID_COL: Station.webservice_id.key})
         cha_df = save_stations_and_channels(session, cha_df, update, db_bufsize)
 
     if cha_df.empty:
@@ -109,17 +130,19 @@ def get_channels_df(session, datacenters_df, net, sta, loc, cha,
                                        "the database. Check config and log "
                                        "for details"))
 
-    # the columns for the channels dataframe that will be returned
-    ret = cha_df[[c.key for c in (Channel.id, Channel.station_id,
-                                  Station.latitude, Station.longitude,
-                                  Station.webservice_id, Station.start_time,
-                                  Station.end_time, Station.network,
-                                  Station.station, Channel.location,
-                                  Channel.channel, 'dataselect_ws_url')]]
+    # the columns for the channels dataframe that will be returned must be ready for
+    # perform event-radius search and perform segments download. So we need:
+    ret = cha_df[[Channel.id.key, Channel.station_id.key, Station.latitude.key,
+                  Station.longitude.key, Station.network.key, Station.station.key,
+                  Channel.location.key, Channel.channel.key, SEGMENT_WS_URL_COL]]
+    # SEGMENT_WS_ID_COL must be added too, but also renamed:
+    ret[Segment.webservice_id.key] = cha_df[SEGMENT_WS_ID_COL]
+
     # convert to categorical type:
-    for c in (Station.network, Station.station, Channel.location, Channel.channel,
-              'dataselect_ws_url'):
-        ret[c.key] = ret[c.key].astype('category')
+    for c in (Station.network.key, Station.station.key, Channel.location.key,
+              Channel.channel.key, SEGMENT_WS_URL_COL):
+        if not is_categorical_dtype(ret[c]):
+            ret[c] = ret[c].astype('str').astype('category')
     # return a copy:
     return ret.copy()
 
@@ -322,7 +345,7 @@ def save_stations_and_channels(session, channels_df, update, db_bufsize):
                       cols_to_print_on_err=colnames)
     # `sta_df` will have the STA_ID columns, `channels_df` not: set it from the
     # former to the latter:
-    channels_df = mergeupdate(channels_df, sta_df, colnames, Station.id.key)
+    channels_df = mergeupdate(channels_df, sta_df, colnames, [Station.id.key])
     # rename now 'id' to 'station_id' before writing the channels to db:
     channels_df.rename(columns={Station.id.key: Channel.station_id.key}, inplace=True)
 
@@ -334,7 +357,7 @@ def save_stations_and_channels(session, channels_df, update, db_bufsize):
         conflict_null_sta_id = channels_df[null_sta_id]
         channels_df = channels_df[~null_sta_id]
 
-    # Add channels to db. First seet columns defining channel identity (db
+    # Add channels to db. First set columns defining channel identity (db
     # unique constraint):
     cols = [Channel.station_id, Channel.location, Channel.channel]
     colnames = [Station.network.key, Station.station.key,
@@ -388,6 +411,9 @@ def drop_duplicates(session, channels_df):
     net_sta_cols = [Station.network.key, Station.station.key]
     loc_cha_cols = [Channel.location.key, Channel.channel.key]
     sta_ws_id_col = Station.webservice_id.key
+    start_col = Station.start_time.key
+    end_col = Station.end_time.key
+    all_non_time_cols = [c for c in channels_df.columns if c not in {start_col, end_col}]
     # group by (net, sta), which is a unique constraints, and analyse what we get:
     for (net, sta), df_ in channels_df.groupby(net_sta_cols, sort=False):
         # if we have only ONE dc_id, skip "if" below.. Otherwise:
@@ -416,22 +442,27 @@ def drop_duplicates(session, channels_df):
             df_ = df_[~conflicting]
 
         # df_ now HAS SURELY ONE AND ONLY ONE (dc_id, net, sta).
-        # Check now duplicated (net, sta, loc, cha):
+        # First check that there are no station differing only by times: in case, merge:
+        if df_.duplicated(all_non_time_cols).any():
+            tmp_ = []
+            for _, df__ in df_.groupby(all_non_time_cols, sort=False, observed=False):
+                if len(df__) > 1:
+                    min_start = df__[start_col].min()
+                    max_end = pd.NaT if pd.isna(df__[end_col]).any() \
+                        else df__[end_col].max()
+                    # take 1-row dataframe and modify it with new times:
+                    df__ = df__.iloc[0:1].copy()
+                    df__[start_col] = min_start
+                    df__[end_col] = max_end
+                tmp_.append(df__)
+            df_ = pd.concat(tmp_, axis=0)
+        # Now check for duplicated: if any, they are conflict within same data center:
         dupes = df_.duplicated(subset=loc_cha_cols, keep=False)
         if dupes.any():
             conflict_within_dc.append(df_[dupes])
             if dupes.all():
                 continue
-
-            # take min of stimes, and max of etimes:
-            tmp = df_.groupby(loc_cha_cols, as_index=False, sort=False).agg({
-                Station.start_time.key: 'min',
-                Station.end_time.key: 'max'
-            })
-            # restore dtypes (might be lost during agg function):
-            for c in df_.columns:
-                tmp[c] = tmp[c].astype(df_[c].dtype)
-            df_ = tmp
+            df_ = df_[~dupes]
 
         oks.append(df_)
 
@@ -459,7 +490,7 @@ def log_unsaved_channels(conflict_between, conflict_within,
         occurs)
     """
     max_row_count = 50
-    cols2show = [Station.newtork.key, Station.station.key, Station.webservice_id.key]
+    cols2show = [Station.network.key, Station.station.key, STATION_WS_URL_COL]
     if not conflict_between.empty:
         # conflict_between happen at a station level (avoid unnecessary channel
         # details):
@@ -471,8 +502,8 @@ def log_unsaved_channels(conflict_between, conflict_within,
                         'services or already saved stations')
         logwarn_dataframe(_, msg, cols2show, max_row_count)
 
-    cols2show = [Station.newtork.key, Station.station.key, Channel.location,
-                 Channel.channel.key, Station.webservice_id.key]
+    cols2show = [Station.network.key, Station.station.key, Channel.location.key,
+                 Channel.channel.key, STATION_WS_URL_COL]
     if not conflict_within.empty:
         # Do not count stations here, as some of those stations might have been
         # saved as part of other correct channels

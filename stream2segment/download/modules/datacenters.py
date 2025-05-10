@@ -18,6 +18,13 @@ from stream2segment.download.url import urlread
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__)
 
+# global column names to be accessed in channels.py:
+
+SEGMENT_WS_ID_COL = 'Segment.webservice.id'
+SEGMENT_WS_URL_COL = 'Segment.webservice.url'
+STATION_WS_ID_COL = 'Station.webservice.id'
+STATION_WS_URL_COL = 'Station.webservice.url'
+
 
 def get_datacenters_df(
         session, service, routing_service_url,
@@ -105,16 +112,18 @@ def get_datacenters_df(
     for (station_url, dataselect_url), param_values_set in urls.items():
         for param_values in param_values_set:
             datacenters_df.append({
-                'dataselect_url': dataselect_url,
-                'station_url': station_url,
-                'station_ws_id': url2id[station_url],
-                'dataselect_ws_id': url2id[station_url],
+                SEGMENT_WS_URL_COL: dataselect_url,
+                STATION_WS_URL_COL: station_url,
+                SEGMENT_WS_ID_COL: url2id[dataselect_url],
+                STATION_WS_ID_COL: url2id[station_url],
                 **dict(zip(param_names, param_values))
             })
     # convert to category the dtype of column more likely to have few distinct values:
     datacenters_df = pd.DataFrame(datacenters_df).astype({
-        'station_url': 'category',
-        'dataselect_url': 'category',
+        SEGMENT_WS_URL_COL: 'category',
+        STATION_WS_URL_COL: 'category',
+        SEGMENT_WS_ID_COL: int,
+        STATION_WS_ID_COL: int,
         'net': 'category',
         'loc': 'category',
         'cha': 'category',

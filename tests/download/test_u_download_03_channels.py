@@ -97,6 +97,10 @@ class Test:
 
             def close(self, *a, **kw):
                 pass
+
+            def join(self, *a, **kw):
+                pass
+
         # assign patches and mocks:
         self.mock_tpool = patchers[-1].start()
         self.mock_tpool.side_effect = MockThreadPool
@@ -238,27 +242,48 @@ ZU * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
         assert ("Unable to fetch stations from all data-centers, "
                 "no data to fetch from the database. "
                 "Check config and log for details") in str(qd.value)
+        url1 = self.mock_urlopen.call_args_list[0][0][0]
+        assert "level=channel&format=text" in url1
+        assert 'net=ZZ' in url1
+        url2 = self.mock_urlopen.call_args_list[1][0][0]
+        assert "level=channel&format=text" in url2
+        assert 'net=UP' in url2
+        assert url1.startswith("http://geofon.gfz-potsdam.de/fdsnws/station/1/query")
+        assert url2.startswith("http://geofon.gfz-potsdam.de/fdsnws/station/1/query")
+        url3 = self.mock_urlopen.call_args_list[2][0][0]
+        assert url3.startswith("http://ws.resif.fr/fdsnws/station/1/query")
 
         # now get channels with a mocked custom urlread_sideeffect below:
-        # IMPORTANT: url read for channels: Note: first response data raises, second has
-        # an error and that error is skipped (the other channels are added)
-        urlread_sideeffect = ["""#Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|Azimuth|Dip|SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|StartTime|EndTime
---- ERROR --- MALFORMED|12T00:00:00|
-HT|AGG||HHZ|39.0211|22.336|622.0|0.0|0.0|-90.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|50.0|2008-02-12T00:00:00|
-HT|LKD2||HHE|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2009-01-01T00:00:00|
+        urlread_sideeffect = [
+            # Below the 1st mocked http response to test that data first error in the
+            # 1st line cause the whole response to be skipped:
+            """#Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|Azimuth|Dip|SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|StartTime|EndTime
+--- LINE ERROR --- MALFORMED|12T00:00:00|
+HT|AGG||HH1|39.0211|22.336|622.0|0.0|0.0|-90.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|50.0|2008-02-12T00:00:00|
+HT|LKD2||HH2|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2009-01-01T00:00:00|
 """,  # noqa
-# NOTE THAT THE CHANNELS ABOVE WILL BE OVERRIDDEN BY THE ONES BELOW (MULTIPLE NAMES< WE
-# SHOULD NOT HAVE THIS CASE WITH THE EDIAWS ROUTING SERVICE BUT WE TEST HERE THE CASE)
-# NOTE THE USE OF HTß as SensorDescription (to check non-asci characters do not raise)
+            # Below the 2nd mocked http response to test that:
+            # 1) The error (1st line) is in a field, not a whole line, so s2s can skip the
+            #    line only
+            # 2) BLA.BLA added (duplicated but only start end differ: adjust times)
+            # 3) X.X  and Y.Y not added (same as BLA.BLa but other fields other than
+            # times differ =>  unresolvable conflicts).
+            # Note also the use of µ in a scale_units field to test non-asci chars are ok
 """#Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|Azimuth|Dip|SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|StartTime|EndTime
-HT|AGG||HHE|--- ERROR --- NONNUMERIC |22.336|622.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|70.0|2008-02-12T00:00:00|
+HT|AGG||HHE|--- FIELD ERROR NON NUMERIC --- |22.336|622.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/Sµ|70.0|2008-02-12T00:00:00|
 HT|AGG||HLE|95.6|22.336|622.0|0.0|90.0|0.0|GFZ:HTß1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2008-02-12T00:00:00|
 HT|AGG||HLZ|39.0211|22.336|622.0|0.0|0.0|-90.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2008-02-12T00:00:00|
 HT|LKD2||HHE|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|90.0|2009-01-01T00:00:00|
 HT|LKD2||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|90.0|2009-01-01T00:00:00|
 BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2009-01-01T00:00:00|2019-01-01T00:00:00
 BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2018-01-01T00:00:00|
-"""  # noqa
+X|X||HHZ|38.7888|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2009-01-01T00:00:00|2019-01-01T00:00:00
+X|X||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2018-01-01T00:00:00|
+Y|Y||HHZ|38.7889|20.6577|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2009-01-01T00:00:00|2019-01-01T00:00:00
+Y|Y||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2018-01-01T00:00:00|2019-01-01T00:00:00
+""",  # noqa
+            # 3rd request raises and error:
+            URLError('a')
                               ]
 
         cha_df = self.get_channels_df(urlread_sideeffect, db.session,
@@ -270,26 +295,15 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         assert "Discarding response data" in self.log_msg()
         # we should have called mock_urlopen_in_async times the datacenters
         assert self.mock_urlopen.call_count == len(datacenters_df)
-        assert len(db.session.query(Station.id).all()) == 4
+        assert sorted(db.session.query(Station.network, Station .station)) == \
+               [('BLA', 'BLA'), ('HT', 'AGG'), ('HT', 'LKD2')]
         # the last two channels of the second item of `urlread_sideeffect` are from two
         # stations (BLA|BLA|...) with only different start time. Thus they should
         # both be added:
-        assert len(db.session.query(Channel.id).all()) == 6
-        # as net, sta, loc, cha are all empty lists and start = end = None
-        # (all default=>no filter),
-        # this is the post data passed to urlread for the 1st datacenter:
-        assert self.mock_urlopen.call_args_list[0][0][0].data == b"""format=text
-level=channel
-* * * * * *"""
-        # as net, sta, loc, cha are all empty lists and start = end = None (all default
-        # => no filter),this is the post data passed to urlread for the 2nd datacenter:
-        assert self.mock_urlopen.call_args_list[1][0][0].data == b"""format=text
-level=channel
-* * * * * *"""
-        assert self.mock_urlopen.call_args_list[0][0][0].get_full_url() == \
-            "http://geofon.gfz-potsdam.de/fdsnws/station/1/query"
-        assert self.mock_urlopen.call_args_list[1][0][0].get_full_url() == \
-            "http://ws.resif.fr/fdsnws/station/1/query"
+        loc_cha = sorted(db.session.query(Channel.location, Channel.channel))
+        assert len(loc_cha) == 5
+        assert not {'HH1', 'HH2'} & set(_[1] for _ in loc_cha)
+
         # assert all downloaded stations have datacenter_id of the second datacenter:
         dcid = datacenters_df.iloc[1].id
         assert all(sid[0] == dcid for sid in db.session.query(Station.datacenter_id).

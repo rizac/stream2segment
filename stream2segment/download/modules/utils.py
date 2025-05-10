@@ -326,40 +326,35 @@ def compress(bytestr, compression='gzip', compresslevel=9):
     return bytestr
 
 
-def get_dataframe_from_fdsn(response_str, query_type, url=''):
-    """Return a normalized and harmonized dataframe from raw_data. dbmodel_key
-    can be 'event' 'station' or 'channel'. Raises ValueError if the resulting
-    dataframe is empty or if a `ValueError` is raised from sub-functions
-
-    :param response_str: the response content of a FDSN query, in str format. For
-        info see https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf#page=12
-    :param query_type: a string denoting the web service type:
-        "event", "station" (for a station query with parameter level=station)
-        or "channel" (for a station query with parameter level=channel)
-    :param url: URL (string) or `Request` object. Optional, used only to log the
-        specified URL in case of warnings
-    """
+def response_text_to_df(response: str):
+    """Convert a response content obtained from an fdsn webservice with format=text
+    into a pandas DataFrame of type str (no casting performed)"""
     # read csv but do not let pandas infer data types (`_harmonize_columns` does that
     # later): `dtype=str` reads everything as strings (this prevents `event_id`s in
     # catalogs to be inadvertently casted as int), `na_values` + `keep_default_na` reads
     # empty cells as "" (this prevents channels `location` to be NULL and the relative
     # row to be dropped in `_harmonize_columns` because NULL is not allowed)
-    dframe = pd.read_csv(StringIO(response_str), sep='|', header=None, comment='#',
-                         dtype=str, keep_default_na=False,
-                         na_values=['#N/A', '#NA', '-NaN', '-nan', '<NA>', 'N/A', 'NA',
-                                    'NULL', 'NaN', 'n/a', 'nan', 'null'])
-    # however
-    oldlen = len(dframe)
-    dframe = _rename_columns(dframe, query_type)
+    return pd.read_csv(StringIO(response), sep='|', header=None, comment='#',  # noqa
+                       dtype=str, keep_default_na=False,
+                       na_values=['#N/A', '#NA', '-NaN', '-nan', '<NA>', 'N/A', 'NA',
+                                  'NULL', 'NaN', 'n/a', 'nan', 'null'])
+
+
+def harmonize_dataframe_to_fdsn(dataframe, query_type):
+    """Return a normalized and harmonized dataframe from raw_data. dbmodel_key
+    can be 'event' 'station' or 'channel'. Raises ValueError if the resulting
+    dataframe is empty or if a `ValueError` is raised from sub-functions
+
+    :param dataframe: the result of response_text_to_df. For
+        info see https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf#page=12
+    :param query_type: a string denoting the web service type:
+        "event", "station" (for a station query with parameter level=station)
+        or "channel" (for a station query with parameter level=channel)
+    """
+    dframe = _rename_columns(dataframe, query_type)
     dframe = _harmonize_fdsn_dframe(dframe, query_type)
     if dframe.empty:
         raise ValueError("Malformed data (e.g., type mismatch, NaN)")
-    # stations_df surely not empty:
-    if oldlen > len(dframe):
-        dframe = dframe.copy()
-        logger.warning(formatmsg("%d row(s) discarded",
-                                 "malformed text data", url),
-                       oldlen - len(dframe))
     return dframe
 
 

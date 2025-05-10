@@ -51,8 +51,7 @@ def _query4inventorydownload(session, force_update):
     See `get_station_df_for_inventory_download` for details
     """
     qry = session.query(Station.id, Station.network, Station.station,
-                        WebService.url, Station.start_time,
-                        Station.end_time).join(Station.webservice)
+                        WebService.url).join(Station.webservice)
 
     if force_update:
         qry = qry.filter(Station.segments.any(Segment.has_data))  # noqa
@@ -69,30 +68,30 @@ def save_stationxml(session, stations_df, max_thread_workers, timeout,
 
     inv_logger = RequestErrorOnceLogger("StationXML download errors")
     downloaded, errors, empty = 0, 0, 0
-    db_exc_logger = DbExcLogger([Station.id.key, Station.network.key,
-                                 Station.station.key, Station.start_time.key])
-    dbmanager = DbManager(session, Station.id,
-                          update=[Station.stationxml.key],
-                          buf_size=db_bufsize,
+    id_col = Station.id.key
+    net_col = Station.network.key
+    sta_col = Station.station.key
+    xml_col = Station.stationxml.key
+    db_exc_logger = DbExcLogger([id_col, net_col, sta_col])
+    dbmanager = DbManager(session, Station.id, update=[xml_col], buf_size=db_bufsize,
                           oninsert_err_callback=db_exc_logger.failed_insert,
                           onupdate_err_callback=db_exc_logger.failed_update)
 
     with get_progressbar(len(stations_df) if show_progress else 0) as pbar:
 
-        iterable = zip(stations_df[Station.id.key],
-                       stations_df[WebService.url.key],
-                       stations_df[Station.network.key],
-                       stations_df[Station.station.key]
-                       )
+        iterable = zip(
+            stations_df[id_col],
+            stations_df[WebService.url.key],
+            stations_df[net_col],
+            stations_df[sta_col]
+        )
 
         def url_builder(row):
             """build url (str) from each item yielded by the previous iterable"""
             return fdsn_url(row[1], net=row[2], sta=row[3], level='response')
 
-        reader = read_async(iterable,
-                            url_callback=url_builder,
-                            max_workers=max_thread_workers,
-                            blocksize=download_blocksize, timeout=timeout)
+        reader = read_async(iterable, url_callback=url_builder, timeout=timeout,
+                            max_workers=max_thread_workers, blocksize=download_blocksize)
 
         for obj, data, exc, status_code in reader:
             pbar.update(1)
@@ -106,8 +105,7 @@ def save_stationxml(session, stations_df, max_thread_workers, timeout,
                     empty += 1
                 else:
                     downloaded += 1
-                    dfr = pd.DataFrame({Station.id.key: [sta_id],
-                                        Station.stationxml.key: [compress(data)]})
+                    dfr = pd.DataFrame({id_col: [sta_id], xml_col: [compress(data)]})
                     dbmanager.add(dfr)
 
     dbmanager.close()

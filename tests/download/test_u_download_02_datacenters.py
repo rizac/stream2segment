@@ -1,14 +1,11 @@
 # -*- coding: utf-8 -*-
 """
 Created on Feb 4, 2016
-
-@author: riccardo
 """
-from builtins import open as oopen
 
 from datetime import datetime, timedelta
 import socket
-from itertools import cycle, product
+from itertools import cycle
 import logging
 from logging import StreamHandler
 from io import BytesIO, StringIO
@@ -35,7 +32,7 @@ def tt_ak135_tts(request, data):
 class Test:
 
     # execute this fixture always even if not provided as argument:
-    # https://docs.pytest.org/en/documentation-restructure/how-to/fixture.html#autouse-fixtures-xunit-setup-on-steroids
+    # https://docs.pytest.org/en/documentation-restructure/how-to/fixture.html#autouse-fixtures-xunit-setup-on-steroids  # noqa
     @pytest.fixture(autouse=True)
     def init(self, request, db, data):
         # re-init a sqlite database (no-op if the db is not sqlite):
@@ -123,11 +120,11 @@ class Test:
 
     def setup_urlopen(self, urlread_side_effect):
         """setup urlopen return value.
-        :param urlread_side_effect: a LIST of strings or exceptions returned by urlopen.read,
-            that will be converted to an itertools.cycle(side_effect) REMEMBER that any
-            element of urlread_side_effect which is a nonempty string must be followed by an
-            EMPTY STRINGS TO STOP reading otherwise we fall into an infinite loop if the
-            argument blocksize of url read is not negative !"""
+        :param urlread_side_effect: a LIST of strings or exceptions returned by
+            urlopen.read, that will be converted to an itertools.cycle(side_effect)
+            REMEMBER that any element of urlread_side_effect which is a nonempty string
+            must be followed by an EMPTY STRINGS TO STOP reading otherwise we fall into
+            an infinite loop if the argument blocksize of url read is not negative !"""
 
         self.mock_urlopen.reset_mock()
 
@@ -242,7 +239,8 @@ UP ARJ * BHW 2013-08-01 *"""]  # <- test also dates (no datetimes) and *
         # did:
         dcslen = len(db.session.query(WebService).all())
         self.get_datacenters_df(urlread_sideeffect, db.session,
-                                "https://mock/fdsnws/station/1/query", self.routing_service,
+                                "https://mock/fdsnws/station/1/query",
+                                self.routing_service,
                                 net, sta, loc, cha, start, end,
                                 db_bufsize=self.db_buf_size)
         assert dcslen == len(db.session.query(WebService).all())
@@ -261,8 +259,8 @@ UP ARJ * BHW 2013-08-01 *"""]  # <- test also dates (no datetimes) and *
     @patch('stream2segment.download.modules.datacenters.fdsn_url',
            side_effect=lambda *a, **v: original_fdsn_url(*a, **v))
     def test_eida_postdata(self, mock_urljoin, db):  # , mock_urljoin):
-        """test fetching datacenters eida, iris, custom url and test that postdata is what we
-        expected (which is eida/iris/whatever independent)"""
+        """test fetching datacenters eida, iris, custom url and test that postdata is
+        what we expected (which is eida/iris/whatever independent)"""
         # this is the output when using eida as service:
         urlread_sideeffect = ["""http://ws.resif.fr/fdsnws/station/1/query
 http://geofon.gfz-potsdam.de/fdsnws/station/1/query
@@ -309,8 +307,8 @@ UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
         # this is the output when using eida as service:
         urlread_sideeffect = [URLError('wat?')]
 
-        # we might set the following params as defaults because not used, let's provide anyway
-        # something meaningful:
+        # we might set the following params as defaults because not used, let's provide
+        # anyway something meaningful:
         net, sta, loc, cha = ['*'], [], [], ['HH?', 'BH?']
         starttime = datetime.utcnow()
         endtime = starttime + timedelta(minutes=1.1)
