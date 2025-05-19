@@ -22,14 +22,13 @@ import gzip
 import zipfile
 import zlib
 import bz2
-from urllib.parse import urljoin, urlencode, unquote
+from urllib.parse import urlencode, unquote
 
 import pandas as pd
 
 from stream2segment.io.db.models import MINISEED_READ_ERROR_CODE
 from stream2segment.io.db.pdsql import harmonize_columns, dropnulls, syncdf
-from stream2segment.io.db.inspection import colnames
-from stream2segment.download.db.models import Event, Station, Channel
+from stream2segment.download.db.models import Event, Station, Channel, WebService
 from stream2segment.download.exc import FailedDownload
 from stream2segment.download.url import responses, get_host
 
@@ -205,7 +204,8 @@ class DbExcLogger:
                               self.max_row_count)
 
 
-def logwarn_dataframe(dataframe, msg, columns=None, max_row_count=30):
+def logwarn_dataframe(dataframe, msg, columns=None, max_row_count=30,
+                      default_cols=(WebService.url.key,)):
     """Log as warning the current dataframe. Does not check if
     Dataframe is empty
 
@@ -221,7 +221,12 @@ def logwarn_dataframe(dataframe, msg, columns=None, max_row_count=30):
         footer = ""
 
     if columns is not None and len(columns) < len(dataframe.columns):
-        dataframe = dataframe[list(columns)].copy()
+        columns = list(columns)
+        # add 'url' column if present:
+        for c in default_cols:
+            if c in dataframe.columns and c not in columns:
+                columns += [c]
+        dataframe = dataframe[columns].copy()
         dataframe['...'] = pd.Categorical(('...' for _ in
                                            range(len(dataframe))))
 
@@ -364,69 +369,78 @@ def _rename_columns(query_df, query_type):
     """
     if query_df.empty:
         return query_df
-
-    if query_type.lower() == "event" or query_type.lower() == "events":
-        model = Event
-        columns = list(colnames(Event, pkey=False, fkey=False))
-    elif query_type.lower() == "station" or query_type.lower() == "stations":
-        model = Station
-        # these are the query_df columns for a station (level=station) query:
-        # `Network|Station|Latitude|Longitude|Elevation|SiteName|StartTime|
-        # EndTime`
-        # Set this table columns mapping (by name, so we can safely add any
-        # new column at any index):
-        columns = [Station.network.key, Station.station.key,
-                   Station.latitude.key, Station.longitude.key,
-                   Station.elevation.key, Station.site_name.key,
-                   Station.start_time.key, Station.end_time.key]
-    elif query_type.lower() == "channel" or query_type.lower() == "channels":
-        model = Channel
-        # these are the query_df expected columns for a station (level=channel)
-        # query:
-        # `Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|
-        # Azimuth|Dip|SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|
-        # StartTime|EndTime`
-        # Some of them are for the Channel table, so select them:
-        columns = [Station.network.key, Station.station.key,
-                   Channel.location.key, Channel.channel.key,
-                   Station.latitude.key, Station.longitude.key,
-                   Station.elevation.key, Channel.depth.key,
-                   Channel.azimuth.key, Channel.dip.key,
-                   Channel.sensor_description.key, Channel.scale.key,
-                   Channel.scale_freq.key, Channel.scale_units.key,
-                   Channel.sample_rate.key, Station.start_time.key,
-                   Station.end_time.key]
-    else:
-        raise ValueError("Invalid fdsn_model: supply Events, "
-                         "Station or Channel class")
-
-    oldcolumns = query_df.columns.tolist()
-    if len(oldcolumns) > len(columns):
+    columns = query_df.columns
+    expected_columns_count = len(columns)  # reassigned below (here to silence warnings)
+    try:
+        if query_type.lower() in {"event", "events"}:
+            expected_columns_count = 11
+            # EventID|Time|Latitude|Longitude|Depth/km|Author|Catalog|Contributor|
+            # ContributorID|MagType|Magnitude|MagAuthor|EventLocationName|EventType
+            columns = {
+                columns[0]: Event.event_id.key,
+                columns[1]: Event.time.key,
+                columns[2]: Event.latitude.key,
+                columns[3]: Event.longitude.key,
+                columns[4]: Event.depth_km.key,
+                # skip Author (Rarely used, memory-intensive text field)
+                columns[6]: Event.catalog.key,
+                # skip Contributor (Rarely used, memory-intensive text field)
+                # skip ContributorID (Rarely used, memory-intensive text field)
+                columns[9]: Event.mag_type.key,
+                columns[10]: Event.magnitude.key
+                # skip MagAuthor (Rarely used, memory-intensive text field)
+                # skip EventLocationName (Rarely used, memory-intensive text field)
+                # skip EventType (Rarely used, memory-intensive text field)
+            }
+        elif query_type.lower() in {"station", "stations"}:
+            expected_columns_count = 8
+            # Network|Station|Latitude|Longitude|Elevation|SiteName|StartTime|EndTime
+            # Set this table columns mapping (by name, so we can safely add any
+            # new column at any index):
+            columns = {
+                columns[0]: Station.network.key,
+                columns[1]: Station.station.key,
+                columns[2]: Station.latitude.key,
+                columns[3]: Station.longitude.key,
+                columns[4]: Station.elevation.key,
+                # skip site_name (Rarely used, memory-intensive text field)
+                columns[6]: Station.start_time.key,
+                columns[7]: Station.end_time.key
+            }
+        elif query_type.lower() in {"channel", "channels"}:
+            expected_columns_count = 17
+            # Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|
+            # Azimuth|Dip|SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|
+            # StartTime|EndTime`
+            columns = {
+                columns[0]: Station.network.key,
+                columns[1]: Station.station.key,
+                columns[2]: Channel.location.key,
+                columns[3]: Channel.channel.key,
+                columns[4]: Station.latitude.key,
+                columns[5]: Station.longitude.key,
+                columns[6]: Station.elevation.key,
+                columns[7]: Channel.depth.key,
+                columns[8]: Channel.azimuth.key,
+                columns[9]: Channel.dip.key,
+                # skip sensor_description (Rarely used, memory-intensive text field)
+                columns[11]: Channel.scale.key,
+                columns[12]: Channel.scale_freq.key,
+                columns[13]: Channel.scale_units.key,
+                columns[14]: Channel.sample_rate.key,
+                columns[15]: Station.start_time.key,
+                columns[16]: Station.end_time.key
+            }
+        else:
+            raise ValueError("Invalid fdsn_model: supply Events, "
+                             "Station or Channel class")
+    except IndexError:
         # do not provide long messages, the exception is likely to be wrapped
         # also do not print columns, which are often just numbers with no meaning:
         raise ValueError("Data has %d column(s), expected: %d" %
-                         (len(oldcolumns), len(columns)))
+                         (expected_columns_count, len(columns)))
 
-    ret = query_df.rename(columns={cold: cnew for cold, cnew in
-                          zip(oldcolumns, columns)})
-
-    # before returning, add missing nullable columns. this happens when we added new
-    # columns in our models, following some new spec, but the server response is still
-    # in the old format (if missing columns are not nullable, raise). The procedure below
-    # assumes that new columns, if any, are appended at the end of the response
-    if len(oldcolumns) < len(columns):
-        missing_cols = list(colnames(model, pkey=False, fkey=False))[len(oldcolumns):]
-        missing_non_nullable_cols = set(colnames(model, pkey=False, fkey=False,
-                                                 nullable=False)) & set(missing_cols)
-        if missing_non_nullable_cols:
-            raise ValueError("Missing non-nullable column(s) in data: %s" %
-                             (", ".join(missing_non_nullable_cols)))
-        logger.warning("Adding missing nullable column(s) in data: %s" %
-                       (", ".join(missing_cols)))
-        for col in missing_cols:
-            ret[col] = None
-
-    return ret
+    return query_df.rename(columns=columns)[list(columns.values())]
 
 
 def _harmonize_fdsn_dframe(query_df, query_type):

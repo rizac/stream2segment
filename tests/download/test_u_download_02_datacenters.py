@@ -10,6 +10,7 @@ import logging
 from logging import StreamHandler
 from io import BytesIO, StringIO
 from unittest.mock import Mock, patch, MagicMock
+from urllib.parse import urlunparse, unquote
 
 import pytest
 
@@ -462,6 +463,45 @@ Z3 A318A * * 2015-11-17T10:32:52 2019-02-02T23:59:00"""]
         lmsg = self.log_msg()
         # legacy test because we probably discarded resif... now we don't (add 'not'):
         assert "2 data center(s) discarded" not in lmsg
+
+    def test_good_calls(self,  # fixtures:
+                        db):
+        dt = datetime.utcnow()
+        urlread_sideeffect = ["""http://ws.resif.fr/fdsnws/dataselect/1/query
+        ZV * * * 2018-01-01T00:00:00 2019-12-31T23:59:59"""]
+
+        # urlopen not called (web service explicitly provided):
+        data = self.get_datacenters_df(urlread_sideeffect,
+                                       db.session,
+                                       "https://geofon.gfz-potsdam.de/fdsnws/"
+                                       "station/1/query",
+                                       self.routing_service,
+                                       ["N??", 'Q'], ["A*"], None, "*??",
+                                       None, dt,
+                                       db_bufsize=self.db_buf_size)
+        assert len(self.mock_urlopen.call_args_list) == 0
+
+        # now usual case:
+        data = self.get_datacenters_df(urlread_sideeffect,
+                                       db.session,
+                                       "eida",
+                                       # "https://geofon.gfz-potsdam.de/fdsnws/station/1/query",
+                                       self.routing_service,
+                                       ["N??", 'Q'], ["A*"], None, "*??",
+                                       None, dt,
+                                       db_bufsize=self.db_buf_size)
+        assert len(self.mock_urlopen.call_args_list) == 1
+        assert len(self.mock_urlopen.call_args_list[0].args) == 1
+        url = unquote(self.mock_urlopen.call_args_list[0].args[0])
+        # should be something like:
+        # 'http://www.orfeus-eu.org/eidaws/routing/1/query?net=N%3F%3F%2CQ
+        # &sta=A%2A&cha=%2A%2C%3F%2C%3F&end=2025-05-14T11%3A35%3A36.486584
+        # &service=dataselect&format=post'
+        qs = url[url.find('?'):]
+        assert "net=N??,Q" in qs
+        assert "sta=A*" in qs
+        assert "loc=" not in qs and 'start=' not in qs
+        assert 'end=' + dt.isoformat('T') in qs
 
     def test_adarray(self, #fixtures:
                      db):

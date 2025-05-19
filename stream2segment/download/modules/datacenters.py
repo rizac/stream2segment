@@ -10,20 +10,13 @@ from typing import Optional
 import pandas as pd
 
 from stream2segment.io import Fdsnws
-from stream2segment.download.db.models import WebService
+from stream2segment.download.db.models import WebService, Station
 from stream2segment.download.modules.utils import dbsyncdf, formatmsg, fdsn_url
 from stream2segment.download.exc import FailedDownload
 from stream2segment.download.url import urlread
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__)
-
-# global column names to be accessed in channels.py:
-
-SEGMENT_WS_ID_COL = 'Segment.webservice.id'
-SEGMENT_WS_URL_COL = 'Segment.webservice.url'
-STATION_WS_ID_COL = 'Station.webservice.id'
-STATION_WS_URL_COL = 'Station.webservice.url'
 
 
 def get_datacenters_df(
@@ -108,22 +101,24 @@ def get_datacenters_df(
 
     datacenters_df = []
     url2id = dict(zip(ws_df['url'], ws_df['id']))
+    ws_url_col = WebService.url.key
+    ws_id_col = Station.webservice_id.key
     param_names = ('net', 'sta', 'loc', 'cha', 'start', 'end')
     for (station_url, dataselect_url), param_values_set in urls.items():
         for param_values in param_values_set:
             datacenters_df.append({
-                SEGMENT_WS_URL_COL: dataselect_url,
-                STATION_WS_URL_COL: station_url,
-                SEGMENT_WS_ID_COL: url2id[dataselect_url],
-                STATION_WS_ID_COL: url2id[station_url],
+                f'Segment.{ws_url_col}': dataselect_url,
+                ws_url_col: station_url,
+                f'Segment.{ws_id_col}': url2id[dataselect_url],
+                ws_id_col: url2id[station_url],
                 **dict(zip(param_names, param_values))
             })
     # convert to category the dtype of column more likely to have few distinct values:
     datacenters_df = pd.DataFrame(datacenters_df).astype({
-        SEGMENT_WS_URL_COL: 'category',
-        STATION_WS_URL_COL: 'category',
-        SEGMENT_WS_ID_COL: int,
-        STATION_WS_ID_COL: int,
+        f'Segment.{ws_url_col}': 'category',
+        ws_url_col: 'category',
+        f'Segment.{ws_id_col}': int,
+        ws_id_col: int,
         'net': 'category',
         'loc': 'category',
         'cha': 'category',

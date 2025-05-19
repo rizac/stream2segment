@@ -81,22 +81,17 @@ events_extra_params:
 # Stations / Channels: https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=10
 # ====================
 
-# NOTE: the station URL(s) are configurable in `data_url` (see below). When
-# providing several URLs, if the same station code is returned by more than one URL, the
-# program will try to infer the correct one by means of a Routing service for EIDA URLs
-# (see `advanced_settings`) or by querying the station URL to the database, if any. If
-# none of the operations is successful, the station will be discarded and all its
-# available waveforms not downloaded (see log file in case).
-# Implementation details: in case of connection problems where no station can be fetched,
-# then the requested stations (and channels) will be fetched from the database, if any.
+# NOTE: the station URL(s) are configurable in `data_url` (see below). If multiple URLs
+# return the same station code, the program will attempt to resolve them
+# (for eida nodes using routing_service_url in advanced_settings or from already saved
+# stations). In case of unresolved conflicts, the station will be discarded and all its
+# available waveforms not downloaded (check log messages for details).
 
 # Limit the search to the specified channels (if missing, defaults to '*', i.e. fetch all
-# channels). For info see https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf.
-# You can also filter out specific channels by placing the special character "!" in front
-# of them. This is a non-standard syntax implemented in this program and will be applied
-# after the data is downloaded. Consequently, pay attention to inconsistencies, e.g.
-# "!B*,BHZ" will first fetch all channels "BHZ" and then remove them, because "!B*" will
-# remove channels starting with "B".
+# channels). You can also filter out specific channels by placing the negation character
+# "!" in front of them. Being non-standard FDSN syntax, the negation is applied after the
+# data is downloaded. Pay attention to inconsistencies, e.g. "!B*,BHZ" will first fetch
+# all channels "BHZ" and then remove all channels starting with "B" ("!B*").
 # Implementation details: You can also specify a YAML sequence of strings instead of
 # comma-separated strings. E.g., these are equivalent:
 # channels: "A,B"
