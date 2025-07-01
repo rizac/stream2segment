@@ -21,8 +21,7 @@ from stream2segment.download.modules.utils import (dbsyncdf,
                                                    strptime,
                                                    fdsn_url,
                                                    DbExcLogger,
-                                                   RequestErrorOnceLogger,
-                                                   compress)
+                                                   RequestErrorOnceLogger)
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__)
@@ -179,6 +178,7 @@ def events_iter_from_url(base_url, evt_query_args, start, end, timeout,
 
     url = fdsn_url(base_url, **evt_query_args)
     result = _urlread(url, timeout)
+
     if result is not _SUSPECTED_REQUEST_TOO_ARGE:
         if not result:
             raise NothingToDownload(formatmsg(ERR_FETCH_NODATA, "", url))
@@ -205,6 +205,7 @@ def events_iter_from_url(base_url, evt_query_args, start, end, timeout,
                 for i, evt_q_arg in enumerate(evt_q_args):
                     url = fdsn_url(base_url, **evt_q_arg)
                     result = _urlread(url, timeout)
+
                     if result is not _SUSPECTED_REQUEST_TOO_ARGE:
                         # update pbar only if the end of the request equals
                         # the global end_iso (when recursion is done on time, it
@@ -386,7 +387,7 @@ def save_quakeml(session, events_df, max_thread_workers, timeout,
                 else:
                     downloaded += 1
                     dfr = pd.DataFrame({Event.id.key: [evt_id],
-                                        Event.quakeml.key: [compress(data)]})
+                                        Event.quakeml.key: [data]})
                     dbmanager.add(dfr)
 
     dbmanager.close()
