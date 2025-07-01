@@ -596,6 +596,7 @@ class Test:
             assert self.mock_urlopen.called
             self.mock_urlopen.reset_mock()
 
+    @pytest.mark.skip(reason="ISF/ISC not supported anymore")
     @patch('stream2segment.download.modules.events.isf2text_iter', side_effect=isf2text_iter)
     def test_get_events_eventws_from_isc(self, mock_isf_to_text,
                                          # fixtures:

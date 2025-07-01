@@ -197,11 +197,10 @@ def events_iter_from_url(base_url, evt_query_args, start, end, timeout,
     length > 1 if the request was too large and had to be split
     """
     base_url, evt_query_args = _normalize(base_url, evt_query_args, start, end)
-    is_isf_ = evt_query_args['format'] == Formats.ISF
     end_iso = evt_query_args['endtime']
 
     url = urljoin(base_url, **evt_query_args)
-    result = _urlread(url, timeout, is_isf_)
+    result = _urlread(url, timeout, False)
     if result is not _SUSPECTED_REQUEST_TOO_ARGE:
         if not result:
             raise NothingToDownload(formatmsg(ERR_FETCH_NODATA, "", url))
@@ -227,7 +226,7 @@ def events_iter_from_url(base_url, evt_query_args, start, end, timeout,
                 evt_q_args = _split_request(downloads.pop(0))
                 for i, evt_q_arg in enumerate(evt_q_args):
                     url = urljoin(base_url, **evt_q_arg)
-                    result = _urlread(url, timeout, is_isf_)
+                    result = _urlread(url, timeout, False)
                     if result is not _SUSPECTED_REQUEST_TOO_ARGE:
                         # update pbar only if the end of the request equals
                         # the global end_iso (when recursion is done on time, it
@@ -273,8 +272,7 @@ def _normalize(base_url, evt_query_args, start, end):
             evt_query_args['maxmagnitude'] = maxmag
 
     url = EVENTWS_MAPPING.get(base_url, base_url)
-    frmt = Formats.ISF if url == EVENTWS_MAPPING['isc'] else Formats.FDSN
-    evt_query_args.setdefault('format', frmt)
+    evt_query_args.setdefault('format', Formats.FDSN)
 
     return url, evt_query_args
 
