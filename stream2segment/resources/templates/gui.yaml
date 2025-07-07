@@ -26,13 +26,11 @@ sn_spectra:
   smoothing_wlen_ratio: 0.05  # 0 for no smoothing
   type: 'amp'  # if 'pow', then power spectra are computed, otherwise if 'amp', amplitude spectra are computed
 
-# settings for the pre-process function implemented in the associated python module
-preprocess:
-  remove_response_water_level: 60
-  remove_response_output: 'ACC'
-  bandpass_freq_max: 30  # the max frequency, in Hz:
-  bandpass_max_nyquist_ratio: 0.9
-  bandpass_corners: 2
+# settings for the bandpass function using in pre-processing the waveform trace
+bandpass:
+  freq_max: 30  # the max frequency, in Hz:
+  max_nyquist_ratio: 0.9
+  corners: 2
 
 # settings for the wood-anderson implemented in the associated python module
 paz_wa:

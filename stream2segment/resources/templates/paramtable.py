@@ -127,16 +127,13 @@ def main(segment, config):
     if amp_ratio >= config['amp_ratio_threshold']:
         raise SkipSegment('possibly saturated (amp. ratio exceeds)')
 
-    # bandpass the trace, according to the event magnitude.
+    # preprocess the trace: apply a bandpass filter (mag dependent), remove the
+    # instrumental response and RETURN A TRACE IN ACCELERATION UNITS (m/s**2)
     # WARNING: this modifies the segment.stream() permanently!
-    # If you want to preserve the original stream, store trace.copy() beforehand.
-    # Also, use a 'try catch': sometimes Inventories are corrupted and ObsPy raises
-    # a TypeError, which would break the WHOLE processing execution.
-    # Raising a SkipSegment will stop the execution of the currently processed
-    # segment only (logging the error message):
+    # If you want to preserve the original stream, store trace.copy() beforehand
     try:
         trace = bandpass_remresp(segment, config)
-    except (TypeError, ObsPyException) as resp_error:
+    except (TypeError, ValueError, ObsPyException) as resp_error:
         raise SkipSegment("Error in 'bandpass_remresp': %s" % str(resp_error))
 
     spectra = signal_noise_spectra(segment, config)
@@ -144,7 +141,7 @@ def main(segment, config):
     noise_f0, noise_df, noise_spe = spectra['Noise']
     evt = segment.event
     fcmin = mag2freq(evt.magnitude)
-    fcmax = config['preprocess']['bandpass_freq_max']  # used in bandpass_remresp
+    fcmax = config['bandpass']['freq_max']  # used in bandpass_remresp
     snr_ = snr(normal_spe, noise_spe, signals_form=config['sn_spectra']['type'],
                fmin=fcmin, fmax=fcmax, delta_signal=normal_df, delta_noise=noise_df)
     snr1_ = snr(normal_spe, noise_spe, signals_form=config['sn_spectra']['type'],
@@ -284,17 +281,16 @@ def bandpass_remresp(segment, config):
     assert1trace(stream)  # raise and return if stream has more than one trace
     trace = stream[0]
 
-    inventory = segment.inventory()
+    inv = segment.inventory()
 
     # define some parameters:
     evt = segment.event
-    conf = config['preprocess']
+    bp_conf = config['bandpass']
     # note: bandpass here below copied the trace! important!
-    trace = bandpass(trace, mag2freq(evt.magnitude), freq_max=conf['bandpass_freq_max'],
-                     max_nyquist_ratio=conf['bandpass_max_nyquist_ratio'],
-                     corners=conf['bandpass_corners'], copy=False)
-    trace.remove_response(inventory=inventory, output=conf['remove_response_output'],
-                          water_level=conf['remove_response_water_level'])
+    trace = bandpass(trace, mag2freq(evt.magnitude), freq_max=bp_conf['freq_max'],
+                     max_nyquist_ratio=bp_conf['max_nyquist_ratio'],
+                     corners=bp_conf['corners'], copy=False)
+    trace.remove_response(inventory=inv, output='ACC', water_level=None, pre_filt=None)
     return trace
 
 
@@ -445,13 +441,11 @@ def get_multievent_sg(cum_trace, tmin, tmax, sg_params, multievent_thresholds):
 
 
 def synth_wood_anderson(trace, inventory, config):
-    """Low-level function to calculate the synthetic wood-anderson of `trace`. The dict
+    """Low-level function to calculate the synthetic wood-anderson of `trace` (which
+    must be in acceleration units, see `bandpass_remresp`). The dict
     `config['simulate_wa']` must be implemented and houses the Wood-Anderson parameters:
     'sensitivity', 'zeros', 'poles' and 'gain'. Modifies the trace in place
     """
-    trace_input_type = config['preprocess']['remove_response_output']
-
-    conf = config['preprocess']
     config_wa = dict(config['paz_wa'])
     # parse complex string to complex numbers:
     zeros_parsed = map(complex, (c.replace(' ', '') for c in config_wa['zeros']))
@@ -460,16 +454,8 @@ def synth_wood_anderson(trace, inventory, config):
     config_wa['poles'] = list(poles_parsed)
     # compute synthetic WA response. This modifies the trace in-place!
 
-    if trace_input_type in ('VEL', 'ACC'):
-        trace.integrate()
-    if trace_input_type == 'ACC':
-        trace.integrate()
-
-    if trace_input_type is None:
-        pre_filt = (0.005, 0.006, 40.0, 45.0)
-        trace.remove_response(inventory=inventory, output="DISP",
-                              pre_filt=pre_filt,
-                              water_level=conf['remove_response_water_level'])
+    # double integration (move to displacement):
+    trace.integrate().integrate()
 
     return trace.simulate(paz_remove=None, paz_simulate=config_wa)
 

@@ -307,12 +307,6 @@ def init(outdir):
          "Edit and execute: s2s -p gui.py -d download.yaml"),
         ("gui.yaml",
          "Configuration settings in YAML syntax used in the associated module"),
-        # ("save2fs.py",
-        #  "Processing python file for saving waveform to filesystem. "
-        #  "Option -p of 's2s process' and 's2s show'"),
-        # ("save2fs.yaml",
-        #  "Processing configuration used in the associated Python file. "
-        #  "Option -c of 's2s process' and 's2s show'"),
         ("paramtable.py",
          "Python module (runnable as script) illustrating how to produce\n"
          "a parametric table (HDF, CSV) from downloaded data.\n"

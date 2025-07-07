@@ -102,22 +102,21 @@ def bandpass_remresp(segment, config):
     assert1trace(stream)  # raise and return if stream has more than one trace
     trace = stream[0]
 
-    inventory = segment.inventory()
+    inv = segment.inventory()
 
     # define some parameters:
     evt = segment.event
-    conf = config['preprocess']
+    bp_conf = config['bandpass']
     # note: bandpass here below copied the trace! important!
-    trace = bandpass(trace, mag2freq(evt.magnitude), freq_max=conf['bandpass_freq_max'],
-                     max_nyquist_ratio=conf['bandpass_max_nyquist_ratio'],
-                     corners=conf['bandpass_corners'], copy=False)
-    trace.remove_response(inventory=inventory, output=conf['remove_response_output'],
-                          water_level=conf['remove_response_water_level'])
+    trace = bandpass(trace, mag2freq(evt.magnitude), freq_max=bp_conf['freq_max'],
+                     max_nyquist_ratio=bp_conf['max_nyquist_ratio'],
+                     corners=bp_conf['corners'], copy=False)
+    trace.remove_response(inventory=inv, output='ACC', water_level=None, pre_filt=None)
     return trace
 
 
 def mag2freq(magnitude):
-    """returns a magnitude dependent frequency (in Hz)"""
+    """return a magnitude dependent frequency (in Hz)"""
     if magnitude <= 4.5:
         freq_min = 0.4
     elif magnitude <= 5.5:
@@ -200,31 +199,21 @@ def savitzky_golay(y, window_size, order, deriv=0, rate=1):
 
 
 def synth_wood_anderson(trace, inventory, config):
-    """Low-level function to calculate the synthetic wood-anderson of `trace`. The dict
+    """Low-level function to calculate the synthetic wood-anderson of `trace` (which
+    must be in acceleration units, see `bandpass_remresp`). The dict
     `config['simulate_wa']` must be implemented and houses the Wood-Anderson parameters:
     'sensitivity', 'zeros', 'poles' and 'gain'. Modifies the trace in place
     """
-    trace_input_type = config['preprocess']['remove_response_output']
-
-    conf = config['preprocess']
     config_wa = dict(config['paz_wa'])
     # parse complex string to complex numbers:
     zeros_parsed = map(complex, (c.replace(' ', '') for c in config_wa['zeros']))
     config_wa['zeros'] = list(zeros_parsed)
     poles_parsed = map(complex, (c.replace(' ', '') for c in config_wa['poles']))
     config_wa['poles'] = list(poles_parsed)
-    # compute synthetic WA response. This modifies the trace inplace!
+    # compute synthetic WA response. This modifies the trace in-place!
 
-    if trace_input_type in ('VEL', 'ACC'):
-        trace.integrate()
-    if trace_input_type == 'ACC':
-        trace.integrate()
-
-    if trace_input_type is None:
-        pre_filt = (0.005, 0.006, 40.0, 45.0)
-        trace.remove_response(inventory=inventory, output="DISP",
-                              pre_filt=pre_filt,
-                              water_level=conf['remove_response_water_level'])
+    # double integration (move to displacement):
+    trace.integrate().integrate()
 
     return trace.simulate(paz_remove=None, paz_simulate=config_wa)
 

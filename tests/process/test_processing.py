@@ -178,9 +178,12 @@ class Test:
         with open(logfile, 'r') as _:
             logcontent = _.read()
         segs = session.query(Segment.id).filter(Segment.has_data).all()
-        assert ("""4 segment(s) found to process
+        # snr value might change (rounding problems). Catch it:
+        snr_value = re.search(r"1\.35\d*", logcontent).group()
+        # now check that log message is correct"
+        assert (f"""4 segment(s) found to process
 
-segment (id=1): low snr 1.350154
+segment (id=1): low snr {snr_value}
 segment (id=2): 4 traces (probably gaps/overlaps)
 segment (id=4): Station inventory (xml) error: no data
 segment (id=5): 4 traces (probably gaps/overlaps)
@@ -435,6 +438,7 @@ segment (id=5): 4 traces (probably gaps/overlaps)
             except AssertionError:
                 asd =9
 
+    @pytest.mark.skip("save2file not implemented anymore")
     @patch(patches.run_process, side_effect=process_main_run)
     def test_save2file(self, mock_run,
                        # fixtures:
