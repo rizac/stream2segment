@@ -26,7 +26,8 @@ THE_SEGMENT_OBJECT_WIKI_URL_SEGMENT_SELECTION = \
 
 PROCESS_PY_BANDPASSFUNC = """
 Apply a pre-process on the given segment waveform by filtering the signal and
-removing the instrumental response. 
+removing the instrumental response, returning a new Trace in acceleration unit 
+(meters/second**2)
 
 This function is used for processing (see `main` function) and visualization
 (see the `@gui.preprocess` decorator and its documentation above)
@@ -39,7 +40,8 @@ The steps performed are:
 4. Pad data with zeros at the END in order to accommodate the filter transient
 5. Apply bandpass filter, where the lower frequency is magnitude dependent
 6. Remove padded elements
-7. Remove the instrumental response
+7. Remove the instrumental response. For info see
+   https://docs.obspy.org/packages/autogen/obspy.core.trace.Trace.remove_response.html
 
 IMPORTANT: This function modifies the segment stream in-place: further calls to 
 `segment.stream()` will return the pre-processed stream. During visualization, this
