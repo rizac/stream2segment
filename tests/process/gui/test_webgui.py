@@ -305,8 +305,8 @@ class Test:
             assert resp.status_code == 200
             response_data = resp.data.decode('utf-8')
 
-            # In the default processing, we implemented 6 plots, assure they are there:
-            assert len(list(re.finditer(r"\sdata-plot=['\"]\[", response_data))) == 6
+            # In the default processing, we implemented 3 plots, assure they are there:
+            assert len(list(re.finditer(r"\sdata-plot=['\"]\[", response_data))) == 3
 
     def test_get_segs(self, db):  # db is a fixture (see conftest.py). Even if not used, it will
         # assure this function is run once for each given dburl

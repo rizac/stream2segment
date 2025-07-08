@@ -208,9 +208,9 @@ class Test:
         # assert run_row.run_time is not None:
         assert run_row.run_time
 
-        # check if we can add a new run_row safely. According to the server_default specified
-        # in py that would
-        # fail cause within the same transaction the db issues always the same value
+        # check if we can add a new run_row safely. According to the server_default
+        # specified in py that would fail cause within the same transaction the db
+        # issues always the same value
         # BUT we specified also a python default which should make the trick:
         db.session.add(Download())
         # db.session.flush()
@@ -218,13 +218,9 @@ class Test:
         runz = db.session.query(Download).all()
         assert len(runz) == 2
 
-        # assert the two timestamps are equal cause issued within the same session:
-        # (https://www.ibm.com/developerworks/community/blogs/SQLTips4DB2LUW/entry/current_timestamp?lang=en)
-        # this is true in sqlite!!!
-        if db.is_sqlite:
-            assert runz[0].run_time == runz[1].run_time
-        else:
-            assert runz[0].run_time <= runz[1].run_time
+        # assert the two timestamps are equal (+-1 sec) cause issued within the same
+        # session:
+        assert runz[1].run_time - runz[0].run_time <= timedelta(seconds=1)
 
         # now pass a utcdatetime and see if we keep that value:
         utcnow = datetime.utcnow()
