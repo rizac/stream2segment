@@ -142,22 +142,22 @@ def main(segment, config):
     evt = segment.event
     fcmin = mag2freq(evt.magnitude)
     fcmax = config['bandpass']['freq_max']  # used in bandpass_remresp
-    snr_ = snr(normal_spe, noise_spe, signals_form=config['sn_spectra']['type'],
-               fmin=fcmin, fmax=fcmax, delta_signal=normal_df, delta_noise=noise_df)
-    snr1_ = snr(normal_spe, noise_spe, signals_form=config['sn_spectra']['type'],
-                fmin=fcmin, fmax=1, delta_signal=normal_df, delta_noise=noise_df)
-    snr2_ = snr(normal_spe, noise_spe, signals_form=config['sn_spectra']['type'],
-                fmin=1, fmax=10, delta_signal=normal_df, delta_noise=noise_df)
-    snr3_ = snr(normal_spe, noise_spe, signals_form=config['sn_spectra']['type'],
-                fmin=10, fmax=fcmax, delta_signal=normal_df, delta_noise=noise_df)
-    if snr_ < config['snr_threshold']:
-        raise SkipSegment('low snr %f' % snr_)
+    snr_min_max = snr(normal_spe, noise_spe, signals_form=config['sn_spectra']['type'],
+                      fmin=fcmin, fmax=fcmax, delta_signal=normal_df, delta_noise=noise_df)
+    snr_min_1 = snr(normal_spe, noise_spe, signals_form=config['sn_spectra']['type'],
+                    fmin=fcmin, fmax=1, delta_signal=normal_df, delta_noise=noise_df)
+    snr_1_10 = snr(normal_spe, noise_spe, signals_form=config['sn_spectra']['type'],
+                   fmin=1, fmax=10, delta_signal=normal_df, delta_noise=noise_df)
+    snr_10_max = snr(normal_spe, noise_spe, signals_form=config['sn_spectra']['type'],
+                     fmin=10, fmax=fcmax, delta_signal=normal_df, delta_noise=noise_df)
+    if snr_min_max < config['snr_threshold']:
+        raise SkipSegment('low snr %f' % snr_min_max)
 
     # calculate cumulative
 
     cum_trace = cumsumsq(trace, normalize=True, copy=True)
     # Note above: copy=True prevent original trace from being modified
-    # get times where cumulative reaches specific values/labels
+    # get times when cumulative reaches specific values/labels
     _cumlabels = [0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99]
     _cumtimes = (timeof(cum_trace, i) for i in np.searchsorted(cum_trace.data, _cumlabels))
     cumtime = {c: t for c, t in zip(_cumlabels, _cumtimes)}
@@ -203,7 +203,7 @@ def main(segment, config):
                                     np.log10(ampspec_freqs),
                                     normal_spe) / segment.sample_rate
 
-    # compute synthetic WA.
+    # compute synthetic WA
     trace_wa = synth_wood_anderson(trace.copy(), segment.inventory(), config)
     try:
         _argmax = np.nanargmax(np.abs(trace_wa.data))
@@ -215,10 +215,10 @@ def main(segment, config):
     # write stuff to csv / hdf:
     ret = {}
 
-    ret['snr'] = snr_
-    ret['snr1'] = snr1_
-    ret['snr2'] = snr2_
-    ret['snr3'] = snr3_
+    ret['snr_fmin_fmax'] = snr_min_max
+    ret['snr_fmin_1'] = snr_min_1
+    ret['snr_1_10'] = snr_1_10
+    ret['snr_10_fmax'] = snr_10_max
 
     # cumulative times:
     for _cumlabel in [0.05, 0.5, 0.95]:

@@ -36,13 +36,18 @@ g_segment_ids = None
 
 
 def _default_preprocessfunc(segment, config):
-    """Default pre-process function: remove the instrumental response
-    assuming output unit in m/s and water level for deconvolution = 60
+    """Default pre-process function: remove the instrumental response with no pre_filt and
+    water_level=60. If the channel instrument code is in ('N', 'G', 'L') output will be
+    m/s**2 ('ACC'), otherwise m/s ('VEL')
     """
     s = Stream()
     inventory = segment.inventory()
+    i_code = segment.channel.instrument_code
+    output = 'VEL'
+    if i_code in ('N', 'G', 'L'):
+        output = 'ACC'
     for t in segment.stream():
-        t.remove_response(inventory)
+        t.remove_response(inventory, water_level=60, output=output, pre_filt=None)
         s.append(t)
     return s[0] if len(s) == 1 else s
     # raise Exception("No function decorated with '@gui.preprocess'")
