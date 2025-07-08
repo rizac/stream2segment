@@ -31,19 +31,3 @@ bandpass:
   freq_max: 30  # the max frequency, in Hz:
   max_nyquist_ratio: 0.9
   corners: 2
-
-# settings for the wood-anderson implemented in the associated python module
-paz_wa:
-  sensitivity: 2800
-  zeros:
-    - '0j'
-  poles:
-    - '-6.2832-4.7124j'
-    - '-6.2832+4.7124j'
-  gain: 1
-
-# savitzky_golay:
-savitzky_golay:
-  wsize: 31  # window size in pts
-  order: 4   # polynomial order to use to fit and smooth data
-  deriv: 2   # the derivative (1st, second, ...)
