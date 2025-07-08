@@ -7,6 +7,7 @@ import logging
 
 import numpy as np
 import pandas as pd
+from sqlalchemy import func
 
 from stream2segment.io.cli import get_progressbar
 from stream2segment.io.db.pdsql import DbManager
@@ -31,18 +32,25 @@ def get_events_df(session, url, evt_query_args, start, end,
                   db_bufsize=30, timeout=15,
                   show_progress=False):
     """Return the event data frame from the given url or local file"""
+    local_file = is_local_file(url)
 
-    eventws_id = configure_ws_fk(url, session, db_bufsize)
+    eventws_id = configure_ws_fk(
+        f"file:///.../{os.path.basename(url)}" if local_file else url,
+        session, db_bufsize
+    )
 
     pd_df_list = events_df_list(url, evt_query_args, start, end, timeout, show_progress)
     # pd_df_list surely not empty (otherwise we raised FailedDownload)
     events_df = pd.concat(pd_df_list, axis=0, ignore_index=True, copy=False)
-
     events_df[Event.webservice_id.key] = eventws_id
+
+    if local_file:
+        check_events_df_from_local_file(events_df, session, show_progress)
+
     events_df = dbsyncdf(events_df, session,
-                         [Event.event_id, Event.webservice_id], Event.id,
+                         [Event.eventid, Event.webservice_id], Event.id,
                          buf_size=db_bufsize,
-                         cols_to_print_on_err=[Event.event_id.key, Event.magnitude.key,
+                         cols_to_print_on_err=[Event.eventid.key, Event.magnitude.key,
                                                Event.time.key],
                          keep_duplicates='first')
 
@@ -57,8 +65,6 @@ def configure_ws_fk(eventws_url, session, db_bufsize):
     ws_name = ''
     if eventws_url in EVENTWS_MAPPING:
         eventws_url = EVENTWS_MAPPING[eventws_url]
-    elif islocalfile(eventws_url):
-        eventws_url = tofileuri(eventws_url)
 
     eventws_id = session.query(WebService.id). \
         filter(WebService.url == eventws_url).scalar()
@@ -86,12 +92,17 @@ def events_df_list(url, evt_query_args, start, end, timeout=15, show_progress=Fa
         formatted)
     """
     urls_and_data = []
-    is_local_file = islocalfile(url)
-    if is_local_file:
+    local_file = is_local_file(url)
+    if local_file:
         try:
-            urls_and_data.append(events_data_from_file(url))
+            with open(url, encoding='utf-8') as opn:
+                data = opn.read()
+                if not data:
+                    raise ValueError('Empty file')
+                urls_and_data.append(data)
         except Exception as exc:
-            raise FailedDownload(formatmsg(ERR_READ_FDSN, exc, tofileuri(url)))
+            raise FailedDownload(formatmsg(ERR_READ_FDSN, exc,
+                                           f"file:///.../{os.path.basename(url)}"))
     else:
         try:
             urls_and_data = list(events_iter_from_url(url, evt_query_args, start, end,
@@ -114,8 +125,8 @@ def events_df_list(url, evt_query_args, start, end, timeout=15, show_progress=Fa
                 logger.warning(formatmsg(f"{discarded} row(s) discarded",
                                          "malformed text data", url))
         except Exception as exc:
-            msg = ERR_READ_FDSN if is_local_file else ERR_FETCH_FDSN
-            if is_local_file or len(urls_and_data) == 1:  # raise:
+            msg = ERR_READ_FDSN if local_file else ERR_FETCH_FDSN
+            if local_file or len(urls_and_data) == 1:  # raise:
                 raise FailedDownload(formatmsg(msg, exc, url_))
             else:
                 logger.warning(formatmsg(msg, exc, url_))
@@ -139,28 +150,28 @@ def normalize_url(base_url, evt_query_args, start, end):
     return fdsn_url(_url, **_query_args)
 
 
-def events_data_from_file(file_path):
-    """Yield the tuple (filepath, events_data) from a file, which must exist
-    on the local computer.
-    The only supported format is txt.
-    """
-    with open(file_path, encoding='utf-8') as opn:
-        data = opn.read()
-        if not data:
-            raise ValueError('Empty file')
-        return tofileuri(file_path), data
+# def events_data_from_file(file_path):
+#     """Yield the tuple (filepath, events_data) from a file, which must exist
+#     on the local computer.
+#     The only supported format is txt.
+#     """
+#     with open(file_path, encoding='utf-8') as opn:
+#         data = opn.read()
+#         if not data:
+#             raise ValueError('Empty file')
+#         return tofileuri(file_path), data
 
 
-def tofileuri(file_path):
-    """return a file URI form the given file,
-    basically file_path:///+basename(file_path)
-    """
-    # https://en.wikipedia.org/wiki/File_URI_scheme#Format
-    # return 'file:///' + os.path.abspath(os.path.normpath(file_path))
-    return 'file:///' + os.path.basename(file_path)
+# def tofileuri(file_path):
+#     """return a file URI form the given file,
+#     basically file_path:///+basename(file_path)
+#     """
+#     # https://en.wikipedia.org/wiki/File_URI_scheme#Format
+#     # return 'file:///' + os.path.abspath(os.path.normpath(file_path))
+#     return 'file:///' + os.path.basename(file_path)
 
 
-def islocalfile(url):
+def is_local_file(url):
     """Return whether url denotes a local file path, existing on the computer
     machine
     """
@@ -393,3 +404,55 @@ def save_quakeml(session, events_df, max_thread_workers, timeout,
     dbmanager.close()
 
     return downloaded, empty, errors
+
+
+def check_events_df_from_local_file(events_df: pd.DataFrame, session,
+                                    show_progress=False):
+    suffix_msg = "Check events file"
+    dupes = events_df[[Event.eventid.key]].duplicated().sum()
+    if dupes:
+        raise FailedDownload(f'Events file contains {dupes:,} events with same '
+                             f'`eventid` (1st column). {suffix_msg}')
+    # check duplicated
+    mag, time, lat, lon = Event.magnitude, Event.time, Event.latitude, Event.longitude  # noqa
+    tmp_df = pd.DataFrame({
+        # mag: events_df[mag.key],
+        time: events_df[time.key].dt.round('s'),
+        lat: events_df[lat.key].round(3),
+        lon: events_df[lon.key].round(3)
+    })
+    dupes = tmp_df.duplicated().sum()
+    if dupes:
+        raise FailedDownload(f'Events file contains {dupes:,} events with similar '
+                             f'spatio-temporal coordinates. {suffix_msg}')
+    events_from_file = 0
+    ws_ids = {
+        row[0] for row in
+        session.query(WebService).filter(WebService.url.like("file:/%"))
+    }
+    if ws_ids:
+        events_from_file = session.query(func.count()).select_from(Event).\
+            filter(Event.webservice_id.in_(ws_ids)).scalar()
+
+    if not events_from_file:
+        return
+
+    logger.info("Checking events in local file vs. db")
+    with get_progressbar(len(events_df) if show_progress else 0) as pbar:
+
+        for ev_id, m_, t_, la_, lo_ in zip(
+                events_df[Event.eventid.key],
+                events_df[mag.key],
+                events_df[time.key],
+                events_df[lat.key],
+                events_df[lon.key]
+        ):
+            pbar.update(1)
+            db_val = session.query(mag, time, lat, lon).filter(
+                Event.webservice_id.in_(ws_ids) & (Event.eventid == ev_id)
+            ).first()
+            if db_val is None or tuple(db_val) == (m_, t_, la_, lo_):
+                continue
+            raise FailedDownload(f'Event eventid={ev_id} is already stored in the '
+                                 f'database with different magnitude or coordinates. '
+                                 f'{suffix_msg}')
