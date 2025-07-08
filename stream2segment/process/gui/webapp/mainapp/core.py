@@ -231,9 +231,9 @@ def set_class_id(seg_id, class_id, value):
         annotator = 'anonymous labeller'
 
     if value:
-        segment.add_classlabel(class_id, annotator=annotator)
+        segment.label(class_id, annotator=annotator)
     else:
-        segment.del_classlabel(class_id)
+        segment.label(class_id, remove=True)
     return db.get_classlabelling_count(class_id)
 
 

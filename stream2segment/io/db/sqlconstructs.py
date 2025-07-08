@@ -101,7 +101,7 @@ def sqlite_duration_sec(element, compiler, **kw):
     return _duration_sqlite(starttime, endtime)
 
 
-# function `missing_data_sec`
+# function `missing_data_sec` (legacy code, unused) FIXME remove?
 
 class missing_data_sec(FunctionElement):
     name = 'missing_data_sec'
@@ -125,7 +125,7 @@ def sqlite_missing_data_sec(element, compiler, **kw):
                                   _duration_sqlite(request_start, request_end))
 
 
-# function `missing_data_ratio`
+# function `missing_data_ratio` (legacy code, unused) FIXME remove?
 
 class missing_data_ratio(FunctionElement):
     name = 'missing_data_ratio'

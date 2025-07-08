@@ -291,46 +291,6 @@ class RequestErrorOnceLogger(set):
             logger.warning(formatmsg(exc, "", request_str))
 
 
-def compress(bytestr, compression='gzip', compresslevel=9):
-    """Compress `bytestr` returning a new compressed byte sequence
-
-    :param bytestr: (string) a sequence of bytes to be compressed
-    :param compression: String, either ['bz2', 'zlib', 'gzip', 'zip'. Default: 'gzip']
-        The compression library to use (after serializing `obj` with the given format)
-        on the serialized data. If None or empty string, no compression is applied, and
-        `bytestr` is returned as it is
-    :param compresslevel: integer (9 by default). Ignored if `compression` is None,
-        empty or 'zip' (the latter does not accept this argument), this parameter
-        controls the level of compression; 1 is fastest and produces the least
-        compression, and 9 is slowest and produces the most compression
-    """
-    if compression == 'bz2':
-        return bz2.compress(bytestr, compresslevel=compresslevel)
-    elif compression == 'zlib':
-        return zlib.compress(bytestr, compresslevel)
-    elif compression:
-        sio = BytesIO()
-        if compression == 'gzip':
-            with gzip.GzipFile(mode='wb', fileobj=sio,
-                               compresslevel=compresslevel) as gzip_obj:
-                gzip_obj.write(bytestr)
-                # Note: DO NOT return sio.getvalue() WITHIN the with statement,
-                # the gzip file obj needs to be closed first. FIXME: ref?
-        elif compression == 'zip':
-            # In this case, use the compress argument to ZipFile to compress the data,
-            # since writestr() does not take compress as an argument. See:
-            # https://pymotw.com/2/zipfile/#writing-data-from-sources-other-than-files
-            with zipfile.ZipFile(sio, 'w', compression=zipfile.ZIP_DEFLATED) as zip_obj:
-                zip_obj.writestr("x", bytestr)  # first arg must be a nonempty str
-        else:
-            raise ValueError("compression '%s' not in ('gzip', 'zlib', 'bz2', 'zip')" %
-                             str(compression))
-
-        return sio.getvalue()
-
-    return bytestr
-
-
 def response_text_to_df(response: str):
     """Convert a response content obtained from an fdsn webservice with format=text
     into a pandas DataFrame of type str (no casting performed)"""

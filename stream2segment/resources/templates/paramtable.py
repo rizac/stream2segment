@@ -133,7 +133,7 @@ def main(segment, config):
     # If you want to preserve the original stream, store trace.copy() beforehand
     try:
         trace = bandpass_remresp(segment, config)
-    except (TypeError, ValueError, ObsPyException) as resp_error:
+    except (TypeError, ObsPyException, ValueError) as resp_error:
         raise SkipSegment("Error in 'bandpass_remresp': %s" % str(resp_error))
 
     spectra = signal_noise_spectra(segment, config)

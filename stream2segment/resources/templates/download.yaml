@@ -30,10 +30,9 @@ endtime: 2016-12-25T00:00:00
 # The event catalog in form of FDSN URL or local file path.
 # The events list, returned by the URL or in the supplied file, must be in FDSN format
 # (https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=16).
-# IMPORTANT: when downloading on an existing database, the program identifies already
-# downloaded events comparing their id and catalog URL. If the catalog is a file, the
-# file name will be used instead: as such, pay attention to rename an events file, or you
-# might end up re-downloading all events and data unnecessarily.
+# IMPORTANT: When downloading on an existing database and supplying a local file path,
+# the program cannot check and discard duplicated events automatically and will use
+# the events eventid and catalog (1st and 7th # column) which must be explicitly set.
 # You can also type these shortcut strings instead of URLs:
 # {{ DOWNLOAD_EVENTWS_LIST }}.
 events_url: 'http://seismicportal.eu/fdsnws/event/1/query'

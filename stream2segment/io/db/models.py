@@ -5,10 +5,9 @@ s2s database ORM
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
-from enum import Enum
-
+import gzip
 import sqlite3
-
+from math import pi
 from sqlalchemy import (
     Column,
     ForeignKey as SqlAlchemyForeignKey,  # we override it (see below)
@@ -19,35 +18,40 @@ from sqlalchemy import (
     Float,
     LargeBinary,
     UniqueConstraint,
-    event)
+    event, TypeDecorator)
 from sqlalchemy.engine import Engine
-from sqlalchemy.ext.declarative import declared_attr
 from sqlalchemy.ext.hybrid import hybrid_property  # , hybrid_method
 from sqlalchemy.inspection import inspect
-from sqlalchemy.orm import relationship, backref, deferred  # , load_only
-
-from sqlalchemy.sql.expression import (func, text)
+from sqlalchemy.orm import relationship, backref, deferred, aliased, load_only, \
+    selectinload
+from sqlalchemy.sql.expression import text, case, select, func  # or_ , and_
 
 from stream2segment.io import Fdsnws
+from stream2segment.io.db import sqlalchemy_version
+from stream2segment.io.db.sqlconstructs import concat, deg2km, duration_sec
+
+try:
+    from sqlalchemy.ext.declarative import declarative_base  # v<1.4
+except ImportError:
+    from sqlalchemy.orm import declarative_base  # v1.4+
 
 
-class Base:
+if sqlalchemy_version < 2:  # https://stackoverflow.com/a/75634238
+    __sa_select__ = select
+
+    def select(*entities, **kw):
+        """backward compatible select"""
+        return __sa_select__(list(entities), **kw)
+
+    __sa_case__ = case
+
+    def case(*entities, **kw):
+        """backward compatible select"""
+        return __sa_case__(list(entities), **kw)  # noqa
+
+
+class _Base:
     """Abstract base class for a Stream2segment ORM Model"""
-
-    @declared_attr
-    def __tablename__(cls):
-        chars = [cls.__name__[0].lower()]
-        for char in cls.__name__[1:]:
-            charl = char.lower()
-            if charl != char:
-                chars.append('_')
-            chars.append(charl)
-        chars.append('es' if chars[-1] == 's' else 's')
-        return ''.join(chars)
-
-    @declared_attr
-    def id(cls):
-        return Column('id', Integer, primary_key=True, autoincrement=True)  # noqa
 
     def __str__(self):
         """Return a meaningful string representation (with info on loaded
@@ -95,6 +99,22 @@ class Base:
         return "\n".join(ret)
 
 
+Base = declarative_base(cls=_Base)
+
+
+class CompressedBinary(TypeDecorator):
+    """Custom column type for compressed XML (QuakeML and StationXML)"""
+
+    impl = LargeBinary
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        return None if value is None else gzip.compress(value, compresslevel=9)
+
+    def process_result_value(self, value, dialect):
+        return None if value is None else gzip.decompress(value)
+
+
 @event.listens_for(Engine, "connect")
 def set_sqlite_pragma(dbapi_connection, connection_record):
     """Turn foreign keys ON for SQLite. For info see:
@@ -126,67 +146,47 @@ def ForeignKey(*pos, **kwa):
     return SqlAlchemyForeignKey(*pos, **kwa)
 
 
-def withdata(model_column):
-    """Return a filter argument for returning instances with values of
-    `model_column` NOT *empty* nor *null*. `model_column` type must be STRING
-    or BLOB. Examples:
-    ```
-    # given a table User, return empty or none via "~"
-    session.query(User.id).filter(~withdata(User.data)).all()
-
-    # return "valid" columns:
-    session.query(User.id).filter(withdata(User.data)).all()
-    ```
-
-    :param model_column: A valid column name, e.g. an attribute Column defined
-        in some SQL-Alchemy orm model class (e.g., 'User.data'). **The type of
-        the column must be STRING or BLOB**, otherwise result is undefined.
-        For instance, numeric column with zero as value are *not* empty (as
-        the SQL length function applied to numeric returns the number of bytes)
-    """
-    return (model_column.isnot(None)) & (func.length(model_column) > 0)
-
-
-class Download(Base):  # pylint: disable=too-few-public-methods
+class DownloadRun(Base):  # noqa
     """Model representing the executed downloads"""
+    __tablename__ = 'download_run'
 
-    # Column(Integer, primary_key=True, autoincrement=True)  # noqa
-
-    # run_time below has server_default as `func.now()`. This issues a CURRENT
-    # TIMESTAMP on the SQL side. That's ok, BUT the column CANNOT BE UNIQUE!!
-    # the CURRENT TIMESTAMP is evaluated once at the beginning of an SQL
-    # Statement, so two references in the same session will result in the same
-    # value. If we need to make a datetime unique, then either specify
-    # 1) default=datetime.datetime.utcnow() BUT NO server_default (the latter
-    # seems to have priority if both are provided)
-    # 2) or don't make the column unique (what we did)
     run_time = Column(DateTime, server_default=func.now())
-
-    @declared_attr
-    def log(cls):
-        return deferred(Column(String))  # lazy load: only upon direct access
-
-    warnings = Column(Integer, server_default=text('0'))  # , default=0)
-    errors = Column(Integer, server_default=text('0'))  # , default=0)
-
-    @declared_attr
-    def config(cls):
-        return deferred(Column(String))
-
+    log = deferred(Column(String))  # lazy load: only upon direct access
+    warnings = Column(Integer, server_default="0")  # , default=0)
+    errors = Column(Integer, server_default="0")  # , default=0)
+    config = deferred(Column(String))
     program_version = Column(String)
 
 
-class Event(Base):  # pylint: disable=too-few-public-methods
+class WebService(Base):
+    """Model representing a web service (e.g., event web service)"""
+    __tablename__ = 'webservice'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    url = Column(String, nullable=False)
+
+    def __table_args__(cls):  # noqa
+        return UniqueConstraint('url', name='url_uc'),  # <- tuple
+
+
+class QuakeML(Base):
+    """Model representing a Waveform segment"""
+    __tablename__ = 'quakeml'
+
+    id = Column(Integer, ForeignKey('Event.id'), primary_key=True)
+    data = Column(CompressedBinary, nullable=False)
+
+
+class Event(Base):  # noqa
     """Model representing a seismic Event"""
+    __tablename__ = 'event'
 
-    # id = Column(Integer, primary_key=True, autoincrement=True)  # noqa
-
-    @declared_attr
-    def webservice_id(cls):
-        return Column(Integer, ForeignKey("web_services.id"), nullable=False)
-
-    event_id = Column(String, nullable=False)
-    time = Column(DateTime, nullable=False)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    webservice_id = Column(
+        Integer, ForeignKey(WebService.id), index=True, nullable=True
+    )
+    eventid = Column(String, nullable=False)
+    time = Column(DateTime, nullable=False, index=True)
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)
     depth_km = Column(Float, nullable=False)
@@ -195,34 +195,26 @@ class Event(Base):  # pylint: disable=too-few-public-methods
     # contributor = Column(String)
     # contributor_id = Column(String)
     mag_type = Column(String)
-    magnitude = Column(Float, nullable=False)
+    magnitude = Column(Float, nullable=False, index=True)
     # mag_author = Column(String)
     # event_location_name = Column(String)
     # event_type = Column(String)
-    quakeml = Column(LargeBinary)
+
+    quakeml = relationship(QuakeML, uselist=False)  # One-to-one
+
+    @property
+    def quakeml_data(self):
+        return None if self.quakeml is None else self.quakeml.data
+
+    web_service = relationship(WebService)
 
     @property
     def url(self):
-        return self.webservice.url + '?eventid=%s' % str(self.event_id)
+        return f'{self.web_service.url}?eventid={str(self.eventid)}'
 
-    @declared_attr
-    def webservice(cls):
-        return relationship("WebService", backref=backref("events", lazy="dynamic"))
-
-    @declared_attr
-    def __table_args__(cls):  # noqa  # https://stackoverflow.com/a/43993950
+    def __table_args__(cls):  # noqa
         return UniqueConstraint('webservice_id', 'event_id',
                                 name='ws_eventid_uc'),  # <- tuple
-
-
-class WebService(Base):
-    """Model representing a web service (e.g., event web service)"""
-
-    url = Column(String, nullable=False)
-
-    @declared_attr
-    def __table_args__(cls):  # noqa  # https://stackoverflow.com/a/43993950
-        return UniqueConstraint('url', name='url_uc'),  # <- tuple
 
 
 def check_datacenter_urls_fdsn(target):
@@ -245,121 +237,129 @@ def check_datacenter_urls_fdsn(target):
     target.dataselect_url = fdsn.url(Fdsnws.DATASEL)
 
 
-class Station(Base):
+class Channel(Base):
     """Model representing a Station"""
+    __tablename__ = 'channel'
 
-    # id = Column(Integer, primary_key=True, autoincrement=True)
-    @declared_attr
-    def webservice_id(cls):
-        return Column(Integer, ForeignKey("web_services.id"), nullable=False)
-
-    network = Column(String, nullable=False)
-    station = Column(String, nullable=False)
+    # id column implemented in Base
+    webservice_id = Column(
+        Integer, ForeignKey(WebService.id), nullable=False, index=True
+    )
+    network_code = Column(String(8), nullable=False, index=True)
+    station_code = Column(String(8), nullable=False, index=True)
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)
     elevation = Column(Float)
     # site_name = Column(String)
-    start_time = Column(DateTime, nullable=False)
-    end_time = Column(DateTime)
-    stationxml = Column(LargeBinary)
-
-    @property
-    def url(self):
-        qry_str = 'net=%s&sta=%s&start=%s' % \
-                  (self.network, self.station, self.start_time.isoformat('T'))
-        return self.webservice.url + '?%s' % qry_str
-
-    @hybrid_property
-    def has_inventory(self):
-        return bool(self.stationxml)
-
-    @has_inventory.expression
-    def has_inventory(cls):  # pylint:disable=no-self-argument
-        return withdata(cls.stationxml)
-
-    # relationships (implement here only those shared by download+process):
-    @declared_attr
-    def webservice(cls):
-        return relationship("WebService", backref=backref("stations", lazy="dynamic"))
-
-    @declared_attr
-    def __table_args__(cls):  # noqa  # https://stackoverflow.com/a/43993950
-        return (UniqueConstraint('network', 'station', 'start_time',
-                                 name='net_sta_stime_uc'),)
-
-
-class Channel(Base):
-    """Model representing a Channel"""
-
-    # id = Column(Integer, primary_key=True, autoincrement=True)
-    @declared_attr
-    def station_id(cls):
-        return Column(Integer, ForeignKey("stations.id"), nullable=False)
-
-    location = Column(String, nullable=False)
-    channel = Column(String, nullable=False)
-    depth = Column(Float)
+    start_time = Column(DateTime, nullable=False)  # = channel start time
+    end_time = Column(DateTime)  # = channel end time
+    location_code = Column(String(8), nullable=False, index=True)
+    band_code = Column(String(1), nullable=False, index=True)
+    instrument_code = Column(String(1), nullable=False, index=True)
+    orientation_code = Column(String(1), nullable=False, index=True)
+    depth = Column(Float, index=True)
     azimuth = Column(Float)
     dip = Column(Float)
     # sensor_description = Column(String)
     scale = Column(Float)
     scale_freq = Column(Float)
     scale_units = Column(String)
-    sample_rate = Column(Float, nullable=False)
+    sample_rate = Column(Float, nullable=False, index=True)
 
-    # relationships:
-    # relationships (implement here only those shared by download+process):
-    @declared_attr
-    def station(cls):
-        return relationship("Station", backref=backref("channels", lazy="dynamic"))
+    web_service = relationship(WebService)
 
-    @declared_attr
+    @property
+    def url(self):
+        params = "&".join([
+            f"net={self.network_code}",
+            f"sta={self.station_code}",
+            f"loc={self.location_code}",
+            f"cha={self.channel_code}"
+        ])
+        return f"{self.webservice.url}?{params}&level=channel"
+
     def __table_args__(cls):  # noqa  # https://stackoverflow.com/a/43993950
-        return (UniqueConstraint('station_id', 'location', 'channel',
-                                 name='net_sta_loc_cha_uc'),)
+        return UniqueConstraint('webservice_id', 'network_code', 'station_code',
+                                name='channel_uc'),
+
+    # hybrid properties:
+
+    @hybrid_property
+    def network_station_code(self):
+        return f"{self.network}.{self.station}"
+
+    @network_station_code.expression
+    def network_station_code(cls):  # noqa
+        """Return the station code, i.e. self.network + '.' + self.station"""
+        return concat(cls.network_code, text("'.'"), cls.station_code). \
+            label('network_station_code')
+
+    @hybrid_property
+    def channel_code(self):
+        return f'{self.band_code}{self.instrument_code}{self.orientation_code}'
+
+    @channel_code.expression
+    def channel_code(cls):  # noqa
+        """Return the channel code"""
+        return concat(cls.band_code, cls.instrument_code, cls.orientation_code).\
+            label('channel_code')
 
 
-MINISEED_READ_ERROR_CODE = -2
+# MINISEED_READ_ERROR_CODE = -2  FIXME check where used and remove
+
+
+class StationXML(Base):
+    """Model representing a StationXML data"""
+    __tablename__ = 'stationxml'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    data = Column(CompressedBinary, nullable=False)
+
+
+class MiniSeed(Base):
+    """Model representing a Waveform segment"""
+    __tablename__ = 'mini_seed'
+
+    id = Column(Integer, ForeignKey('Segment.id'), primary_key=True)
+    data = Column(LargeBinary, nullable=False)
 
 
 class Segment(Base):
-    """Model representing a Waveform segment"""
+    """Model representing a Downloaded segment"""
+    __tablename__ = 'segment'
 
-    # id = Column(Integer, primary_key=True, autoincrement=True)
-
-    @declared_attr
-    def event_id(cls):
-        return Column(Integer, ForeignKey("events.id"), nullable=False)
-
-    @declared_attr
-    def channel_id(cls):
-        return Column(Integer, ForeignKey("channels.id"), nullable=False)
-
-    @declared_attr
-    def webservice_id(cls):
-        return Column(Integer, ForeignKey("web_services.id"), nullable=False)
-
-    data_seed_id = Column(String)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    event_id = Column(Integer, ForeignKey("Event.id"), nullable=False, index=True)
+    webservice_id = deferred(Column(
+        Integer, ForeignKey("WebService.id"), nullable=False, index=True
+    ))
+    channel_id = Column(Integer, ForeignKey(Channel.id), nullable=False, index=True)
+    download_run_id = deferred(Column(
+        Integer, ForeignKey("DownloadRun.id"), nullable=False, index=True
+    ))
+    stationxml_id = Column(
+        Integer, ForeignKey(StationXML.id), nullable=True, index=True
+    )
     event_distance_deg = Column(Float, nullable=False)
-    data = Column(LargeBinary)
-    download_code = Column(Integer)
+    download_code = Column(Integer, index=True)
     start_time = Column(DateTime)
     arrival_time = Column(DateTime, nullable=False)
     end_time = Column(DateTime)
-    sample_rate = Column(Float)
+    # sample_rate = Column(Float)
     maxgap_numsamples = Column(Float)
+    # request_start = deferred(Column(DateTime, nullable=False))
+    # request_end = deferred(Column(DateTime, nullable=False))
+    # queryauth = deferred(Column(Boolean, nullable=False, server_default="0"))
+    # has_data = Column(Boolean, nullable=False, server_default="0", index=True)
 
-    # NOTE: implement a download_code, request_start, request_end, station, channel, web_service, arrival_time, has_data (bool)
-    # Separate MiniSeed table: foreign key + primary key to segments table, and data column (BLOB)
+    miniseed = relationship(MiniSeed, uselist=False)  # One-to-one
 
-    @declared_attr
-    def download_id(cls):
-        return Column(Integer, ForeignKey("downloads.id"), nullable=False)
+    @property
+    def miniseed_data(self):
+        return None if self.miniseed is None else self.miniseed.data
 
-    request_start = Column(DateTime, nullable=False)
-    request_end = Column(DateTime, nullable=False)
-    queryauth = Column(Boolean, nullable=False,
-                       server_default="0")  # note: null fails in sqlite!
+    webservice = relationship(WebService)
+    channel = relationship(Channel, backref=backref("segments", lazy="dynamic"))
 
     @property
     def url(self):
@@ -367,87 +367,166 @@ class Segment(Base):
         waveform data in miniSEED format (For details, see GET request here:
         https://www.fdsn.org/webservices/fdsnws-dataselect-1.1.pdf)
         """
-        net, sta = self.station.network, self.station.station
-        loc, cha = self.channel.location, self.channel.channel
-        qry_str = 'net=%s&sta=%s&loc=%s&cha=%s&start=%s&end=%s' % \
-                  (net, sta, loc, cha, self.request_start.isoformat('T'),
-                   self.request_end.isoformat('T'))
-        return self.webservice.url + '?%s' % qry_str
+        net, sta = self.channel.network_code, self.channel.station_code
+        loc, cha = self.channel.location_code, self.channel.channel_code
+        start = self.start_time.isoformat('T')
+        end = self.end_time.isoformat('T')
+        return (f"{self.webservice.url}?"
+                f"net={net}&sta={sta}&loc={loc}&cha={cha}&start={start}&end={end}")
 
-    @hybrid_property
-    def has_data(self):
-        return bool(self.data)
+    @property
+    def stationxml_url(self):
+        params = "&".join([
+            f"net={self.channel.network_code}",
+            f"sta={self.channel.station_code}"
+        ])
+        return f"{self.channel.webservice.url}?{params}&level=response"
 
-    @has_data.expression
-    def has_data(cls):  # pylint:disable=no-self-argument
-        return withdata(cls.data)
-
-    @hybrid_property
-    def has_valid_data(self):
-        return bool(self.data) and self.download_code is not None and \
-            self.download_code != MINISEED_READ_ERROR_CODE
-
-    @has_valid_data.expression
-    def has_valid_data(cls):  # pylint:disable=no-self-argument
-        # download code should never be None. However, for safety, != None
-        # checks also that the server HTTP status code is an integer properly
-        # set. Note that by checking cls.download_code == 200 is not sufficient
-        # as there are custom codes set during download
-        return withdata(cls.data) & \
-            cls.download_code.isnot(None) & \
-            (cls.download_code != MINISEED_READ_ERROR_CODE)
+    event = relationship(Event, backref=backref("segments", lazy="dynamic"))
+    # `classes` below is kind-of private, because exposing it in selection expression is
+    # complex (it is the only many-to-many relationship) and also in most case redundant,
+    # as users is generally interested to have the labels only (see `self.classlabels`):
+    classes = relationship("ClassLabel",  lazy='dynamic',  # viewonly=True,
+                           secondary="ClassLabeling",
+                           backref=backref("segments", lazy="dynamic"))
+    download_run = relationship(DownloadRun)
 
     # relationships (implement here only those shared by download+process):
-    @declared_attr
-    def station(cls):
-        # Relationship spanning 3 tables (https://stackoverflow.com/a/17583437)
-        return relationship("Station",
-                            # `secondary` must be table name in metadata:
-                            secondary="channels",
-                            primaryjoin="Segment.channel_id == Channel.id",
-                            secondaryjoin="Station.id == Channel.station_id",
-                            uselist=False,
-                            # the following two params are set in order to make this
-                            # relationship work in v 1 and 2, but no idea why due to
-                            # the lack of clarity in sqlalchemy docs
-                            viewonly=True,
-                            sync_backref=False,
-                            backref=backref("segments", lazy="dynamic"))
+    stationxml = relationship(StationXML, backref=backref("segments", lazy="dynamic"))
 
-    @declared_attr
-    def __table_args__(cls):  # noqa  # https://stackoverflow.com/a/43993950
-        return (UniqueConstraint('channel_id', 'event_id', name='chaid_evtid_uc'),)
+    @property
+    def stationxml_data(self):
+        return None if self.stationxml is None else self.stationxml.data
+
+    def __table_args__(cls):  # noqa
+        return UniqueConstraint('channel_id', 'event_id', name='chaid_evtid_uc'),
+
+    @hybrid_property
+    def has_valid_data(self) -> bool:
+        return self.download_code == 200
+
+    @has_valid_data.expression
+    def has_valid_data(cls):  # noqa
+        return cls.download_code == 200
+
+    @hybrid_property
+    def seed_id(self) -> str:
+        """Return the segment identifier as string 'net.sta.loc.cha'"""
+        return (f"{self.channel.network_code}."
+                f"{self.channel.station_code}."
+                f"{self.channel.location_code}."
+                f"{self.channel.channel_code}")
+
+    @seed_id.expression
+    def seed_id(cls):  # noqa
+        """Queriable expression on the segment identifier 'net.sta.loc.cha'"""
+        # We create aliases so that our select() statement doesn't interfere with
+        # other joins that might be active in the larger query context.
+        # These aliases represent Station and Channel for this expression only:
+        cha_alias = aliased(Channel)
+
+        return (
+            select(
+                func.concat(
+                    cha_alias.network_code,
+                    ".",
+                    cha_alias.station_code,
+                    ".",
+                    cha_alias.location_code,
+                    ".",
+                    cha_alias.channel_code
+                )
+            )
+            .where(cha_alias.id == cls.channel_id)
+            # ensures that the subquery returns only one row:
+            .limit(1)
+            # Make subquery dependent on the outer query over Segment (i.e., cls):
+            .correlate(cls)
+            # Wraps the query so that it can be used as a scalar subquery in SQLAlchemy:
+            .scalar_subquery()
+        )
+
+    def siblings(self):
+        # Get the SQLAlchemy session managing this instance
+        session = self.dbsession
+
+        # If no session is attached, or channel is not set (we need its attributes),
+        # return an empty query that matches nothing (safe fallback).
+        if not session or not self.channel:
+            return session.query(Segment).filter(False)  # noqa
+
+        return (
+            session.query(Segment)
+            .options(selectinload(Segment.miniseed))
+            .join(Channel)
+            .filter(
+                Segment.id != self.id,                         # exclude self  # noqa
+                Segment.channel_id == self.channel_id,         # noqa
+                Segment.event_id == self.event_id,
+                Channel.location_code == self.channel.location_code,
+                Channel.band_code == self.channel.band_code,
+                Channel.instrument_code == self.channel.instrument_code
+            )
+        )
+
+    @hybrid_property
+    def event_distance_km(self):
+        return self.event_distance_deg * (2.0 * 6371 * pi / 360.0)
+
+    @event_distance_km.expression
+    def event_distance_km(cls):  # pylint:disable=no-self-argument
+        return deg2km(cls.event_distance_deg)
+
+    @hybrid_property
+    def duration_sec(self):
+        try:
+            return (self.end_time - self.start_time).total_seconds()
+        except TypeError:  # some None(s)
+            return None
+
+    @duration_sec.expression
+    def duration_sec(cls):  # pylint:disable=no-self-argument
+        return duration_sec(cls.start_time, cls.end_time)
+
+    @hybrid_property
+    def classlabels_count(self):
+        return self.classes.count()  # len(self.classes) > 0
+
+    @classlabels_count.expression
+    def classlabels_count(cls):  # noqa
+        return select(func.count(ClassLabeling.id)).\
+            where(ClassLabeling.segment_id == cls.id).\
+            label('classlabels_count')
+
+    @property
+    def classlabels(self):
+        """Return a sorted list of strings denoting the class labels assigned to this
+        segment"""
+        return sorted(_.label for _ in self.classes.options(load_only(ClassLabel.label)))
 
 
-class Class(Base):
+class ClassLabel(Base):
     """Model representing a segment class label"""
+    __tablename__ = 'class_label'
 
-    # id = Column(Integer, primary_key=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     label = Column(String)
-    description = Column(String)
+    description = deferred(Column(String))
 
-    @declared_attr
-    def __table_args__(cls):  # noqa  # https://stackoverflow.com/a/43993950
-        return (UniqueConstraint('label', name='class_label_uc'),)
+    def __table_args__(cls):  # noqa
+        return UniqueConstraint('label', name='class_label_name_uc'),  # tuple
 
 
-class ClassLabelling(Base):
+class ClassLabeling(Base):
     """Model representing a class labelling (or segment annotation), i.e. a
     pair (segment, class label)"""
+    __tablename__ = 'class_labeling'
 
-    # Column(Integer, primary_key=True, autoincrement=True)
-    @declared_attr
-    def segment_id(cls):
-        return Column(Integer, ForeignKey("segments.id"), nullable=False)
-
-    @declared_attr
-    def class_id(cls):
-        return Column(Integer, ForeignKey("classes.id"), nullable=False)
-
-    is_hand_labelled = Column(Boolean,
-                              server_default="1")  # "TRUE" fails in sqlite!
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    segment_id = Column(Integer, ForeignKey(Segment.id), nullable=False)
+    class_label_id = Column(Integer, ForeignKey(ClassLabel.id), nullable=False)
+    is_hand_labelled = Column(Boolean, server_default="1")
     annotator = Column(String)
 
-    @declared_attr
     def __table_args__(cls):  # noqa  # https://stackoverflow.com/a/43993950
-        return (UniqueConstraint('segment_id', 'class_id', name='seg_class_uc'),)
+        return UniqueConstraint('segment_id', 'class_id', name='seg_class_uc'),  # tuple
