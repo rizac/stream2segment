@@ -10,11 +10,11 @@ import pandas as pd
 
 from stream2segment.io.cli import get_progressbar
 from stream2segment.io.db.pdsql import DbManager, dbquery2df
-from stream2segment.download.db.models import WebService, Station, Segment
+from stream2segment.io.db.models import WebService, Segment
 from stream2segment.download.url import read_async
 from stream2segment.download.modules.utils import (DbExcLogger,
                                                    RequestErrorOnceLogger,
-                                                   compress, fdsn_url)
+                                                   fdsn_url)
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__)

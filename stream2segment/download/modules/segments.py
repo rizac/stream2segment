@@ -16,7 +16,7 @@ import pandas as pd
 from stream2segment.io import Fdsnws
 from stream2segment.io.cli import get_progressbar
 from stream2segment.io.db.pdsql import dbquery2df, mergeupdate, DbManager
-from stream2segment.download.db.models import WebService, Segment, Station, Channel,
+from stream2segment.io.db.models import WebService, Segment, Channel
 from stream2segment.download.modules.utils import (DbExcLogger, logwarn_dataframe,
                                                    DownloadStats, formatmsg,
                                                    s2scodes, url2str, fdsn_url)
@@ -271,8 +271,8 @@ class SEG:  # noqa
     QAUTH = Segment.queryauth.key  # noqa
     # non-db column temporary set to get what segment has to be re-downloaded:
     RETRY = "__do.download__"  # noqa
-    NET = Station.network.key
-    STA = Station.station.key
+    NET = Channel.network.key
+    STA = Channel.station.key
     LOC = Channel.location.key
     CHA = Channel.channel.key
 

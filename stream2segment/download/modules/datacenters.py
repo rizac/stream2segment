@@ -10,7 +10,7 @@ from typing import Optional
 import pandas as pd
 
 from stream2segment.io import Fdsnws
-from stream2segment.download.db.models import WebService, Station
+from stream2segment.io.db.models import WebService, Channel
 from stream2segment.download.modules.utils import dbsyncdf, formatmsg, fdsn_url
 from stream2segment.download.exc import FailedDownload
 from stream2segment.download.url import urlread
@@ -102,7 +102,7 @@ def get_datacenters_df(
     datacenters_df = []
     url2id = dict(zip(ws_df['url'], ws_df['id']))
     ws_url_col = WebService.url.key
-    ws_id_col = Station.webservice_id.key
+    ws_id_col = Channel.webservice_id.key
     param_names = ('net', 'sta', 'loc', 'cha', 'start', 'end')
     for (station_url, dataselect_url), param_values_set in urls.items():
         for param_values in param_values_set:

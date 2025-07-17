@@ -12,11 +12,11 @@ import logging
 import numpy as np
 import pandas as pd
 
-from stream2segment.download.db.models import Station, Channel, Event, Segment
+from stream2segment.io.db.models import Channel, Event, Segment
 from stream2segment.download.modules.utils import formatmsg
 from stream2segment.download.exc import FailedDownload
 from stream2segment.io.cli import get_progressbar
-from stream2segment.io.db.pdsql import mergeupdate
+# from stream2segment.io.db.pdsql import mergeupdate
 
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
@@ -40,92 +40,120 @@ def merge_events_stations(events_df, channels_df, search_radius,
     """
     # For convenience and readability, define once the mapped column names
     # representing the dataframe columns that we need:
+
     EVT_ID = Event.id.key  # noqa
     EVT_MAG = Event.magnitude.key  # noqa
     EVT_LAT = Event.latitude.key  # noqa
     EVT_LON = Event.longitude.key  # noqa
     EVT_TIME = Event.time.key  # noqa
     EVT_DEPTH = Event.depth_km.key  # noqa
-    STA_LAT = Station.latitude.key  # noqa
-    STA_LON = Station.longitude.key  # noqa
-    STA_STIME = Station.start_time.key  # noqa
-    STA_ETIME = Station.end_time.key  # noqa
+    CHA_LAT = Channel.latitude.key  # noqa
+    CHA_LON = Channel.longitude.key  # noqa
+    CHA_STIME = Channel.start_time.key  # noqa
+    CHA_ETIME = Channel.end_time.key  # noqa
     CHA_ID = Channel.id.key  # noqa
-    CHA_STAID = Channel.station_id.key  # noqa
+    # CHA_STAID = Channel.station_id.key  # noqa
     SEG_EVID = Segment.event_id.key  # noqa
     SEG_EVDIST = Segment.event_distance_deg.key  # noqa
     SEG_ATIME = Segment.arrival_time.key  # noqa
-    SEG_DCID = Segment.webservice_id.key  # noqa
+    SEG_WS_ID = Segment.webservice_id.key  # noqa
     SEG_CHAID = Segment.channel_id.key  # noqa
-    STA_NET = Station.network.jey
-    STA_STA = Station.station.key
-    CHA_LOC = Channel.location.key
-    CHA_CHA = Channel.channel.key
+    CHA_NET = Channel.network_code.jey
+    CHA_STA = Channel.station_code.key
+    CHA_LOC = Channel.location_code.key
+    CHA_CHA = Channel.channel_code.key
 
-    channels_df = channels_df.rename(columns={CHA_ID: SEG_CHAID})
+    # channels_df = channels_df.rename(columns={CHA_ID: SEG_CHAID})
     # get unique stations, rename Channel.id into Segment.channel_id now so we
     # do not bother later
-    stations_df = channels_df.drop_duplicates(subset=[CHA_STAID]).copy()
+    # stations_df = channels_df.drop_duplicates(subset=[CHA_STAID]).copy()
 
     ret = []
 
-    sourcedepths, eventtimes = [], []
+    # sourcedepths, eventtimes = [], []
 
     with get_progressbar(len(events_df) if show_progress else 0) as pbar:
 
         min_radia, max_radia = get_search_radia(search_radius,
                                                 events_df[EVT_MAG].values)
 
-        radia_event_iter = zip(min_radia, max_radia,
-                               events_df[[EVT_ID, EVT_LAT, EVT_LON, EVT_TIME,
-                                          EVT_DEPTH]].itertuples(index=False, name=None))
+        # radia_event_iter = zip(min_radia, max_radia,
+        #                        events_df[[EVT_ID, EVT_LAT, EVT_LON, EVT_TIME,
+        #                                   EVT_DEPTH]].itertuples(index=False, name=None))
 
         oneday = timedelta(days=1)
-        for min_radius, max_radius, (ev_id, ev_lat, ev_lon, ev_time, ev_depth) \
-                in radia_event_iter:
-            l2d = locations2degrees(stations_df[STA_LAT], stations_df[STA_LON],
+        # for min_radius, max_radius, (ev_id, ev_lat, ev_lon, ev_time, ev_depth) \
+        #         in radia_event_iter:
+        for min_radius, max_radius, ev_id, ev_lat, ev_lon, ev_time, ev_depth in \
+                zip(min_radia,
+                    max_radia,
+                    events_df[EVT_ID],
+                    events_df[EVT_LAT],
+                    events_df[EVT_LON],
+                    events_df[EVT_TIME],
+                    events_df[EVT_DEPTH]):
+
+            l2d = locations2degrees(channels_df[CHA_LAT], channels_df[CHA_LON],
                                     ev_lat, ev_lon)
-            condition = (stations_df[STA_STIME] <= ev_time) & \
-                        (pd.isnull(stations_df[STA_ETIME]) |
-                         (stations_df[STA_ETIME] >= ev_time + oneday))
-            # l2d is a distance, thus non negative. We can add the min radius
-            # condition only if it is >=0. Evaluate to false in case min_radius
-            # is None (legacy code):
-            if min_radius:
+            # set condition incrementally. First, distance must be finite:
+            condition = pd.notna(l2d) & (np.abs(l2d) != np.inf)
+            # channel start time matches event time:
+            condition &= (channels_df[CHA_STIME] <= ev_time)
+            # channel end time None or matches event time:
+            condition &= (
+                    pd.isnull(channels_df[CHA_ETIME]) |
+                    (channels_df[CHA_ETIME] >= ev_time + oneday)
+            )
+            # add conditions based on matching radia:
+            if min_radius:  # not None (legacy code) or 0:
                 condition &= (l2d >= min_radius)
             # for max_radius, None means: skip
             if max_radius is not None:
                 condition &= (l2d <= max_radius)
 
             pbar.update(1)
-            if not np.any(condition):
+            matching_items = condition.sum()
+            if matching_items == 0:
                 continue
+            if matching_items < len(channels_df):
+                channels_df = channels_df[condition]
+                l2d = l2d[condition]
 
-            # Set (or re-set from second iteration on) as NaN SEG_EVDIST
-            # columns. This is important cause from second loop on we might
-            # have some elements not-NaN which should be NaN now
-            channels_df[SEG_EVDIST] = np.nan
-            # set locations2 degrees
-            stations_df[SEG_EVDIST] = l2d
-            # Copy distances calculated on stations to their channels
-            # (match along column CHA_STAID shared between the reletive
-            # dataframes). Set values only for channels whose stations are
-            # within radius (stations_df[condition]):
-            cha_df = mergeupdate(channels_df, stations_df[condition],
-                                 [CHA_STAID], [SEG_EVDIST],
-                                 drop_other_df_duplicates=False)
-            # Note above: duplicates already dropped
-            # Now drop channels which are not related to station within radius:
-            cha_df = cha_df.dropna(subset=[SEG_EVDIST], inplace=False).copy()
-            # ...and add "safely" SEG_EVID values:
+            cha_df = channels_df.copy()
+            cha_df[SEG_EVDIST] = l2d
+            # add scalar broadcasted to all elements:
             cha_df[SEG_EVID] = ev_id
-            # append to arrays (calculate arrival times in one shot a t the
-            # end, it's faster):
-            sourcedepths += [ev_depth] * len(cha_df)
-            eventtimes += [ev_time] * len(cha_df)
-            # Append only relevant columns:
-            ret.append(cha_df[[SEG_CHAID, SEG_EVID, SEG_DCID, SEG_EVDIST,
-                               STA_NET, STA_STA, CHA_LOC, CHA_CHA]])
+            cha_df[EVT_DEPTH] = [ev_depth] * len(cha_df)
+            cha_df[EVT_TIME] = [ev_time] * len(cha_df)
+            ret.append(cha_df)
+
+            # sourcedepths += [ev_depth] * len(cha_df)
+            # eventtimes += [ev_time] * len(cha_df)
+            # # Set (or re-set from second iteration on) as NaN SEG_EVDIST
+            # # columns. This is important cause from second loop on we might
+            # # have some elements not-NaN which should be NaN now
+            # channels_df[SEG_EVDIST] = np.nan
+            # # set locations2 degrees
+            # stations_df[SEG_EVDIST] = l2d
+            # # Copy distances calculated on stations to their channels
+            # # (match along column CHA_STAID shared between the reletive
+            # # dataframes). Set values only for channels whose stations are
+            # # within radius (stations_df[condition]):
+            # cha_df = mergeupdate(channels_df, stations_df[condition],
+            #                      [CHA_STAID], [SEG_EVDIST],
+            #                      drop_other_df_duplicates=False)
+            # # Note above: duplicates already dropped
+            # # Now drop channels which are not related to station within radius:
+            # cha_df = cha_df.dropna(subset=[SEG_EVDIST], inplace=False).copy()
+            # # ...and add "safely" SEG_EVID values:
+            # cha_df[SEG_EVID] = ev_id
+            # # append to arrays (calculate arrival times in one shot a t the
+            # # end, it's faster):
+            # sourcedepths += [ev_depth] * len(cha_df)
+            # eventtimes += [ev_time] * len(cha_df)
+            # # Append only relevant columns:
+            # ret.append(cha_df[[SEG_CHAID, SEG_EVID, SEG_DCID, SEG_EVDIST,
+            #                    STA_NET, STA_STA, CHA_LOC, CHA_CHA]])
 
     # create total segments dataframe:
     # first check we have data:
@@ -134,16 +162,20 @@ def merge_events_stations(events_df, channels_df, search_radius,
                                        "No station within search radia"))
     # now concat:
     ret = pd.concat(ret, axis=0, ignore_index=True, copy=True)
+
     # check categoricals are preserved:
-    for c in [STA_NET, STA_STA, CHA_LOC, CHA_CHA]:
+    for c in [CHA_NET, CHA_STA, CHA_LOC, CHA_CHA]:
         if not pd.api.types.is_categorical_dtype(ret[c]):
             ret[c] = ret[c].astype('category')
 
     # compute travel times. Doing it on a single array is much faster
-    sourcedepths = np.array(sourcedepths)
+    sourcedepths = ret.pop(EVT_DEPTH).values
     distances = ret[SEG_EVDIST].values
     traveltimes = tttable(sourcedepths, 0, distances)
-    eventtimes = np.array(eventtimes, dtype='datetime64[us]')  # or "M8[us]"
+    # eventtimes = np.array(eventtimes, dtype='datetime64[us]')  # or "M8[us]"
+    eventtimes = ret.pop(EVT_TIME)
+    if not pd.api.types.is_datetime64_any_dtype:  # safety check? FIXME: needed?
+        eventtimes = pd.to_datetime(eventtimes)
     # now to compute arrival times: eventtimes + traveltimes does not work
     # (we cannot sum np.datetime64 and np.float). Convert traveltimes to
     # np.timedelta: we first multiply by 1000000 to preserve the millisecond
@@ -151,9 +183,10 @@ def merge_events_stations(events_df, channels_df, search_radius,
     # 8bytes timedelta with microsecond resolution (10^-6). Side note: all
     # numpy timedelta constructors (as well as "astype") round to int argument,
     # at least in numpy13.
-    ret[SEG_ATIME] = eventtimes + (traveltimes*1000000).astype("m8[us]")
+    ret[SEG_ATIME] = eventtimes.values + (traveltimes*1000000).astype("m8[us]")
     # drop nat values
     oldlen = len(ret)
+    # another safety check (arival times NaT):
     ret.dropna(subset=[SEG_ATIME], inplace=True)
     if oldlen > len(ret):
         logger.info(formatmsg("%d of %d segments discarded", "Travel times NaN"),
@@ -193,9 +226,15 @@ def locations2degrees(lat1, lon1, lat2, lon2):
     lon2 = np.radians(np.asarray(lon2))
     long_diff = lon2 - lon1
     deg, atan2, cos, sin, sqrt = np.degrees, np.arctan2, np.cos, np.sin, np.sqrt
-    ret = deg(atan2(sqrt((cos(lat2) * sin(long_diff)) ** 2 +
-                         (cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(long_diff)) ** 2),
-                    sin(lat1) * sin(lat2) + cos(lat1) * cos(lat2) * cos(long_diff)))
+    ret = deg(
+        atan2(
+            sqrt(
+                (cos(lat2) * sin(long_diff)) ** 2 +
+                (cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(long_diff)) ** 2
+            ),
+            sin(lat1) * sin(lat2) + cos(lat1) * cos(lat2) * cos(long_diff)
+        )
+    )
     return ret
 
 

@@ -14,9 +14,8 @@ import psutil
 from stream2segment.download.log import configlog4download, DbStreamHandler
 from stream2segment.io.log import logfilepath, close_logger, elapsed_time
 from stream2segment.io import yaml_safe_dump
-from stream2segment.io.db import secure_dburl, close_session
+from stream2segment.io.db import secure_dburl, close_session, models
 from stream2segment.download.inputvalidation import load_config_for_download, pop_param
-from stream2segment.download.db.models import Download, WebService
 from stream2segment.download.exc import NothingToDownload, FailedDownload
 from stream2segment.download.modules.events import get_events_df
 from stream2segment.download.modules.datacenters import get_datacenters_df
@@ -130,8 +129,8 @@ def download(config, log2file=True, verbose=False, print_config_only=False,
                   "\n(if the download ends with no errors, the file will be deleted"
                   "\nand its content written "
                   "to the table '%s', column '%s')" % (log2file,
-                                                       Download.__tablename__,
-                                                       Download.log.key))
+                                                       models.Download.__tablename__,
+                                                       models.Download.log.key))
 
         stime = time.time()
         _run(download_id=download_id, isterminal=verbose, authorizer=authorizer,
@@ -266,7 +265,9 @@ def _run(session, download_id, events_url, starttime, endtime, data_url,
         if authorizer.token:
             stepinfo("Acquiring credentials from token in order to "
                      "download restricted data")
-        seg_datacenters_df = datacenters_df[datacenters_df[WebService.url.key].str.contains("/dataselect/")]
+        seg_datacenters_df = datacenters_df[
+            datacenters_df[models.WebService.url.key].str.contains("/dataselect/")
+        ]
         dc_dataselect_manager = DcDataselectManager(seg_datacenters_df,
                                                     authorizer, isterminal)
 
@@ -366,7 +367,11 @@ def new_db_download(session, params=None):
         config = config.decode('utf-8')  # legacy py2 code?
     tmp_log = ('N/A: either logger not configured, or an '
                'unexpected error interrupted the process')
-    download_inst = Download(config=config, log=tmp_log, program_version=version())
+    download_inst = models.DownloadRun(
+        config=config,
+        log=tmp_log,
+        program_version=version()
+    )
     session.add(download_inst)
     session.commit()
     download_id = download_inst.id
