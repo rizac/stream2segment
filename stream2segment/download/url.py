@@ -5,7 +5,8 @@ Http requests with multi-threading
 
 .. moduleauthor:: <rizac@gfz-potsdam.de>
 """
-from threading import Semaphore, current_thread, main_thread
+from threading import Semaphore, current_thread, main_thread, Lock, Event
+import signal
 import socket
 import os
 from contextlib import nullcontext
@@ -19,10 +20,10 @@ from urllib.request import (urlopen, build_opener,HTTPPasswordMgrWithDefaultReal
 
 
 # https://docs.python.org/3/library/urllib.request.html#request-objects
-def get_host(url_or_request):
+def get_host(url_or_request) -> str:
     """Returns the host (string) from a urllib.request.Request object or str (URL)"""
     # Handle both url as Request obj. (use attr. host) or string (use urlparse):
-    return urlparse(getattr(url_or_request, 'full_url', url_or_request)).hostname
+    return urlparse(getattr(url_or_request, 'full_url', url_or_request)).hostname  # FIXME check
 
 
 def get_opener(url, user, password):
@@ -110,7 +111,8 @@ def urlread(url, blocksize=-1, decode=None, timeout=None, opener=None, **kwargs)
 def read_async(iterable,
                url_callback=None,
                max_workers=None,
-               max_cuncurrent_per_domain=2,
+               max_workers_per_domain=8,
+               slowdown_error_codes = (429, 500, 503),
                blocksize=-1,
                decode=None,
                timeout=None, unordered=True, openers=None, **kwargs):  # noqa
@@ -145,10 +147,11 @@ def read_async(iterable,
         url address or Request.
     :param max_workers: integer or None (the default) denoting the max worker threads
         used. When None, the threads allocated are relative to the machine CPU
-    :param max_cuncurrent_per_domain: integer or None (default: 2) denoting the max
-        worker threads *per URL domain*. Increasing this number leads faster downloads
-        but also potentially fewer data received, if it overcomes the maximum concurrent
-        requests configured in some server, which might be as low as 2 or 3.
+    :param max_workers_per_domain: integer or None (default: 8) denoting the max
+        worker threads *per URL domain*. Defaults to 8
+    :param slowdown_error_codes: http status codes that denote too many requests and
+        cause max_workers_per_domain to be halved, if received from the same server
+        more than 3 times in sequence
     :param blocksize: integer defaulting to 1024*1024 specifying, when connecting to one
         of the given urls, the maximum number of bytes to be read at each call of
         `urlopen.read`. If the size argument is negative or omitted, read all data until
@@ -183,49 +186,123 @@ def read_async(iterable,
     exception (particularly relevant in case of e.g., `KeyboardInterrupt`) by canceling
     all worker threads before raising
     """
+    max_concurrency = adjust_max_concurrent_downloads(max_workers)
 
-    semaphores = None
-    null_context = nullcontext()  # no-op with statement to mimic a semaphore
-    if max_cuncurrent_per_domain and max_cuncurrent_per_domain > 0:
-        semaphores = {}
-
-    # flag for CTRL-C or cancelled tasks
-    kill = False
-
-    # function called from within urlread to check if go on or not
-    def url_wrapper(obj):
-        if kill:
-            return None
+    def prepare_url_read_args(obj) -> tuple:
         url = obj
         if url_callback is not None:
             url = url_callback(obj)
         opener = openers(obj) if openers is not None else None
-        if semaphores is None:
-            sem = null_context
-        else:
-            sem = semaphores.setdefault(
-                get_host(url), Semaphore(max_cuncurrent_per_domain)
-            )
-        with sem:
-            return (obj,) + urlread(url, blocksize, decode, timeout, opener, **kwargs)
+        return url, opener
 
-    tpool = ThreadPool(adjust_max_concurrent_downloads(max_workers))
+    # 1) handle the case 'no concurrency' (simple loop)
+    ###################################################
+
+    if max_concurrency <= 1:
+        for obj in iterable:
+            url, opener = prepare_url_read_args(obj)
+            yield (obj,) + urlread(url, blocksize, decode, timeout, opener, **kwargs)
+        return
+
+    # 2) Handle the case 'concurrency' (multi threading)
+    ####################################################
+
+    # flag for CTRL-C or cancelled tasks
+    stop_event = Event()
+
+    def signal_handler(sig, frame):
+        stop_event.set()
+
+    signal.signal(signal.SIGINT, signal_handler)
+
+    tpool = ThreadPool(max_concurrency)
     threadpoolmap = tpool.imap_unordered if unordered else tpool.imap
     # note above: chunksize argument for threads (not processes)
     # seems to slow down download. Omit the argument and leave chunksize=1 (default)
+
     try:
+
+        if max_workers_per_domain <= 1:
+            # 2a) Global concurrency only, NO per-domain concurrency
+            ########################################################
+
+            def url_wrapper(obj):
+                if stop_event.is_set():
+                    return None
+                url, opener = prepare_url_read_args(obj)
+                yield (obj,) + urlread(url, blocksize, decode, timeout, opener, **kwargs)
+
+            for result in threadpoolmap(url_wrapper, iterable):
+                if stop_event.is_set():
+                    continue
+                yield result
+            return
+
+        # 2b) Global concurrency AND per-domain concurrency
+        ###################################################
+
+        slowdown_error_codes = set(slowdown_error_codes or [])
+        downgrade_trigger = 3
+        domain_state = {}
+        domain_state_lock = Lock()
+
+        class DomainState:
+            # memory efficient container for a domain state
+            # (better than dict, might use dataclass but keep it simple)
+            __slots__ = ('semaphore', 'semaphore_limit', 'fail_count', 'fail_code')
+
+            def __init__(self):
+                self.semaphore = Semaphore(max_workers_per_domain)
+                self.semaphore_limit = max_workers_per_domain
+                self.fail_code = 0
+                self.fail_count = 0
+
+        def get_or_create_domain_state(domain: str) ->DomainState:
+            state = domain_state.get(domain)
+            if state is not None:
+                return state
+            with domain_state_lock:
+                state = domain_state[domain] = DomainState()
+            return state
+
+        def url_wrapper(obj):
+            if stop_event.is_set():
+                return None
+            url, opener = prepare_url_read_args(obj)
+            domain: str = get_host(url)
+            sem = get_or_create_domain_state(domain).semaphore
+            with sem:
+                data: tuple = urlread(url, blocksize, decode, timeout, opener, **kwargs)
+            return sem, domain, (obj,) + data
+
         # this try is for the keyboard interrupt, which will be caught inside the
         # as_completed below
-        for result_tuple in threadpoolmap(url_wrapper, iterable):
-            if result_tuple is not None:  # (just for extreme safety: see urlwrapper)
-                yield result_tuple
-    except:  # noqa
-        # According to https://stackoverflow.com/a/29237343, after a `KeyboardInterrupt`
-        # this method does not return until all working threads have finished. Set
-        # `kill = True` to make them finish quicker (see `urlwrapper` above):
-        kill = True
-        # (the time from now until 'raise' below is the time taken to finish all threads)
-        raise
+        for result in threadpoolmap(url_wrapper, iterable):
+            if stop_event.is_set():
+                continue
+            sem, domain, result = result
+            state: DomainState = domain_state[domain]
+            # Only allow the most recent semaphore instance to affect state
+            if sem is state.semaphore:
+                status = result[-1]
+                if status not in slowdown_error_codes:
+                    state.fail_count = 0
+                    state.fail_code = 0
+                elif status != state.fail_code:
+                    state.fail_count = 1
+                    state.fail_code = status
+                else:
+                    state.fail_count += 1
+                    if state.fail_count >= downgrade_trigger:
+                        old_limit = state.semaphore_limit
+                        if old_limit > 1:
+                            new_limit = max(1, old_limit // 2)
+                            state.semaphore = Semaphore(new_limit)
+                            state.semaphore_limit = new_limit
+                            state.fail_count = 0
+                            state.fail_code = 0
+            yield result
+
     finally:
         tpool.close()
         tpool.join()
