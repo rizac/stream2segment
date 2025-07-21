@@ -56,7 +56,7 @@ class CustomResponseCode(IntEnum):
     CONNECTION_REFUSED_ERROR = 1004
     HTTP_EXC_ERROR = 1005
     SSL_ERROR = 1006
-
+    DOWNLOAD_SUSPENDED = 1007
 
 responses = dict(builtin_responses)
 
@@ -73,6 +73,8 @@ responses[CustomResponseCode.HTTP_EXC_ERROR] = \
     "HTTP response malformed or incomplete (bad headers, truncated data)"
 responses[CustomResponseCode.SSL_ERROR] = \
     "SSL/TLS handshake failure (bad certificate, hostname mismatch, expired cert)"
+responses[CustomResponseCode.DOWNLOAD_SUSPENDED] = \
+    "Too many identical failures, download suspended"
 
 
 def urlread(url, blocksize=-1, decode=None, timeout=None, opener=None, **kwargs):
@@ -157,6 +159,7 @@ def read_async(iterable,
                max_workers=None,
                max_workers_per_domain=8,
                worker_error_codes=(429, 500, 503, CustomResponseCode.TIMEOUT_ERROR),
+               max_retry_on_same_error=25,
                blocksize=-1,
                decode=None,
                timeout=None, unordered=True, openers=None, **kwargs):  # noqa
@@ -196,6 +199,10 @@ def read_async(iterable,
     :param worker_error_codes: http status codes that denote too many requests and
         cause max_workers_per_domain to be halved, if received from the same server
         more than 3 times in sequence. If empty or None, no halving is applied
+    :param max_retry_on_same_error: in denoting the maximum downloads from the same
+        domain if the same error is repeatedly returned by the server. Default: 25.
+        After that, the tuple `(None, exc, CustomResponseCode.DOWNLOAD_SUSPENDED)`
+        will be returned (`exc` is the Exception returned bu the last error response)
     :param blocksize: integer defaulting to 1024*1024 specifying, when connecting to one
         of the given urls, the maximum number of bytes to be read at each call of
         `urlopen.read`. If the size argument is negative or omitted, read all data until
@@ -232,20 +239,82 @@ def read_async(iterable,
     """
     max_concurrency = adjust_max_concurrent_downloads(max_workers)
 
+    def new_domain_lock_factory():
+        domain_locks = {}
+        global_lock = Lock()
+
+        def get_domain_lock(domain):
+            lock = domain_locks.get(domain)
+            if lock is not None:
+                return lock
+            with global_lock:
+                return domain_locks.setdefault(domain, Lock())
+
+        return get_domain_lock
+
+    def update_failed_response(domain: str, response: tuple):
+        pass
+
+    def get_skip_response(domain: str):
+        return None
+
+    if max_retry_on_same_error > 0:
+
+        class FailedResponse:
+            # memory efficient container for a skip response
+            # (better than dict, might use dataclass but keep it simple)
+            __slots__ = ('fail_count', 'fail_code', 'response')
+
+            def __init__(self):
+                self.fail_code = 0
+                self.response: tuple = None  # same obj returned by `urlread` # noqa
+                self.fail_count = 0
+
+        failed_response: dict[str, FailedResponse] = {}
+
+        failed_response_lock = new_domain_lock_factory()
+
+        def get_skip_response(domain: str):
+            ret = failed_response.get(domain)
+            if ret is not None:
+                with failed_response_lock(domain):
+                    return ret.response  # tuple or None
+            return None
+
+        def update_failed_response(domain: str, response: tuple):
+            exc = response[1]
+            if exc is not None:
+                code = response[2]
+                with failed_response_lock(domain):
+                    skip_resp = failed_response.setdefault(domain, FailedResponse())
+                    if skip_resp.fail_code != code:
+                        skip_resp.fail_code = code
+                        skip_resp.fail_count = 1
+                    else:
+                        skip_resp.fail_count += 1
+                        if skip_resp.fail_count > max_retry_on_same_error:
+                            skip_resp.response = (
+                                None, exc, CustomResponseCode.DOWNLOAD_SUSPENDED
+                            )
+
     def prepare_url_read_args(obj) -> tuple:
         url = obj
         if url_callback is not None:
             url = url_callback(obj)
         opener = openers(obj) if openers is not None else None
-        return url, opener
+        return url, opener, get_host(url)
 
     # 1) handle the case 'no concurrency' (simple loop)
     ###################################################
 
     if max_concurrency <= 1:
         for obj in iterable:
-            url, opener = prepare_url_read_args(obj)
-            yield (obj,) + urlread(url, blocksize, decode, timeout, opener, **kwargs)
+            url, opener, domain = prepare_url_read_args(obj)
+            resp = get_skip_response(domain)
+            if resp is None:
+                resp = urlread(url, blocksize, decode, timeout, opener, **kwargs)
+                update_failed_response(domain, resp)
+            yield (obj,) + resp
         return
 
     # 2) Handle the case 'concurrency' (multi threading)
@@ -266,29 +335,11 @@ def read_async(iterable,
 
     try:
 
-        if max_workers_per_domain <= 1:
-            # 2a) Global concurrency only, NO per-domain concurrency
-            ########################################################
-
-            def url_wrapper(obj):
-                if stop_event.is_set():
-                    return None
-                url, opener = prepare_url_read_args(obj)
-                yield (obj,) + urlread(url, blocksize, decode, timeout, opener, **kwargs)
-
-            for result in threadpoolmap(url_wrapper, iterable):
-                if stop_event.is_set():
-                    continue
-                yield result
-            return
-
-        # 2b) Global concurrency AND per-domain concurrency
-        ###################################################
-
         slowdown_error_codes = set(worker_error_codes or [])
         downgrade_trigger = 3
         domain_state = {}
-        domain_state_lock = Lock()
+
+        domain_state_lock = new_domain_lock_factory()
 
         class DomainState:
             # memory efficient container for a domain state
@@ -301,23 +352,23 @@ def read_async(iterable,
                 self.fail_code = 0
                 self.fail_count = 0
 
-        def get_or_create_domain_state(domain: str) ->DomainState:
-            state = domain_state.get(domain)
-            if state is not None:
-                return state
-            with domain_state_lock:
-                state = domain_state[domain] = DomainState()
-            return state
-
         def url_wrapper(obj):
             if stop_event.is_set():
                 return None
-            url, opener = prepare_url_read_args(obj)
-            domain: str = get_host(url)
-            sem = get_or_create_domain_state(domain).semaphore
-            with sem:
-                data: tuple = urlread(url, blocksize, decode, timeout, opener, **kwargs)
-            return sem, domain, (obj,) + data
+            url, opener, domain = prepare_url_read_args(obj)
+            resp = get_skip_response(domain)
+            sem = None
+            if resp is None:
+                if max_workers_per_domain <= 1:
+                    # no workers per domain
+                    resp = urlread(url, blocksize, decode, timeout, opener, **kwargs)
+                else:
+                    with domain_state_lock(domain):
+                        sem = domain_state.setdefault(domain, DomainState()).semaphore
+                    with sem:
+                        resp = urlread(url, blocksize, decode, timeout, opener, **kwargs)
+                update_failed_response(domain, resp)
+            return sem, domain, (obj,) + resp
 
         # this try is for the keyboard interrupt, which will be caught inside the
         # as_completed below
@@ -325,23 +376,23 @@ def read_async(iterable,
             if stop_event.is_set():
                 continue
             sem, domain, result = result
-            state: DomainState = domain_state[domain]
-            # Only allow the most recent semaphore instance to affect state
-            if sem is state.semaphore:
-                status = result[-1]
-                if status not in slowdown_error_codes:
-                    state.fail_count = 0
-                    state.fail_code = 0
-                elif status != state.fail_code:
-                    state.fail_count = 1
-                    state.fail_code = status
-                else:
-                    state.fail_count += 1
-                    if state.fail_count >= downgrade_trigger:
-                        old_limit = state.semaphore_limit
-                        if old_limit > 1:
-                            new_limit = max(1, old_limit // 2)
-                            state.semaphore = Semaphore(new_limit)
+            if sem is not None:
+                state: DomainState = domain_state[domain]
+                # Only allow the most recent semaphore instance to affect state
+                if sem is state.semaphore and state.semaphore_limit > 1:
+                    status = result[2]
+                    if status not in slowdown_error_codes:
+                        state.fail_count = 0
+                        state.fail_code = 0
+                    elif status != state.fail_code:
+                        state.fail_count = 1
+                        state.fail_code = status
+                    else:
+                        state.fail_count += 1
+                        if state.fail_count >= downgrade_trigger:
+                            new_limit = max(1, state.semaphore_limit // 2)
+                            with domain_state_lock(domain):
+                                state.semaphore = Semaphore(new_limit)
                             state.semaphore_limit = new_limit
                             state.fail_count = 0
                             state.fail_code = 0
