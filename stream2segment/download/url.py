@@ -9,12 +9,14 @@ from threading import Semaphore, current_thread, main_thread, Lock, Event
 import signal
 import socket
 import os
-from contextlib import nullcontext
+import ssl
+from enum import IntEnum
+# from contextlib import nullcontext
 from multiprocessing.pool import ThreadPool
 
-from urllib.parse import urlparse, urlencode
+from urllib.parse import urlparse  # , urlencode
 from urllib.error import HTTPError, URLError
-from http.client import HTTPException, responses
+from http.client import HTTPException, responses as builtin_responses
 from urllib.request import (urlopen, build_opener,HTTPPasswordMgrWithDefaultRealm,
                             HTTPDigestAuthHandler)
 
@@ -45,6 +47,34 @@ def get_opener(url, user, password):
     return build_opener(*handlers)
 
 
+# custom codes:
+
+class CustomResponseCode(IntEnum):
+    URL_ERROR = 1001
+    TIMEOUT_ERROR = 1002
+    GET_ADDR_INFO_ERROR = 1003
+    CONNECTION_REFUSED_ERROR = 1004
+    HTTP_EXC_ERROR = 1005
+    SSL_ERROR = 1006
+
+
+responses = dict(builtin_responses)
+
+
+responses[CustomResponseCode.URL_ERROR] = \
+    "Catch-all network error not matching any known error"
+responses[CustomResponseCode.TIMEOUT_ERROR] = \
+    "Server takes too long to respond (connection or read timeout)"
+responses[CustomResponseCode.GET_ADDR_INFO_ERROR] = \
+    "Hostname/address resolution failure (e.g., DNS)"
+responses[CustomResponseCode.CONNECTION_REFUSED_ERROR] = \
+    "Server actively refuses the connection (e.g., port closed, server down)"
+responses[CustomResponseCode.HTTP_EXC_ERROR] = \
+    "HTTP response malformed or incomplete (bad headers, truncated data)"
+responses[CustomResponseCode.SSL_ERROR] = \
+    "SSL/TLS handshake failure (bad certificate, hostname mismatch, expired cert)"
+
+
 def urlread(url, blocksize=-1, decode=None, timeout=None, opener=None, **kwargs):
     """Read and return data from the given `url` using Python `urllib.open`.
     Return the tuple `(data, error, status_code)` (see below for details)
@@ -69,11 +99,14 @@ def urlread(url, blocksize=-1, decode=None, timeout=None, opener=None, **kwargs)
         - data (`bytes` or `str`) is the response content. If `decode` is given,
           it is a `str`. It is None in case of request/response error (see `error` below)
         - error: the response error in form of Python exception raised (either
-          HTTPException, URLError, socket.error - e.g. socket.timeout - or HTTPError).
-          It is always None if the request/response exchange was successful
-        - status_code (int) is the response HTTP status code. None if the code could not
-          be inferred (e.g. `error` is given but not instance of HTTPError). Note: it
-          could be a string representing the status code instead of an int
+          HTTPException, URLError, HTTPError). Always None if the request/response
+          exchange was successful
+        - status_code (int) is the response HTTP status code (extended), including
+          normal http_codes (if exception is an HTTPError) and custom codes that
+          generally denote network-related errors. These codes, usually integers > 1000
+          are available as items of the module enum class `CustomResponseCode`, their
+          explanation is available using the global variable `responses` that extends
+          `http.client.responses`
     """
     try:
         ret = b''
@@ -103,16 +136,27 @@ def urlread(url, blocksize=-1, decode=None, timeout=None, opener=None, **kwargs)
         return ret, None, conn.code
     except HTTPError as exc:
         return None, exc, exc.code
-    except (HTTPException, URLError, socket.error) as exc:
+    except URLError as u_err:
+        code = CustomResponseCode.URL_ERROR
+        if isinstance(u_err.reason, socket.timeout):
+            code = CustomResponseCode.TIMEOUT_ERROR
+        elif isinstance(u_err.reason, socket.gaierror):
+            code = CustomResponseCode.GET_ADDR_INFO_ERROR
+        elif isinstance(u_err.reason, ConnectionRefusedError):
+            code = CustomResponseCode.CONNECTION_REFUSED_ERROR
+        elif isinstance(u_err.reason, ssl.SSLError):
+            code = CustomResponseCode.SSL_ERROR
+        return None, u_err, code
+    except HTTPException as h_exc:
         # (socket.error is the superclass of all socket exc)
-        return None, exc, None
+        return None, h_exc, CustomResponseCode.HTTP_EXC_ERROR
 
 
 def read_async(iterable,
                url_callback=None,
                max_workers=None,
                max_workers_per_domain=8,
-               slowdown_error_codes = (429, 500, 503),
+               worker_error_codes=(429, 500, 503, CustomResponseCode.TIMEOUT_ERROR),
                blocksize=-1,
                decode=None,
                timeout=None, unordered=True, openers=None, **kwargs):  # noqa
@@ -149,9 +193,9 @@ def read_async(iterable,
         used. When None, the threads allocated are relative to the machine CPU
     :param max_workers_per_domain: integer or None (default: 8) denoting the max
         worker threads *per URL domain*. Defaults to 8
-    :param slowdown_error_codes: http status codes that denote too many requests and
+    :param worker_error_codes: http status codes that denote too many requests and
         cause max_workers_per_domain to be halved, if received from the same server
-        more than 3 times in sequence
+        more than 3 times in sequence. If empty or None, no halving is applied
     :param blocksize: integer defaulting to 1024*1024 specifying, when connecting to one
         of the given urls, the maximum number of bytes to be read at each call of
         `urlopen.read`. If the size argument is negative or omitted, read all data until
@@ -241,7 +285,7 @@ def read_async(iterable,
         # 2b) Global concurrency AND per-domain concurrency
         ###################################################
 
-        slowdown_error_codes = set(slowdown_error_codes or [])
+        slowdown_error_codes = set(worker_error_codes or [])
         downgrade_trigger = 3
         domain_state = {}
         domain_state_lock = Lock()
