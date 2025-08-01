@@ -58,6 +58,7 @@ class CustomResponseCode(IntEnum):
     SSL_ERROR = 1006
     DOWNLOAD_SUSPENDED = 1007
 
+
 responses = dict(builtin_responses)
 
 
@@ -140,7 +141,7 @@ def urlread(url, blocksize=-1, decode=None, timeout=None, opener=None, **kwargs)
         return None, exc, exc.code
     except URLError as u_err:
         code = CustomResponseCode.URL_ERROR
-        if isinstance(u_err.reason, socket.timeout):
+        if isinstance(u_err.reason, socket.timeout):  # FIXME: handle also other timeout error
             code = CustomResponseCode.TIMEOUT_ERROR
         elif isinstance(u_err.reason, socket.gaierror):
             code = CustomResponseCode.GET_ADDR_INFO_ERROR
@@ -154,15 +155,18 @@ def urlread(url, blocksize=-1, decode=None, timeout=None, opener=None, **kwargs)
         return None, h_exc, CustomResponseCode.HTTP_EXC_ERROR
 
 
-def read_async(iterable,
-               url_callback=None,
-               max_workers=None,
-               max_workers_per_domain=8,
-               worker_error_codes=(429, 500, 503, CustomResponseCode.TIMEOUT_ERROR),
-               max_retry_on_same_error=25,
-               blocksize=-1,
-               decode=None,
-               timeout=None, unordered=True, openers=None, **kwargs):  # noqa
+def read_async(
+        iterable,
+        url_callback=None,
+        max_concurrency=None,
+        max_concurrency_per_domain=8,
+        slowdown_error_limit=3,
+        slowdown_error_codes=(429, 500, 503, CustomResponseCode.TIMEOUT_ERROR),
+        global_error_limit=25,
+        blocksize=-1,
+        decode=None,
+        timeout=None, unordered=True, openers=None, **kwargs
+):
     """Wrapper around `multiprocessing.pool.ThreadPool()` for  downloading
     data asynchronously from different urls iteratively. Specifically designed for
     large downloads, each download is executed on a separate *worker thread*, yielding
@@ -192,14 +196,21 @@ def read_async(iterable,
         `iterable` must be url strings or Request objects. If callable, it will be
         called with each element of `iterable` as argument, and must return the mapped
         url address or Request.
-    :param max_workers: integer or None (the default) denoting the max worker threads
-        used. When None, the threads allocated are relative to the machine CPU
-    :param max_workers_per_domain: integer or None (default: 8) denoting the max
-        worker threads *per URL domain*. Defaults to 8
-    :param worker_error_codes: http status codes that denote too many requests and
-        cause max_workers_per_domain to be halved, if received from the same server
-        more than 3 times in sequence. If empty or None, no halving is applied
-    :param max_retry_on_same_error: in denoting the maximum downloads from the same
+    :param max_concurrency: integer or None (the default) denoting the max parallel
+        downloads. This corresponds to the maximum worker (sub) threads used. When None,
+        the threads allocated are relative to the machine CPU (should be around 16-32)
+    :param max_concurrency_per_domain: integer (default: 8) denoting the max parallel
+        downloads per domain. This is useful because -while `max_concurrency` optimizes
+        the download speed, it does not account that most servers limit the amount of
+        concurrent requests, resulting in error response which might be avoided otherwise
+    :param slowdown_error_codes: http status codes that denote too many requests and,
+        when received from the same domain, will cause max_concurrency_per_domain to be
+        halved (eventually down to 1 if needed) for that domain only. If empty or None,
+        no halving is applied and `max_concurrency_per_domain` will stay constant
+    :param slowdown_error_limit: the number of consecutive errors that have to be
+        received per domain to trigger halving of `max_concurrency_per_domain`.
+        Defaults to 3, ignored if `slowdown_error_codes` is empty or None
+    :param global_error_limit: int denoting the maximum downloads from the same
         domain if the same error is repeatedly returned by the server. Default: 25.
         After that, the tuple `(None, exc, CustomResponseCode.DOWNLOAD_SUSPENDED)`
         will be returned (`exc` is the Exception returned bu the last error response)
@@ -237,7 +248,7 @@ def read_async(iterable,
     exception (particularly relevant in case of e.g., `KeyboardInterrupt`) by canceling
     all worker threads before raising
     """
-    max_concurrency = adjust_max_concurrent_downloads(max_workers)
+    max_concurrency = adjust_max_concurrent_downloads(max_concurrency)
 
     def new_domain_lock_factory():
         domain_locks = {}
@@ -258,7 +269,7 @@ def read_async(iterable,
     def get_skip_response(domain: str):
         return None
 
-    if max_retry_on_same_error > 0:
+    if global_error_limit > 0:
 
         class FailedResponse:
             # memory efficient container for a skip response
@@ -292,7 +303,7 @@ def read_async(iterable,
                         skip_resp.fail_count = 1
                     else:
                         skip_resp.fail_count += 1
-                        if skip_resp.fail_count > max_retry_on_same_error:
+                        if skip_resp.fail_count >= global_error_limit:
                             skip_resp.response = (
                                 None, exc, CustomResponseCode.DOWNLOAD_SUSPENDED
                             )
@@ -335,8 +346,7 @@ def read_async(iterable,
 
     try:
 
-        slowdown_error_codes = set(worker_error_codes or [])
-        downgrade_trigger = 3
+        slowdown_error_codes = set(slowdown_error_codes or [])
         domain_state = {}
 
         domain_state_lock = new_domain_lock_factory()
@@ -347,8 +357,8 @@ def read_async(iterable,
             __slots__ = ('semaphore', 'semaphore_limit', 'fail_count', 'fail_code')
 
             def __init__(self):
-                self.semaphore = Semaphore(max_workers_per_domain)
-                self.semaphore_limit = max_workers_per_domain
+                self.semaphore = Semaphore(max_concurrency_per_domain)
+                self.semaphore_limit = max_concurrency_per_domain
                 self.fail_code = 0
                 self.fail_count = 0
 
@@ -359,7 +369,7 @@ def read_async(iterable,
             resp = get_skip_response(domain)
             sem = None
             if resp is None:
-                if max_workers_per_domain <= 1:
+                if max_concurrency_per_domain <= 1:
                     # no workers per domain
                     resp = urlread(url, blocksize, decode, timeout, opener, **kwargs)
                 else:
@@ -389,7 +399,7 @@ def read_async(iterable,
                         state.fail_code = status
                     else:
                         state.fail_count += 1
-                        if state.fail_count >= downgrade_trigger:
+                        if state.fail_count >= slowdown_error_limit:
                             new_limit = max(1, state.semaphore_limit // 2)
                             with domain_state_lock(domain):
                                 state.semaphore = Semaphore(new_limit)
