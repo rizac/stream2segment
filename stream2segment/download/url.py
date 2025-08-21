@@ -5,46 +5,56 @@ Http requests with multi-threading
 
 .. moduleauthor:: <rizac@gfz-potsdam.de>
 """
+from itertools import chain
 from threading import Semaphore, current_thread, main_thread, Lock, Event
 import signal
 import socket
 import os
 import ssl
 from enum import IntEnum
-# from contextlib import nullcontext
 from multiprocessing.pool import ThreadPool
 
 from urllib.parse import urlparse  # , urlencode
 from urllib.error import HTTPError, URLError
 from http.client import HTTPException, responses as builtin_responses
-from urllib.request import (urlopen, build_opener,HTTPPasswordMgrWithDefaultRealm,
+from urllib.request import (urlopen, build_opener, HTTPPasswordMgrWithDefaultRealm,
                             HTTPDigestAuthHandler)
 
 
 # https://docs.python.org/3/library/urllib.request.html#request-objects
-def get_host(url_or_request) -> str:
+def get_host(url_or_request, include_scheme=False) -> str:
     """Returns the host (string) from a urllib.request.Request object or str (URL)"""
     # Handle both url as Request obj. (use attr. host) or string (use urlparse):
-    return urlparse(getattr(url_or_request, 'full_url', url_or_request)).hostname  # FIXME check
+    url = getattr(url_or_request, 'full_url', url_or_request)
+    parsed = urlparse(url)
+    if include_scheme and parsed.scheme:  # scheme is present
+        return f"{parsed.scheme}://{parsed.hostname}"
+    return parsed.hostname or url  # no scheme, just return the domain
 
 
-def get_opener(url, user, password):
+def _get_opener(base_url, user, password):
     """Return an opener to be used for downloading data with a given user and password.
-    All arguments should be strings.
+    All arguments should be strings. For info see:
 
-    :param url: the domain name of the given url
-    :param: user: string, the user name
+
+    :param base_url: the base url (domain name, or scheme+domain_name, if e.g. "http"
+        and "https" have to be considered differently). The opener's password manager
+        normalizes this internally and matches against request URLs).
+        See also https://docs.python.org/3/howto/urllib2.html?utm_source=chatgpt.com#id5
+    :param: user: string, the username
     :param password: the password
 
     :return: an urllib opener
     """
-    parsed_url = urlparse(url)
-    base_url = "%s://%s" % (parsed_url.scheme, parsed_url.netloc)
-    handlers = []
+    # parsed_url = urlparse(url)
+    # base_url = "%s://%s" % (parsed_url.scheme, parsed_url.netloc)
+    # base_url = get_host(url, include_scheme=True)
+    # handlers = []
     password_mgr = HTTPPasswordMgrWithDefaultRealm()
     password_mgr.add_password(None, base_url, user, password)
-    handlers.append(HTTPDigestAuthHandler(password_mgr))
-    return build_opener(*handlers)
+    return build_opener(HTTPDigestAuthHandler(password_mgr))
+    # handlers.append(HTTPDigestAuthHandler(password_mgr))
+    # return build_opener(*handlers)
 
 
 # custom codes:
@@ -60,7 +70,6 @@ class CustomResponseCode(IntEnum):
 
 
 responses = dict(builtin_responses)
-
 
 responses[CustomResponseCode.URL_ERROR] = \
     "Catch-all network error not matching any known error"
@@ -78,7 +87,36 @@ responses[CustomResponseCode.DOWNLOAD_SUSPENDED] = \
     "Too many identical failures, download suspended"
 
 
-def urlread(url, blocksize=-1, decode=None, timeout=None, opener=None, **kwargs):
+class Response:
+    """lightweight data class representing a Response object with three arguments:
+
+    - data (`bytes` or `str`) is the response content. If `decode` is given,
+      it is a `str`. It is None in case of request/response error (see `error` below)
+    - error: the response error in form of Python exception raised (either
+      HTTPException, URLError, HTTPError). Always None if the request/response
+      exchange was successful
+    - status_code (int) is the response HTTP status code (extended), including
+      normal http_codes (if exception is an HTTPError) and custom codes that
+      generally denote network-related errors. These codes, usually integers > 1000
+      are available as items of the module enum class `CustomResponseCode`, their
+      explanation is available using the global variable `responses` that extends
+      `http.client.responses`
+    """
+    __slots__ = ('data', 'error', 'status_code')
+
+    def __init__(self, data, error, status_code: int):
+        self.data = data
+        self.status_code = status_code
+        self.error = error
+
+    @property
+    def is_ok(self):
+        return self.data is not None
+
+
+def urlread(
+        url, blocksize=-1, decode=None, timeout=None, opener=None, **kwargs
+) -> Response:
     """Read and return data from the given `url` using Python `urllib.open`.
     Return the tuple `(data, error, status_code)` (see below for details)
 
@@ -97,19 +135,7 @@ def urlread(url, blocksize=-1, decode=None, timeout=None, opener=None, **kwargs)
     :param kwargs: optional arguments to be passed to the underlying python `urlopen`
         function. These arguments are ignored if a custom `opener` argument is provided
 
-    :return: the tuple (data, error, status_code), where:
-
-        - data (`bytes` or `str`) is the response content. If `decode` is given,
-          it is a `str`. It is None in case of request/response error (see `error` below)
-        - error: the response error in form of Python exception raised (either
-          HTTPException, URLError, HTTPError). Always None if the request/response
-          exchange was successful
-        - status_code (int) is the response HTTP status code (extended), including
-          normal http_codes (if exception is an HTTPError) and custom codes that
-          generally denote network-related errors. These codes, usually integers > 1000
-          are available as items of the module enum class `CustomResponseCode`, their
-          explanation is available using the global variable `responses` that extends
-          `http.client.responses`
+    :return: a Response object
     """
     try:
         ret = b''
@@ -136,12 +162,12 @@ def urlread(url, blocksize=-1, decode=None, timeout=None, opener=None, **kwargs)
                     ret += buf
         if decode:
             ret = ret.decode(decode)
-        return ret, None, conn.code
+        return Response(ret, None, conn.code)
     except HTTPError as exc:
-        return None, exc, exc.code
+        return Response(None, exc, exc.code)
     except URLError as u_err:
         code = CustomResponseCode.URL_ERROR
-        if isinstance(u_err.reason, socket.timeout):  # FIXME: handle also other timeout error
+        if isinstance(u_err.reason, (socket.timeout, TimeoutError)):
             code = CustomResponseCode.TIMEOUT_ERROR
         elif isinstance(u_err.reason, socket.gaierror):
             code = CustomResponseCode.GET_ADDR_INFO_ERROR
@@ -149,10 +175,10 @@ def urlread(url, blocksize=-1, decode=None, timeout=None, opener=None, **kwargs)
             code = CustomResponseCode.CONNECTION_REFUSED_ERROR
         elif isinstance(u_err.reason, ssl.SSLError):
             code = CustomResponseCode.SSL_ERROR
-        return None, u_err, code
+        return Response(None, u_err, code)
     except HTTPException as h_exc:
         # (socket.error is the superclass of all socket exc)
-        return None, h_exc, CustomResponseCode.HTTP_EXC_ERROR
+        return Response(None, h_exc, CustomResponseCode.HTTP_EXC_ERROR)
 
 
 def read_async(
@@ -160,34 +186,22 @@ def read_async(
         url_callback=None,
         max_concurrency=None,
         max_concurrency_per_domain=8,
-        slowdown_error_limit=3,
-        slowdown_error_codes=(429, 500, 503, CustomResponseCode.TIMEOUT_ERROR),
-        global_error_limit=25,
+        slowdown=True,
+        slowdown_trigger=3,
+        suspend_trigger=25,
         blocksize=-1,
         decode=None,
-        timeout=None, unordered=True, openers=None, **kwargs
+        timeout=None,
+        unordered=True,
+        credentials=None,
+        **kwargs
 ):
-    """Wrapper around `multiprocessing.pool.ThreadPool()` for  downloading
-    data asynchronously from different urls iteratively. Specifically designed for
-    large downloads, each download is executed on a separate *worker thread*, yielding
-    the result of each `url` read.
+    """Download data asynchronously from different urls iteratively. Specifically
+    designed for large downloads, handles concurrency (`threading.Pool`) globally
+    and per URL-domain, stopping at specific errors iteratively received.
 
-    For each item `obj` of iterable, this function yields the tuple:
-    ```
-        obj: [Any],
-        response_data: str | bytes | None,
-        response_error: Exception | None,
-        response_code: int | None
-    ```
-    Notes:
-
-      - either `response_data` and `response_error` are None, but not both. If the latter
-        is not None, then the request failed. `response_error` can be any of the
-        following URL-related exceptions: `urllib.error.URLError`,
-        `http.client.HTTPException`, `socket.error` `urllib.error.HTTPError`. Any other
-        Exception raises "normally"
-      - `response_code` is the int denoting the status code (e.g. 200), which might be
-         None (e.g., a failed request with `response_error` not `urllib.error.HTTPError`)
+    For each item `obj` of iterable, this function yields the tuple
+    `(obj: [Any], response [Response])`
 
     :param iterable: an iterable of objects representing the urls addresses to be read:
         if its elements are neither strings nor `Request` objects, the `url_callback`
@@ -202,15 +216,21 @@ def read_async(
     :param max_concurrency_per_domain: integer (default: 8) denoting the max parallel
         downloads per domain. This is useful because -while `max_concurrency` optimizes
         the download speed, it does not account that most servers limit the amount of
-        concurrent requests, resulting in error response which might be avoided otherwise
-    :param slowdown_error_codes: http status codes that denote too many requests and,
-        when received from the same domain, will cause max_concurrency_per_domain to be
-        halved (eventually down to 1 if needed) for that domain only. If empty or None,
+        concurrent requests, resulting in error response which might be avoided
+        otherwise. If greater than `max_concurrency`, it will be set equal to the latter
+    :param slowdown: True to enable slowing down concurrent downloads for those domains
+        consistently returning the same download error at least `slowdown_trigger` times
+        (download from other domains are not affected): `max_concurrency_per_domain` will
+        be halved until it is greater than 1 (1 basically denoting sequential download).
+        This parameter can be also a tuple of integers with the download error codes that
+        should be considered: whereas some errors are more likely to indicate too many
+        requests (i.e., `(429, 500, 503, CustomResponseCode.TIMEOUT_ERROR)`) setting this
+        parameter to True is safer. If this parameter is the empty tuple or None,
         no halving is applied and `max_concurrency_per_domain` will stay constant
-    :param slowdown_error_limit: the number of consecutive errors that have to be
+    :param slowdown_trigger: the number of consecutive errors that have to be
         received per domain to trigger halving of `max_concurrency_per_domain`.
-        Defaults to 3, ignored if `slowdown_error_codes` is empty or None
-    :param global_error_limit: int denoting the maximum downloads from the same
+        Defaults to 3, ignored if `slowdown` is empty or None
+    :param suspend_trigger: int denoting the maximum downloads from the same
         domain if the same error is repeatedly returned by the server. Default: 25.
         After that, the tuple `(None, exc, CustomResponseCode.DOWNLOAD_SUSPENDED)`
         will be returned (`exc` is the Exception returned bu the last error response)
@@ -228,9 +248,10 @@ def read_async(
         yielded in the same order they are input in `iterable`. Theoretically (tests did
         not show any remarkable difference), False (the default) might execute faster,
         but results are not guaranteed to be yielded in the same order as `iterable`.
-    :param openers: a function behaving like `urlkey`, should return a specific opener
-        for the given item of iterable. When None, the default opener is used. See
-        :func:`get_opener` for creating an opener from given base URL, user and password
+    :param credentials: credentials for downloading non-open data. It can be a tuple of
+        two strings (user, password) or a dict of URL *domains* optionally prefixed with
+        the http scheme (i.e., "https://mydomain.org" or "mydomain.org") mapped to a
+        (user, password)
     :param kwargs: optional arguments to be passed to the underlying python `urlopen`
         function. These arguments are ignored if a custom `openers` function is provided
 
@@ -249,168 +270,234 @@ def read_async(
     all worker threads before raising
     """
     max_concurrency = adjust_max_concurrent_downloads(max_concurrency)
+    max_concurrency_per_domain = min(max_concurrency_per_domain, max_concurrency)
 
-    def new_domain_lock_factory():
-        domain_locks = {}
-        global_lock = Lock()
-
-        def get_domain_lock(domain):
-            lock = domain_locks.get(domain)
-            if lock is not None:
-                return lock
-            with global_lock:
-                return domain_locks.setdefault(domain, Lock())
-
-        return get_domain_lock
-
-    def update_failed_response(domain: str, response: tuple):
-        pass
-
-    def get_skip_response(domain: str):
-        return None
-
-    if global_error_limit > 0:
-
-        class FailedResponse:
-            # memory efficient container for a skip response
-            # (better than dict, might use dataclass but keep it simple)
-            __slots__ = ('fail_count', 'fail_code', 'response')
-
-            def __init__(self):
-                self.fail_code = 0
-                self.response: tuple = None  # same obj returned by `urlread` # noqa
-                self.fail_count = 0
-
-        failed_response: dict[str, FailedResponse] = {}
-
-        failed_response_lock = new_domain_lock_factory()
-
-        def get_skip_response(domain: str):
-            ret = failed_response.get(domain)
-            if ret is not None:
-                with failed_response_lock(domain):
-                    return ret.response  # tuple or None
-            return None
-
-        def update_failed_response(domain: str, response: tuple):
-            exc = response[1]
-            if exc is not None:
-                code = response[2]
-                with failed_response_lock(domain):
-                    skip_resp = failed_response.setdefault(domain, FailedResponse())
-                    if skip_resp.fail_code != code:
-                        skip_resp.fail_code = code
-                        skip_resp.fail_count = 1
-                    else:
-                        skip_resp.fail_count += 1
-                        if skip_resp.fail_count >= global_error_limit:
-                            skip_resp.response = (
-                                None, exc, CustomResponseCode.DOWNLOAD_SUSPENDED
-                            )
+    user, pwsd, openers = None, None, None
+    if credentials is not None:
+        if isinstance(credentials, tuple):
+            user, pswd = credentials
+            openers = {}
+        else:
+            # Store just the domain name in openers, as we would do for (user, pswd):
+            openers = {}
+            for k, v in credentials.items():
+                # k is "geofon.de" -> hostname is None, in this case use all string
+                base_url = get_host(k)
+                if base_url in openers:
+                    if openers[base_url] != v:
+                        raise ValueError(f'Credentials conflict for {base_url}')
+                    continue
+                openers[base_url] = v
 
     def prepare_url_read_args(obj) -> tuple:
         url = obj
         if url_callback is not None:
             url = url_callback(obj)
-        opener = openers(obj) if openers is not None else None
-        return url, opener, get_host(url)
+        host = get_host(url)
+        opener = None
+        if openers is not None:
+            if pswd is not None:
+                opener = openers.setdefault(host, _get_opener(host, user, pswd))
+            else:
+                opener = openers.get(host, None)
+        return url, opener, host
 
-    # 1) handle the case 'no concurrency' (simple loop)
-    ###################################################
+    stop_event = None
+    t_pool = None
+    t_map = map
 
-    if max_concurrency <= 1:
-        for obj in iterable:
-            url, opener, domain = prepare_url_read_args(obj)
-            resp = get_skip_response(domain)
-            if resp is None:
-                resp = urlread(url, blocksize, decode, timeout, opener, **kwargs)
-                update_failed_response(domain, resp)
-            yield (obj,) + resp
-        return
+    concurrency_is_on = max_concurrency > 1 or max_concurrency_per_domain > 1
 
-    # 2) Handle the case 'concurrency' (multi threading)
-    ####################################################
+    if concurrency_is_on:
+        # flag for CTRL-C or cancelled tasks
+        stop_event = Event()
 
-    # flag for CTRL-C or cancelled tasks
-    stop_event = Event()
+        def signal_handler(sig, frame):
+            stop_event.set()
 
-    def signal_handler(sig, frame):
-        stop_event.set()
+        signal.signal(signal.SIGINT, signal_handler)
 
-    signal.signal(signal.SIGINT, signal_handler)
-
-    tpool = ThreadPool(max_concurrency)
-    threadpoolmap = tpool.imap_unordered if unordered else tpool.imap
-    # note above: chunksize argument for threads (not processes)
-    # seems to slow down download. Omit the argument and leave chunksize=1 (default)
+        t_pool = ThreadPool(max_concurrency)
+        t_map = t_pool.imap_unordered if unordered else t_pool.imap
+        # note above: chunksize argument for threads (not processes)
+        # seems to slow down download. Omit the argument and leave chunksize=1 (default)
 
     try:
 
-        slowdown_error_codes = set(slowdown_error_codes or [])
         domain_state = {}
 
-        domain_state_lock = new_domain_lock_factory()
+        semaphore_lock = thread_lock_factory()
+        skip_response_lock = thread_lock_factory()
+
+        # set slodown codes:
+        if slowdown is True:
+            slowdown = {
+                k for k in responses.keys() if 400 <= k < 600 or k in CustomResponseCode
+            }
+            slowdown.remove(CustomResponseCode.DOWNLOAD_SUSPENDED)
+        else:
+            slowdown = set(slowdown or [])
 
         class DomainState:
+            """Memory-efficient container handling download state for a URL domain"""
+
+            # define class-level attrs:
+            _slowdown_codes: slowdown
+            _slowdown_trigger = slowdown_trigger
+            _max_concurrency = max_concurrency_per_domain
+            _suspend_trigger = suspend_trigger
+
             # memory efficient container for a domain state
             # (better than dict, might use dataclass but keep it simple)
-            __slots__ = ('semaphore', 'semaphore_limit', 'fail_count', 'fail_code')
+            __slots__ = (
+                'semaphore', 'semaphore_limit', 'fail_count', 'fail_code',
+                'skip_response', 'retry_downloads', 'pending_responses'
+            )
 
             def __init__(self):
-                self.semaphore = Semaphore(max_concurrency_per_domain)
-                self.semaphore_limit = max_concurrency_per_domain
+                self.semaphore = Semaphore(self._max_concurrency)
+                self.semaphore_limit = self._max_concurrency
                 self.fail_code = 0
                 self.fail_count = 0
+                self.skip_response = None
+                self.retry_downloads = []
+                self.pending_responses = []
+
+            def update(
+                    self,
+                    semaphore: Semaphore,
+                    domain: str,
+                    obj,
+                    response: Response
+            ):
+                """Update the current state and yield the downloaded data in form
+                 of (obj, response) tuples, depending on the current state.
+                 Calling this method assumes that `self.skip_response is None`
+                """
+                if semaphore is None:
+                    # either no concurrency, or download suspended (skip_response is set)
+                    yield obj, response
+                    return
+
+                code = response.status_code
+                if semaphore is not self.semaphore:
+                    # we slowed down, and the passed semaphore is an old one
+                    if code not in self._slowdown_codes:
+                        # if download is ok, yield:
+                        yield obj, response
+                    else:
+                        # download not ok, tricky case: for safety, retry later:
+                        self.retry_downloads.append(obj)
+                    return
+
+                if code not in self._slowdown_codes:
+                    # download is ok
+                    self.fail_count = 0
+                    self.fail_code = 0
+                    # yield current response:
+                    yield obj, response
+                    # all pending responses can be yielded:
+                    yield from self.pending_responses
+                    self.pending_responses.clear()
+                    return
+
+                if code != self.fail_code:
+                    # status code denotes a different error than previous
+                    self.fail_count = 1
+                    self.fail_code = code
+                    # yield pending responses (old status code):
+                    yield from self.pending_responses
+                    # add current response as pending:
+                    self.pending_responses.clear()
+                    self.pending_responses.append((obj, response))
+                    return
+
+                # status denotes the same error as previous one:
+                self.fail_count += 1
+
+                if self.fail_count >= self._suspend_trigger:
+                    # too many errors, suspend downloads:
+                    with skip_response_lock(domain):
+                        self.skip_response = Response(
+                            response.data,
+                            response.error,
+                            CustomResponseCode.DOWNLOAD_SUSPENDED
+                        )
+                    # yield current and pending responses (all with the same code)
+                    yield obj, response
+                    yield from self.pending_responses
+                    self.pending_responses.clear()
+                    return
+
+                if self.fail_count < self._slowdown_trigger:
+                    # no slowdown triggered, put current download as pending:
+                    self.pending_responses.append((obj, response))
+                    return
+
+                if self.semaphore_limit <= 1:
+                    # Slowdown triggered but not possible, simply yield
+                    yield obj, response
+                    return
+
+                # slow down triggered and possible:
+
+                # put pending responses in retry stage (they might work later, with
+                # less concurrency, i.e. a lower semaphore_limit):
+                self.retry_downloads.extend(
+                    _[0] for _ in self.pending_responses
+                )
+                # add current response in pending responses:
+                self.pending_responses.clear()
+                self.pending_responses.append((obj, response))
+                new_limit = max(1, self.semaphore_limit // 2)
+                with semaphore_lock(domain):
+                    self.semaphore = Semaphore(new_limit)
+                    self.semaphore_limit = new_limit
+                self.fail_count = 0
+                self.fail_code = 0
 
         def url_wrapper(obj):
-            if stop_event.is_set():
+            if stop_event is not None and stop_event.is_set():
                 return None
             url, opener, domain = prepare_url_read_args(obj)
-            resp = get_skip_response(domain)
-            sem = None
+            with skip_response_lock(domain):
+                resp = domain_state.setdefault(domain, DomainState()).skip_response
+            semaph = None
             if resp is None:
-                if max_concurrency_per_domain <= 1:
-                    # no workers per domain
-                    resp = urlread(url, blocksize, decode, timeout, opener, **kwargs)
-                else:
-                    with domain_state_lock(domain):
-                        sem = domain_state.setdefault(domain, DomainState()).semaphore
-                    with sem:
+                if concurrency_is_on:
+                    with semaphore_lock(domain):
+                        semaph = domain_state.setdefault(domain, DomainState()).semaphore
+                    with semaph:
                         resp = urlread(url, blocksize, decode, timeout, opener, **kwargs)
-                update_failed_response(domain, resp)
-            return sem, domain, (obj,) + resp
+                else:
+                    resp = urlread(url, blocksize, decode, timeout, opener, **kwargs)
+            return semaph, domain, obj, resp
 
-        # this try is for the keyboard interrupt, which will be caught inside the
-        # as_completed below
-        for result in threadpoolmap(url_wrapper, iterable):
-            if stop_event.is_set():
+        # perform download:
+        for semaphore, domain, obj, response in t_map(url_wrapper, iterable):
+            if stop_event is not None and stop_event.is_set():
                 continue
-            sem, domain, result = result
-            if sem is not None:
-                state: DomainState = domain_state[domain]
-                # Only allow the most recent semaphore instance to affect state
-                if sem is state.semaphore and state.semaphore_limit > 1:
-                    status = result[2]
-                    if status not in slowdown_error_codes:
-                        state.fail_count = 0
-                        state.fail_code = 0
-                    elif status != state.fail_code:
-                        state.fail_count = 1
-                        state.fail_code = status
-                    else:
-                        state.fail_count += 1
-                        if state.fail_count >= slowdown_error_limit:
-                            new_limit = max(1, state.semaphore_limit // 2)
-                            with domain_state_lock(domain):
-                                state.semaphore = Semaphore(new_limit)
-                            state.semaphore_limit = new_limit
-                            state.fail_count = 0
-                            state.fail_code = 0
-            yield result
+            yield from domain_state[domain].update(semaphore, domain, obj, response)
+
+        # yield pending responses not yielded:
+        yield from chain.from_iterable(
+            state.pending_responses for state in domain_state.values()
+        )
+
+        # re-download pending objs that were queued in domain state, possibly now they
+        # work due to lowered per-domain concurrency:
+        pending_objs = chain.from_iterable(
+            state.retry_downloads for state in domain_state.values()
+        )
+        for semaphore, domain, obj, response in t_map(url_wrapper, pending_objs):
+            if stop_event is not None and stop_event.is_set():
+                continue
+            yield obj, response
 
     finally:
-        tpool.close()
-        tpool.join()
+        if t_pool is not None:
+            t_pool.close()
+            t_pool.join()
 
 
 def adjust_max_concurrent_downloads(preferred_max_concurrent_downloads=None):
@@ -421,12 +508,30 @@ def adjust_max_concurrent_downloads(preferred_max_concurrent_downloads=None):
         number of concurrent downloads. <=0 or None means: no preferred number, infer
         and return the max number of concurrent downloads from the computer CPU
     """
-    # Now adjust with the computer capacity (we use the algorithm here:
-    # https://docs.python.org/3/library/concurrent.futures.html#concurrent.futures.ThreadPoolExecutor
+    # Now adjust with the computer capacity (algorithm copied from
+    # concurrent.futures.ThreadPoolExecutor):
     os_max_concurrent_downloads = min(32, os.cpu_count() + 4)
     if not preferred_max_concurrent_downloads or preferred_max_concurrent_downloads < 0:
         return os_max_concurrent_downloads
     return min(os_max_concurrent_downloads, preferred_max_concurrent_downloads)
+
+
+def thread_lock_factory():
+    """Create a function that called with a key:str argument return a unique key-based
+    threading.Lock, meaning that calling the function with the same key again will
+    return the same Lock"""
+
+    thread_locks = {}
+    global_lock = Lock()
+
+    def get_thread_lock(domain):
+        lock = thread_locks.get(domain)
+        if lock is not None:
+            return lock
+        with global_lock:
+            return thread_locks.setdefault(domain, Lock())
+
+    return get_thread_lock
 
 
 def _ismainthread():
