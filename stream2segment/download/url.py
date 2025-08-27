@@ -214,10 +214,11 @@ def read_async(
         downloads. This corresponds to the maximum worker (sub) threads used. When None,
         the threads allocated are relative to the machine CPU (should be around 16-32)
     :param max_concurrency_per_domain: integer (default: 8) denoting the max parallel
-        downloads per domain. This is useful because -while `max_concurrency` optimizes
-        the download speed, it does not account that most servers limit the amount of
-        concurrent requests, resulting in error response which might be avoided
-        otherwise. If greater than `max_concurrency`, it will be set equal to the latter
+        downloads per domain. Setting this value >0 means that - while `max_concurrency`
+        will allow a certain number of parallel downloads *globally*, you will be assured
+        that at most *max_concurrency_per_domain* will be from the same URL domain,
+        possibly avoiding errors due to concurrent requests limit configured on the
+        servers
     :param slowdown: True to enable slowing down concurrent downloads for those domains
         consistently returning the same download error at least `slowdown_trigger` times
         (download from other domains are not affected): `max_concurrency_per_domain` will
@@ -306,7 +307,8 @@ def read_async(
     t_pool = None
     t_map = map
 
-    concurrency_is_on = max_concurrency > 1 or max_concurrency_per_domain > 1
+    concurrency_is_on = max_concurrency > 1
+    concurrency_per_domain_is_on = concurrency_is_on and max_concurrency_per_domain > 0
 
     if concurrency_is_on:
         # flag for CTRL-C or cancelled tasks
@@ -375,7 +377,8 @@ def read_async(
                  Calling this method assumes that `self.skip_response is None`
                 """
                 if semaphore is None:
-                    # either no concurrency, or download suspended (skip_response is set)
+                    # either no concurrency_per_domain,
+                    # or download suspended (skip_response is set)
                     yield obj, response
                     return
 
@@ -391,14 +394,16 @@ def read_async(
                     return
 
                 if code not in self._slowdown_codes:
-                    # download is ok
-                    self.fail_count = 0
-                    self.fail_code = 0
+                    # download is ok (no slowdown potential issues)
                     # yield current response:
                     yield obj, response
-                    # all pending responses can be yielded:
-                    yield from self.pending_responses
-                    self.pending_responses.clear()
+                    # reset variables only if we have slodown codes (otherwise skip):
+                    if self._slowdown_codes:
+                        self.fail_count = 0
+                        self.fail_code = 0
+                        # all pending responses can be yielded:
+                        yield from self.pending_responses
+                        self.pending_responses.clear()
                     return
 
                 if code != self.fail_code:
@@ -464,7 +469,7 @@ def read_async(
                 resp = domain_state.setdefault(domain, DomainState()).skip_response
             semaph = None
             if resp is None:
-                if concurrency_is_on:
+                if concurrency_per_domain_is_on:
                     with semaphore_lock(domain):
                         semaph = domain_state.setdefault(domain, DomainState()).semaphore
                     with semaph:

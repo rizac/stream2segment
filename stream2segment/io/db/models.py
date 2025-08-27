@@ -26,7 +26,7 @@ from sqlalchemy.orm import relationship, backref, deferred, aliased, load_only, 
     selectinload
 from sqlalchemy.sql.expression import text, case, select, func  # or_ , and_
 
-from stream2segment.io import Fdsnws
+# from stream2segment.io import Fdsnws
 from stream2segment.io.db import sqlalchemy_version
 from stream2segment.io.db.sqlconstructs import concat, deg2km, duration_sec
 
@@ -217,24 +217,24 @@ class Event(Base):  # noqa
                                 name='ws_eventid_uc'),  # <- tuple
 
 
-def check_datacenter_urls_fdsn(target):
-    """Check for datacenter URLs. To be used as argument for sqlalchemy.listen or
-    listen_to (see implementation in this program), e.g.
-    ```
-    @event.listens_for(DataCenter, 'before_insert', check_datacenter_urls_fdsn)
-    @event.listens_for(DataCenter, 'before_update', check_datacenter_urls_fdsn)
-    ```
-    or
-    `event.listens_for(DataCenter, 'before_insert')(check_datacenter_urls_fdsn)`
-    For info on validation see:
-    https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf
-    """
-    # Note: we thought about using validators, but we ended up with infinite
-    # recursion loops
-    fdsn = Fdsnws(target.station_url if target.dataselect_url is None
-                  else target.dataselect_url)
-    target.station_url = fdsn.url(Fdsnws.STATION)
-    target.dataselect_url = fdsn.url(Fdsnws.DATASEL)
+# def check_datacenter_urls_fdsn(target):  # FIXME REMOVE
+#     """Check for datacenter URLs. To be used as argument for sqlalchemy.listen or
+#     listen_to (see implementation in this program), e.g.
+#     ```
+#     @event.listens_for(DataCenter, 'before_insert', check_datacenter_urls_fdsn)
+#     @event.listens_for(DataCenter, 'before_update', check_datacenter_urls_fdsn)
+#     ```
+#     or
+#     `event.listens_for(DataCenter, 'before_insert')(check_datacenter_urls_fdsn)`
+#     For info on validation see:
+#     https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf
+#     """
+#     # Note: we thought about using validators, but we ended up with infinite
+#     # recursion loops
+#     fdsn = Fdsnws(target.station_url if target.dataselect_url is None
+#                   else target.dataselect_url)
+#     target.station_url = fdsn.url(Fdsnws.STATION)
+#     target.dataselect_url = fdsn.url(Fdsnws.DATASEL)
 
 
 class Channel(Base):

@@ -1029,21 +1029,28 @@ def fdsn_url(base_url: str, **query_args):
     Duplicates (e.g. 'mag', 'magnitude') are not checked for
     """
     qs = {}
-    c_params = {'net', 'network', 'sta', 'station', 'cha', 'channel', 'loc', 'location'}
-    n_params = {
-        'lat', 'latitude', 'minlat', 'minlatitude', 'maxlat', 'maxlatitude',
-        'lon', 'longitude', 'minlon', 'minlongitude', 'maxlon', 'maxlongitude',
-        'mag', 'magnitude', 'minmag', 'minmagnitude', 'maxmag', 'maxmagnitude',
+    # date and time params:
+    d_params = {
+        'start', 'starttime', 'end', 'endtime', 'startbefore', 'startafter',
+        'endbefore', 'endafter'
     }
-    d_params = {'start', 'starttime', 'end', 'endtime'}
+    # special text params (needing * treated specially):
+    c_params = {'net', 'network', 'sta', 'station', 'cha', 'channel', 'loc', 'location'}
+    # Numeric params. Keep track of them just for ref (maybe needed in future):
+    # n_params = {
+    #     'lat', 'latitude', 'minlat', 'minlatitude', 'maxlat', 'maxlatitude',
+    #     'lon', 'longitude', 'minlon', 'minlongitude', 'maxlon', 'maxlongitude',
+    #     'mag', 'magnitude', 'minmag', 'minmagnitude', 'maxmag', 'maxmagnitude',
+    #     'mindepth', 'maxdepth', 'minradius', 'maxradius'
+    # }
     for k, v in query_args.items():
-        if v is None:
+        if v is None or (k in c_params and v.strip() == '*'):
             continue
-        if k in c_params and v.strip() == '*':
-            continue
-        if k in n_params and isinstance(v, float):
-            v = str(v)
         if k in d_params and isinstance(v, (date, datetime)):
+            if isinstance(v, date):
+                v = datetime(v.year, v.month, v.day)
             v = v.isoformat('T')
+        else:
+            v = str(v)
         qs[k] = v
     return f'{base_url}?{urlencode(qs)}'
