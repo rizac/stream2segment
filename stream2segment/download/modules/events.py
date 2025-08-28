@@ -14,15 +14,10 @@ from stream2segment.io.db.pdsql import DbManager
 from stream2segment.download.exc import FailedDownload, NothingToDownload
 from stream2segment.download.db.models import Event, WebService
 from stream2segment.download.url import urlread, socket, HTTPError, read_async
-from stream2segment.download.modules.utils import (dbsyncdf,
-                                                   response_text_to_df,
-                                                   harmonize_dataframe_to_fdsn,
-                                                   formatmsg,
-                                                   EVENTWS_MAPPING,
-                                                   strptime,
-                                                   fdsn_url,
-                                                   DbExcLogger,
-                                                   RequestErrorOnceLogger)
+from stream2segment.download.modules.utils import (
+    dbsyncdf, response_text_to_df, harmonize_dataframe_to_fdsn, formatmsg,
+    EVENTWS_MAPPING, strptime, fdsn_url_qs, DbExcLogger, RequestErrorOnceLogger
+)
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__)
@@ -147,7 +142,7 @@ def normalize_url(base_url, evt_query_args, start, end):
     4. Adds a custom format 'text' unless the base_url is not EVENTWS_MAPPING['isc']
     """
     _url, _query_args = _normalize(base_url, evt_query_args, start, end)
-    return fdsn_url(_url, **_query_args)
+    return fdsn_url_qs(_url, **_query_args)
 
 
 # def events_data_from_file(file_path):
@@ -187,7 +182,7 @@ def events_iter_from_url(base_url, evt_query_args, start, end, timeout,
     base_url, evt_query_args = _normalize(base_url, evt_query_args, start, end)
     end_iso = evt_query_args['endtime']
 
-    url = fdsn_url(base_url, **evt_query_args)
+    url = fdsn_url_qs(base_url, **evt_query_args)
     result = _urlread(url, timeout)
 
     if result is not _SUSPECTED_REQUEST_TOO_ARGE:
@@ -214,7 +209,7 @@ def events_iter_from_url(base_url, evt_query_args, start, end, timeout,
             while downloads:
                 evt_q_args = _split_request(downloads.pop(0))
                 for i, evt_q_arg in enumerate(evt_q_args):
-                    url = fdsn_url(base_url, **evt_q_arg)
+                    url = fdsn_url_qs(base_url, **evt_q_arg)
                     result = _urlread(url, timeout)
 
                     if result is not _SUSPECTED_REQUEST_TOO_ARGE:
@@ -378,7 +373,7 @@ def save_quakeml(session, events_df, max_thread_workers, timeout,
 
         def url_builder(row):
             """build url (str) from each item yielded by the previous iterable"""
-            return fdsn_url(obj[1], eventid=obj[2])
+            return fdsn_url_qs(obj[1], eventid=obj[2])
 
         reader = read_async(iterable,
                             url_callback=url_builder,

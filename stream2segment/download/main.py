@@ -236,7 +236,7 @@ def _run(session, download_id, events_url, starttime, endtime, data_url,
         # Get datacenters, store them in the db, returns the dc instances
         # (db rows) correctly added
         stepinfo("Fetching data-centers")
-        # get dacatanters (might raise FailedDownload):
+        # get datacenters (might raise FailedDownload):
         datacenters_df = get_datacenters_df(
             session, data_url, advanced_settings['routing_service_url'],
             network, station, location, channel, starttime,

@@ -6,8 +6,8 @@ import os
 from datetime import datetime, timedelta
 
 from stream2segment.download.modules.utils import (EVENTWS_SAFE_PARAMS, Authorizer,
-                                                   strptime, EVENTWS_MAPPING)
-from stream2segment.io import yaml_load, absrelpath, Fdsnws
+                                                   strptime, EVENTWS_MAPPING, fdsn_url)
+from stream2segment.io import yaml_load, absrelpath
 from stream2segment.io.inputvalidation import (validate_param, pop_param,
                                                get_param, BadParam, valid_between)
 from stream2segment.download.db import get_session
@@ -459,12 +459,12 @@ def valid_fdsn(url, is_eventws, configfile=None):
         fpath = url if configfile is None else absrelpath(url, configfile)
         if os.path.isfile(fpath):
             return fpath
-        try:
-            return Fdsnws(url).url()
-        except Exception:
-            raise ValueError('Invalid FDSN url or file path, check typos')
-
-    return Fdsnws(url).url()
+        else:
+            raise ValueError('Invalid file path, check typos')
+    try:
+        return fdsn_url(url)
+    except Exception:
+        raise ValueError('Invalid FDSN url or file path, check typos')
 
 
 def valid_search_radius(search_radius):

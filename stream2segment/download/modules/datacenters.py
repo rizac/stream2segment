@@ -9,9 +9,10 @@ from typing import Optional
 
 import pandas as pd
 
-from stream2segment.io import Fdsnws
 from stream2segment.io.db.models import WebService, Channel
-from stream2segment.download.modules.utils import dbsyncdf, formatmsg, fdsn_url
+from stream2segment.download.modules.utils import (
+    dbsyncdf, formatmsg, fdsn_url_qs, fdsn_url
+)
 from stream2segment.download.exc import FailedDownload
 from stream2segment.download.url import urlread
 
@@ -75,8 +76,10 @@ def get_datacenters_df(
         for url, params in items:
             if url not in url2fdsn:
                 try:
-                    fdsn = Fdsnws(url)
-                    url2fdsn[url] = (fdsn.url(Fdsnws.STATION), fdsn.url(Fdsnws.DATASEL))
+                    url2fdsn[url] = (
+                        fdsn_url(url, new_service='station'),
+                        fdsn_url(url, new_service='dataselect')
+                    )
                 except ValueError as verr:
                     url2fdsn[url] = None
                     discarded += 1
@@ -141,9 +144,9 @@ def get_eidars_response_text(
 ):
     """Return the EIDA Routing Service response text (str)"""
     for eida_rs_url in routing_service_url:
-        url = fdsn_url(eida_rs_url, net=network, sta=station, loc=location,
-                       cha=channel, start=starttime, end=endtime,
-                       service='dataselect', format='post')
+        url = fdsn_url_qs(eida_rs_url, net=network, sta=station, loc=location,
+                          cha=channel, start=starttime, end=endtime,
+                          service='dataselect', format='post')
         response_text, error, code = urlread(url, decode='utf8')
         if not error:
             return response_text

@@ -14,7 +14,7 @@ from stream2segment.io.db.models import WebService, Segment
 from stream2segment.download.url import read_async
 from stream2segment.download.modules.utils import (DbExcLogger,
                                                    RequestErrorOnceLogger,
-                                                   fdsn_url)
+                                                   fdsn_url_qs)
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__)
@@ -88,7 +88,7 @@ def save_stationxml(session, stations_df, max_thread_workers, timeout,
 
         def url_builder(row):
             """build url (str) from each item yielded by the previous iterable"""
-            return fdsn_url(row[1], net=row[2], sta=row[3], level='response')
+            return fdsn_url_qs(row[1], net=row[2], sta=row[3], level='response')
 
         reader = read_async(iterable, url_callback=url_builder, timeout=timeout,
                             max_workers=max_thread_workers, blocksize=download_blocksize)

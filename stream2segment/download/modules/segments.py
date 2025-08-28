@@ -19,7 +19,7 @@ from stream2segment.io.db.pdsql import dbquery2df, mergeupdate, DbManager
 from stream2segment.io.db.models import WebService, Segment, Channel
 from stream2segment.download.modules.utils import (DbExcLogger, logwarn_dataframe,
                                                    DownloadStats, formatmsg,
-                                                   s2scodes, url2str, fdsn_url)
+                                                   s2scodes, url2str, fdsn_url_qs)
 from stream2segment.download.exc import NothingToDownload
 from stream2segment.download.modules.mseedlite import MSeedError, unpack as mseedunpack
 from stream2segment.download.url import get_opener, get_host, read_async, \
@@ -522,7 +522,7 @@ def get_seg_request(segments_df):
         'cha': ','.join(sorted(segments_df[SEG.CHA].unique())) or None,
     }
 
-    return fdsn_url(dc_url, **params)
+    return fdsn_url_qs(dc_url, **params)
 
     # FIXME REMOVE
     # stime = segments_df[SEG.REQSTART].iloc[0]

@@ -22,13 +22,13 @@ import gzip
 import zipfile
 import zlib
 import bz2
-from urllib.parse import urlencode, unquote
+from urllib.parse import urlencode, unquote, urlparse
 
 import pandas as pd
 
 from stream2segment.io.db.models import MINISEED_READ_ERROR_CODE
 from stream2segment.io.db.pdsql import harmonize_columns, dropnulls, syncdf
-from stream2segment.download.db.models import Event, Station, Channel, WebService
+from stream2segment.io.db.models import Event, Channel, WebService
 from stream2segment.download.exc import FailedDownload
 from stream2segment.download.url import responses, get_host
 
@@ -358,14 +358,14 @@ def _rename_columns(query_df, query_type):
             # Set this table columns mapping (by name, so we can safely add any
             # new column at any index):
             columns = {
-                columns[0]: Station.network.key,
-                columns[1]: Station.station.key,
-                columns[2]: Station.latitude.key,
-                columns[3]: Station.longitude.key,
-                columns[4]: Station.elevation.key,
+                columns[0]: Channel.network.key,
+                columns[1]: Channel.station.key,
+                columns[2]: Channel.latitude.key,
+                columns[3]: Channel.longitude.key,
+                columns[4]: Channel.elevation.key,
                 # skip site_name (Rarely used, memory-intensive text field)
-                columns[6]: Station.start_time.key,
-                columns[7]: Station.end_time.key
+                columns[6]: Channel.start_time.key,
+                columns[7]: Channel.end_time.key
             }
         elif query_type.lower() in {"channel", "channels"}:
             expected_columns_count = 17
@@ -373,13 +373,13 @@ def _rename_columns(query_df, query_type):
             # Azimuth|Dip|SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|
             # StartTime|EndTime`
             columns = {
-                columns[0]: Station.network.key,
-                columns[1]: Station.station.key,
+                columns[0]: Channel.network.key,
+                columns[1]: Channel.station.key,
                 columns[2]: Channel.location.key,
                 columns[3]: Channel.channel.key,
-                columns[4]: Station.latitude.key,
-                columns[5]: Station.longitude.key,
-                columns[6]: Station.elevation.key,
+                columns[4]: Channel.latitude.key,
+                columns[5]: Channel.longitude.key,
+                columns[6]: Channel.elevation.key,
                 columns[7]: Channel.depth.key,
                 columns[8]: Channel.azimuth.key,
                 columns[9]: Channel.dip.key,
@@ -388,8 +388,8 @@ def _rename_columns(query_df, query_type):
                 columns[12]: Channel.scale_freq.key,
                 columns[13]: Channel.scale_units.key,
                 columns[14]: Channel.sample_rate.key,
-                columns[15]: Station.start_time.key,
-                columns[16]: Station.end_time.key
+                columns[15]: Channel.start_time.key,
+                columns[16]: Channel.end_time.key
             }
         else:
             raise ValueError("Invalid fdsn_model: supply Events, "
@@ -1015,18 +1015,82 @@ else:
 #                           "&".join("{}={}".format(k, v)
 #                                    for k, v in query_args.items()))
 
+def fdsn_url(url: str, new_service: str = None, new_method: str = None, check_schema=True):  # noqa
+    """Check the given url is a valid FDSN URL and return it (with new service and
+    method substrings, if given). Raise ValueError if the url is invalid. The URL query
+    string, if given, will not be checked
 
-def fdsn_url(base_url: str, **query_args):
-    """Build a valid FDSN URL from the arguments, using `urljoin(*url_parts)` and
-    `urlparse(**query_args)`, performing some pre-processing steps beforehand:
+    :param url: a valid FDSN url, with or without query string or schema
+    :param new_service: the new service. None will leave the service of `url`. Must be
+        a string in ('station', 'dataselect', 'event')
+    :param new_method: the new method, None will leave the url method. Must be a string
+        in ('query', 'queryauth', 'auth', 'version', 'application.wadl')
+    :param check_schema: if True (the default) check that the url is prefixed with a
+        schema (e.g. https://), raising ValueError if missing. If False, urls can also
+        miss the schema
+    """
+    services = {'station', 'dataselect', 'event'}
+    if new_service is not None and new_service not in services:
+        raise ValueError(f'Invalid argument service: {new_service}')
+
+    methods = {'query', 'queryauth', 'auth', 'version', 'application.wadl'}
+    if new_method is not None and new_method not in methods:
+        raise ValueError(f'Invalid argument method: {new_method}')
+
+    obj = urlparse(url)
+    if not obj.scheme and check_schema:
+        raise ValueError('url starts with no scheme (e.g. "https://")')
+
+    if not obj.netloc:
+        raise ValueError('url has no network location, e.g. "geofon.gfz.de"')
+
+    path = obj.path
+    # urlparse has already removed query char '?' and params and fragment
+    # from the path (which starts with '/'). Now check the path:
+    reg = re.match(
+        "^/fdsnws/(?P<service>[^/]+)/(?P<majorversion>[^/]+)/(?P<method>.*)$", path
+    )
+
+    service = reg.group('service')
+    if service not in services:
+        raise ValueError(f"Invalid service in URL: {service}")
+
+    majorversion = reg.group('majorversion')
+    try:
+        float(majorversion)
+    except ValueError:
+        raise ValueError(f"Invalid major version in URL: {majorversion}")
+
+    method = reg.group('method')
+    if method not in methods:
+        raise ValueError(f"Invalid method in URL: {method}")
+
+    # check required for safety, and to be sure we will replace something, if needed:
+    if f'/fdsnws/{service}/{majorversion}/{method}' not in url:
+        raise ValueError(f'Invalid FDSN path in url: {path}')
+
+    if new_service is not None or new_method is not None:
+        url = url.replace(
+            f'/fdsnws/{service}/{majorversion}/{method}',
+            f'/fdsnws/{new_service or service}/{majorversion}/{new_method or method}'
+        )
+
+    return url
+
+
+def fdsn_url_qs(base_url: str, **query_args):
+    """Build a valid FDSN URL appending to `base_url` the query parameters given
+    in `query_args`.
+
     Any query arg value key mapped to None will be removed. In addition:
     - net, sta, loc, cha (and their long-name variants, e.g. network)
-      will be removed if '*'.
+      will be ignored if '*'.
     - start, end (and their long-name variants) will be converted to ISO format strings
       if datetime
     - lat, lon, depth, mag, minmag, maxmag, minlon, maxlon, minlat, maxlat
       (and their long-name variants) will be converted to string if float
-    Duplicates (e.g. 'mag', 'magnitude') are not checked for
+    Duplicates (e.g. 'mag', 'magnitude') are not checked for (the last parsed
+    will overwrite any given value, if set)
     """
     qs = {}
     # date and time params:

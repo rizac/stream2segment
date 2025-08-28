@@ -192,7 +192,7 @@ class Test:
                              db_bufsize, timeout,
                              show_progress)
 
-    @patch('stream2segment.download.modules.events.fdsn_url', side_effect=fdsn_url)
+    @patch('stream2segment.download.modules.events.fdsn_url_qs', side_effect=fdsn_url)
     def test_get_events(self, mock_urljoin, db):
         urlread_sideeffect = ["""#1|2|3|4|5|6|7|8|9|10|11|12|13
 20160508_0000129|2016-05-08 05:17:11.500000|40.57|52.23|60.0|AZER|EMSC-RTS|AZER|505483|ml|3.1|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN
@@ -297,7 +297,7 @@ class Test:
         return _get_freq_mag_distrib({})[2].sum()
 
     @patch('stream2segment.download.modules.events.get_progressbar')
-    @patch('stream2segment.download.modules.events.fdsn_url', side_effect=fdsn_url)
+    @patch('stream2segment.download.modules.events.fdsn_url_qs', side_effect=fdsn_url)
     def test_pbar1(self, mock_urljoin, mock_pbar, db):
         """test request split, but failing due to a http error"""
 
@@ -658,7 +658,7 @@ class Test:
                        filepath
                 assert db.session.query(Event.id).count() == expected_events
 
-    @patch('stream2segment.download.modules.events.fdsn_url', side_effect=fdsn_url)
+    @patch('stream2segment.download.modules.events.fdsn_url_qs', side_effect=fdsn_url)
     def test_get_events_response_has_one_col_more(self, mock_urljoin, db):
         """WARNING: THIS TEST MIGHT FAIL IN THE FUTURE IF NEW COLUMNS ARE ADDED TO OUR
         Event MODEL. TO FIX THIS, EDIT `urlread_sideeffect` below adding a "|" at the

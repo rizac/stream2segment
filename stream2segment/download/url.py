@@ -23,13 +23,20 @@ from urllib.request import (urlopen, build_opener, HTTPPasswordMgrWithDefaultRea
 
 # https://docs.python.org/3/library/urllib.request.html#request-objects
 def get_host(url_or_request, include_scheme=False) -> str:
-    """Returns the host (string) from a urllib.request.Request object or str (URL)"""
+    """Returns the host (domain name, lower case) from a urllib.request.Request object
+    or str (URL). If hostname is not found, return the full url "untouched"
+    get_host("https://GEOFON.de/fdsnws") -> "geofon.de"
+    get_host("https://GEOFON.de/fdsnws", True) -> "https://geofon.de"
+    get_host("geofon.de.invalid_url") -> "geofon.de.invalid_url"
+    """
     # Handle both url as Request obj. (use attr. host) or string (use urlparse):
     url = getattr(url_or_request, 'full_url', url_or_request)
     parsed = urlparse(url)
+    if not parsed.hostname:
+        return url
     if include_scheme and parsed.scheme:  # scheme is present
         return f"{parsed.scheme}://{parsed.hostname}"
-    return parsed.hostname or url  # no scheme, just return the domain
+    return parsed.hostname  # noqa
 
 
 def _get_opener(base_url, user, password):
@@ -282,12 +289,11 @@ def read_async(
             # Store just the domain name in openers, as we would do for (user, pswd):
             openers = {}
             for k, v in credentials.items():
-                # k is "geofon.de" -> hostname is None, in this case use all string
+                # check that credentials does not hav conflicting keys (same domain
+                # name, e.g. "geofon.de" and "https://geofon.de" and different passw.):
                 base_url = get_host(k)
-                if base_url in openers:
-                    if openers[base_url] != v:
-                        raise ValueError(f'Credentials conflict for {base_url}')
-                    continue
+                if base_url in openers and openers[base_url] != v:
+                    raise ValueError(f'Credentials conflict for {base_url}')
                 openers[base_url] = v
 
     def prepare_url_read_args(obj) -> tuple:

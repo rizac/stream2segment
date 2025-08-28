@@ -18,7 +18,7 @@ from stream2segment.download.url import read_async
 from stream2segment.download.modules.utils import (harmonize_dataframe_to_fdsn,
                                                    dbsyncdf, formatmsg,
                                                    logwarn_dataframe, strconvert,
-                                                   fdsn_url, response_text_to_df)
+                                                   fdsn_url_qs, response_text_to_df)
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__)
@@ -55,9 +55,9 @@ def get_channels_df(session, datacenters_df, net, sta, loc, cha,
 
     def url_builder(row):
         """build url (str) from each item yielded by the previous iterable"""
-        return fdsn_url(row[0], net=row[1], sta=row[2], loc=row[3], cha=row[4],
-                        start=pd.isna(row[5]) or None, end=pd.isna(row[6]) or None,
-                        level='channel', format='text')
+        return fdsn_url_qs(row[0], net=row[1], sta=row[2], loc=row[3], cha=row[4],
+                           start=pd.isna(row[5]) or None, end=pd.isna(row[6]) or None,
+                           level='channel', format='text')
 
     ret = []
     failed_dframe_rows = []
