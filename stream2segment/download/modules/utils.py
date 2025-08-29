@@ -23,6 +23,7 @@ import zipfile
 import zlib
 import bz2
 from urllib.parse import urlencode, unquote, urlparse
+from urllib.request import Request
 
 import pandas as pd
 
@@ -30,8 +31,7 @@ from stream2segment.io.db.models import MINISEED_READ_ERROR_CODE
 from stream2segment.io.db.pdsql import harmonize_columns, dropnulls, syncdf
 from stream2segment.io.db.models import Event, Channel, WebService
 from stream2segment.download.exc import FailedDownload
-from stream2segment.download.url import responses, get_host
-
+from stream2segment.download.url import responses, get_host, urlread
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__)
@@ -772,8 +772,9 @@ EVENTWS_SAFE_PARAMS = ['minlatitude', 'minlat', 'maxlatitude', 'maxlat',
                        'mindepth', 'maxdepth']
 
 
-class Authorizer:
-    """Class handling authorization/authentication"""
+class Authorizer(dict[str, tuple[str, str]]):
+    """Class handling authorization/authentication. It subclasses dict
+    returns """
 
     def __init__(self, token):
         """Initialize a new Authorizer, a class handling authorization and
@@ -782,52 +783,76 @@ class Authorizer:
         :param token: a filepath (to a token), the token data (bytes),
             or a tuple (username, password). If None, this authorizer is no-op
         """
-        self._uname, self._pswd, self._token = None, None, None
-        if token is not None:
-            token_file = None
-            if isinstance(token, (tuple, list)):
-                if len(token) != 2 or not all(isinstance(_, str)
-                                              for _ in token):
-                    raise ValueError('provide username and password as '
-                                     'list/tuple of two strings')
-                self._uname, self._pswd = token
+        super().__init__()
+        self._token = None
+        self.user_pass = None, None
+        token_file = None
+        if isinstance(token, (tuple, list)):
+            if len(token) != 2 or not all(isinstance(_, str) for _ in token):
+                raise ValueError('provide username and password as '
+                                 'list/tuple of two strings')
+            self._user_pass = tuple(token)
+        else:
+            # check if there's a local file that matches the provided str
+            token_file = token if os.path.isfile(token) else None
+            if token_file is not None:
+                with open(token_file, 'rb') as fhd:
+                    self._token = fhd.read()
+            valid_eida_token = re.search(
+                pattern=rb'\bBEGIN PGP\b', string=self._token, flags=re.IGNORECASE
+            )
+            if not valid_eida_token:
+                raise ValueError("Invalid token. "
+                                 "If you passed a file path, "
+                                 "check that the file is a valid token")
+
+    def add_url(self, url):
+        """Adds the given url as restricted data download
+
+        :param url: an FDSN url (method and query majorversion will be ignored)
+        """
+        # hostname = get_host(url)
+        if self._token:
+            req = Request(
+                fdsn_url(url, new_service='dataselect', new_method='auth'),
+                data=self._token
+            )
+            response = urlread(req)
+            if response.error:
+                raise response.error
+            data = response.data
+            if ':' not in data:
+                raise ValueError('Invalid user and password returned. '
+                                 'This could be a data-center bug')
             else:
-                # check if there's a local file that matches the provided str
-                token_file = token if os.path.isfile(token) else None
-                if token_file is not None:
-                    with open(token_file, 'rb') as fhd:
-                        token = fhd.read()
-                self._token = token
-                if not self._validate_eida_token(token.decode()
-                                                 if isinstance(token, bytes)
-                                                 else token):
-                    raise ValueError("Invalid token. "
-                                     "If you passed a file path, "
-                                     "check that the file is a valid token")
+                user_pass = tuple(data.split(':'))
+        else:
+            user_pass = self.user_pass
+        self[get_host(url, include_scheme=True)] = user_pass
 
-    @staticmethod
-    def _validate_eida_token(token):
-        """Along the lines of ObsPy: basic check to test that a token is ok"""
-        if re.search(pattern=r'\bBEGIN PGP\b', string=token,
-                     flags=re.IGNORECASE):  # @UndefinedVariable
-            return True
-        return False
-
-    @property
-    def token(self):
-        """Return the token (as bytes), or None. You can safely use this method
-        also in an if statement: `if auth.token`, as the token can not be empty
-        """
-        return self._token
-
-    @property
-    def userpass(self):
-        """Return the tuple (user, password), or None, You can safely use
-        this method also in an if statement: `if auth.userpass`
-        """
-        if (self._uname, self._pswd) == (None, None):
-            return None
-        return self._uname, self._pswd
+    # @staticmethod   # FIXME REMOVE
+    # def _validate_eida_token(token):
+    #     """Along the lines of ObsPy: basic check to test that a token is ok"""
+    #     if re.search(pattern=r'\bBEGIN PGP\b', string=token,
+    #                  flags=re.IGNORECASE):  # @UndefinedVariable
+    #         return True
+    #     return False
+    #
+    # @property
+    # def token(self):
+    #     """Return the token (as bytes), or None. You can safely use this method
+    #     also in an if statement: `if auth.token`, as the token can not be empty
+    #     """
+    #     return self._token
+    #
+    # @property
+    # def userpass(self):
+    #     """Return the tuple (user, password), or None, You can safely use
+    #     this method also in an if statement: `if auth.userpass`
+    #     """
+    #     if (self._uname, self._pswd) == (None, None):
+    #         return None
+    #     return self._uname, self._pswd
 
 
 class strconvert:

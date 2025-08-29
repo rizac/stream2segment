@@ -12,13 +12,14 @@ from pandas.core.dtypes.common import is_categorical_dtype
 
 from stream2segment.io.cli import get_progressbar
 from stream2segment.io.db.pdsql import shared_colnames  # dbquery2df, , mergeupdate
-from stream2segment.io.db.models import Channel, WebService
+from stream2segment.io.db.models import Channel, WebService, Segment
 from stream2segment.download.exc import FailedDownload
-from stream2segment.download.url import read_async
+from stream2segment.download.url import read_async, get_host
 from stream2segment.download.modules.utils import (harmonize_dataframe_to_fdsn,
                                                    dbsyncdf, formatmsg,
                                                    logwarn_dataframe, strconvert,
-                                                   fdsn_url_qs, response_text_to_df)
+                                                   fdsn_url, response_text_to_df,
+                                                   Authorizer, fdsn_url_qs)
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__)
@@ -48,9 +49,7 @@ def get_channels_df(session, datacenters_df, net, sta, loc, cha,
         datacenters_df['cha'],
         datacenters_df['start'],
         datacenters_df['end'],
-        datacenters_df[ws_id_col],
-        datacenters_df[f'Segment.{ws_url_col}'],
-        datacenters_df[f'Segment.{ws_id_col}']
+        datacenters_df[ws_id_col]
     )
 
     def url_builder(row):
@@ -69,8 +68,6 @@ def get_channels_df(session, datacenters_df, net, sta, loc, cha,
             pbar.update(1)
             sta_ws_url = obj[0]
             sta_ws_id = obj[7]
-            seg_ws_url = obj[8]
-            seg_ws_id = obj[9]
             if exc:
                 failed_dframe_rows.append(obj)
                 logger.warning(formatmsg("Unable to fetch stations", exc,
@@ -94,9 +91,7 @@ def get_channels_df(session, datacenters_df, net, sta, loc, cha,
             if not dframe.empty:
                 for col, val in (
                     (ws_id_col, sta_ws_id),
-                    (ws_url_col, sta_ws_url),
-                    (f'Segment.{ws_id_col}', seg_ws_id),
-                    (f'Segment.{ws_url_col}', seg_ws_url),
+                    (ws_url_col, sta_ws_url)
                 ):
                     dframe[col] = val
                     dtype = datacenters_df[col].dtype
@@ -132,11 +127,7 @@ def get_channels_df(session, datacenters_df, net, sta, loc, cha,
                                        "for details"))
 
     # post process cha_df and return only relevant data
-    # 1 rename columns:
-    cha_df = cha_df.rename(columns={
-        f'Segment.{ws_id_col}': ws_id_col,
-        f'Segment.{ws_url_col}': ws_url_col
-    })
+
     # convert to categorical type:
     for c in (Channel.network_code.key, Channel.channel_code.key,
               Channel.location_code.key,
@@ -555,3 +546,67 @@ def log_unsaved_channels(conflict_between, conflict_within):
     #                     len(conflict_null_sta_id),
     #                     'station id not found, unknown cause')
     #     logwarn_dataframe(conflict_null_sta_id, msg, cols2show, max_row_count)
+
+
+def create_dataselect_urls(session, channels_df, authorizer: Authorizer = None):
+    ws_url_col = WebService.url.key
+    station_urls = channels_df[ws_url_col].cat.categories
+
+    url_mapping = {}  # station url -> dataselect_url
+    errors = set()
+
+    for url in station_urls:
+        method = 'query'
+        if authorizer is not None:
+            try:
+                authorizer.add_url(url)
+                method = 'queryauth'
+            except Exception as exc:
+                logger.warning(formatmsg("Downloading open data only, "
+                                         "Unable to acquire credentials for "
+                                         "restricted data",
+                                         str(exc), url))
+                errors.add(url)
+
+        url_mapping[url] = fdsn_url(url, new_service='dataselect', new_method=method)
+
+    if errors:
+        logger.info(formatmsg('Downloading open data only from: %s'
+                              % ", ".join(errors),
+                              'Unable to acquire credentials for '
+                              'restricted data'))
+
+    # replace station urls with new dataselect urls (query or queryauth methods):
+    channels_df[ws_url_col] = channels_df[ws_url_col].cat.rename_categories(url_mapping)
+
+    # remove webservice_id (which refers to FDSN station). FIXME: useless
+    # channels_df.drop(columns=[Channel.webservice_id.key], inplace=True)
+    # now set webservice id with the FDSN dataselect ids.
+
+    # Step1: get ids of the new dataselect urls (synch with db):
+    ws_df = pd.DataFrame([{'url': u} for u in url_mapping.values()])
+    ws_df = dbsyncdf(
+        ws_df, session, [WebService.url], WebService.id, buf_size=len(url_mapping),
+        keep_duplicates=False
+    )
+    ws_ids = dict(zip(ws_df['url'], ws_df['id']))
+
+    # Step 2: Extract the codes (an integer array of length N = channels_df rows).
+    # Each row gets an int (int8 / int16 / int32 depending on K = number of categories).
+    # Size: N integers (efficient, much smaller than N strings).
+    codes = channels_df[ws_url_col].cat.codes
+
+    # Step 3: Extract the categories (Index of all unique labels).
+    # This is tiny: only K elements.
+    categories = channels_df[ws_url_col].cat.categories
+
+    # Step 4: Build an array that maps category index -> ws_id.
+    # categories.map(ws_ids) creates a Series of length K (one id per category).
+    # .to_numpy() converts it to a NumPy array of length K.
+    codes_to_ids = categories.map(ws_ids).to_numpy()
+
+    # Step 5: Use the codes (length N) to index into codes_to_ids (length K).
+    # This produces a new integer array of length N, one ws_id per row.
+    channels_df[Segment.webservice_id.key] = codes_to_ids[codes]
+
+    return channels_df.copy()

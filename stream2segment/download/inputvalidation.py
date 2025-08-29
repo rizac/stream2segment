@@ -387,14 +387,16 @@ def valid_authorizer(restricted_data, dataws, configfile=None):
         tuple (user, password). If None, or the empty string, None is returned
     """
     if restricted_data in ('', None, b''):
-        restricted_data = None
-    elif isinstance(restricted_data, str) and configfile is not None:
-        restricted_data = absrelpath(restricted_data, configfile)
-    ret = Authorizer(restricted_data)
-    # check dataws is single element list:
-    if (ret.token or ret.userpass) and len(dataws) != 1:
+        return None
+    elif len(dataws) != 1:
         raise ValueError('downloading restricted data requires '
                          'a single URL in `dataws`')
+
+    if isinstance(restricted_data, str) and configfile is not None:
+        restricted_data = absrelpath(restricted_data, configfile)
+    ret = Authorizer(restricted_data)
+
+    # check dataws is single element list:
     dataws = dataws[0]
     # Here we have 4 cases:
     # 1 'eida' + token: OK

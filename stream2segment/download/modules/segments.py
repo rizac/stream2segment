@@ -621,135 +621,138 @@ def get_counts(dframe, dframe_column, na_key):
         yield na_key, na_count
 
 
-class DcDataselectManager:
-    """Class building the ground requirements for a dataselect download: it
-    merges datacenters and authorization information in order to build URLs
-    and openers for downloading waveform data"""
-
-    def baseurl(self, dc_id):
-        """Return the base url from a given datacenter id"""
-        return self._data[dc_id][1]
-
-    def opener(self, dc_id):
-        """Return an Opener to be user with urllib module, or None (if no
-        token/user+password has been provided for the given datacenter
-        `dc_id`"""
-        return self._data[dc_id][2]
-
-    def __init__(self, datacenters_df, authorizer, show_progress=False):
-        """Initialize a new DcDataselectManager"""
-        DC_ID = WebService.id.key  # noqa
-        DC_DSURL = WebService.url.key  # noqa
-
-        # there is a handy function:
-        # datacenters_df.set_index(keys_col)[values_col].to_dict,
-        # but we want iterrows cause we convert any dc url to its FDSNws object
-        dcid2fdsn = {int(row[DC_ID]): Fdsnws(row[DC_DSURL]) for _, row in
-                     datacenters_df.iterrows()}
-        # Note: Fdsnws might raise, but at this point datacenters_df is assumed
-        # to be well formed
-        errors = {}  # urls mapped to their exception
-        if authorizer.token:
-            token = authorizer.token
-            self._data, errors = self._get_data_from_token(dcid2fdsn, token,
-                                                           show_progress)
-            self._restricted_id = [did for did in self._data
-                                   if did not in errors]
-        elif authorizer.userpass:
-            user, password = authorizer.userpass
-            self._data, errors = self._get_data_from_userpass(dcid2fdsn, user,
-                                                              password)
-            self._restricted_id = list(dcid2fdsn.keys())
-        else:  # no authorization required
-            self._data, errors = self._get_data_open(dcid2fdsn)
-            self._restricted_id = []
-
-        if errors:
-            # map urls site to error, not dcids:
-            errors = {dcid2fdsn[did].site: err for did, err in errors.items()}
-            logger.info(formatmsg('Downloading open data only from: %s'
-                                  % ", ".join(errors),
-                                  'Unable to acquire credentials for '
-                                  'restricted data'))
-            for url, exc in errors.items():
-                logger.warning(formatmsg("Downloading open data only, "
-                                         "Unable to acquire credentials for "
-                                         "restricted data",
-                                         str(exc), url))
-
-    @property
-    def restricted_enabled_ids(self):
-        """Return a set of integers denoting the datacenter id for which
-        restricted data download is enabled
-        """
-        return set(self._restricted_id)
-
-    @property
-    def opendataonly(self):
-        """Return true if **all** datacenters will download open data only.
-        Open data only will be downloaded when no token is provided, or a wrong
-        one
-        """
-        return False if self._restricted_id else True
-
-    @staticmethod
-    def _get_data_open(dcid2fdsn):
-        errors = {}  # dummy var to return no error
-        ret = {}
-        for id_, fdsn in dcid2fdsn.items():
-            url = fdsn.url(service=Fdsnws.DATASEL, method=Fdsnws.QUERY)
-            opener = None
-            ret[id_] = [fdsn, url, opener]
-        return ret, errors
-
-
-    @staticmethod
-    def _get_data_from_userpass(dcid2fdsn, user, password):
-        errors = {}  # dummy var to return no error
-        ret = {}
-        for id_, fdsn in dcid2fdsn.items():
-            url = fdsn.url(service=Fdsnws.DATASEL, method=Fdsnws.QUERYAUTH)
-            opener = get_opener(fdsn.site, user, password)
-            ret[id_] = [fdsn, url, opener]
-        return ret, errors
-
-    @staticmethod
-    def _get_data_from_token(dcid2fdsn, token, show_progress=False):
-
-        def req(dcid):
-            """Return a request from a datacenter id"""
-            url = dcid2fdsn[dcid].url(service=Fdsnws.DATASEL,
-                                      method=Fdsnws.AUTH)
-            if url.lower().startswith('http:'):
-                url = "https:" + url[5:]
-            elif not url.lower().startswith('https:'):
-                url = 'https:' + ('//' if url[:2] != '//' else '') + url
-            return Request(url, data=token)
-
-        data, errors = {}, {}
-        with get_progressbar(len(dcid2fdsn) if show_progress else 0) as pbar:
-            for dcid, data_, exc, status_code in \
-                    read_async(dcid2fdsn.keys(), urlkey=req, decode='utf8'):
-
-                pbar.update(1)
-                fdsn = dcid2fdsn[dcid]
-                if exc is None:
-                    if ':' not in data_:
-                        exc = ValueError('Invalid user and password returned. '
-                                         'This could be a data-center bug')
-                    else:
-                        user, pswd = data_.split(':')
-                        data[dcid] = [fdsn,
-                                      fdsn.url(service=Fdsnws.DATASEL,
-                                               method=Fdsnws.QUERYAUTH),
-                                      get_opener(fdsn.site, user, pswd)]
-                if exc is not None:
-                    data[dcid] = [fdsn,
-                                  fdsn.url(service=Fdsnws.DATASEL,
-                                           method=Fdsnws.QUERY),
-                                  None]  # No opener, download open data only
-                    errors[dcid] = exc
-        return data, errors
+# FIXME REMOVE
+# class DcDataselectManager:
+#     """Class building the ground requirements for a dataselect download: it
+#     merges datacenters and authorization information in order to build URLs
+#     and openers for downloading waveform data"""
+#
+#     def baseurl(self, dc_id):
+#         """Return the base url from a given datacenter id"""
+#         return self._data[dc_id][1]
+#
+#     def opener(self, dc_id):
+#         """Return an Opener to be user with urllib module, or None (if no
+#         token/user+password has been provided for the given datacenter
+#         `dc_id`"""
+#         return self._data[dc_id][2]
+#
+#     def __init__(self, datacenters_df, authorizer, show_progress=False):
+#         """Initialize a new DcDataselectManager"""
+#         DC_ID = WebService.id.key  # noqa
+#         DC_DSURL = WebService.url.key  # noqa
+#
+#         # there is a handy function:
+#         # datacenters_df.set_index(keys_col)[values_col].to_dict,
+#         # but we want iterrows cause we convert any dc url to its FDSNws object
+#         dcid2fdsn = {int(row[DC_ID]): Fdsnws(row[DC_DSURL]) for _, row in
+#                      datacenters_df.iterrows()}
+#         # Note: Fdsnws might raise, but at this point datacenters_df is assumed
+#         # to be well formed
+#         errors = {}  # urls mapped to their exception
+#
+#         # FIXME: authorizer has not anymore these methods!
+#         if authorizer.token:
+#             token = authorizer.token
+#             self._data, errors = self._get_data_from_token(dcid2fdsn, token,
+#                                                            show_progress)
+#             self._restricted_id = [did for did in self._data
+#                                    if did not in errors]
+#         elif authorizer.userpass:
+#             user, password = authorizer.userpass
+#             self._data, errors = self._get_data_from_userpass(dcid2fdsn, user,
+#                                                               password)
+#             self._restricted_id = list(dcid2fdsn.keys())
+#         else:  # no authorization required
+#             self._data, errors = self._get_data_open(dcid2fdsn)
+#             self._restricted_id = []
+#
+#         if errors:
+#             # map urls site to error, not dcids:
+#             errors = {dcid2fdsn[did].site: err for did, err in errors.items()}
+#             logger.info(formatmsg('Downloading open data only from: %s'
+#                                   % ", ".join(errors),
+#                                   'Unable to acquire credentials for '
+#                                   'restricted data'))
+#             for url, exc in errors.items():
+#                 logger.warning(formatmsg("Downloading open data only, "
+#                                          "Unable to acquire credentials for "
+#                                          "restricted data",
+#                                          str(exc), url))
+#
+#     @property
+#     def restricted_enabled_ids(self):
+#         """Return a set of integers denoting the datacenter id for which
+#         restricted data download is enabled
+#         """
+#         return set(self._restricted_id)
+#
+#     @property
+#     def opendataonly(self):
+#         """Return true if **all** datacenters will download open data only.
+#         Open data only will be downloaded when no token is provided, or a wrong
+#         one
+#         """
+#         return False if self._restricted_id else True
+#
+#     @staticmethod
+#     def _get_data_open(dcid2fdsn):
+#         errors = {}  # dummy var to return no error
+#         ret = {}
+#         for id_, fdsn in dcid2fdsn.items():
+#             url = fdsn.url(service=Fdsnws.DATASEL, method=Fdsnws.QUERY)
+#             opener = None
+#             ret[id_] = [fdsn, url, opener]
+#         return ret, errors
+#
+#
+#     @staticmethod
+#     def _get_data_from_userpass(dcid2fdsn, user, password):
+#         errors = {}  # dummy var to return no error
+#         ret = {}
+#         for id_, fdsn in dcid2fdsn.items():
+#             url = fdsn.url(service=Fdsnws.DATASEL, method=Fdsnws.QUERYAUTH)
+#             opener = get_opener(fdsn.site, user, password)
+#             ret[id_] = [fdsn, url, opener]
+#         return ret, errors
+#
+#     @staticmethod
+#     def _get_data_from_token(dcid2fdsn, token, show_progress=False):
+#
+#         def req(dcid):
+#             """Return a request from a datacenter id"""
+#             url = dcid2fdsn[dcid].url(service=Fdsnws.DATASEL,
+#                                       method=Fdsnws.AUTH)
+#             if url.lower().startswith('http:'):
+#                 url = "https:" + url[5:]
+#             elif not url.lower().startswith('https:'):
+#                 url = 'https:' + ('//' if url[:2] != '//' else '') + url
+#             return Request(url, data=token)
+#
+#         data, errors = {}, {}
+#         with get_progressbar(len(dcid2fdsn) if show_progress else 0) as pbar:
+#             for dcid, data_, exc, status_code in \
+#                     read_async(dcid2fdsn.keys(), urlkey=req, decode='utf8'):
+#
+#                 pbar.update(1)
+#                 fdsn = dcid2fdsn[dcid]
+#                 if exc is None:
+#                     if ':' not in data_:
+#                         exc = ValueError('Invalid user and password returned. '
+#                                          'This could be a data-center bug')
+#                     else:
+#                         user, pswd = data_.split(':')
+#                         data[dcid] = [fdsn,
+#                                       fdsn.url(service=Fdsnws.DATASEL,
+#                                                method=Fdsnws.QUERYAUTH),
+#                                       get_opener(fdsn.site, user, pswd)]
+#                 if exc is not None:
+#                     data[dcid] = [fdsn,
+#                                   fdsn.url(service=Fdsnws.DATASEL,
+#                                            method=Fdsnws.QUERY),
+#                                   None]  # No opener, download open data only
+#                     errors[dcid] = exc
+#         return data, errors
 
 
 class SegmentLogger(set):

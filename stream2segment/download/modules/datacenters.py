@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 def get_datacenters_df(
-        session, service, routing_service_url,
+        session, webservice_url, routing_service_url,
         network: Optional[list[str]] = None,
         station: Optional[list[str]] = None,
         location: Optional[list[str]] = None,
@@ -41,14 +41,14 @@ def get_datacenters_df(
     results in the eida routing service. The filter is now handled in the code
     later
 
-    :param service: (list[str] or str) the dataselect *or* station url(s) in
+    :param webservice_url: (list[str] or str) the dataselect *or* station url(s) in
         FDSN format, or the shortcuts 'eida', or 'iris'
     """
     # eida response text will be needed anyway to create an EidaValidator
     eidars_response_text = None  # lazy loaded
     discarded = 0
-    if isinstance(service, str):
-        service = [service]
+    if isinstance(webservice_url, str):
+        webservice_url = [webservice_url]
     params = (
         ','.join(n for n in network or [] if not n.startswith('!')) or '*',
         ','.join(s for s in station or [] if not s.startswith('!')) or '*',
@@ -57,9 +57,9 @@ def get_datacenters_df(
         starttime,
         endtime,
     )
-    url2fdsn = {}  # url:str -> (station, dataselect) urls
-    urls: dict[tuple[str, str], set[tuple]] = {}  # (station, dataselect) urls -> params  # noqa
-    for service_url in service:
+
+    urls: dict[str, set[tuple]] = {}  # station url -> query params
+    for service_url in webservice_url:
         organization = service_url.lower().strip()
         if organization == 'iris':
             items = [('https://service.iris.edu/fdsnws/dataselect/1/query', params)]
@@ -74,27 +74,18 @@ def get_datacenters_df(
 
         # harmonize urls and put them in the urls dict:
         for url, params in items:
-            if url not in url2fdsn:
-                try:
-                    url2fdsn[url] = (
-                        fdsn_url(url, new_service='station'),
-                        fdsn_url(url, new_service='dataselect')
-                    )
-                except ValueError as verr:
-                    url2fdsn[url] = None
-                    discarded += 1
-                    logger.warning(formatmsg("Discarding data center", (str(verr)), url))
-                    continue
-            key = url2fdsn[url]
-            if key is None:  # previously discarded
-                continue
-            urls.setdefault(key, set()).add(params)
+            try:
+                station_url = fdsn_url(url, new_service='station')
+                urls.setdefault(station_url, set()).add(params)
+            except ValueError as verr:
+                discarded += 1
+                logger.warning(formatmsg("Discarding data center", (str(verr)), url))
 
     if discarded > 0:
         logger.info(formatmsg("%d data center(s) discarded"), discarded)
 
     # write to db:
-    ws_df = pd.DataFrame([{'url': u} for pair in urls for u in pair])
+    ws_df = pd.DataFrame([{'url': u} for u in urls])
     if ws_df.empty:
         raise FailedDownload(Exception("No FDSN-compliant datacenter found"))
 
@@ -107,20 +98,16 @@ def get_datacenters_df(
     ws_url_col = WebService.url.key
     ws_id_col = Channel.webservice_id.key
     param_names = ('net', 'sta', 'loc', 'cha', 'start', 'end')
-    for (station_url, dataselect_url), param_values_set in urls.items():
+    for station_url, param_values_set in urls.items():
         for param_values in param_values_set:
             datacenters_df.append({
-                f'Segment.{ws_url_col}': dataselect_url,
                 ws_url_col: station_url,
-                f'Segment.{ws_id_col}': url2id[dataselect_url],
                 ws_id_col: url2id[station_url],
                 **dict(zip(param_names, param_values))
             })
     # convert to category the dtype of column more likely to have few distinct values:
     datacenters_df = pd.DataFrame(datacenters_df).astype({
-        f'Segment.{ws_url_col}': 'category',
         ws_url_col: 'category',
-        f'Segment.{ws_id_col}': int,
         ws_id_col: int,
         'net': 'category',
         'loc': 'category',

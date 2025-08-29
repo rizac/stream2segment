@@ -19,11 +19,13 @@ from stream2segment.download.inputvalidation import load_config_for_download, po
 from stream2segment.download.exc import NothingToDownload, FailedDownload
 from stream2segment.download.modules.events import get_events_df
 from stream2segment.download.modules.datacenters import get_datacenters_df
-from stream2segment.download.modules.channels import get_channels_df
+from stream2segment.download.modules.channels import (
+    get_channels_df, create_dataselect_urls
+)
 from stream2segment.download.modules.stationsearch import merge_events_stations
-from stream2segment.download.modules.segments import (prepare_for_download,
-                                                      download_save_segments,
-                                                      DcDataselectManager)
+from stream2segment.download.modules.segments import (
+    prepare_for_download, download_save_segments, DcDataselectManager  # FIXME REMOVE
+)
 from stream2segment.download.modules.stations import \
     (save_stationxml, get_station_df_for_inventory_download)
 
@@ -214,8 +216,10 @@ def _run(session, download_id, events_url, starttime, endtime, data_url,
     tt_table = advanced_settings['traveltimes_model']
 
     process = psutil.Process(os.getpid()) if isterminal else None
+    # FIXME REMOVE COMMENTS BELOW
     # calculate steps (note that booleans work, e.g: 8 - True == 7):
-    __steps = 6 + inventory + (True if authorizer.token else False)
+    # __steps = 6 + inventory + (True if authorizer.token else False)
+    __steps = 7 + inventory
     stepiter = iter(range(1, __steps+1))
 
     # custom function for logging.info different steps:
@@ -252,6 +256,10 @@ def _run(session, download_id, events_url, starttime, endtime, data_url,
             download_blocksize, dbbufsize, isterminal
         )
 
+        stepinfo("Preparing URLs to download segments from "
+                 f"({'with credentials' if authorizer else 'open data only'})")
+        channels_df = create_dataselect_urls(channels_df, authorizer)
+
         stepinfo(f"Selecting station channels ({len(channels_df):,}) "
                  f"within search area around each event ({len(events_df):,})")
         # merge vents and stations (might raise FailedDownload):
@@ -262,14 +270,14 @@ def _run(session, download_id, events_url, starttime, endtime, data_url,
         del events_df
         del channels_df
 
-        if authorizer.token:
-            stepinfo("Acquiring credentials from token in order to "
-                     "download restricted data")
-        seg_datacenters_df = datacenters_df[
-            datacenters_df[models.WebService.url.key].str.contains("/dataselect/")
-        ]
-        dc_dataselect_manager = DcDataselectManager(seg_datacenters_df,
-                                                    authorizer, isterminal)
+        # if authorizer.token:  # FIXME REMOVE
+        #     stepinfo("Acquiring credentials from token in order to "
+        #              "download restricted data")
+        # seg_datacenters_df = datacenters_df[
+        #     datacenters_df[models.WebService.url.key].str.contains("/dataselect/")
+        # ]
+        # dc_dataselect_manager = DcDataselectManager(seg_datacenters_df,
+        #                                             authorizer, isterminal)
 
         stepinfo("%d segments found. Checking already downloaded segments",
                  len(segments_df))
