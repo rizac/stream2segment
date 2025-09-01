@@ -150,22 +150,12 @@ class DownloadRun(Base):  # noqa
     """Model representing the executed downloads"""
     __tablename__ = 'download_run'
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
     run_time = Column(DateTime, server_default=func.now())
+    log = deferred(Column(String))  # lazy load: only upon direct access
     warnings = Column(Integer, server_default="0")  # , default=0)
     errors = Column(Integer, server_default="0")  # , default=0)
-    segments_noise_window_min = Column(Float, nullable=False)
-    segments_signal_window_min = Column(Float, nullable=False)
+    config = deferred(Column(String))
     program_version = Column(String)
-
-
-class DownloadRunData(Base):  # noqa
-    """Model representing the executed downloads"""
-    __tablename__ = 'download_run_data'
-
-    id = Column(Integer, ForeignKey('DownloadRun.id'), primary_key=True)
-    log = Column(String)
-    config = Column(String)
 
 
 class WebService(Base):

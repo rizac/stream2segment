@@ -16,15 +16,13 @@ from webbrowser import open as open_in_browser
 from jinja2 import Environment, FileSystemLoader
 from sqlalchemy import func, or_
 
-from stream2segment.download.url import get_host
-from stream2segment.io import yaml_load
+from stream2segment.io import yaml_load, Fdsnws
 from stream2segment.io.cli import ascii_decorate
 from stream2segment.io.db import close_session
-from stream2segment.io.db.models import DownloadRun, Segment, WebService, \
-    DownloadRunData, Channel
-# from stream2segment.io.db.sqlconstructs import concat  # FIXME check is it used? remove?
+from stream2segment.io.db.sqlconstructs import concat
 from stream2segment.io.inputvalidation import validate_param, BadParam
 from stream2segment.download.db import get_session
+from stream2segment.download.db.models import Download, Segment, Station, WebService
 from stream2segment.download.modules.utils import EVENTWS_SAFE_PARAMS, DownloadStats
 
 
@@ -241,11 +239,10 @@ class DSummary(_InfoGenerator):
         """
         header = ('Download id', 'Execution time', 'Index')
         lengths = [len(header[0]), 19, len(header[2])]
-        for i, (did, dtime) in enumerate(
-                query_download_data(
-                    session, attrs=(DownloadRun.id, DownloadRun.run_time), sort='asc'
-                )
-        ):
+        for i, (did, dtime) in enumerate(query_download_data(session,
+                                                             attrs=(Download.id,
+                                                                    Download.run_time),
+                                                             sort='asc')):
             # We did not filter by download ids because we want to show the download
             # index. Thus query all download ids with `enumerate`, and filter now:
             if not download_ids or did in download_ids:
@@ -268,10 +265,10 @@ class DLog(_InfoGenerator):
     def str_iter(self, session, download_ids=None):
         """Returns an iterator yielding chunks of strings denoting the string
         representation of this object"""
-        qry = query_download_data(
-            session, (DownloadRun.id, DownloadRun.run_time, DownloadRunData.log))
+        qry = query_download_data(session,
+                                  (Download.id, Download.run_time, Download.log))
         if download_ids is not None:
-            qry = qry.filter(DownloadRun.id.in_(download_ids))
+            qry = qry.filter(Download.id.in_(download_ids))
         for dwnl_id, dwnl_time, log_text in qry:
             yield ascii_decorate('Download id: %d (%s)' % (dwnl_id, str(dwnl_time)))
             yield log_text or ''
@@ -293,11 +290,10 @@ class DConfig(_InfoGenerator):
     def str_iter(self, session, download_ids=None):
         """Returns an iterator yielding chunks of strings denoting the string
         representation of this object"""
-        qry = query_download_data(
-            session, (DownloadRun.id, DownloadRun.run_time, DownloadRun.config)
-        )
+        qry = query_download_data(session,
+                                  (Download.id, Download.run_time, Download.config))
         if download_ids is not None:
-            qry = qry.filter(DownloadRun.id.in_(download_ids))
+            qry = qry.filter(Download.id.in_(download_ids))
         for dwnl_id, dwnl_time, text in qry:
             yield ascii_decorate('Download id: %d (%s)' % (dwnl_id, str(dwnl_time)), '#')
             yield text or ''
@@ -309,15 +305,12 @@ class DConfig(_InfoGenerator):
         raise Exception('html version not available')
 
 
-def query_download_data(session, attrs=(DownloadRun.id,), sort=None):
+def query_download_data(session, attrs=(Download.id,), sort=None):
     qry = session.query(*attrs)
-    # FIXME: check attrs, if any of DownloadRunData, then auto join. Ask ChatGPT
-    if any(_.class_ is DownloadRunData for _ in attrs):  # FIXMNE: check
-        qry = qry.join(DownloadRunData)
     if sort == 'desc':
-        qry = qry.order_by(DownloadRun.run_time.desc())
+        qry = qry.order_by(Download.run_time.desc())
     elif sort == 'asc':
-        qry = qry.order_by(DownloadRun.run_time.asc())
+        qry = qry.order_by(Download.run_time.asc())
     return qry
 
 
@@ -488,11 +481,8 @@ def get_downloads(sess, download_ids=None):
     (download_run_time, download_eventws_query_args)
     the first element is a string, the second a dict
     """
-    query = filterquery(
-        sess.query(
-            DownloadRun.id, DownloadRun.run_time, DownloadRun.config
-        ), download_ids
-    ).order_by(DownloadRun.run_time.asc())
+    query = filterquery(sess.query(Download.id, Download.run_time, Download.config),
+                        download_ids).order_by(Download.run_time.asc())
     return {did: (time.isoformat(), yaml_get(cfg))
             for (did, time, cfg) in query}
 
@@ -517,8 +507,8 @@ def get_datacenters(sess, dc_ids=None):
     ret = {}
     for (datacenter_id, dataselect_url) in query:
         try:
-            url = get_host(dataselect_url)
-        except:  # noqa
+            url = Fdsnws(dataselect_url).site
+        except:  # @IgnorePep8
             url = dataselect_url
         ret[datacenter_id] = url
     return ret
@@ -577,19 +567,17 @@ def get_dstats_html_data(session, download_ids=None, maxgap_threshold=0.5):
     # Therefore, we choose the latter
     maxgap_bexpr = get_maxgap_sql_expr(maxgap_threshold)
     data = session.query(func.count(Segment.id),
-                         Segment.stationxml_id,
-                         Channel.network_station_code,
-                         # concat(Station.network, '.', Station.station),
-                         Channel.latitude,
-                         Channel.longitude,
-                         Channel.webservice_id,
+                         Station.id,
+                         concat(Station.network, '.', Station.station),
+                         Station.latitude,
+                         Station.longitude,
+                         Station.webservice_id,
                          Segment.download_id,
                          Segment.download_code,
                          maxgap_bexpr).join(Segment.station)
-    data = filterquery(data, download_ids).group_by(
-        Segment.stationxml_id, Segment.download_id, Segment.download_code, maxgap_bexpr,
-        Segment.webservice_id
-    )
+    data = filterquery(data, download_ids).group_by(Station.id, Segment.download_id,
+                                                    Segment.download_code, maxgap_bexpr,
+                                                    Segment.webservice_id)
 
     codesfound = set()
     dcidsfound = set()
