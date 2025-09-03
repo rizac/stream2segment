@@ -5,6 +5,7 @@ s2s database ORM
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
+import dataclasses
 import gzip
 import sqlite3
 from math import pi
@@ -150,12 +151,43 @@ class DownloadRun(Base):  # noqa
     """Model representing the executed downloads"""
     __tablename__ = 'download_run'
 
+    id = Column(Integer, primary_key=True, autoincrement=True)
     run_time = Column(DateTime, server_default=func.now())
-    log = deferred(Column(String))  # lazy load: only upon direct access
-    warnings = Column(Integer, server_default="0")  # , default=0)
+    warnings = Column(Integer, server_default="0")  # , default=0)  # FIXME small int? check all small ints in the module?
     errors = Column(Integer, server_default="0")  # , default=0)
-    config = deferred(Column(String))
     program_version = Column(String)
+    noise_window_sec = Column(Float)  # usually < 0 and relative to station arrival time
+    signal_window_sec = Column(Float)  # usually > 0 and relative to station arrival time
+
+    data = relationship("DownloadRunData", uselist=False)
+
+    @hybrid_property
+    def log(self):
+        return self.data.log or '' if self.data else ''
+
+    @log.expression
+    def log(cls):  # noqa
+        return select(DownloadRunData.log).where(
+            DownloadRunData.id == cls.id
+        ).scalar_subquery()  # FIXME doc?
+
+    @hybrid_property
+    def config(self):
+        return self.data.config or '' if self.data else ''
+
+    @config.expression
+    def config(cls):  # noqa
+        return select(DownloadRunData.config).where(
+            DownloadRunData.id == cls.id
+        ).scalar_subquery()  # FIXME doc?
+
+
+class DownloadRunData(Base):
+    """Model representing ting the download run data. Keep separated as it contains
+    relatively big data seldom used in query and never in joins"""
+    id = Column(Integer, ForeignKey('DownloadRun.id'), primary_key=True)
+    log = Column(String)
+    config = Column(String)
 
 
 class WebService(Base):
@@ -503,6 +535,16 @@ class Segment(Base):
         """Return a sorted list of strings denoting the class labels assigned to this
         segment"""
         return sorted(_.label for _ in self.classes.options(load_only(ClassLabel.label)))
+
+    # legacy code backward compatibility:
+
+    @property
+    def download_id(self):
+        return self.download_run_id
+
+    @property
+    def station_id(self):
+        return self.stationxml_id
 
 
 class ClassLabel(Base):

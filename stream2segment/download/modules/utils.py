@@ -22,7 +22,7 @@ import gzip
 import zipfile
 import zlib
 import bz2
-from urllib.parse import urlencode, unquote, urlparse
+from urllib.parse import urlencode, unquote, urlparse, urlunparse
 from urllib.request import Request
 
 import pandas as pd
@@ -1040,8 +1040,8 @@ else:
 #                           "&".join("{}={}".format(k, v)
 #                                    for k, v in query_args.items()))
 
-def fdsn_url(url: str, new_service: str = None, new_method: str = None, check_schema=True):  # noqa
-    """Check the given url is a valid FDSN URL and return it (with new service and
+def fdsn_url(url: str, new_service: str = None, new_method: str = None, check_scheme=True):  # noqa
+    """Check that the given url is a valid FDSN URL and return it (with new service and
     method substrings, if given). Raise ValueError if the url is invalid. The URL query
     string, if given, will not be checked
 
@@ -1050,8 +1050,8 @@ def fdsn_url(url: str, new_service: str = None, new_method: str = None, check_sc
         a string in ('station', 'dataselect', 'event')
     :param new_method: the new method, None will leave the url method. Must be a string
         in ('query', 'queryauth', 'auth', 'version', 'application.wadl')
-    :param check_schema: if True (the default) check that the url is prefixed with a
-        schema (e.g. https://), raising ValueError if missing. If False, urls can also
+    :param check_scheme: if True (the default) check that the url is prefixed with a
+        scheme (e.g. https://), raising ValueError if missing. If False, urls can also
         miss the schema
     """
     services = {'station', 'dataselect', 'event'}
@@ -1062,60 +1062,59 @@ def fdsn_url(url: str, new_service: str = None, new_method: str = None, check_sc
     if new_method is not None and new_method not in methods:
         raise ValueError(f'Invalid argument method: {new_method}')
 
-    obj = urlparse(url)
-    if not obj.scheme and check_schema:
-        raise ValueError('url starts with no scheme (e.g. "https://")')
+    parsed_url = urlparse(url)
+    if not parsed_url.scheme and check_scheme:
+        raise ValueError('url starts with no scheme, e.g. "https://")')
 
-    if not obj.netloc:
-        raise ValueError('url has no network location, e.g. "geofon.gfz.de"')
+    if not parsed_url.netloc:
+        raise ValueError('url has no valid domain, e.g. "geofon.gfz.de"')
 
-    path = obj.path
+    path = parsed_url.path
     # urlparse has already removed query char '?' and params and fragment
     # from the path (which starts with '/'). Now check the path:
     reg = re.match(
-        "^/fdsnws/(?P<service>[^/]+)/(?P<majorversion>[^/]+)/(?P<method>.*)$", path
+        "^/fdsnws/(?P<service>[^/]+)/(?P<majorversion>[^/]+)/(?P<method>.+)$", path
     )
+
+    if not reg:
+        raise ValueError('url has no path "fdsnws/<service>/<majorversion>/<method>')
 
     service = reg.group('service')
     if service not in services:
-        raise ValueError(f"Invalid service in URL: {service}")
+        raise ValueError(f"Invalid service in url: {service}")
 
     majorversion = reg.group('majorversion')
     try:
         float(majorversion)
     except ValueError:
-        raise ValueError(f"Invalid major version in URL: {majorversion}")
+        raise ValueError(f"Invalid major version in url: {majorversion}")
 
     method = reg.group('method')
     if method not in methods:
-        raise ValueError(f"Invalid method in URL: {method}")
-
-    # check required for safety, and to be sure we will replace something, if needed:
-    if f'/fdsnws/{service}/{majorversion}/{method}' not in url:
-        raise ValueError(f'Invalid FDSN path in url: {path}')
+        raise ValueError(f"Invalid method in url: {method}")
 
     if new_service is not None or new_method is not None:
-        url = url.replace(
-            f'/fdsnws/{service}/{majorversion}/{method}',
-            f'/fdsnws/{new_service or service}/{majorversion}/{new_method or method}'
-        )
+        path2 = f'/fdsnws/{new_service or service}/{majorversion}/{new_method or method}'
+        new_parsed = parsed_url._replace(path=path2)
+        url = urlunparse(new_parsed)
 
     return url
 
 
 def fdsn_url_qs(base_url: str, **query_args):
-    """Build a valid FDSN URL appending to `base_url` the query parameters given
-    in `query_args`.
+    """Build a valid FDSN URL appending to `base_url` the query string (qs) built
+    from the FDSN parameters in `query_args`.
 
-    Any query arg value key mapped to None will be removed. In addition:
+    Note: any query parameter (keys of `query_args`) mapped to None will be removed.
+    Any other value will be encoded using its string representation, except for the
+    following parameters:
     - net, sta, loc, cha (and their long-name variants, e.g. network)
       will be ignored if '*'.
     - start, end (and their long-name variants) will be converted to ISO format strings
-      if datetime
-    - lat, lon, depth, mag, minmag, maxmag, minlon, maxlon, minlat, maxlat
-      (and their long-name variants) will be converted to string if float
-    Duplicates (e.g. 'mag', 'magnitude') are not checked for (the last parsed
-    will overwrite any given value, if set)
+      if Python datetime or date
+    Duplicates (e.g. 'mag', 'magnitude') are not checked for and will be both encoded,
+    whether the encoded URL is valid depends on the server, but in principle it
+    should be rejected
     """
     qs = {}
     # date and time params:

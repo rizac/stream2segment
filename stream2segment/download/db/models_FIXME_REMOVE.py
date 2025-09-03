@@ -5,7 +5,7 @@ s2s Download database ORM
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 
-FIXME: REMOVE?
+FIXME: REMOVE module
 """
 
 from sqlalchemy import event
