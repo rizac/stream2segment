@@ -5,7 +5,6 @@ s2s database ORM
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
-import dataclasses
 import gzip
 import sqlite3
 from math import pi

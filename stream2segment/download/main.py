@@ -20,11 +20,11 @@ from stream2segment.download.exc import NothingToDownload, FailedDownload
 from stream2segment.download.modules.events import get_events_df
 from stream2segment.download.modules.datacenters import get_datacenters_df
 from stream2segment.download.modules.channels import (
-    get_channels_df, create_dataselect_urls
+    get_channels_df, setup_dataselect_urls
 )
 from stream2segment.download.modules.stationsearch import merge_events_stations
 from stream2segment.download.modules.segments import (
-    prepare_for_download, download_save_segments, DcDataselectManager  # FIXME REMOVE
+    prepare_for_download, download_save_segments  #, DcDataselectManager  # FIXME REMOVE
 )
 from stream2segment.download.modules.stations import \
     (save_stationxml, get_station_df_for_inventory_download)
@@ -258,7 +258,7 @@ def _run(session, download_id, events_url, starttime, endtime, data_url,
 
         stepinfo("Preparing URLs to download segments from "
                  f"({'with credentials' if authorizer else 'open data only'})")
-        channels_df = create_dataselect_urls(channels_df, authorizer)
+        channels_df = setup_dataselect_urls(channels_df, authorizer)
 
         stepinfo(f"Selecting station channels ({len(channels_df):,}) "
                  f"within search area around each event ({len(events_df):,})")
@@ -293,7 +293,7 @@ def _run(session, download_id, events_url, starttime, endtime, data_url,
         # prepare_for_download raises a NothingToDownload if there is no
         # data, so if we are here segments_df is not empty
         stepinfo("Downloading %d segments %sand saving to db", len(segments_df),
-                 '(open data only) ' if dc_dataselect_manager.opendataonly else '')
+                 '(open data only) ' if authorizer is not None else '')
         # frees memory. Although maybe unnecessary, let's do our best to
         # free stuff cause the next one is memory consuming:
         # https://stackoverflow.com/a/30022294/3526777

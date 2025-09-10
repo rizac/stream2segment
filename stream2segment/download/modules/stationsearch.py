@@ -127,6 +127,8 @@ def merge_events_stations(events_df, channels_df, search_radius,
             cha_df[EVT_TIME] = [ev_time] * len(cha_df)
             ret.append(cha_df)
 
+            # FIXME remove?
+
             # sourcedepths += [ev_depth] * len(cha_df)
             # eventtimes += [ev_time] * len(cha_df)
             # # Set (or re-set from second iteration on) as NaN SEG_EVDIST

@@ -548,7 +548,10 @@ def log_unsaved_channels(conflict_between, conflict_within):
     #     logwarn_dataframe(conflict_null_sta_id, msg, cols2show, max_row_count)
 
 
-def create_dataselect_urls(session, channels_df, authorizer: Authorizer = None):
+def setup_dataselect_urls(session, channels_df, authorizer: Authorizer = None):
+    """Prepares `cgannels_df` and `authorizer` for dataselct download, adding
+    urls and db id of the URLs to the former, and - if the latter is not None -
+    setting users and passwords (required for downloading) in it"""
     ws_url_col = WebService.url.key
     station_urls = channels_df[ws_url_col].cat.categories
 
