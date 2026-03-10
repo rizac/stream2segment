@@ -22,14 +22,15 @@ from stream2segment.download.modules.utils import (DbExcLogger, logwarn_datafram
                                                    s2scodes, url2str, fdsn_url_qs)
 from stream2segment.download.exc import NothingToDownload
 from stream2segment.download.modules.mseedlite import MSeedError, unpack as mseedunpack
-from stream2segment.download.url import get_opener, get_host, read_async, \
-    adjust_max_concurrent_downloads
+from stream2segment.download.url import (
+    get_host, read_async, adjust_max_concurrent_downloads
+)
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__)
 
 
-def prepare_for_download(session, segments_df, dc_dataselect_manager, timespan,
+def prepare_for_download(session, segments_df, authorizer, timespan,
                          retry_seg_not_found, retry_url_err, retry_mseed_err,
                          retry_client_err, retry_server_err,
                          retry_timespan_err, retry_timespan_warn=False):
@@ -40,13 +41,12 @@ def prepare_for_download(session, segments_df, dc_dataselect_manager, timespan,
     :param session: the sql-alchemy session bound to an existing database
     :param segments_df: pandas DataFrame resulting from `get_arrivaltimes`
     """
-    opendataonly = dc_dataselect_manager.opendataonly
+    opendataonly = authorizer is None
     # Fetch already downloaded segments and return the corresponding dataframe.
     # which will have also the boolean column SEG.RETRY, which is True for
     # suspiciously restricted (SR) segments, i.e. segments whose download code
     # MIGHT denote that they are restricted (see `s2scodes.restricted_data`):
-    db_seg_df = fetch_already_downloaded_segments_df(session, segments_df,
-                                                     opendataonly)
+    db_seg_df = fetch_already_downloaded_segments_df(session, segments_df)
     # store now the ids of the SR segments, we will use them later.
     # If open data, `db_seg_df` does not have the column SEG.RETRY so set the
     # ids to a (empty) DataFrame for consistency:
@@ -120,43 +120,76 @@ def prepare_for_download(session, segments_df, dc_dataselect_manager, timespan,
     return segments_df, request_timebounds_need_update
 
 
-def fetch_already_downloaded_segments_df(session, segments_df,
-                                         is_opendataonly):
+def fetch_already_downloaded_segments_df(session, segments_df):
     """Return a Dataframe with potentially already downloaded segments, using
     the existing `segments_df` dataframe of currently to-download segments.
     If `is_opendataonly` is False, the returned dataframe will also have a
     column named SEG.RETRY with boolean denoting segments that should be
     re-downloaded regardless of the user-defined classes (e.g. 204, 404)
     """
-    codes = s2scodes
-    # set the list of columns to query
-    columns2query = [Segment.id, Segment.channel_id, Segment.request_start,
-                     Segment.request_end, Segment.download_code,
-                     Segment.event_id]
-    # if downloading with authorization, add a boolean last column representing
-    # when retry has to be forced. This happens when all the following two
-    # conditions are met:
-    # 1. segment was downloaded with no credentials
-    # 2. segment download code suggests unauthorized access
-    #    (codes.restricted_data = 404, 204, 401, 403)
-    # (segments already downloaded with credentials and with code 404, 401,
-    # 403 will be retried if the flag 'retry_client_err' is True, as usual)
-    if not is_opendataonly:
-        columns2query += [(Segment.download_code.isnot(None) &
-                           Segment.download_code.in_(codes.restricted_data) &
-                           Segment.queryauth.isnot(True)).label(SEG.RETRY)]
-    # Note above: we need isnot(None) because in_(codes.restricted_data) might
-    # return None for segment with NULL download status code (we want either
-    # True or False, not None)
+    restricted_segs = segments_df[WebService.url].str.endswith('/queryauth')
 
+    # set the list of columns to query
+    columns2query = [
+        Segment.id, Segment.channel_id, Segment.download_code, Segment.event_id
+    ]
+
+    has_restricted = restricted_segs.any()
+
+    # everything that is != 200, 204 has to be downloaded again
     # query relevant data into data frame (speeds up calculations:
-    chids = pd.unique(segments_df[SEG.CHAID]).tolist()
-    evids = pd.unique(segments_df[SEG.EVID]).tolist()
-    return dbquery2df(session.query(*columns2query).
-                      filter(Segment.channel_id.in_(chids) &  # noqa
-                             Segment.event_id.in_(evids)  # noqa
-                             )
-                      )
+    seg_df_tmp = segments_df[~restricted_segs]
+    chids = pd.unique(seg_df_tmp[SEG.CHAID]).tolist()
+    evids = pd.unique(seg_df_tmp[SEG.EVID]).tolist()
+    df1 = dbquery2df(
+        session.query(*columns2query).filter(
+            Segment.channel_id.in_(chids) &
+            Segment.event_id.in_(evids) &
+            ((Segment.download_code < 200) | (Segment.download_code > 299))
+        )
+    )
+
+    if has_restricted:
+        seg_df_tmp = segments_df[restricted_segs]
+        chids = pd.unique(seg_df_tmp[SEG.CHAID]).tolist()
+        evids = pd.unique(seg_df_tmp[SEG.EVID]).tolist()
+        df2 = dbquery2df(
+            session.query(*columns2query).filter(
+                Segment.channel_id.in_(chids) &
+                Segment.event_id.in_(evids) &
+                (Segment.download_code != 204)
+            )
+        )
+        if not df2.empty:
+            df1 = pd.concat([df1, df2], axis=0)
+
+    return df1
+
+    # codes = s2scodes
+    # # if downloading with authorization, add a boolean last column representing
+    # # when retry has to be forced. This happens when all the following two
+    # # conditions are met:
+    # # 1. segment was downloaded with no credentials
+    # # 2. segment download code suggests unauthorized access
+    # #    (codes.restricted_data = 404, 204, 401, 403)
+    # # (segments already downloaded with credentials and with code 404, 401,
+    # # 403 will be retried if the flag 'retry_client_err' is True, as usual)
+    # if not is_opendataonly:
+    #     columns2query += [(Segment.download_code.isnot(None) &
+    #                        Segment.download_code.in_(codes.restricted_data) &
+    #                        Segment.queryauth.isnot(True)).label(SEG.RETRY)]
+    # # Note above: we need isnot(None) because in_(codes.restricted_data) might
+    # # return None for segment with NULL download status code (we want either
+    # # True or False, not None)
+    #
+    # # query relevant data into data frame (speeds up calculations:
+    # chids = pd.unique(segments_df[SEG.CHAID]).tolist()
+    # evids = pd.unique(segments_df[SEG.EVID]).tolist()
+    # return dbquery2df(session.query(*columns2query).
+    #                   filter(Segment.channel_id.in_(chids) &  # noqa
+    #                          Segment.event_id.in_(evids)  # noqa
+    #                          )
+    #                   )
 
 
 def set_segments_to_retry(db_seg_df, is_opendataonly, retry_seg_not_found,
