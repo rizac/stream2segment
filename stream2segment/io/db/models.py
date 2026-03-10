@@ -268,6 +268,15 @@ class Event(Base):  # noqa
 #     target.dataselect_url = fdsn.url(Fdsnws.DATASEL)
 
 
+
+class StationXML(Base):
+    """Model representing a StationXML data"""
+    __tablename__ = 'stationxml'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    data = Column(CompressedBinary, nullable=False)
+
+
 class Channel(Base):
     """Model representing a Station"""
     __tablename__ = 'channel'
@@ -275,6 +284,9 @@ class Channel(Base):
     # id column implemented in Base
     webservice_id = Column(
         Integer, ForeignKey(WebService.id), nullable=False, index=True
+    )
+    stationxml_id = Column(
+        Integer, ForeignKey(StationXML.id), nullable=True, index=True
     )
     network_code = Column(String(8), nullable=False, index=True)
     station_code = Column(String(8), nullable=False, index=True)
@@ -339,14 +351,6 @@ class Channel(Base):
 # MINISEED_READ_ERROR_CODE = -2  FIXME check where used and remove
 
 
-class StationXML(Base):
-    """Model representing a StationXML data"""
-    __tablename__ = 'stationxml'
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    data = Column(CompressedBinary, nullable=False)
-
-
 class MiniSeed(Base):
     """Model representing a Waveform segment"""
     __tablename__ = 'mini_seed'
@@ -368,14 +372,12 @@ class Segment(Base):
     download_run_id = deferred(Column(
         Integer, ForeignKey("DownloadRun.id"), nullable=False, index=True
     ))
-    stationxml_id = Column(
-        Integer, ForeignKey(StationXML.id), nullable=True, index=True
-    )
     event_distance_deg = Column(Float, nullable=False)
-    download_code = Column(Integer, index=True)
-    start_time = Column(DateTime)
-    arrival_time = Column(DateTime, nullable=False)
-    end_time = Column(DateTime)
+    # download_code = Column(Integer, index=True)
+    # start_time = Column(DateTime)
+    # arrival_time = Column(DateTime, nullable=False)
+    # end_time = Column(DateTime)
+    arrival_time_numsamples = Column(Integer, nullable=False)
     # sample_rate = Column(Float)
     maxgap_numsamples = Column(Float)
     # request_start = deferred(Column(DateTime, nullable=False))
@@ -423,7 +425,21 @@ class Segment(Base):
     download_run = relationship(DownloadRun)
 
     # relationships (implement here only those shared by download+process):
-    stationxml = relationship(StationXML, backref=backref("segments", lazy="dynamic"))
+    # stationxml = relationship(StationXML, backref=backref("segments", lazy="dynamic"))
+
+    # Relationship spanning 3 tables (https://stackoverflow.com/a/17583437)
+    stationxml = relationship(StationXML,
+                            # `secondary` must be table name in metadata:
+                            secondary=Channel,
+                            primaryjoin="Segment.channel_id == Channel.id",
+                            secondaryjoin="StationXML.id == Channel.stationxml_id",
+                            uselist=False,
+                            # the following two params are set in order to make this
+                            # relationship work in v 1 and 2, but no idea why due to
+                            # the lack of clarity in sqlalchemy docs
+                            viewonly=True,
+                            sync_backref=False,
+                            backref=backref("segments", lazy="dynamic"))
 
     @property
     def stationxml_data(self):
@@ -477,28 +493,45 @@ class Segment(Base):
             .scalar_subquery()
         )
 
-    def siblings(self):
-        # Get the SQLAlchemy session managing this instance
-        session = self.dbsession
+    # def siblings(self):
+    #     # Get the SQLAlchemy session managing this instance
+    #     session = self.dbsession
+    #
+    #     # If no session is attached, or channel is not set (we need its attributes),
+    #     # return an empty query that matches nothing (safe fallback).
+    #     if not session or not self.channel:
+    #         return session.query(Segment).filter(False)  # noqa
+    #
+    #     return (
+    #         session.query(Segment)
+    #         .options(selectinload(Segment.miniseed))
+    #         .join(Channel)
+    #         .filter(
+    #             Segment.id != self.id,                         # exclude self  # noqa
+    #             Segment.channel_id == self.channel_id,         # noqa
+    #             Segment.event_id == self.event_id,
+    #             Channel.location_code == self.channel.location_code,
+    #             Channel.band_code == self.channel.band_code,
+    #             Channel.instrument_code == self.channel.instrument_code
+    #         )
+    #     )
 
-        # If no session is attached, or channel is not set (we need its attributes),
-        # return an empty query that matches nothing (safe fallback).
-        if not session or not self.channel:
-            return session.query(Segment).filter(False)  # noqa
-
-        return (
-            session.query(Segment)
-            .options(selectinload(Segment.miniseed))
-            .join(Channel)
-            .filter(
-                Segment.id != self.id,                         # exclude self  # noqa
-                Segment.channel_id == self.channel_id,         # noqa
-                Segment.event_id == self.event_id,
-                Channel.location_code == self.channel.location_code,
-                Channel.band_code == self.channel.band_code,
-                Channel.instrument_code == self.channel.instrument_code
-            )
-        )
+    siblings = relationship(
+        "Segment",
+        primaryjoin=(
+            "and_("
+            "Segment.event_id == foreign(Segment.event_id), "
+            "Segment.id != foreign(Segment.id), "
+            "Segment.channel.has(Channel.network_code == foreign(Channel.network_code)), "
+            "Segment.channel.has(Channel.station_code == foreign(Channel.station_code)), "
+            "Segment.channel.has(Channel.location_code == foreign(Channel.location_code)), "
+            "Segment.channel.has(Channel.band_code == foreign(Channel.band_code)), "
+            "Segment.channel.has(Channel.instrument_code == foreign(Channel.instrument_code))"
+            ")"
+        ),
+        viewonly=True,
+        lazy="dynamic"  # returns a Query instead of a list
+    )
 
     @hybrid_property
     def event_distance_km(self):
@@ -544,6 +577,25 @@ class Segment(Base):
     @property
     def station_id(self):
         return self.stationxml_id
+
+
+class FailedDownloadedSegment(Base):
+    """
+    Model representing a failed Downloaded segment (no data, server / client error, miniseed error,
+    timeout)
+    """
+    __tablename__ = 'failed_downloaded_segment'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    event_id = Column(Integer, ForeignKey("Event.id"), nullable=False, index=True)
+    # webservice_id = deferred(Column(
+    #     Integer, ForeignKey("WebService.id"), nullable=False, index=True
+    # ))
+    channel_id = Column(Integer, ForeignKey(Channel.id), nullable=False, index=True)
+    download_run_id = deferred(Column(
+        Integer, ForeignKey("DownloadRun.id"), nullable=False, index=True
+    ))
+    download_code = Column(Integer, index=True)
 
 
 class ClassLabel(Base):
