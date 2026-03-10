@@ -1,6 +1,7 @@
 # Added by me:
 .DS_Store
 .env
+.venv
 *.sqlite
 tmp/
 skip/
