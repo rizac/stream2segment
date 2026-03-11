@@ -166,8 +166,8 @@ class DownloadRun(Base):  # noqa
 
     @log.expression
     def log(cls):  # noqa
-        return select(DownloadRunData.log).where(
-            DownloadRunData.id == cls.id
+        return select(DownloadRunInfo.log).where(
+            DownloadRunInfo.id == cls.id
         ).scalar_subquery()  # FIXME doc?
 
     @hybrid_property
@@ -176,16 +176,22 @@ class DownloadRun(Base):  # noqa
 
     @config.expression
     def config(cls):  # noqa
-        return select(DownloadRunData.config).where(
-            DownloadRunData.id == cls.id
+        return select(DownloadRunInfo.config).where(
+            DownloadRunInfo.id == cls.id
         ).scalar_subquery()  # FIXME doc?
 
 
-class DownloadRunData(Base):
-    """Model representing ting the download run data. Keep separated as it contains
-    relatively big data seldom used in query and never in joins"""
+class DownloadRunInfo(Base):
+    """
+    Model representing ting the download run info. Keep separated as it contains
+    relatively big data seldom used in query and never in joins
+    """
+
+    __tablename__ = 'download_run_info'
+
     id = Column(Integer, ForeignKey('DownloadRun.id'), primary_key=True)
     log = Column(String)
+    summary = Column(String)
     config = Column(String)
 
 
@@ -196,8 +202,7 @@ class WebService(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     url = Column(String, nullable=False)
 
-    def __table_args__(cls):  # noqa
-        return UniqueConstraint('url', name='url_uc'),  # <- tuple
+    __table_args__ = (UniqueConstraint('url', name='url_uc'),)
 
 
 class QuakeML(Base):
@@ -222,7 +227,7 @@ class Event(Base):  # noqa
     longitude = Column(Float, nullable=False)
     depth_km = Column(Float, nullable=False)
     # author = Column(String)
-    catalog = Column(String)
+    catalog = Column(String, nullable=False)
     # contributor = Column(String)
     # contributor_id = Column(String)
     mag_type = Column(String)
@@ -243,9 +248,9 @@ class Event(Base):  # noqa
     def url(self):
         return f'{self.web_service.url}?eventid={str(self.eventid)}'
 
-    def __table_args__(cls):  # noqa
-        return UniqueConstraint('webservice_id', 'event_id',
-                                name='ws_eventid_uc'),  # <- tuple
+    __table_args__ = (
+        UniqueConstraint('catalog', 'eventid', name='ws_eventid_uc'),
+    )  # <- tuple
 
 
 # def check_datacenter_urls_fdsn(target):  # FIXME REMOVE
@@ -281,7 +286,7 @@ class Channel(Base):
     """Model representing a Station"""
     __tablename__ = 'channel'
 
-    # id column implemented in Base
+    id = Column(Integer, primary_key=True, autoincrement=True)
     webservice_id = Column(
         Integer, ForeignKey(WebService.id), nullable=False, index=True
     )
@@ -321,9 +326,9 @@ class Channel(Base):
         ])
         return f"{self.webservice.url}?{params}&level=channel"
 
-    def __table_args__(cls):  # noqa  # https://stackoverflow.com/a/43993950
-        return UniqueConstraint('webservice_id', 'network_code', 'station_code',
-                                name='channel_uc'),
+    # __table_args__ = (
+    #     UniqueConstraint('webservice_id', 'network_code', 'station_code', name='channel_uc'),
+    # )
 
     # hybrid properties:
 
@@ -445,8 +450,9 @@ class Segment(Base):
     def stationxml_data(self):
         return None if self.stationxml is None else self.stationxml.data
 
-    def __table_args__(cls):  # noqa
-        return UniqueConstraint('channel_id', 'event_id', name='chaid_evtid_uc'),
+    __table_args__ = (
+        UniqueConstraint('channel_id', 'event_id', name='chaid_evtid_uc'),
+    )
 
     @hybrid_property
     def has_valid_data(self) -> bool:
@@ -493,45 +499,31 @@ class Segment(Base):
             .scalar_subquery()
         )
 
-    # def siblings(self):
-    #     # Get the SQLAlchemy session managing this instance
-    #     session = self.dbsession
-    #
-    #     # If no session is attached, or channel is not set (we need its attributes),
-    #     # return an empty query that matches nothing (safe fallback).
-    #     if not session or not self.channel:
-    #         return session.query(Segment).filter(False)  # noqa
-    #
-    #     return (
-    #         session.query(Segment)
-    #         .options(selectinload(Segment.miniseed))
-    #         .join(Channel)
-    #         .filter(
-    #             Segment.id != self.id,                         # exclude self  # noqa
-    #             Segment.channel_id == self.channel_id,         # noqa
-    #             Segment.event_id == self.event_id,
-    #             Channel.location_code == self.channel.location_code,
-    #             Channel.band_code == self.channel.band_code,
-    #             Channel.instrument_code == self.channel.instrument_code
-    #         )
-    #     )
+    @property
+    def siblings(self):
+        # Get the SQLAlchemy session managing this instance
+        session = self.dbsession
 
-    siblings = relationship(
-        "Segment",
-        primaryjoin=(
-            "and_("
-            "Segment.event_id == foreign(Segment.event_id), "
-            "Segment.id != foreign(Segment.id), "
-            "Segment.channel.has(Channel.network_code == foreign(Channel.network_code)), "
-            "Segment.channel.has(Channel.station_code == foreign(Channel.station_code)), "
-            "Segment.channel.has(Channel.location_code == foreign(Channel.location_code)), "
-            "Segment.channel.has(Channel.band_code == foreign(Channel.band_code)), "
-            "Segment.channel.has(Channel.instrument_code == foreign(Channel.instrument_code))"
-            ")"
-        ),
-        viewonly=True,
-        lazy="dynamic"  # returns a Query instead of a list
-    )
+        # If no session is attached, or channel is not set (we need its attributes),
+        # return an empty query that matches nothing (safe fallback).
+        if not session or not self.channel or self.channel.orientation_code not in {'N', 'Z', 'E', '1', '2', '3'}:
+            return session.query(Segment).filter(False)  # noqa
+
+        return (
+            session.query(Segment)
+            .options(selectinload(Segment.miniseed))
+            .join(Channel)
+            .filter(
+                Segment.id != self.id,                         # exclude self  # noqa
+                Segment.channel_id == self.channel_id,         # noqa
+                Segment.event_id == self.event_id,
+                Channel.location_code == self.channel.location_code,
+                Channel.band_code == self.channel.band_code,
+                Channel.instrument_code == self.channel.instrument_code
+            )
+        )
+
+
 
     @hybrid_property
     def event_distance_km(self):
@@ -597,6 +589,9 @@ class FailedDownloadedSegment(Base):
     ))
     download_code = Column(Integer, index=True)
 
+    __table_args__ = (
+        UniqueConstraint('channel_id', 'event_id', name='chaid_evtid_uc'),
+    )
 
 class ClassLabel(Base):
     """Model representing a segment class label"""
@@ -606,8 +601,9 @@ class ClassLabel(Base):
     label = Column(String)
     description = deferred(Column(String))
 
-    def __table_args__(cls):  # noqa
-        return UniqueConstraint('label', name='class_label_name_uc'),  # tuple
+    __table_args__ = (  # noqa
+        UniqueConstraint('label', name='class_label_name_uc'),
+    )
 
 
 class ClassLabeling(Base):
@@ -621,5 +617,6 @@ class ClassLabeling(Base):
     is_hand_labelled = Column(Boolean, server_default="1")
     annotator = Column(String)
 
-    def __table_args__(cls):  # noqa  # https://stackoverflow.com/a/43993950
-        return UniqueConstraint('segment_id', 'class_id', name='seg_class_uc'),  # tuple
+    __table_args__ = (
+        UniqueConstraint('segment_id', 'class_label_id', name='seg_class_uc'),
+    )

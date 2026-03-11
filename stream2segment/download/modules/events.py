@@ -12,7 +12,7 @@ from sqlalchemy import func
 from stream2segment.io.cli import get_progressbar
 from stream2segment.io.db.pdsql import DbManager
 from stream2segment.download.exc import FailedDownload, NothingToDownload
-from stream2segment.download.db.models import Event, WebService
+from stream2segment.io.db.models import Event, WebService
 from stream2segment.download.url import urlread, socket, HTTPError, read_async
 from stream2segment.download.modules.utils import (
     dbsyncdf, response_text_to_df, harmonize_dataframe_to_fdsn, formatmsg,

@@ -90,17 +90,18 @@ setup(
     # List run-time dependencies here.  These will be installed by pip when
     # your project is installed. For info see:
     # https://packaging.python.org/en/latest/requirements.html
-    install_requires=['PyYAML>=3.12',
-                      'numpy>=1.13.1',
-                      'tables>=3.5.2',
-                      'pandas>=0.20.3',
-                      'obspy>=1.0.3',
-                      'Flask>=0.12.3',
-                      'psycopg2>=2.7.3.1',
-                      'psutil>=5.3.1',
-                      'SQLAlchemy>=1.1.14',
-                      'click>=6.7'
-                      ],
+    install_requires=[
+        'PyYAML>=3.12',
+        'numpy>=1.13.1',
+        'tables>=3.5.2',
+        'pandas>=0.20.3',
+        'obspy>=1.0.3',
+        'Flask>=0.12.3',
+        'psycopg2>=2.7.3.1',
+        'psutil>=5.3.1',
+        'SQLAlchemy>=1.1.14',
+        'click>=6.7'
+    ],
 
     # List additional groups of dependencies here (e.g. development
     # dependencies). You can install these using the following syntax,
@@ -108,11 +109,12 @@ setup(
     # $ pip install -e .[dev,test]  (pip install -e ".[dev,test]" in zsh)
     extras_require={
         # use latest versions. Without boundaries
-        'dev': ['pep8>=1.7.0',
-                'pylint>=1.7.2',
+        'dev': [# 'pep8>=1.7.0',
+                # 'pylint>=1.7.2',
                 'pytest>=3.2.2',
                 'pytest-cov>=2.5.1',
-                'pytest-mock>=1.6.2'],
+                # 'pytest-mock>=1.6.2'
+            ],
         'jupyter': ['jupyter>=1.0.0']
     },
 

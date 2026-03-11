@@ -27,7 +27,7 @@ from urllib.request import Request
 
 import pandas as pd
 
-from stream2segment.io.db.models import MINISEED_READ_ERROR_CODE
+# from stream2segment.io.db.models import MINISEED_READ_ERROR_CODE
 from stream2segment.io.db.pdsql import harmonize_columns, dropnulls, syncdf
 from stream2segment.io.db.models import Event, Channel, WebService
 from stream2segment.download.exc import FailedDownload
@@ -432,7 +432,7 @@ def _harmonize_fdsn_dframe(query_df, query_type):
 class s2scodes:  # pylint: disable=too-few-public-methods, invalid-name
     """Simple container for download codes"""
     url_err = -1
-    mseed_err = MINISEED_READ_ERROR_CODE  # -2
+    mseed_err = - 2  # FIXME NEW ERROR CODES IMPLEMENTED # REMOVE MINISEED_READ_ERROR_CODE  # -2
     timespan_err = -204
     timespan_warn = -200
     seg_not_found = None
