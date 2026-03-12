@@ -286,11 +286,12 @@ In any case, before reporting a problem remember to check first the
 - (update January 2021) On macOS (version 11.1, with Python 3.8 and 3.9):
 
   - if the installation fails with a lot of printout, and you spot a
-    "Failed building wheel for psycopg2", see  
-    <!--, try to execute:
+    "Failed building wheel for psycopg2",  you might need to setup a PATH in front of 
+    the installation command. For instance in macOS (**old command**, just for ref. here):  
     ```
-    export LIBRARY_PATH=$LIBRARY_PATH:/usr/local/opt/openssl/lib/ && pip ./installme-dev
+    export LIBRARY_PATH=$LIBRARY_PATH:/usr/local/opt/openssl/lib/ && pip install ..
     ```
+    <!--
     (you might need to change the path of openssl below). Credits 
     -->
     [here](https://stackoverflow.com/a/61159643/3526777) and
