@@ -152,33 +152,14 @@ class DownloadRun(Base):  # noqa
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     run_time = Column(DateTime, server_default=func.now())
-    warnings = Column(Integer, server_default="0")  # , default=0)  # FIXME small int? check all small ints in the module?
-    errors = Column(Integer, server_default="0")  # , default=0)
+    # warnings = Column(Integer, server_default="0")  # , default=0)  # FIXME small int? check all small ints in the module?
+    # errors = Column(Integer, server_default="0")  # , default=0)
     program_version = Column(String)
-    noise_window_sec = Column(Float)  # usually < 0 and relative to station arrival time
-    signal_window_sec = Column(Float)  # usually > 0 and relative to station arrival time
 
-    data = relationship("DownloadRunData", uselist=False)
+    # noise_window_sec = Column(Float)  # usually < 0 and relative to station arrival time
+    # signal_window_sec = Column(Float)  # usually > 0 and relative to station arrival time
 
-    @hybrid_property
-    def log(self):
-        return self.data.log or '' if self.data else ''
-
-    @log.expression
-    def log(cls):  # noqa
-        return select(DownloadRunInfo.log).where(
-            DownloadRunInfo.id == cls.id
-        ).scalar_subquery()  # FIXME doc?
-
-    @hybrid_property
-    def config(self):
-        return self.data.config or '' if self.data else ''
-
-    @config.expression
-    def config(cls):  # noqa
-        return select(DownloadRunInfo.config).where(
-            DownloadRunInfo.id == cls.id
-        ).scalar_subquery()  # FIXME doc?
+    info = relationship("DownloadRunInfo", uselist=False)
 
 
 class DownloadRunInfo(Base):
@@ -189,7 +170,7 @@ class DownloadRunInfo(Base):
 
     __tablename__ = 'download_run_info'
 
-    id = Column(Integer, ForeignKey('DownloadRun.id'), primary_key=True)
+    id = Column(Integer, ForeignKey(DownloadRun.id), primary_key=True)
     log = Column(String)
     summary = Column(String)
     config = Column(String)
@@ -203,14 +184,6 @@ class WebService(Base):
     url = Column(String, nullable=False)
 
     __table_args__ = (UniqueConstraint('url', name='url_uc'),)
-
-
-class QuakeML(Base):
-    """Model representing a Waveform segment"""
-    __tablename__ = 'quakeml'
-
-    id = Column(Integer, ForeignKey('Event.id'), primary_key=True)
-    data = Column(CompressedBinary, nullable=False)
 
 
 class Event(Base):  # noqa
@@ -236,7 +209,7 @@ class Event(Base):  # noqa
     # event_location_name = Column(String)
     # event_type = Column(String)
 
-    quakeml = relationship(QuakeML, uselist=False)  # One-to-one
+    quakeml = relationship("QuakeML", uselist=False)  # One-to-one
 
     @property
     def quakeml_data(self):
@@ -251,6 +224,15 @@ class Event(Base):  # noqa
     __table_args__ = (
         UniqueConstraint('catalog', 'eventid', name='ws_eventid_uc'),
     )  # <- tuple
+
+
+class QuakeML(Base):
+    """Model representing a Waveform segment"""
+    __tablename__ = 'quakeml'
+
+    id = Column(Integer, ForeignKey(Event.id), primary_key=True)
+    data = Column(CompressedBinary, nullable=False)
+
 
 
 # def check_datacenter_urls_fdsn(target):  # FIXME REMOVE
@@ -356,41 +338,35 @@ class Channel(Base):
 # MINISEED_READ_ERROR_CODE = -2  FIXME check where used and remove
 
 
-class MiniSeed(Base):
-    """Model representing a Waveform segment"""
-    __tablename__ = 'mini_seed'
-
-    id = Column(Integer, ForeignKey('Segment.id'), primary_key=True)
-    data = Column(LargeBinary, nullable=False)
-
-
 class Segment(Base):
     """Model representing a Downloaded segment"""
     __tablename__ = 'segment'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    event_id = Column(Integer, ForeignKey("Event.id"), nullable=False, index=True)
+    event_id = Column(Integer, ForeignKey(Event.id), nullable=False, index=True)
     webservice_id = deferred(Column(
-        Integer, ForeignKey("WebService.id"), nullable=False, index=True
+        Integer, ForeignKey(WebService.id), nullable=False, index=True
     ))
     channel_id = Column(Integer, ForeignKey(Channel.id), nullable=False, index=True)
     download_run_id = deferred(Column(
-        Integer, ForeignKey("DownloadRun.id"), nullable=False, index=True
+        Integer, ForeignKey(DownloadRun.id), nullable=False, index=True
     ))
     event_distance_deg = Column(Float, nullable=False)
     # download_code = Column(Integer, index=True)
     # start_time = Column(DateTime)
     # arrival_time = Column(DateTime, nullable=False)
     # end_time = Column(DateTime)
-    arrival_time_numsamples = Column(Integer, nullable=False)
+    # arrival_time_numsamples = Column(Integer, nullable=False)
     # sample_rate = Column(Float)
+    noise_window_sec = Column(Float)  # duration (in s) of saved data until arrival_time
+    signal_window_sec = Column(Float)  # duration (in s) of saved data from arrival_time
     maxgap_numsamples = Column(Float)
     # request_start = deferred(Column(DateTime, nullable=False))
     # request_end = deferred(Column(DateTime, nullable=False))
     # queryauth = deferred(Column(Boolean, nullable=False, server_default="0"))
     # has_data = Column(Boolean, nullable=False, server_default="0", index=True)
 
-    miniseed = relationship(MiniSeed, uselist=False)  # One-to-one
+    miniseed = relationship("MiniSeed", uselist=False)  # One-to-one
 
     @property
     def miniseed_data(self):
@@ -421,83 +397,36 @@ class Segment(Base):
         return f"{self.channel.webservice.url}?{params}&level=response"
 
     event = relationship(Event, backref=backref("segments", lazy="dynamic"))
+
     # `classes` below is kind-of private, because exposing it in selection expression is
     # complex (it is the only many-to-many relationship) and also in most case redundant,
     # as users is generally interested to have the labels only (see `self.classlabels`):
-    classes = relationship("ClassLabel",  lazy='dynamic',  # viewonly=True,
-                           secondary="ClassLabeling",
-                           backref=backref("segments", lazy="dynamic"))
+    # classes = relationship("ClassLabel",  lazy='dynamic',  # viewonly=True,
+    #                        secondary="class_labeling",
+    #                        backref=backref("segments", lazy="dynamic"))
+
     download_run = relationship(DownloadRun)
 
     # relationships (implement here only those shared by download+process):
     # stationxml = relationship(StationXML, backref=backref("segments", lazy="dynamic"))
 
     # Relationship spanning 3 tables (https://stackoverflow.com/a/17583437)
-    stationxml = relationship(StationXML,
-                            # `secondary` must be table name in metadata:
-                            secondary=Channel,
-                            primaryjoin="Segment.channel_id == Channel.id",
-                            secondaryjoin="StationXML.id == Channel.stationxml_id",
-                            uselist=False,
-                            # the following two params are set in order to make this
-                            # relationship work in v 1 and 2, but no idea why due to
-                            # the lack of clarity in sqlalchemy docs
-                            viewonly=True,
-                            sync_backref=False,
-                            backref=backref("segments", lazy="dynamic"))
-
-    @property
-    def stationxml_data(self):
-        return None if self.stationxml is None else self.stationxml.data
+    # stationxml = relationship(StationXML,
+    #                         # `secondary` must be table name in metadata:
+    #                         secondary=Channel,
+    #                         primaryjoin="Segment.channel_id == Channel.id",
+    #                         secondaryjoin="StationXML.id == Channel.stationxml_id",
+    #                         uselist=False,
+    #                         # the following two params are set in order to make this
+    #                         # relationship work in v 1 and 2, but no idea why due to
+    #                         # the lack of clarity in sqlalchemy docs
+    #                         viewonly=True,
+    #                         sync_backref=False,
+    #                         backref=backref("segments", lazy="dynamic"))
 
     __table_args__ = (
         UniqueConstraint('channel_id', 'event_id', name='chaid_evtid_uc'),
     )
-
-    @hybrid_property
-    def has_valid_data(self) -> bool:
-        return self.download_code == 200
-
-    @has_valid_data.expression
-    def has_valid_data(cls):  # noqa
-        return cls.download_code == 200
-
-    @hybrid_property
-    def seed_id(self) -> str:
-        """Return the segment identifier as string 'net.sta.loc.cha'"""
-        return (f"{self.channel.network_code}."
-                f"{self.channel.station_code}."
-                f"{self.channel.location_code}."
-                f"{self.channel.channel_code}")
-
-    @seed_id.expression
-    def seed_id(cls):  # noqa
-        """Queriable expression on the segment identifier 'net.sta.loc.cha'"""
-        # We create aliases so that our select() statement doesn't interfere with
-        # other joins that might be active in the larger query context.
-        # These aliases represent Station and Channel for this expression only:
-        cha_alias = aliased(Channel)
-
-        return (
-            select(
-                func.concat(
-                    cha_alias.network_code,
-                    ".",
-                    cha_alias.station_code,
-                    ".",
-                    cha_alias.location_code,
-                    ".",
-                    cha_alias.channel_code
-                )
-            )
-            .where(cha_alias.id == cls.channel_id)
-            # ensures that the subquery returns only one row:
-            .limit(1)
-            # Make subquery dependent on the outer query over Segment (i.e., cls):
-            .correlate(cls)
-            # Wraps the query so that it can be used as a scalar subquery in SQLAlchemy:
-            .scalar_subquery()
-        )
 
     @property
     def siblings(self):
@@ -560,15 +489,13 @@ class Segment(Base):
         segment"""
         return sorted(_.label for _ in self.classes.options(load_only(ClassLabel.label)))
 
-    # legacy code backward compatibility:
 
-    @property
-    def download_id(self):
-        return self.download_run_id
+class MiniSeed(Base):
+    """Model representing a Waveform segment"""
+    __tablename__ = 'mini_seed'
 
-    @property
-    def station_id(self):
-        return self.stationxml_id
+    id = Column(Integer, ForeignKey(Segment.id), primary_key=True)
+    data = Column(LargeBinary, nullable=False)
 
 
 class FailedDownloadedSegment(Base):
@@ -579,13 +506,13 @@ class FailedDownloadedSegment(Base):
     __tablename__ = 'failed_downloaded_segment'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    event_id = Column(Integer, ForeignKey("Event.id"), nullable=False, index=True)
+    event_id = Column(Integer, ForeignKey(Event.id), nullable=False, index=True)
     # webservice_id = deferred(Column(
     #     Integer, ForeignKey("WebService.id"), nullable=False, index=True
     # ))
     channel_id = Column(Integer, ForeignKey(Channel.id), nullable=False, index=True)
     download_run_id = deferred(Column(
-        Integer, ForeignKey("DownloadRun.id"), nullable=False, index=True
+        Integer, ForeignKey(DownloadRun.id), nullable=False, index=True
     ))
     download_code = Column(Integer, index=True)
 

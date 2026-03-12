@@ -282,7 +282,7 @@ def _run(session, download_id, events_url, starttime, endtime, data_url,
         stepinfo("%d segments found. Checking already downloaded segments",
                  len(segments_df))
         # raises NothingToDownload
-        segments_df, request_timebounds_need_update = \
+        segments_df = \
             prepare_for_download(session, segments_df, authorizer,
                                  time_window, retry_seg_not_found, retry_url_err,
                                  retry_mseed_err, retry_client_err,
@@ -303,7 +303,6 @@ def _run(session, download_id, events_url, starttime, endtime, data_url,
                                          dc_dataselect_manager,
                                          download_id,
                                          update_metadata,
-                                         request_timebounds_need_update,
                                          max_thread_workers,
                                          advanced_settings['w_timeout'],
                                          download_blocksize,

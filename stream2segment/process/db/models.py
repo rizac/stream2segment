@@ -143,12 +143,12 @@ models.Segment.dbsession = property(dbsession)
 
 
 def label(
-        segment: Segment,  # noqa
-        *ids_or_labels,
-        session=None,
-        commit=True,
-        remove=False,
-        annotator=None
+    segment: Segment,  # noqa
+    *ids_or_labels,
+    session=None,
+    commit=True,
+    remove=False,
+    annotator=None
 ):
     """Add / removes class label(s) to this segment
 

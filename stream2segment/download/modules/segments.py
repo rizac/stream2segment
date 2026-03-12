@@ -16,7 +16,8 @@ import pandas as pd
 from stream2segment.io import Fdsnws
 from stream2segment.io.cli import get_progressbar
 from stream2segment.io.db.pdsql import dbquery2df, mergeupdate, DbManager
-from stream2segment.io.db.models import WebService, Segment, Channel
+from stream2segment.io.db.models import WebService, Segment, Channel, MiniSeed, \
+    FailedDownloadedSegment
 from stream2segment.download.modules.utils import (DbExcLogger, logwarn_dataframe,
                                                    DownloadStats, formatmsg,
                                                    s2scodes, url2str, fdsn_url_qs)
@@ -74,9 +75,7 @@ def prepare_for_download(session, segments_df, authorizer, timespan,
     # matching rows via the [SEG_CHID, SEG_EVID] cols:
     segments_df = mergeupdate(segments_df, db_seg_df, [SEG.CHAID, SEG.EVID],
                               list(cols2set.keys()))
-
-    request_timebounds_need_update = set_requested_timebounds(segments_df,
-                                                              timespan)
+    set_requested_timebounds(segments_df, timespan)
 
     oldlen = len(segments_df)
     # do a copy to avoid SettingWithCopyWarning. Moreover, copy should
@@ -117,7 +116,7 @@ def prepare_for_download(session, segments_df, authorizer, timespan,
     # datacenters to try diversify the requests to different URLs
     segments_df.sort_values(by=SEG.REQSTART, ascending=False, inplace=True)
 
-    return segments_df, request_timebounds_need_update
+    return segments_df
 
 
 def fetch_already_downloaded_segments_df(session, segments_df):
@@ -228,36 +227,14 @@ def set_segments_to_retry(db_seg_df, is_opendataonly, retry_seg_not_found,
 
 
 def set_requested_timebounds(segments_df, timespan):
-    """For each row of `segments_df`: 1. compares the request start and end
-    with the new requested time bounds (calculated from `timespan` and each
-    segments arrival time). 2. checks for changed time bounds, setting the
-    RETRY column to True. 3. eventually, sets the new requested time bounds.
-    This function modifies `segments_df` in place.
-
-    :return: boolean indicating if any (at least one) segment must be
-        re-downloaded because the request timebounds changed
     """
-    # Now check time bounds: segments_df[SEG_START] and segments_df[SEG_END]
-    # are the OLD time bounds, cause we just set them on segments_df from
-    # db_seg_df. Some of them might be NaT, those not NaT mean the segment has
-    # already been downloaded (same (channelid, eventid)). Now, for those
-    # non-NaT segments, set retry=True if the OLD time bounds are different
-    # than the new ones (tstart, tend).
-    td0, td1 = timedelta(minutes=timespan[0]), timedelta(minutes=timespan[1])
-    tstart, tend = (segments_df[SEG.ATIME] + td0).dt.round('s'), \
-        (segments_df[SEG.ATIME] + td1).dt.round('s')
-    retry_requests_timebounds = pd.notnull(segments_df[SEG.REQSTART]) & \
-        ((segments_df[SEG.REQSTART] != tstart) |
-         (segments_df[SEG.REQEND] != tend))
-    request_timebounds_need_update = retry_requests_timebounds.any()
-    if request_timebounds_need_update:
-        segments_df[SEG.RETRY] |= retry_requests_timebounds
-    # SEG.RETRY column updated: clear old time bounds and set new ones just
-    # calculated:
-    segments_df[SEG.REQSTART] = tstart
-    segments_df[SEG.REQEND] = tend
-    return request_timebounds_need_update.item()  # return Python boolean
-
+    Set the new requested time bounds, modifying `segments_df` in place.
+    """
+    td0 = timedelta(minutes=timespan[0])
+    td1 = timedelta(minutes=timespan[1])
+    arr_times = segments_df[SEG.ATIME]
+    segments_df[SEG.REQSTART] = (arr_times + td0).dt.round('s')
+    segments_df[SEG.REQEND] = (arr_times + td1).dt.round('s')
 
 def check_suspiciously_duplicated_segment(segments_df):
     """Check for suspiciously duplicated segments, i.e. different ids
@@ -288,26 +265,25 @@ class SEG:  # noqa
     """
     CHAID = Segment.channel_id.key  # noqa
     EVID = Segment.event_id.key  # noqa
-    ATIME = Segment.arrival_time.key  # noqa
-    REQSTART = Segment.request_start.key  # noqa
-    REQEND = Segment.request_end.key  # noqa
+    ATIME = "arrival_time"
+    REQSTART = "request_start"
+    REQEND = "request_end"
     DCID = Segment.webservice_id.key  # noqa
     ID = Segment.id.key  # noqa
-    START = Segment.start_time.key  # noqa
-    END = Segment.end_time.key  # noqa
-    DATA = Segment.data.key  # noqa
-    DWLCODE = Segment.download_code.key  # noqa
-    DATAID = Segment.data_seed_id.key  # noqa
+    START = "start_time"
+    END = "end_time"
+    DATA = MiniSeed.data.key  # noqa
+    DWLCODE = FailedDownloadedSegment.download_code.key  # noqa
+    # DATAID = Segment.data_seed_id.key  # noqa
     MGAP = Segment.maxgap_numsamples.key  # noqa
-    SRATE = Segment.sample_rate.key  # noqa
-    DWLID = Segment.download_id.key  # noqa
-    QAUTH = Segment.queryauth.key  # noqa
+    DWLID = Segment.download_run_id.key  # noqa
+    # QAUTH = Segment.queryauth.key  # noqa
     # non-db column temporary set to get what segment has to be re-downloaded:
     RETRY = "__do.download__"  # noqa
-    NET = Channel.network.key
-    STA = Channel.station.key
-    LOC = Channel.location.key
-    CHA = Channel.channel.key
+    NET = Channel.network_code.key
+    STA = Channel.station_code.key
+    LOC = Channel.location_code.key
+    CHA = "channel_code"
 
 
 _RETRY_CODES = {
@@ -320,7 +296,7 @@ _RETRY_CODES = {
 
 def download_save_segments(session, segments_df, dc_dataselect_manager,
                            download_id, update_datacenters,
-                           update_request_timebounds, max_thread_workers,
+                           max_thread_workers,
                            timeout, download_blocksize, db_bufsize,
                            show_progress=False):
     """Download and saves the segments. segments_df MUST not be empty (this is
@@ -334,16 +310,8 @@ def download_save_segments(session, segments_df, dc_dataselect_manager,
         whatever code is obtained (e.g., queryauth when previously a simple
         query was used)
     """
-    # set queryauth column here, outside the loop:
-    restricted_enable_dcids = dc_dataselect_manager.restricted_enabled_ids
-    if restricted_enable_dcids:
-        segments_df[SEG.QAUTH] = segments_df[SEG.DCID].\
-            isin(restricted_enable_dcids)
-    else:
-        segments_df[SEG.QAUTH] = False
 
-    segmanager = get_dbmanager(session, update_datacenters,
-                               update_request_timebounds, db_bufsize)
+    segmanager = get_dbmanager(session, update_datacenters, db_bufsize)
     stats = DownloadStats()
 
     # these are the column names to be set on a dataframe from a received
@@ -352,8 +320,8 @@ def download_save_segments(session, segments_df, dc_dataselect_manager,
     # but it's for string types for numpy types, see
     # https://docs.scipy.org/doc/numpy/reference/arrays.dtypes.html#specifying-and-constructing-data-types
     defaultvalues = {
-        SEG.DATA: None, SEG.SRATE: np.nan, SEG.MGAP: np.nan,
-        SEG.DATAID: None, SEG.DWLCODE: np.nan, SEG.START: pd.NaT,
+        SEG.DATA: None, SEG.MGAP: np.nan,
+        SEG.DWLCODE: np.nan, SEG.START: pd.NaT,
         SEG.END: pd.NaT, SEG.DWLID: download_id
     }
     defaultvalues_nodata = dict(defaultvalues)  # copy
@@ -468,21 +436,16 @@ def get_download_iterator(segments_df):
         yield dc_df
 
 
-def get_dbmanager(session, update_datacenter, update_request_timebounds, db_bufsize):
+def get_dbmanager(session, update_datacenter, db_bufsize):
     """Return a DbManager for downloading waveform data"""
     colnames2update = [
         SEG.DWLID,
         SEG.DATA,
-        SEG.SRATE,
         SEG.MGAP,
-        SEG.DATAID,
         SEG.DWLCODE,
         SEG.START,
-        SEG.END,
-        SEG.QAUTH
+        SEG.END
     ]
-    if update_request_timebounds:
-        colnames2update += [SEG.REQSTART, SEG.ATIME, SEG.REQEND]
     if update_datacenter:
         colnames2update += [SEG.DCID]
 
@@ -586,9 +549,7 @@ def populate_dataframe(resdict, code, dframe, chaid2mseedid):
     # the order of these columns matters! see below
     columns2set = (
         col_data,
-        SEG.SRATE,
         SEG.MGAP,
-        SEG.DATAID,
         col_dscode,
         SEG.START,
         SEG.END

@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pandas as pd
 from stream2segment.cli import cli
-from stream2segment.download.db.models import Segment, Download, Station, DataCenter
+from stream2segment.io.db.models import Segment, DownloadRun, Channel
 
 from stream2segment.download.modules.mseedlite import unpack
 from stream2segment.io.db.pdsql import insertdf, updatedf, dbquery2df
@@ -19,7 +19,7 @@ from stream2segment.io.db.pdsql import insertdf, updatedf, dbquery2df
 @patch('stream2segment.download.main.get_events_df')
 @patch('stream2segment.download.main.get_datacenters_df')
 @patch('stream2segment.download.main.get_channels_df')
-@patch('stream2segment.download.main.save_inventories')
+@patch('stream2segment.download.main.save_stationxml')
 @patch('stream2segment.download.main.download_save_segments')
 @patch('stream2segment.download.modules.segments.mseedunpack')
 @patch('stream2segment.io.db.pdsql.insertdf')
@@ -35,7 +35,7 @@ def tst_cmdline_inv_only(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
         lambda *a, **v: self.get_datacenters_df(None, *a, **v)
     mock_get_channels_df.side_effect = lambda *a, **v: self.get_channels_df(None, *a,
                                                                             **v)
-    mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(None, *a,
+    mock_save_inventories.side_effect = lambda *a, **v: self.save_stationxml(None, *a,
                                                                               **v)
     mock_download_save_segments.side_effect = \
         lambda *a, **v: self.download_save_segments(None, *a, **v)
@@ -76,7 +76,7 @@ def tst_cmdline_inv_only(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
     # and be more safe about the fact that we will have only ONE station inventory saved
     inv_urlread_ret_val = [self._inv_data, URLError('a')]
     mock_save_inventories.side_effect = \
-        lambda *a, **v: self.save_inventories(inv_urlread_ret_val, *a, **v)
+        lambda *a, **v: self.save_stationxml(inv_urlread_ret_val, *a, **v)
 
     mock_download_save_segments.reset_mock()
     old_log_msg = self.log_msg()
@@ -111,7 +111,7 @@ def tst_cmdline_inv_only(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
 
     # Now write also to the second station inventory (the one
     # which raised before)
-    mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories([b"x"], *a,
+    mock_save_inventories.side_effect = lambda *a, **v: self.save_stationxml([b"x"], *a,
                                                                               **v)
 
     result = clirunner.invoke(cli, ['download', '-c', self.configfile,

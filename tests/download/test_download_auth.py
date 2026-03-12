@@ -15,14 +15,14 @@ from unittest.mock import Mock, patch, MagicMock
 import pandas as pd
 import pytest
 
-from stream2segment.download.modules.segments import DcDataselectManager
+# from stream2segment.download.modules.segments import DcDataselectManager
 from stream2segment.cli import cli
 from stream2segment.download.main import get_events_df, get_datacenters_df, \
     get_channels_df, \
-    download_save_segments, save_inventories
+    download_save_segments, save_stationxml
 from stream2segment.download.log import configlog4download
 from stream2segment.io import Fdsnws
-from stream2segment.download.db.models import DataCenter, Segment, Download, Station
+from stream2segment.io.db.models import Segment, DownloadRun, Channel
 from stream2segment.io.db.pdsql import dbquery2df, insertdf, updatedf
 from stream2segment.download.modules.utils import s2scodes
 from stream2segment.download.modules.mseedlite import unpack
@@ -252,10 +252,10 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                            else url_read_side_effect)
         return download_save_segments(*a, **kw)
 
-    def save_inventories(self, url_read_side_effect, *a, **v):
+    def save_stationxml(self, url_read_side_effect, *a, **v):
         self.setup_urlopen(self._inv_data if url_read_side_effect is None
                            else url_read_side_effect)
-        return save_inventories(*a, **v)
+        return save_stationxml(*a, **v)
 
     # only last 4 patches are actually needed, the other are there
     # simply because this module was copied-pasted from other tests. too lazy to check/remove
@@ -263,7 +263,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
     @patch('stream2segment.download.main.get_events_df')
     @patch('stream2segment.download.main.get_datacenters_df')
     @patch('stream2segment.download.main.get_channels_df')
-    @patch('stream2segment.download.main.save_inventories')
+    @patch('stream2segment.download.main.save_stationxml')
     @patch('stream2segment.download.main.download_save_segments')
     @patch('stream2segment.download.modules.segments.mseedunpack')
     @patch('stream2segment.io.db.pdsql.insertdf')
@@ -283,7 +283,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         mock_get_datacenters_df.side_effect = \
             lambda *a, **v: self.get_datacenters_df(None, *a, **v)
         mock_get_channels_df.side_effect = lambda *a, **v: self.get_channels_df(None, *a, **v)
-        mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(None, *a, **v)
+        mock_save_inventories.side_effect = lambda *a, **v: self.save_stationxml(None, *a, **v)
         mock_download_save_segments.side_effect = \
             lambda *a, **v: self.download_save_segments(None, *a, **v)
         # mseed unpack is mocked by accepting only first arg
@@ -381,7 +381,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
     @patch('stream2segment.download.main.get_events_df')
     @patch('stream2segment.download.main.get_datacenters_df')
     @patch('stream2segment.download.main.get_channels_df')
-    @patch('stream2segment.download.main.save_inventories')
+    @patch('stream2segment.download.main.save_stationxml')
     @patch('stream2segment.download.main.download_save_segments')
     @patch('stream2segment.download.modules.segments.mseedunpack')
     @patch('stream2segment.io.db.pdsql.insertdf')
@@ -406,7 +406,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         mock_get_datacenters_df.side_effect = \
             lambda *a, **v: self.get_datacenters_df(None, *a, **v) 
         mock_get_channels_df.side_effect = lambda *a, **v: self.get_channels_df(None, *a, **v)
-        mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(None, *a, **v)
+        mock_save_inventories.side_effect = lambda *a, **v: self.save_stationxml(None, *a, **v)
         mock_download_save_segments.side_effect = \
             lambda *a, **v: self.download_save_segments(None, *a, **v)
         # mseed unpack is mocked by accepting only first arg
@@ -476,7 +476,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
     @patch('stream2segment.download.main.get_events_df')
     @patch('stream2segment.download.main.get_datacenters_df')
     @patch('stream2segment.download.main.get_channels_df')
-    @patch('stream2segment.download.main.save_inventories')
+    @patch('stream2segment.download.main.save_stationxml')
     @patch('stream2segment.download.main.download_save_segments')
     @patch('stream2segment.download.modules.segments.mseedunpack')
     @patch('stream2segment.io.db.pdsql.insertdf')
@@ -500,7 +500,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         mock_get_datacenters_df.side_effect = \
             lambda *a, **v: self.get_datacenters_df(None, *a, **v)
         mock_get_channels_df.side_effect = lambda *a, **v: self.get_channels_df(None, *a, **v)
-        mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(None, *a, **v)
+        mock_save_inventories.side_effect = lambda *a, **v: self.save_stationxml(None, *a, **v)
         mock_download_save_segments.side_effect = \
             lambda *a, **v: self.download_save_segments([URLError('abc')], *a, **v)
         # mseed unpack is mocked by accepting only first arg (so that time bounds are
@@ -598,7 +598,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
     @patch('stream2segment.download.main.get_events_df')
     @patch('stream2segment.download.main.get_datacenters_df')
     @patch('stream2segment.download.main.get_channels_df')
-    @patch('stream2segment.download.main.save_inventories')
+    @patch('stream2segment.download.main.save_stationxml')
     @patch('stream2segment.download.main.download_save_segments')
     @patch('stream2segment.download.modules.segments.mseedunpack')
     @patch('stream2segment.io.db.pdsql.insertdf')
@@ -623,7 +623,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         mock_get_datacenters_df.side_effect = \
             lambda *a, **v: self.get_datacenters_df(None, *a, **v)
         mock_get_channels_df.side_effect = lambda *a, **v: self.get_channels_df(None, *a, **v)
-        mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(None, *a, **v)
+        mock_save_inventories.side_effect = lambda *a, **v: self.save_stationxml(None, *a, **v)
         RESPONSES = [URLError('abc')]
         mock_download_save_segments.side_effect = \
             lambda *a, **v: self.download_save_segments(RESPONSES, *a, **v)

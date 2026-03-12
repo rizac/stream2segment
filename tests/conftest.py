@@ -23,7 +23,7 @@ from obspy.core.inventory.inventory import read_inventory
 
 from click.testing import CliRunner
 
-# import stream2segment.io.db.models as dbd
+import stream2segment.io.db.models as dbm
 # import stream2segment.process.db.models as dbp
 
 from stream2segment.traveltimes.ttloader import TTTable
@@ -373,7 +373,7 @@ def db(request, tmpdir_factory):  # pylint: disable=invalid-name
             self.engine = None
             self.session_maker = None
 
-        def create(self, to_file=False, process=False, custom_base=None):
+        def create(self, to_file=False):
             """Create the database, deleting it if already existing (i.e., if this
             method has already been called and self.delete has not been called)
 
@@ -388,14 +388,13 @@ def db(request, tmpdir_factory):  # pylint: disable=invalid-name
                 depending on the value of the `process` argument
             """
             self.delete()
-            self.dburl = 'sqlite:///' + \
-                str(tmpdir_factory.mktemp('db', numbered=True).join('db.sqlite')) \
-                if self.is_sqlite and to_file else self.dburl
+            if self.is_sqlite and to_file:
+                self.dburl = (
+                    f"sqlite:///{tmpdir_factory.mktemp('db', numbered=True).join('db.sqlite')}"
+                )
 
             self.engine = create_engine(self.dburl)
-            self._base = custom_base
-            if self._base is None:
-                self._base = dbp.Base if process else dbd.Base
+            self._base = dbm.Base
             self._base.metadata.create_all(self.engine)  # @UndefinedVariable
 
         @property
@@ -495,7 +494,7 @@ def db4process(db, data):
             session = db.session
 
             # Populate the database:
-            dwl = dbp.Download()
+            dwl = db.Download()
             session.add(dwl)
             session.commit()
 
