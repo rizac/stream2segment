@@ -17,9 +17,9 @@ import pytest
 
 from stream2segment.cli import cli
 from stream2segment.download.log import configlog4download
-from stream2segment.download.db.models import Station, WebService
+from stream2segment.io.db.models import WebService
 from stream2segment.download.url import urlread
-from stream2segment.download.modules.channels import get_post_data as origi_get_post_data
+# from stream2segment.download.modules.channels import get_post_data as origi_get_post_data
 
 
 def no_connection():
@@ -154,7 +154,7 @@ def test_real_run(mock_get_events_df, mock_merge_event_stations, mock_config4dow
     db.session.commit()
     ws_id = ws.id
 
-    # mock just one event downloaded. The event below is a RELa event (we took  the
+    # mock just one event downloaded. The event below is a REAL event (we took  the
     # 1st one only):
     d = pd.read_csv(StringIO("""event_id,time,latitude,longitude,depth_km,author,catalog,contributor,contributor_id,mag_type,magnitude,mag_author,event_location_name,event_type,webservice_id,id
 750359 P,2000-01-03T18:28:35,42.2585,2.5413,6.9,MDD,ISC,ISC,1750359 P,mb,4.3,MDD,yrenees,,1,1"""), sep=',')

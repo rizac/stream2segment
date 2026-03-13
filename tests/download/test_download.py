@@ -334,7 +334,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         assert db.session.query(Channel).count() == 12
         assert db.session.query(Event).count() == 2
 
-        # assert run log has been written correctly, i.e. that the db error on the segments
+        # FIXME REMOVE assert run log has been written correctly, i.e. that the db error on the segments
         # has not affected further writing operations. To do this quickly, assert that
         # all run.log have something written in (not null, not empty)
         assert db.session.query(withdata(Download.log)).count() == \

@@ -396,6 +396,7 @@ def db(request, tmpdir_factory):  # pylint: disable=invalid-name
             self.engine = create_engine(self.dburl)
             self._base = dbm.Base
             self._base.metadata.create_all(self.engine)  # @UndefinedVariable
+            asd = 9
 
         @property
         def session(self):
