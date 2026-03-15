@@ -74,7 +74,6 @@ class CustomResponseCode(IntEnum):
     CONNECTION_REFUSED_ERROR = 1004
     HTTP_EXC_ERROR = 1005
     SSL_ERROR = 1006
-    DOWNLOAD_SUSPENDED = 1007
 
 
 responses = dict(builtin_responses)
@@ -91,22 +90,22 @@ responses[CustomResponseCode.HTTP_EXC_ERROR] = \
     "HTTP response malformed or incomplete (bad headers, truncated data)"
 responses[CustomResponseCode.SSL_ERROR] = \
     "SSL/TLS handshake failure (bad certificate, hostname mismatch, expired cert)"
-responses[CustomResponseCode.DOWNLOAD_SUSPENDED] = \
-    "Too many identical failures, download suspended"
 
 
 class Response:
-    """lightweight data class representing a Response object with three arguments:
+    """
+    Lightweight data class representing a Response object with two arguments:
 
-    - data (`bytes` or `str`) is the response content or error message, depending if
-      the data read was decoded into `str`. If an exception was raised, data is the
-      exception string representation
+    - data (`bytes` or `str` or `Exception`) is the response content or error,
+      depending on whether the data read was decoded into `str`. If an exception was
+      raised, data is the exception object with __traceback__, __context__ and __cause__
+      all set to None for performance reason
     - status_code (int) is the response HTTP status code (extended), including
       normal http_codes (if exception is an HTTPError) and custom codes that
       generally denote network-related errors (usually integers > 1000, see
       the module enum class `CustomResponseCode` for details)
     """
-    __slots__ = ('data', 'error', 'status_code')
+    __slots__ = ('data', 'status_code')
 
     def __init__(self, data, status_code: int):
         self.data = data
@@ -155,7 +154,7 @@ def urlread(
             open_conn = opener.open(url, **kwargs)
 
         with open_conn as conn:
-            if blocksize < 0:  # https://docs.python.org/2.4/lib/bltin-file-objects.html
+            if blocksize < 0:
                 ret = conn.read()
             else:
                 while True:
@@ -167,7 +166,8 @@ def urlread(
             ret = ret.decode(decode)
         return Response(ret, conn.code)
     except HTTPError as exc:
-        return Response(str(exc), exc.code)
+        exc.__traceback__ = exc.__context__ = exc.__cause__ = None  # free mem.
+        return Response(exc, exc.code)
     except URLError as u_err:
         code = CustomResponseCode.URL_ERROR
         if isinstance(u_err.reason, (socket.timeout, TimeoutError)):
@@ -178,10 +178,12 @@ def urlread(
             code = CustomResponseCode.CONNECTION_REFUSED_ERROR
         elif isinstance(u_err.reason, ssl.SSLError):
             code = CustomResponseCode.SSL_ERROR
-        return Response(str(u_err), code)
+        u_err.__traceback__ = u_err.__context__ = u_err.__cause__ = None  # free mem.
+        return Response(u_err, code)
     except HTTPException as h_exc:
         # (socket.error is the superclass of all socket exc)
-        return Response(str(h_exc), CustomResponseCode.HTTP_EXC_ERROR)
+        h_exc.__traceback__ = h_exc.__context__ = h_exc.__cause__ = None  # free mem.
+        return Response(h_exc, CustomResponseCode.HTTP_EXC_ERROR)
 
 
 def read_async(
@@ -189,6 +191,7 @@ def read_async(
     url_callback=None,
     max_concurrency=None,
     suspend_trigger=25,
+    suspend_trigger_c=10,
     blocksize=-1,
     decode=None,
     timeout=None,
@@ -213,28 +216,12 @@ def read_async(
     :param max_concurrency: integer or None (the default) denoting the max parallel
         downloads. This corresponds to the maximum worker (sub) threads used. When None,
         the threads allocated are relative to the machine CPU (should be around 16-32)
-    :param max_concurrency_per_domain: integer (default: 8) denoting the max parallel
-        downloads per domain. Setting this value >0 means that - while `max_concurrency`
-        will allow a certain number of parallel downloads *globally*, you will be assured
-        that at most *max_concurrency_per_domain* will be from the same URL domain,
-        possibly avoiding errors due to concurrent requests limit configured on the
-        servers
-    :param slowdown: True to enable slowing down concurrent downloads for those domains
-        consistently returning the same download error at least `slowdown_trigger` times
-        (download from other domains are not affected): `max_concurrency_per_domain` will
-        be halved until it is greater than 1 (1 basically denoting sequential download).
-        This parameter can be also a tuple of integers with the download error codes that
-        should be considered: whereas some errors are more likely to indicate too many
-        requests (i.e., `(429, 500, 503, CustomResponseCode.TIMEOUT_ERROR)`) setting this
-        parameter to True is safer. If this parameter is the empty tuple or None,
-        no halving is applied and `max_concurrency_per_domain` will stay constant
-    :param slowdown_trigger: the number of consecutive errors that have to be
-        received per domain to trigger halving of `max_concurrency_per_domain`.
-        Defaults to 3, ignored if `slowdown` is empty or None
     :param suspend_trigger: int denoting the maximum downloads from the same
-        domain if the same error is repeatedly returned by the server. Default: 25.
-        After that, the tuple `(None, exc, CustomResponseCode.DOWNLOAD_SUSPENDED)`
-        will be returned (`exc` is the Exception returned bu the last error response)
+        domain if any download error is repeatedly returned by the server. Default: 25.
+        After that, the domain remaining requests will simply not be yielded
+    :param suspend_trigger_c: int denoting the maximum downloads from the same
+        domain if the same error is repeatedly returned by the server. Default: 10.
+        After that, the domain remaining requests will simply not be yielded
     :param blocksize: integer defaulting to 1024*1024 specifying, when connecting to one
         of the given urls, the maximum number of bytes to be read at each call of
         `urlopen.read`. If the size argument is negative or omitted, read all data until
@@ -316,39 +303,25 @@ def read_async(
         def url_wrapper(obj):
             if stop_event is not None and stop_event.is_set():
                 return None
-            url, opener, domain = _prepare_url_read_args(obj)
-            with per_domain_lock(domain):
-                if domain in aborted_download_domains:
-                    return None
-            resp = urlread(url, blocksize, decode, timeout, opener, **kwargs)
-            return domain, obj, resp
-
-        def _prepare_url_read_args(obj) -> tuple:
+            # get the url:
             url = obj
             if url_callback is not None:
                 url = url_callback(obj)
-            host = get_host(url)
+            # get the opener (restricted data):
+            domain = get_host(url)
+            with per_domain_lock(domain):
+                if domain in aborted_download_domains:
+                    return None
+
             if pswd is not None:
-                opener = openers.setdefault(host, _get_opener(host, user, pswd))
+                opener = openers.setdefault(domain, _get_opener(domain, user, pswd))
             else:
-                opener = openers.get(host, None)
-            return url, opener, host
+                opener = openers.get(domain, None)
 
-        last_n_responses = {}
+            resp = urlread(url, blocksize, decode, timeout, opener, **kwargs)
+            return domain, obj, resp
 
-        def error_responses_count(domain_responses_queue):
-            """
-            Return the number of responses that have errors from the most recent to
-            oldest in the given argument (`appendleft` must have been used)
-            """
-            last_response_status_code = domain_responses_queue[0][1].status_code
-            err_count = 0
-            if last_response_status_code > 299:  # FIXME implement error fnction
-                for obj, resp in domain_responses_queue:
-                    if resp.status_code != last_response_status_code:
-                        break
-                    err_count += 1
-            return err_count
+        last_n_errors = {}
 
         # perform download:
         for resp_tuple in t_map(url_wrapper, iterable):
@@ -357,24 +330,33 @@ def read_async(
             if resp_tuple is None:
                 continue
             domain, obj, response = resp_tuple
-            resp_queue = last_n_responses.setdefault(
+
+            if 200 <= response.status_code < 300:
+                yield resp_tuple
+                if domain in last_n_errors:
+                    resp_queue = last_n_errors[domain]
+                    while len(resp_queue):
+                        yield resp_queue.pop()
+                continue
+
+            resp_queue = last_n_errors.setdefault(
                 domain, deque(maxlen=suspend_trigger)
             )
             resp_queue.appendleft((obj, response))
 
-            # dequeue limit reached: yield? discard? partial yield?
-            if len(resp_queue) == suspend_trigger:
-                # count how many recent downloads had errors:
-                errors = error_responses_count(resp_queue)
-                if errors == suspend_trigger:
-                    with per_domain_lock(domain):
-                        aborted_download_domains.add(domain)
-                else:
-                    while len(resp_queue) > errors:
-                        yield resp_queue.pop()
+            abort_download = len(resp_queue) >= suspend_trigger
+            if not abort_download and len(resp_queue) >= suspend_trigger_c:
+                if len({_.status_code for _ in resp_queue[:suspend_trigger_c]}) == 1:
+                    abort_download = True
 
-        # yield supsnded results:
-        for domain, resp_queue in last_n_responses.items():
+            # dequeue limit reached: yield? discard? partial yield?
+            if abort_download:
+                with per_domain_lock(domain):
+                    aborted_download_domains.add(domain)
+                    resp_queue.clear()
+
+        # yield suspended results:
+        for domain, resp_queue in last_n_errors.items():
             if domain in aborted_download_domains:
                 continue
             for obj, response in resp_queue:

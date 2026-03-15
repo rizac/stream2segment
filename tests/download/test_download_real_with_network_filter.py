@@ -23,11 +23,13 @@ from stream2segment.download.url import urlread
 
 
 def no_connection():
-    from stream2segment.download.url import HTTPError
     try:
-        data, err, code = urlread("https://geofon.gfz-potsdam.de/")
-        return err is None or isinstance(err, (socket.error, URLError, HTTPError, HTTPException))
-    except Exception:  # noqa
+        # 8.8.8.8 → Google Public DNS
+        # Port 53 is almost always reachable if internet works.
+        # No DNS resolution needed → faster and avoids local resolver issues.
+        socket.create_connection(("8.8.8.8", 53), timeout=2)
+        return False
+    except OSError:
         return True
 
 
@@ -76,7 +78,7 @@ def test_real_run_old_buggy_network_filter( # mock_get_post_data,  # FIXME REMOV
 
     db.create(to_file=False)
 
-    ws = WebService(name='isc', type='event', url='http://www.isc.ac.uk/fdsnws/event/1/query')
+    ws = WebService(url='http://www.isc.ac.uk/fdsnws/event/1/query')
     db.session.add(ws)
     db.session.commit()
     ws_id = ws.id
