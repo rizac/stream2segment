@@ -5,6 +5,8 @@ Stations/Channels download functions
 """
 import re
 import logging
+from itertools import combinations
+from multiprocessing.pool import ThreadPool
 
 import pandas as pd
 from pandas.core.dtypes.common import is_categorical_dtype
@@ -14,7 +16,7 @@ from stream2segment.io.cli import get_progressbar
 from stream2segment.io.db.pdsql import shared_colnames  # dbquery2df, , mergeupdate
 from stream2segment.io.db.models import Channel, WebService, Segment
 from stream2segment.download.exc import FailedDownload
-from stream2segment.download.url import read_async, get_host
+from stream2segment.download.url import urlread, get_host
 from stream2segment.download.modules.utils import (harmonize_dataframe_to_fdsn,
                                                    dbsyncdf, formatmsg,
                                                    logwarn_dataframe, strconvert,
@@ -39,53 +41,69 @@ def get_channels_df(session, datacenters_df, net, sta, loc, cha,
         for no-filtering (all channels)
     """
     ws_url_col = WebService.url.key
-    ws_id_col = Channel.webservice_id.key
+    # ws_id_col = Channel.webservice_id.key
+    #
+    # iterable = zip(
+    #     datacenters_df[ws_url_col],
+    #     datacenters_df['net'],
+    #     datacenters_df['sta'],
+    #     datacenters_df['loc'],
+    #     datacenters_df['cha'],
+    #     datacenters_df['start'],
+    #     datacenters_df['end'],
+    #     datacenters_df[ws_id_col]
+    # )
+    #
+    # def url_builder(row):
+    #     """build url (str) from each item yielded by the previous iterable"""
+    #     return fdsn_url_qs(row[0], net=row[1], sta=row[2], loc=row[3], cha=row[4],
+    #                        start=pd.isna(row[5]) or None, end=pd.isna(row[6]) or None,
+    #                        level='channel', format='text')
 
-    iterable = zip(
-        datacenters_df[ws_url_col],
-        datacenters_df['net'],
-        datacenters_df['sta'],
-        datacenters_df['loc'],
-        datacenters_df['cha'],
-        datacenters_df['start'],
-        datacenters_df['end'],
-        datacenters_df[ws_id_col]
-    )
+    def url_iter():
 
-    def url_builder(row):
-        """build url (str) from each item yielded by the previous iterable"""
-        return fdsn_url_qs(row[0], net=row[1], sta=row[2], loc=row[3], cha=row[4],
-                           start=pd.isna(row[5]) or None, end=pd.isna(row[6]) or None,
-                           level='channel', format='text')
+        for (url, net,  start, end), dfr in datacenters_df.groupby([ws_url_col, 'net', 'start', 'end'], sort=False, dropna=False):
+            query_args = dict(level = 'channel', format = 'text', net=net)
+            if not pd.isna(start):
+                query_args['start'] = start
+            if not pd.isna(end):
+                query_args['end'] = end
+            for (sta, loc), dfr2 in dfr.groupby(['sta', 'loc'], sort=False):
+                query_args['sta'] = sta
+                query_args['loc'] = loc
+                query_args['cha'] = dfr2['cha'].str.cat(sep=",")
+                yield fdsn_url_qs(url, **query_args)
+
+    t_pool = ThreadPool(2)
+    urls = list(url_iter())
 
     ret = []
     failed_dframe_rows = []
-    with get_progressbar(len(datacenters_df) if show_progress else 0) as pbar:
-        for obj, result, exc, status_code in \
-                read_async(iterable, url_callback=url_builder, blocksize=blocksize,
-                           max_workers=max_thread_workers, decode='utf8',
-                           timeout=timeout):
+    with get_progressbar(len(urls) if show_progress else 0) as pbar:
+        for response in t_pool.imap_unordered(urlread, urls):
             pbar.update(1)
-            sta_ws_url = obj[0]
-            sta_ws_id = obj[7]
-            if exc:
-                failed_dframe_rows.append(obj)
-                logger.warning(formatmsg("Unable to fetch stations", exc,
-                                         url_builder(obj)))
+            # FIXME REMOVE
+            # sta_ws_url = obj[0]
+            # sta_ws_id = obj[7]
+            if not response.is_ok:
+                # failed_dframe_rows.append(obj)
+                logger.warning(formatmsg("Unable to fetch stations",
+                                         response.data,
+                                         response.request))
                 continue
             else:
                 try:
-                    dframe = response_text_to_df(result)
+                    dframe = response_text_to_df(response.data.decode('utf8'))
                     old_len = len(dframe)
                     dframe = harmonize_dataframe_to_fdsn(dframe, "channel")
                     discarded = old_len - len(dframe)
                     if discarded > 0:
                         logger.warning(formatmsg(f"{discarded} row(s) discarded",
                                                  "malformed text data",
-                                                 url_builder(obj)))
+                                                 reponse.request))
                 except ValueError as verr:
                     logger.warning(formatmsg("Discarding response data", verr,
-                                             url_builder(obj)))
+                                             response.request))
                     continue
 
             if not dframe.empty:
@@ -375,9 +393,16 @@ def save_channels(session, channels_df, update, db_bufsize):
     colnames = [Channel.network_code.key, Channel.station_code.key,
                 Channel.location_code.key, Channel.channel_code.key]
     # Then add (sync actually, already existing channels are not inserted):
-    channels_df = dbsyncdf(channels_df, session, cols, Channel.id, update,
-                           buf_size=db_bufsize, keep_duplicates=False,
-                           cols_to_print_on_err=colnames)
+    channels_df = dbsyncdf(
+        channels_df,
+        session,
+        cols,
+        Channel.id,
+        update,
+        buf_size=db_bufsize,
+        keep_duplicates=False,
+        cols_to_print_on_err=colnames
+    )
 
     log_unsaved_channels(conflict_between, conflict_within)
 

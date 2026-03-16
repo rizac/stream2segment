@@ -19,7 +19,7 @@ from urllib.parse import urlparse  # , urlencode
 from urllib.error import HTTPError, URLError
 from http.client import HTTPException, responses as builtin_responses
 from urllib.request import (urlopen, build_opener, HTTPPasswordMgrWithDefaultRealm,
-                            HTTPDigestAuthHandler)
+                            HTTPDigestAuthHandler, Request)
 
 
 # https://docs.python.org/3/library/urllib.request.html#request-objects
@@ -105,11 +105,12 @@ class Response:
       generally denote network-related errors (usually integers > 1000, see
       the module enum class `CustomResponseCode` for details)
     """
-    __slots__ = ('data', 'status_code')
+    __slots__ = ('data', 'status_code', 'request')
 
-    def __init__(self, data, status_code: int):
+    def __init__(self, data, status_code: int, request: str | Request):
         self.data = data
         self.status_code = status_code
+        self.request = request
 
     @property
     def is_ok(self):
@@ -164,10 +165,10 @@ def urlread(
                     ret += buf
         if decode:
             ret = ret.decode(decode)
-        return Response(ret, conn.code)
+        return Response(ret, conn.code, url)
     except HTTPError as exc:
         exc.__traceback__ = exc.__context__ = exc.__cause__ = None  # free mem.
-        return Response(exc, exc.code)
+        return Response(exc, exc.code, url)
     except URLError as u_err:
         code = CustomResponseCode.URL_ERROR
         if isinstance(u_err.reason, (socket.timeout, TimeoutError)):
@@ -179,11 +180,11 @@ def urlread(
         elif isinstance(u_err.reason, ssl.SSLError):
             code = CustomResponseCode.SSL_ERROR
         u_err.__traceback__ = u_err.__context__ = u_err.__cause__ = None  # free mem.
-        return Response(u_err, code)
+        return Response(u_err, code, url)
     except HTTPException as h_exc:
         # (socket.error is the superclass of all socket exc)
         h_exc.__traceback__ = h_exc.__context__ = h_exc.__cause__ = None  # free mem.
-        return Response(h_exc, CustomResponseCode.HTTP_EXC_ERROR)
+        return Response(h_exc, CustomResponseCode.HTTP_EXC_ERROR, url)
 
 
 def read_async(

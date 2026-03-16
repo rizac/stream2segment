@@ -294,7 +294,7 @@ _RETRY_CODES = {
 }
 
 
-def download_save_segments(session, segments_df, dc_dataselect_manager,
+def download_save_segments(session, segments_df, authorizer,
                            download_id, update_datacenters,
                            max_thread_workers,
                            timeout, download_blocksize, db_bufsize,
@@ -342,7 +342,7 @@ def download_save_segments(session, segments_df, dc_dataselect_manager,
 
             dataframes = get_download_iterator(segments_df)
             for dframe, data, exc, code in \
-                    get_responses(dataframes, dc_dataselect_manager,
+                    get_responses(dataframes, authorizer,
                                   max_thread_workers, timeout,
                                   download_blocksize):
 
@@ -458,7 +458,7 @@ def get_dbmanager(session, update_datacenter, db_bufsize):
                      onupdate_err_callback=db_exc_logger.failed_update)
 
 
-def get_responses(dataframes, dc_dataselect_manager,
+def get_responses(dataframes, authorizer,
                   max_thread_workers, timeout, download_blocksize):
     """Download segments and yields results
 
@@ -466,10 +466,12 @@ def get_responses(dataframes, dc_dataselect_manager,
         per requested waveform. Moreover, each dataframe row is assumed to refer to the
         same data center (base URL) and have the same time span (start end)
     """
-    def openerfunc(dframe):
-        """Return a Opener (or None) from the given dataframe. An Opener is the
-        object needed to download restricted data"""
-        return dc_dataselect_manager.opener(dframe[SEG.DCID].iloc[0])
+
+    # FIXME REMOVE
+    # def openerfunc(dframe):
+    #     """Return a Opener (or None) from the given dataframe. An Opener is the
+    #     object needed to download restricted data"""
+    #     return dc_dataselect_manager.opener(dframe[SEG.DCID].iloc[0])
 
     code_url_err, code_mseed_err = s2scodes.url_err, s2scodes.mseed_err
     for dframe, data, exc, code in read_async(
@@ -478,7 +480,7 @@ def get_responses(dataframes, dc_dataselect_manager,
             max_workers=max_thread_workers,
             timeout=timeout,
             blocksize=download_blocksize,
-            openers=openerfunc
+            openers=authorizer  # FIXME CORRECT????
     ):
         if exc:
             data = None  # for safety

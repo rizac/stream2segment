@@ -125,14 +125,12 @@ def download(config, log2file=True, verbose=False, print_config_only=False,
 
         # create download row with unprocessed config (yaml_load function)
         # Note that we call again load_config with parseargs=False:
-        download_id = new_db_download(session, real_yaml_dict)
+        download_id = new_download_run(session, real_yaml_dict)
         if log2file and verbose:  # (=> loghandlers not empty)
-            print("Log file: '%s'"
-                  "\n(if the download ends with no errors, the file will be deleted"
-                  "\nand its content written "
-                  "to the table '%s', column '%s')" % (log2file,
-                                                       models.Download.__tablename__,
-                                                       models.Download.log.key))
+            print(f"Log file: '{log2file}'\n"
+                  "(if the download ends with no errors, the file will be deleted"
+                  "and its content written to the db table "
+                  f"'{models.DownloadRunInfo.__tablename__}')")
 
         stime = time.time()
         _run(download_id=download_id, isterminal=verbose, authorizer=authorizer,
@@ -242,9 +240,16 @@ def _run(session, download_id, events_url, starttime, endtime, data_url,
         stepinfo("Fetching data-centers")
         # get datacenters (might raise FailedDownload):
         datacenters_df = get_datacenters_df(
-            session, data_url, advanced_settings['routing_service_url'],
-            network, station, location, channel, starttime,
-            endtime, dbbufsize
+            session,
+            data_url,
+            advanced_settings['routing_service_url'],
+            network,
+            station,
+            location,
+            channel,
+            starttime,
+            endtime,
+            dbbufsize
         )
 
         stepinfo("Fetching stations and channels from %d data-center%s",
@@ -282,12 +287,19 @@ def _run(session, download_id, events_url, starttime, endtime, data_url,
         stepinfo("%d segments found. Checking already downloaded segments",
                  len(segments_df))
         # raises NothingToDownload
-        segments_df = \
-            prepare_for_download(session, segments_df, authorizer,
-                                 time_window, retry_seg_not_found, retry_url_err,
-                                 retry_mseed_err, retry_client_err,
-                                 retry_server_err, retry_timespan_err,
-                                 retry_timespan_warn=False)
+        segments_df = prepare_for_download(
+            session,
+            segments_df,
+            authorizer,
+            time_window,
+            retry_seg_not_found,
+            retry_url_err,
+            retry_mseed_err,
+            retry_client_err,
+            retry_server_err,
+            retry_timespan_err,
+            retry_timespan_warn=False
+        )
 
         # prepare_for_download raises a NothingToDownload if there is no
         # data, so if we are here segments_df is not empty
@@ -299,15 +311,18 @@ def _run(session, download_id, events_url, starttime, endtime, data_url,
         session.expunge_all()
         session.close()
 
-        d_stats = download_save_segments(session, segments_df,
-                                         dc_dataselect_manager,
-                                         download_id,
-                                         update_metadata,
-                                         max_thread_workers,
-                                         advanced_settings['w_timeout'],
-                                         download_blocksize,
-                                         dbbufsize,
-                                         isterminal)
+        d_stats = download_save_segments(
+            session,
+            segments_df,
+            authorizer,
+            download_id,
+            update_metadata,
+            max_thread_workers,
+            advanced_settings['w_timeout'],
+            download_blocksize,
+            dbbufsize,
+            isterminal
+        )
         del segments_df  # help gc?
         session.close()  # frees memory?
         logger.info("")
@@ -365,7 +380,7 @@ def _run(session, download_id, events_url, starttime, endtime, data_url,
                             n_downloaded, n_empty, n_errors)
 
 
-def new_db_download(session, params=None):
+def new_download_run(session, params=None) -> int:
     if params is None:
         params = {}
     config = yaml_safe_dump(params)
@@ -373,15 +388,19 @@ def new_db_download(session, params=None):
         config = config.decode('utf-8')  # legacy py2 code?
     tmp_log = ('N/A: either logger not configured, or an '
                'unexpected error interrupted the process')
-    download_inst = models.DownloadRun(
-        config=config,
-        log=tmp_log,
-        program_version=version()
-    )
+    download_inst = models.DownloadRun()
     session.add(download_inst)
     session.commit()
     download_id = download_inst.id
-    session.close()  # frees memory?
+      # frees memory?
+    session.add(models.DownloadRunInfo(
+        id=download_id,
+        config=config,
+        log=tmp_log,
+        summary="",
+        s2s_version=version()
+    ))
+    session.close()
     return download_id
 
 

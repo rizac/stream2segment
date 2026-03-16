@@ -151,15 +151,9 @@ class DownloadRun(Base):  # noqa
     __tablename__ = 'download_run'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    run_time = Column(DateTime, server_default=func.now())
-    # warnings = Column(Integer, server_default="0")  # , default=0)  # FIXME small int? check all small ints in the module?
-    # errors = Column(Integer, server_default="0")  # , default=0)
-    program_version = Column(String)
+    time = Column(DateTime, server_default=func.now())  # FIXME: needed?
 
-    # noise_window_sec = Column(Float)  # usually < 0 and relative to station arrival time
-    # signal_window_sec = Column(Float)  # usually > 0 and relative to station arrival time
-
-    info = relationship("DownloadRunInfo", uselist=False)
+    # info = relationship("DownloadRunInfo", uselist=False)
 
 
 class DownloadRunInfo(Base):
@@ -171,6 +165,7 @@ class DownloadRunInfo(Base):
     __tablename__ = 'download_run_info'
 
     id = Column(Integer, ForeignKey(DownloadRun.id), primary_key=True)
+    s2s_version = Column(String)
     log = Column(String)
     summary = Column(String)
     config = Column(String)

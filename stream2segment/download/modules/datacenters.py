@@ -21,14 +21,14 @@ logger = logging.getLogger(__name__)
 
 
 def get_datacenters_df(
-        session, webservice_url, routing_service_url,
-        network: Optional[list[str]] = None,
-        station: Optional[list[str]] = None,
-        location: Optional[list[str]] = None,
-        channel: Optional[list[str]] = None,
-        starttime: Optional[datetime] = None,
-        endtime: Optional[datetime] = None,
-        db_bufsize=None
+    session, webservice_url, routing_service_url,
+    network: Optional[list[str]] = None,
+    station: Optional[list[str]] = None,
+    location: Optional[list[str]] = None,
+    channel: Optional[list[str]] = None,
+    starttime: Optional[datetime] = None,
+    endtime: Optional[datetime] = None,
+    db_bufsize=None
 ):
     """Returns a 2 elements tuple: the Dataframe of the datacenter(s) matching
     `service`, and an EidaValidator (built on the EIDA routing service response)
@@ -89,9 +89,13 @@ def get_datacenters_df(
     if ws_df.empty:
         raise FailedDownload(Exception("No FDSN-compliant datacenter found"))
 
-    ws_df = dbsyncdf(ws_df, session, [WebService.url],
-                     WebService.id, buf_size=db_bufsize or len(urls),
-                     keep_duplicates=False)
+    ws_df = dbsyncdf(
+        ws_df, session,
+        [WebService.url],
+        WebService.id,
+        buf_size=db_bufsize or len(urls),
+        keep_duplicates=False
+    )
 
     datacenters_df = []
     url2id = dict(zip(ws_df['url'], ws_df['id']))
@@ -121,22 +125,22 @@ def get_datacenters_df(
 
 
 def get_eidars_response_text(
-        routing_service_url: list[str],
-        network: Optional[str] = None,
-        station: Optional[str] = None,
-        location: Optional[str] = None,
-        channel: Optional[str] = None,
-        starttime: Optional[datetime] = None,
-        endtime: Optional[datetime] = None
+    routing_service_url: list[str],
+    network: Optional[str] = None,
+    station: Optional[str] = None,
+    location: Optional[str] = None,
+    channel: Optional[str] = None,
+    starttime: Optional[datetime] = None,
+    endtime: Optional[datetime] = None
 ):
     """Return the EIDA Routing Service response text (str)"""
     for eida_rs_url in routing_service_url:
         url = fdsn_url_qs(eida_rs_url, net=network, sta=station, loc=location,
                           cha=channel, start=starttime, end=endtime,
                           service='dataselect', format='post')
-        response_text, error, code = urlread(url, decode='utf8')
-        if not error:
-            return response_text
+        response = urlread(url, decode='utf8')
+        if response.is_ok:
+            return response.data
     raise FailedDownload("None of the EIDA routing services returned valid data. "
                          "Check internet connection or configure the URLs in advanced "
                          "settings")
@@ -167,8 +171,7 @@ def eidarsiter(response_text):
         if not url:
             continue
         yield_params = [''] * 6
-        for line in sorted(lines[1:]):
-            # sorting is slightly inefficient but helps packing similar urls (see below)
+        for line in lines[1:]:
             params = line.strip().split(" ")
             if len(params) != 6 or not all(params):  # assure 6 non empty elements
                 continue
@@ -180,21 +183,33 @@ def eidarsiter(response_text):
                     datetime.fromisoformat(params[-2])
             except ValueError:
                 continue
-            if params[1] in ('A076A', 'A079A'):
-                asd = 0
-            # try to pack together FDSN request urls if possible:
-            arg_where_diff = [i for i in range(6) if params[i] != yield_params[i]]
-            # only one index difference (and not in time ranges, i.e. < 4)?
-            if len(arg_where_diff) == 1 and arg_where_diff[0] < 4:
-                i = arg_where_diff[0]
-                if yield_params[i] == '*' or params[i] == '*':
-                    yield_params[i] = '*'
-                elif params[i] not in yield_params[i].split(','):
-                    # 2nd check is because sometimes items are returned twice
-                    yield_params[i] = f'{yield_params[i]},{params[i]}'
-            else:
-                if any(yield_params):
-                    yield url, tuple(yield_params)
-                yield_params = params
-        if any(yield_params):
-            yield url, tuple(yield_params)
+            yield url, tuple(params)
+        # for line in sorted(lines[1:]):
+        #     # sorting is slightly inefficient but helps packing similar urls (see below)
+        #     params = line.strip().split(" ")
+        #     if len(params) != 6 or not all(params):  # assure 6 non empty elements
+        #         continue
+        #     # validate date-times (sometime as date, in case later pandas complains):
+        #     try:
+        #         params[-1] = None if params[-1] == '*' else \
+        #             datetime.fromisoformat(params[-1])
+        #         params[-2] = None if params[-1] == '*' else \
+        #             datetime.fromisoformat(params[-2])
+        #     except ValueError:
+        #         continue
+        #     # try to pack together FDSN request urls if possible:
+        #     arg_where_diff = [i for i in range(6) if params[i] != yield_params[i]]
+        #     # only one index difference (and not in time ranges, i.e. < 4)?
+        #     if len(arg_where_diff) == 1 and arg_where_diff[0] < 4:
+        #         i = arg_where_diff[0]
+        #         if yield_params[i] == '*' or params[i] == '*':
+        #             yield_params[i] = '*'
+        #         elif params[i] not in yield_params[i].split(','):
+        #             # 2nd check is because sometimes items are returned twice
+        #             yield_params[i] = f'{yield_params[i]},{params[i]}'
+        #     else:
+        #         if any(yield_params):
+        #             yield url, tuple(yield_params)
+        #         yield_params = params
+        # if any(yield_params):
+        #     yield url, tuple(yield_params)

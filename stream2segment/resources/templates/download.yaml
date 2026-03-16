@@ -234,8 +234,9 @@ advanced_settings:
  #    "Too Many Requests" (code 429). You can inspect errors in the summary table printed
  #    after all segments are downloaded, or via the command `s2s dl report`
  max_concurrent_downloads: null
- # Routing service(s) used to fetch EIDA nodes and relative network/stations. Urls
- # will be queried in the given order, stopping when the first url provides valid data
+ # Routing service used to fetch EIDA nodes and relative network/stations. If list of
+ # Urls, then each url will be queried in the given order, stopping when the first
+ # provides valid data
  routing_service_url:
    - "http://www.orfeus-eu.org/eidaws/routing/1/query"
    - "http://geofon.gfz.de/eidaws/routing/1/query"

@@ -281,6 +281,10 @@ def _validate_download_advanced_settings(config, adv_settings_key):
                                               valid_between, 1, None,
                                               pass_if_none=False)
 
+    pname = 'routing_service_url'
+    if not isinstance(adv_settings_dict[pname], (list, tuple)):
+        adv_settings_dict[pname] = [adv_settings_dict[pname]]
+
     pnames = [prefix + _ for _ in ('max_concurrent_downloads', 'max_thread_workers')]
     pname, pval = pop_param(config, pnames)
     if pname == pnames[1]:
