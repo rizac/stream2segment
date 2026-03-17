@@ -15,7 +15,7 @@ from stream2segment.download.exc import FailedDownload, NothingToDownload
 from stream2segment.io.db.models import Event, WebService
 from stream2segment.download.url import urlread, socket, HTTPError, read_async
 from stream2segment.download.modules.utils import (
-    dbsyncdf, response_text_to_df, harmonize_dataframe_to_fdsn, formatmsg,
+    dbsyncdf, fdsn_event_response_text_to_df, formatmsg,
     EVENTWS_MAPPING, strptime, fdsn_url_qs, DbExcLogger, RequestErrorOnceLogger
 )
 
@@ -112,13 +112,13 @@ def events_df_list(url, evt_query_args, start, end, timeout=15, show_progress=Fa
     for url_, data in urls_and_data:
         # data surely not empty, FDSN formatted
         try:
-            dframe = response_text_to_df(data)
-            old_len = len(dframe)
-            pd_df_list.append(harmonize_dataframe_to_fdsn(dframe, "event"))
-            discarded = old_len - len(pd_df_list[-1])
+            dframe = fdsn_event_response_text_to_df(data)
+            pd_df_list.append(dframe)
+            discarded = getattr(dframe, 'discarded', 0)
             if discarded > 0:
-                logger.warning(formatmsg(f"{discarded} row(s) discarded",
-                                         "malformed text data", url))
+                logger.warning(
+                    formatmsg(f"{discarded} row(s) discarded","malformed text data", url)
+                )
         except Exception as exc:
             msg = ERR_READ_FDSN if local_file else ERR_FETCH_FDSN
             if local_file or len(urls_and_data) == 1:  # raise:

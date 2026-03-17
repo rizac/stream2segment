@@ -30,6 +30,7 @@ import pandas as pd
 
 # Sql-alchemy:
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.sql.expression import func, bindparam
 from sqlalchemy.types import Integer, Float, Boolean, DateTime, Date  # , TIMESTAMP
 
@@ -89,34 +90,38 @@ def shared_colnames(table, dataframe, pkey=None, fkey=None, nullable=None):
             yield colname
 
 
-def dropnulls(table, dataframe):
-    """Drop rows of dataframe which contain invalid NA/None, i.e. whose table
-    column is not nullable. Consider calling `harmonize_columns` first to make sure
-    that all Nulls (pandas NA) are properly set. Note that if some column
-    is dropped, then int and boolean columns might be casted again after dropping
+# FIXME REMOVE
+# def dropnulls(table, dataframe):
+#     """Drop rows of dataframe which contain invalid NA/None, i.e. whose table
+#     column is not nullable. Consider calling `harmonize_columns` first to make sure
+#     that all Nulls (pandas NA) are properly set. Note that if some column
+#     is dropped, then int and boolean columns might be casted again after dropping
+#     """
+#     non_nullable_cols = list(shared_colnames(table, dataframe, nullable=False))
+#     if non_nullable_cols:
+#         oldlen = len(dataframe)
+#         dataframe = dataframe.dropna(subset=non_nullable_cols, axis=0, inplace=False)
+#         if oldlen > len(dataframe):
+#             # Cast bools and ints as they might have been object:
+#             for col in non_nullable_cols:
+#                 dtype = get_dtype(getattr(table, col).type)
+#                 if dtype in (np.int64, np.bool_):
+#                     dataframe[col] = dataframe[col].astype(dtype, copy=False)
+#     return dataframe
+
+
+def apply_table_dtypes(
+    table: type[DeclarativeBase], dataframe, drop_non_nullable=True
+):
     """
-    non_nullable_cols = list(shared_colnames(table, dataframe, nullable=False))
-    if non_nullable_cols:
-        oldlen = len(dataframe)
-        dataframe = dataframe.dropna(subset=non_nullable_cols, axis=0, inplace=False)
-        if oldlen > len(dataframe):
-            # Cast bools and ints as they might have been object:
-            for col in non_nullable_cols:
-                dtype = get_dtype(getattr(table, col).type)
-                if dtype in (np.int64, np.bool_):
-                    dataframe[col] = dataframe[col].astype(dtype, copy=False)
-    return dataframe
-
-
-def harmonize_columns(table, dataframe):
-    """Make the DataFrame's column types align with the SQL table
-    column types. Returns a new dataframe with "correct" types (according to
-    table). If the types already match, no new array is created
-    Dataframe columns not members of the table columns are left as they are.
+    Applies the ORM table data types on the given dataframe, converting data as necessary.
+    Columns whose names mismatch between table and dataframe are not modified.
     For ints and bools with NaN / None, the array dtype is converted to `object`.
 
     :param table: an ORM model class
     :param dataframe: the Data frame
+    :param drop_non_nullable: if True (the deault), drop rows that have NaN / NULL
+        values for columns that are non-nullable
     """
     for col_name in colnames(table):
         sql_col = getattr(table, col_name)
@@ -153,23 +158,35 @@ def harmonize_columns(table, dataframe):
                 try:
                     dataframe[col_name] = df_col.astype(col_type, copy=False)
                 except (TypeError, ValueError):
-                    # We have NA, i.e. non castable values. Use `to_numeric` that
-                    # casts Na to NaN by converting the dtype to float
+                    # Force coercion to numeric (set NaN):
                     dataframe[col_name] = pd.to_numeric(df_col, errors='coerce')
                     # now keep track of the NaNs indices:
                     invalid = pd.isna(dataframe[col_name])
                     # Temporarily set as 0 the NaNs, so casting later is feasible:
                     dataframe.loc[invalid, col_name] = 0
-                    # Cast to our type and then to object (wht? see later)
+                    # Cast to our type and then to object to avoid upcasting to float
+                    # when we set None later
                     dataframe[col_name] = \
                         dataframe[col_name].astype(col_type).astype(object)
-                    # Reset back `None`s in place of our NaN (NaN is invalid SQL type).
-                    # Note that the operation below applied on an array of type int
-                    # would upcast the array type to float, converting None to NaNs.
-                    # Hence we need to apply it on an array iof dtype object:
+                    # Reset back `None`s in place:
                     dataframe.loc[invalid, col_name] = None
         except KeyError:
             pass  # this column not in results
+
+    if drop_non_nullable:
+        non_nullable_cols = list(shared_colnames(table, dataframe, nullable=False))
+    else:
+        non_nullable_cols = []  # simply skip if below
+
+    if non_nullable_cols:
+        oldlen = len(dataframe)
+        dataframe = dataframe.dropna(subset=non_nullable_cols, axis=0, inplace=False)
+        if oldlen > len(dataframe):
+            # Cast bools and ints as they might have been object:
+            for col in non_nullable_cols:
+                dtype = get_dtype(getattr(table, col).type)
+                if dtype in (np.int64, np.bool_):
+                    dataframe[col] = dataframe[col].astype(dtype, copy=False)
 
     return dataframe
 
@@ -194,15 +211,15 @@ def dbquery2df(query):
 
     :param query: SqlAlchemy query. IT MUST BE GIVEN WITH ALL COLUMNS OF
         INTEREST SEPARATED, e.g.:
-        ```session.query(Table.columna, Table.column_b)```
+        ```session.query(Table.column_a, Table.column_b)```
         and **not**:
         ```session.query(Table)```
 
         It accepts joins and filters, e.g.:
-        ```session.query(Table.columna, Table.column_b).join(...).filter(...)```
+        ```session.query(Table.column_a, Table.column_b).join(...).filter(...)```
 
         And also expressions as column, e.g.:
-        ```session.query(Table.columna, (Table.column_b >0).label('abc'))```
+        ```session.query(Table.column_a, (Table.column_b >0).label('abc'))```
         Where `label` associated to the query will be the dataframe column name
         (when passing normal columns, the data frame column name is inferred
         from the SQLAlchemy column name)

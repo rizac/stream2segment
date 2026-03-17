@@ -17,10 +17,9 @@ from stream2segment.io.db.pdsql import shared_colnames  # dbquery2df, , mergeupd
 from stream2segment.io.db.models import Channel, WebService, Segment
 from stream2segment.download.exc import FailedDownload
 from stream2segment.download.url import urlread, get_host
-from stream2segment.download.modules.utils import (harmonize_dataframe_to_fdsn,
-                                                   dbsyncdf, formatmsg,
+from stream2segment.download.modules.utils import (fdsn_channel_response_text_to_df,
+                                                   dbsyncdf, formatmsg, fdsn_url,
                                                    logwarn_dataframe, strconvert,
-                                                   fdsn_url, response_text_to_df,
                                                    Authorizer, fdsn_url_qs)
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
@@ -93,14 +92,12 @@ def get_channels_df(session, datacenters_df, net, sta, loc, cha,
                 continue
             else:
                 try:
-                    dframe = response_text_to_df(response.data.decode('utf8'))
-                    old_len = len(dframe)
-                    dframe = harmonize_dataframe_to_fdsn(dframe, "channel")
-                    discarded = old_len - len(dframe)
+                    dframe = fdsn_channel_response_text_to_df(response.data.decode('utf8'))
+                    discarded = getattr(dframe, 'discarded', 0)
                     if discarded > 0:
                         logger.warning(formatmsg(f"{discarded} row(s) discarded",
                                                  "malformed text data",
-                                                 reponse.request))
+                                                 response.request))
                 except ValueError as verr:
                     logger.warning(formatmsg("Discarding response data", verr,
                                              response.request))

@@ -28,7 +28,7 @@ from urllib.request import Request
 import pandas as pd
 
 # from stream2segment.io.db.models import MINISEED_READ_ERROR_CODE
-from stream2segment.io.db.pdsql import harmonize_columns, dropnulls, syncdf
+from stream2segment.io.db.pdsql import apply_table_dtypes, syncdf
 from stream2segment.io.db.models import Event, Channel, WebService
 from stream2segment.download.exc import FailedDownload
 from stream2segment.download.url import responses, get_host, urlread
@@ -291,142 +291,225 @@ class RequestErrorOnceLogger(set):
             logger.warning(formatmsg(exc, "", request_str))
 
 
-def response_text_to_df(response: str):
-    """Convert a response content obtained from an fdsn webservice with format=text
-    into a pandas DataFrame of type str (no casting performed)"""
+def fdsn_response_text_to_df(response: str):
+    """
+    Convert a response content obtained from a FDSN webservice with format=text
+    into a pandas DataFrame of type str (no casting performed)
+    """
     # read csv but do not let pandas infer data types (`_harmonize_columns` does that
     # later): `dtype=str` reads everything as strings (this prevents `event_id`s in
     # catalogs to be inadvertently casted as int), `na_values` + `keep_default_na` reads
     # empty cells as "" (this prevents channels `location` to be NULL and the relative
     # row to be dropped in `_harmonize_columns` because NULL is not allowed)
-    return pd.read_csv(StringIO(response), sep='|', header=None, comment='#',  # noqa
-                       dtype=str, keep_default_na=False,
-                       na_values=['#N/A', '#NA', '-NaN', '-nan', '<NA>', 'N/A', 'NA',
-                                  'NULL', 'NaN', 'n/a', 'nan', 'null'])
+    return pd.read_csv(
+        StringIO(response),
+        sep='|',
+        header=None,
+        comment='#',
+        dtype=str,
+        keep_default_na=False,
+        na_values=[
+            '#N/A', '#NA', '-NaN', '-nan', '<NA>', 'N/A',
+            'NA', 'NULL', 'NaN', 'n/a', 'nan', 'null'
+        ]
+    )
 
-
-def harmonize_dataframe_to_fdsn(dataframe, query_type):
-    """Return a normalized and harmonized dataframe from raw_data. dbmodel_key
-    can be 'event' 'station' or 'channel'. Raises ValueError if the resulting
-    dataframe is empty or if a `ValueError` is raised from sub-functions
-
-    :param dataframe: the result of response_text_to_df. For
-        info see https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf#page=12
-    :param query_type: a string denoting the web service type:
-        "event", "station" (for a station query with parameter level=station)
-        or "channel" (for a station query with parameter level=channel)
+def fdsn_event_response_text_to_df(response: str):
     """
-    dframe = _rename_columns(dataframe, query_type)
-    dframe = _harmonize_fdsn_dframe(dframe, query_type)
+    Convert a response content obtained from a FDSN event webservice with format=text
+    into a pandas DataFrame with proper dtypes associated to the SQL mapped class
+    """
+    dframe = fdsn_response_text_to_df(response)
+    # EventID|Time|Latitude|Longitude|Depth/km|Author|Catalog|Contributor|
+    # ContributorID|MagType|Magnitude|MagAuthor|EventLocationName|EventType
+    columns = {
+        dframe.columns[0]: Event.event_id.key,
+        dframe.columns[1]: Event.time.key,
+        dframe.columns[2]: Event.latitude.key,
+        dframe.columns[3]: Event.longitude.key,
+        dframe.columns[4]: Event.depth_km.key,
+        # skip Author (Rarely used, memory-intensive text field)
+        dframe.columns[6]: Event.catalog.key,
+        # skip Contributor (Rarely used, memory-intensive text field)
+        # skip ContributorID (Rarely used, memory-intensive text field)
+        dframe.columns[9]: Event.mag_type.key,
+        dframe.columns[10]: Event.magnitude.key
+        # skip MagAuthor (Rarely used, memory-intensive text field)
+        # skip EventLocationName (Rarely used, memory-intensive text field)
+        # skip EventType (Rarely used, memory-intensive text field)
+    }
+    if not dframe.empty:
+        # rename and set order:
+        dframe = dframe.rename(columns=columns)[list(columns.values())]
+        dframe = apply_table_dtypes(Event, dframe, drop_non_nullable=True)
     if dframe.empty:
-        raise ValueError("Malformed data (e.g., type mismatch, NaN)")
+        raise ValueError("Malformed data (e.g., no data, type mismatch, NaN)")
     return dframe
 
 
-def _rename_columns(query_df, query_type):
-    """Rename the columns of `query_df` according to the ORM model representing
-    the FDSN query type ('event', 'station', 'channel') originating the data frame
+def fdsn_channel_response_text_to_df(response: str):
     """
-    if query_df.empty:
-        return query_df
-    columns = query_df.columns
-    expected_columns_count = len(columns)  # reassigned below (here to silence warnings)
-    try:
-        if query_type.lower() in {"event", "events"}:
-            expected_columns_count = 11
-            # EventID|Time|Latitude|Longitude|Depth/km|Author|Catalog|Contributor|
-            # ContributorID|MagType|Magnitude|MagAuthor|EventLocationName|EventType
-            columns = {
-                columns[0]: Event.event_id.key,
-                columns[1]: Event.time.key,
-                columns[2]: Event.latitude.key,
-                columns[3]: Event.longitude.key,
-                columns[4]: Event.depth_km.key,
-                # skip Author (Rarely used, memory-intensive text field)
-                columns[6]: Event.catalog.key,
-                # skip Contributor (Rarely used, memory-intensive text field)
-                # skip ContributorID (Rarely used, memory-intensive text field)
-                columns[9]: Event.mag_type.key,
-                columns[10]: Event.magnitude.key
-                # skip MagAuthor (Rarely used, memory-intensive text field)
-                # skip EventLocationName (Rarely used, memory-intensive text field)
-                # skip EventType (Rarely used, memory-intensive text field)
-            }
-        elif query_type.lower() in {"station", "stations"}:
-            expected_columns_count = 8
-            # Network|Station|Latitude|Longitude|Elevation|SiteName|StartTime|EndTime
-            # Set this table columns mapping (by name, so we can safely add any
-            # new column at any index):
-            columns = {
-                columns[0]: Channel.network.key,
-                columns[1]: Channel.station.key,
-                columns[2]: Channel.latitude.key,
-                columns[3]: Channel.longitude.key,
-                columns[4]: Channel.elevation.key,
-                # skip site_name (Rarely used, memory-intensive text field)
-                columns[6]: Channel.start_time.key,
-                columns[7]: Channel.end_time.key
-            }
-        elif query_type.lower() in {"channel", "channels"}:
-            expected_columns_count = 17
-            # Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|
-            # Azimuth|Dip|SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|
-            # StartTime|EndTime`
-            columns = {
-                columns[0]: Channel.network.key,
-                columns[1]: Channel.station.key,
-                columns[2]: Channel.location.key,
-                columns[3]: Channel.channel.key,
-                columns[4]: Channel.latitude.key,
-                columns[5]: Channel.longitude.key,
-                columns[6]: Channel.elevation.key,
-                columns[7]: Channel.depth.key,
-                columns[8]: Channel.azimuth.key,
-                columns[9]: Channel.dip.key,
-                # skip sensor_description (Rarely used, memory-intensive text field)
-                columns[11]: Channel.scale.key,
-                columns[12]: Channel.scale_freq.key,
-                columns[13]: Channel.scale_units.key,
-                columns[14]: Channel.sample_rate.key,
-                columns[15]: Channel.start_time.key,
-                columns[16]: Channel.end_time.key
-            }
-        else:
-            raise ValueError("Invalid fdsn_model: supply Events, "
-                             "Station or Channel class")
-    except IndexError:
-        # do not provide long messages, the exception is likely to be wrapped
-        # also do not print columns, which are often just numbers with no meaning:
-        raise ValueError("Data has %d column(s), expected: %d" %
-                         (expected_columns_count, len(columns)))
-
-    return query_df.rename(columns=columns)[list(columns.values())]
-
-
-def _harmonize_fdsn_dframe(query_df, query_type):
-    """Harmonize the query dataframe (convert to dataframe dtypes, removes
-    NaNs and so on) according to query_type ('event', 'station', 'channel').
+    Convert a response content obtained from a FDSN station webservice with
+    level=channel and  format=text into a pandas DataFrame
+    with proper dtypes associated to the SQL mapped class
     """
-    if query_df.empty:
-        return query_df
+    dframe = fdsn_response_text_to_df(response)
+    # EventID|Time|Latitude|Longitude|Depth/km|Author|Catalog|Contributor|
+    # ContributorID|MagType|Magnitude|MagAuthor|EventLocationName|EventType
+    # Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|
+    # Azimuth|Dip|SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|
+    # StartTime|EndTime`
+    columns = {
+        dframe.columns[0]: Channel.network_code.key,
+        dframe.columns[1]: Channel.station_code.key,
+        dframe.columns[2]: Channel.location_code.key,
+        dframe.columns[3]: "channel_code",
+        dframe.columns[4]: Channel.latitude.key,
+        dframe.columns[5]: Channel.longitude.key,
+        dframe.columns[6]: Channel.elevation.key,
+        dframe.columns[7]: Channel.depth.key,
+        dframe.columns[8]: Channel.azimuth.key,
+        dframe.columns[9]: Channel.dip.key,
+        # skip sensor_description (Rarely used, memory-intensive text field)
+        dframe.columns[11]: Channel.scale.key,
+        dframe.columns[12]: Channel.scale_freq.key,
+        dframe.columns[13]: Channel.scale_units.key,
+        dframe.columns[14]: Channel.sample_rate.key,
+        dframe.columns[15]: Channel.start_time.key,
+        dframe.columns[16]: Channel.end_time.key
+    }
 
-    if query_type.lower() in ("event", "events"):
-        fdsn_model_classes = [Event]
-    elif query_type.lower() in ("station", "stations"):
-        fdsn_model_classes = [Station]
-    elif query_type.lower() in ("channel", "channels"):
-        fdsn_model_classes = [Station, Channel]
-    else:
-        return query_df
+    if not dframe.empty:
+        # rename and set order:
+        dframe = dframe.rename(columns=columns)[list(columns.values())]
+        dframe = apply_table_dtypes(Channel, dframe, drop_non_nullable=True)
+    if dframe.empty:
+        raise ValueError("Malformed data (e.g., no data, type mismatch, NaN)")
+    return dframe
 
-    # convert columns to correct dtypes (datetime, numeric etcetera). Values
-    # not conforming will be set to NaN or NaT or None, thus detectable via
-    # pandas.dropna or pandas.isnull
-    for fdsn_model_class in fdsn_model_classes:
-        query_df = harmonize_columns(fdsn_model_class, query_df)
-        query_df = dropnulls(fdsn_model_class, query_df)
-
-    return query_df
+#  FIXME REMOVE!
+# def harmonize_dataframe_to_fdsn(dataframe, query_type):
+#     """Return a normalized and harmonized dataframe from raw_data. dbmodel_key
+#     can be 'event' 'station' or 'channel'. Raises ValueError if the resulting
+#     dataframe is empty or if a `ValueError` is raised from sub-functions
+#
+#     :param dataframe: the result of response_text_to_df. For
+#         info see https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf#page=12
+#     :param query_type: a string denoting the web service type:
+#         "event", "station" (for a station query with parameter level=station)
+#         or "channel" (for a station query with parameter level=channel)
+#     """
+#     dframe = _rename_columns(dataframe, query_type)
+#     dframe = _harmonize_fdsn_dframe(dframe, query_type)
+#     if dframe.empty:
+#         raise ValueError("Malformed data (e.g., type mismatch, NaN)")
+#     return dframe
+#
+#
+# def _rename_columns(query_df, query_type):
+#     """Rename the columns of `query_df` according to the ORM model representing
+#     the FDSN query type ('event', 'station', 'channel') originating the data frame
+#     """
+#     if query_df.empty:
+#         return query_df
+#     columns = query_df.columns
+#     expected_columns_count = len(columns)  # reassigned below (here to silence warnings)
+#     try:
+#         if query_type.lower() in {"event", "events"}:
+#             expected_columns_count = 11
+#             # EventID|Time|Latitude|Longitude|Depth/km|Author|Catalog|Contributor|
+#             # ContributorID|MagType|Magnitude|MagAuthor|EventLocationName|EventType
+#             columns = {
+#                 columns[0]: Event.event_id.key,
+#                 columns[1]: Event.time.key,
+#                 columns[2]: Event.latitude.key,
+#                 columns[3]: Event.longitude.key,
+#                 columns[4]: Event.depth_km.key,
+#                 # skip Author (Rarely used, memory-intensive text field)
+#                 columns[6]: Event.catalog.key,
+#                 # skip Contributor (Rarely used, memory-intensive text field)
+#                 # skip ContributorID (Rarely used, memory-intensive text field)
+#                 columns[9]: Event.mag_type.key,
+#                 columns[10]: Event.magnitude.key
+#                 # skip MagAuthor (Rarely used, memory-intensive text field)
+#                 # skip EventLocationName (Rarely used, memory-intensive text field)
+#                 # skip EventType (Rarely used, memory-intensive text field)
+#             }
+#         elif query_type.lower() in {"station", "stations"}:
+#             expected_columns_count = 8
+#             # Network|Station|Latitude|Longitude|Elevation|SiteName|StartTime|EndTime
+#             # Set this table columns mapping (by name, so we can safely add any
+#             # new column at any index):
+#             columns = {
+#                 columns[0]: Channel.network_code.key,
+#                 columns[1]: Channel.station_code.key,
+#                 columns[2]: Channel.latitude.key,
+#                 columns[3]: Channel.longitude.key,
+#                 columns[4]: Channel.elevation.key,
+#                 # skip site_name (Rarely used, memory-intensive text field)
+#                 columns[6]: Channel.start_time.key,
+#                 columns[7]: Channel.end_time.key
+#             }
+#         elif query_type.lower() in {"channel", "channels"}:
+#             expected_columns_count = 17
+#             # Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|
+#             # Azimuth|Dip|SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|
+#             # StartTime|EndTime`
+#             columns = {
+#                 columns[0]: Channel.network_code.key,
+#                 columns[1]: Channel.station_code.key,
+#                 columns[2]: Channel.location_code.key,
+#                 columns[3]: "channel_code",
+#                 columns[4]: Channel.latitude.key,
+#                 columns[5]: Channel.longitude.key,
+#                 columns[6]: Channel.elevation.key,
+#                 columns[7]: Channel.depth.key,
+#                 columns[8]: Channel.azimuth.key,
+#                 columns[9]: Channel.dip.key,
+#                 # skip sensor_description (Rarely used, memory-intensive text field)
+#                 columns[11]: Channel.scale.key,
+#                 columns[12]: Channel.scale_freq.key,
+#                 columns[13]: Channel.scale_units.key,
+#                 columns[14]: Channel.sample_rate.key,
+#                 columns[15]: Channel.start_time.key,
+#                 columns[16]: Channel.end_time.key
+#             }
+#         else:
+#             raise ValueError("Invalid fdsn_model: supply Events, "
+#                              "Station or Channel class")
+#     except IndexError:
+#         # do not provide long messages, the exception is likely to be wrapped
+#         # also do not print columns, which are often just numbers with no meaning:
+#         raise ValueError("Data has %d column(s), expected: %d" %
+#                          (expected_columns_count, len(columns)))
+#
+#     return query_df.rename(columns=columns)[list(columns.values())]
+#
+#
+# def _harmonize_fdsn_dframe(query_df, query_type):
+#     """Harmonize the query dataframe (convert to dataframe dtypes, removes
+#     NaNs and so on) according to query_type ('event', 'station', 'channel').
+#     """
+#     if query_df.empty:
+#         return query_df
+#
+#     if query_type.lower() in ("event", "events"):
+#         fdsn_model_classes = [Event]
+#     elif query_type.lower() in ("station", "stations"):
+#         fdsn_model_classes = [Station]
+#     elif query_type.lower() in ("channel", "channels"):
+#         fdsn_model_classes = [Station, Channel]
+#     else:
+#         return query_df
+#
+#     # convert columns to correct dtypes (datetime, numeric etcetera). Values
+#     # not conforming will be set to NaN or NaT or None, thus detectable via
+#     # pandas.dropna or pandas.isnull
+#     for fdsn_model_class in fdsn_model_classes:
+#         query_df = harmonize_columns(fdsn_model_class, query_df)
+#         query_df = dropnulls(fdsn_model_class, query_df)
+#
+#     return query_df
 
 
 class s2scodes:  # pylint: disable=too-few-public-methods, invalid-name

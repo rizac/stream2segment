@@ -20,7 +20,7 @@ from stream2segment.download.modules.stations import compress
 from stream2segment.process.db.models import Event, WebService, Channel, Station, \
     DataCenter, Segment, Class, Download, ClassLabelling
 from stream2segment.io.db.models import withdata, MINISEED_READ_ERROR_CODE
-from stream2segment.io.db.pdsql import dropnulls, harmonize_columns
+from stream2segment.io.db.pdsql import apply_table_dtypes
 from stream2segment.io.db.inspection import colnames
 from stream2segment.process.db.models import get_inventory_from_bytes
 from stream2segment.process.db.sqlevalexpr import exprquery
@@ -1134,7 +1134,7 @@ class Test:
         colx = 'iassdvgdhrnjynhnt_________'
         df.insert(0, colx, 1)
 
-        df2 = harmonize_columns(Event, df)
+        df2 = apply_table_dtypes(Event, df)
         # colx is part of the Event model, but unchanged:
         assert colx in df2
 
@@ -1162,7 +1162,7 @@ class Test:
         df2bis = df2.copy()
         df2bis.loc[:, Event.id.key] = 64.0
         df2bis.loc[:, Event.webservice_id.key] = 164.0
-        df2bis = harmonize_columns(Event, df2bis)
+        df2bis = apply_table_dtypes(Event, df2bis)
         df2types = df2bis.dtypes
         assert df2types[Event.id.key] == np.int64
         assert df2types[Event.webservice_id.key] == np.int64
@@ -1172,7 +1172,7 @@ class Test:
         dfx = pd.DataFrame(columns=evcolnames,
                            data=[["a" for _ in evcolnames]])
 
-        harmonize_columns(Event, dfx)
+        apply_table_dtypes(Event, dfx, drop_non_nullable=False)
 
         # df2 and dfx should have the same dtypes:
         cols = [c for c in dfx.columns if c in df2.columns]
@@ -1182,9 +1182,11 @@ class Test:
         assert pd.isnull(dfx.loc[0, Event.time.key])
         assert pd.isnull(dfx.loc[0, Event.longitude.key])
 
-        # check harmonize rows: invalid rows should be removed (we have 1 invalid row)
+        # FIXME: THIS CHECK MIGHT FAIL WE CHANGED FUNCTIONS! IF FAILS< MAYBE SIMPLY COMMENT?
+        # check by dropping nullable: invalid rows should be removed
+        # (we have 1 invalid row)
         oldlen = len(dfx)
-        dfrows = dropnulls(Event, dfx)
+        dfrows = apply_table_dtypes(Event, dfx)
         assert len(dfrows) == 0 and len(dfx) == oldlen
 
         # go on by checking harmonize_columns. FIXME: what are we doing here below?
@@ -1194,7 +1196,7 @@ class Test:
         dfx.loc[0, Event.time.key] = utcnow
         dfx.loc[0, Event.latitude.key] = 6.5
 
-        harmonize_columns(Event, dfx)
+        apply_table_dtypes(Event, dfx)
         # fast check: datetimes and a float field
         assert pd.notnull(dfx.loc[0, Event.time.key])
         assert pd.isnull(dfx.loc[0, Event.longitude.key])

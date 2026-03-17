@@ -14,7 +14,7 @@ from sqlalchemy import Column, Integer, String, LargeBinary, DateTime, Float, Bo
 # import declarative_base from io.db.models to be sqlalchemy 1.x vs 2.x compliant:
 from stream2segment.io.db import declarative_base
 from stream2segment.io.db.inspection import colnames
-from stream2segment.io.db.pdsql import insertdf, dbquery2df, harmonize_columns
+from stream2segment.io.db.pdsql import insertdf, dbquery2df, apply_table_dtypes
 
 Base = declarative_base()
 
@@ -155,7 +155,7 @@ class Test:
         # validated            object
 
         # What happens if we harmonize columns?
-        dfr_post_h = harmonize_columns(Customer, dfr_post.copy())
+        dfr_post_h = apply_table_dtypes(Customer, dfr_post.copy())
         # these two types (bool and int with Nones) have been converted to objects:
         assert dfr_post_h.validated.dtype == np.object_
         assert dfr_post_h['count'].dtype == np.object_
@@ -164,7 +164,7 @@ class Test:
                    if c not in ('count', 'validated'))
 
         # now we remove the NA column in the int column:
-        dfr_post_h = harmonize_columns(Customer, dfr_post[pd.notnull(dfr_post['count'])].copy())
+        dfr_post_h = apply_table_dtypes(Customer, dfr_post[pd.notnull(dfr_post['count'])].copy())
         # these two types (bool and int with Nones) have been converted to objects:
         assert dfr_post_h.validated.dtype == np.bool_
         assert dfr_post_h['count'].dtype == np.int64
