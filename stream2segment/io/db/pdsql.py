@@ -179,14 +179,16 @@ def apply_table_dtypes(
         non_nullable_cols = []  # simply skip if below
 
     if non_nullable_cols:
-        oldlen = len(dataframe)
+        pre_len = len(dataframe)
         dataframe = dataframe.dropna(subset=non_nullable_cols, axis=0, inplace=False)
-        if oldlen > len(dataframe):
+        discarded = pre_len - len(dataframe)
+        if discarded:
             # Cast bools and ints as they might have been object:
             for col in non_nullable_cols:
                 dtype = get_dtype(getattr(table, col).type)
                 if dtype in (np.int64, np.bool_):
                     dataframe[col] = dataframe[col].astype(dtype, copy=False)
+            dataframe.attrs['discarded'] = discarded
 
     return dataframe
 

@@ -342,6 +342,7 @@ def fdsn_event_response_text_to_df(response: str):
         # rename and set order:
         dframe = dframe.rename(columns=columns)[list(columns.values())]
         dframe = apply_table_dtypes(Event, dframe, drop_non_nullable=True)
+
     if dframe.empty:
         raise ValueError("Malformed data (e.g., no data, type mismatch, NaN)")
     return dframe
@@ -383,6 +384,7 @@ def fdsn_channel_response_text_to_df(response: str):
         # rename and set order:
         dframe = dframe.rename(columns=columns)[list(columns.values())]
         dframe = apply_table_dtypes(Channel, dframe, drop_non_nullable=True)
+
     if dframe.empty:
         raise ValueError("Malformed data (e.g., no data, type mismatch, NaN)")
     return dframe

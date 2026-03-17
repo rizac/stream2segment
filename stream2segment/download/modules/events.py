@@ -114,7 +114,7 @@ def events_df_list(url, evt_query_args, start, end, timeout=15, show_progress=Fa
         try:
             dframe = fdsn_event_response_text_to_df(data)
             pd_df_list.append(dframe)
-            discarded = getattr(dframe, 'discarded', 0)
+            discarded = dframe.attrs.pop('discarded', 0)
             if discarded > 0:
                 logger.warning(
                     formatmsg(f"{discarded} row(s) discarded","malformed text data", url)

@@ -7,6 +7,7 @@ import re
 import logging
 from itertools import combinations
 from multiprocessing.pool import ThreadPool
+from urllib.parse import urlunparse, urlparse
 
 import pandas as pd
 from pandas.core.dtypes.common import is_categorical_dtype
@@ -59,6 +60,8 @@ def get_channels_df(session, datacenters_df, net, sta, loc, cha,
     #                        start=pd.isna(row[5]) or None, end=pd.isna(row[6]) or None,
     #                        level='channel', format='text')
 
+    urls = {}  # dict db id -> (station url, dataselect url)
+
     def url_iter():
 
         for (url, net,  start, end), dfr in datacenters_df.groupby([ws_url_col, 'net', 'start', 'end'], sort=False, dropna=False):
@@ -93,7 +96,7 @@ def get_channels_df(session, datacenters_df, net, sta, loc, cha,
             else:
                 try:
                     dframe = fdsn_channel_response_text_to_df(response.data.decode('utf8'))
-                    discarded = getattr(dframe, 'discarded', 0)
+                    discarded = dframe.attrs.pop('discarded', 0)
                     if discarded > 0:
                         logger.warning(formatmsg(f"{discarded} row(s) discarded",
                                                  "malformed text data",
@@ -104,6 +107,11 @@ def get_channels_df(session, datacenters_df, net, sta, loc, cha,
                     continue
 
             if not dframe.empty:
+
+                station_url = urlunparse(
+                    urlparse(response.request)._replace(query='', fragment='')
+                )
+
                 for col, val in (
                     (ws_id_col, sta_ws_id),
                     (ws_url_col, sta_ws_url)
