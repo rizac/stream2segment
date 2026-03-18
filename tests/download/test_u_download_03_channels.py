@@ -16,7 +16,7 @@ import pytest
 
 from stream2segment.download.db.models import Download, Station, Channel, WebService
 from stream2segment.download.modules.events import get_events_df
-from stream2segment.download.modules.datacenters import get_datacenters_df
+from stream2segment.download.modules.datacenters import get_stations_urls
 from stream2segment.download.modules.channels import get_channels_df
 from stream2segment.download.exc import FailedDownload
 from stream2segment.io.db.pdsql import dbquery2df
@@ -191,7 +191,7 @@ class Test:
         """1st arg. mocks `urllib.urlopen.read`: None, no mocking. Otherwise, it is the
         sequence of returned values of each url opened within this function call"""
         self.setup_urlopen(url_read_side_effect)
-        return get_datacenters_df(*a, **v)
+        return get_stations_urls(*a, **v)
 
     def get_channels_df(self, url_read_side_effect, *a, **kw):
         """1st arg. mocks `urllib.urlopen.read`: None, no mocking. Otherwise, it is the

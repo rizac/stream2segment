@@ -1210,12 +1210,13 @@ def fdsn_url_qs(base_url: str, **query_args):
     # special text params (needing * treated specially):
     c_params = {'net', 'network', 'sta', 'station', 'cha', 'channel', 'loc', 'location'}
     # Numeric params. Keep track of them just for ref (maybe needed in future):
-    # n_params = {
-    #     'lat', 'latitude', 'minlat', 'minlatitude', 'maxlat', 'maxlatitude',
-    #     'lon', 'longitude', 'minlon', 'minlongitude', 'maxlon', 'maxlongitude',
-    #     'mag', 'magnitude', 'minmag', 'minmagnitude', 'maxmag', 'maxmagnitude',
-    #     'mindepth', 'maxdepth', 'minradius', 'maxradius'
-    # }
+    n_params = {
+        'lat', 'latitude', 'minlat', 'minlatitude', 'maxlat', 'maxlatitude',
+        'lon', 'longitude', 'minlon', 'minlongitude', 'maxlon', 'maxlongitude',
+        'mag', 'magnitude', 'minmag', 'minmagnitude', 'maxmag', 'maxmagnitude',
+        'mindepth', 'maxdepth', 'minradius', 'maxradius'
+    }
+    safe_chars = set()  # avoid encoding these chars (improve debug and copy/paste url)
     for k, v in query_args.items():
         if v is None or (k in c_params and v.strip() == '*'):
             continue
@@ -1223,7 +1224,17 @@ def fdsn_url_qs(base_url: str, **query_args):
             if isinstance(v, date):
                 v = datetime(v.year, v.month, v.day)
             v = v.isoformat('T')
+            for c in '-:':
+                if c in v:
+                    safe_chars.add(c)
         else:
             v = str(v)
+            if k in c_params:
+                for c  in ',?*':
+                    if c in v:
+                        safe_chars.add(c)
+            elif k in n_params:
+                if '.' in v:
+                    safe_chars.add('.')
         qs[k] = v
-    return f'{base_url}?{urlencode(qs)}'
+    return f'{base_url}?{urlencode(qs, safe="".join(safe_chars))}'

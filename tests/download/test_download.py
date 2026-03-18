@@ -17,7 +17,7 @@ import pytest
 import pandas as pd
 
 from stream2segment.cli import cli
-from stream2segment.download.main import get_events_df, get_datacenters_df, \
+from stream2segment.download.main import get_events_df, get_stations_urls, \
     get_channels_df, download_save_segments, save_stationxml
 from stream2segment.download.log import configlog4download
 from stream2segment.io.db.models import Segment, DownloadRun, Channel, \
@@ -233,7 +233,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
     def get_datacenters_df(self, url_read_side_effect, *a, **v):
         self.setup_urlopen(self._dc_urlread_sideeffect if url_read_side_effect is None else
                            url_read_side_effect)
-        return get_datacenters_df(*a, **v)
+        return get_stations_urls(*a, **v)
 
     def get_channels_df(self, url_read_side_effect, *a, **kw):
         self.setup_urlopen(self._sta_urlread_sideeffect if url_read_side_effect is None else

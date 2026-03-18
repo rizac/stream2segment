@@ -15,7 +15,7 @@ from urllib.parse import urlunparse, unquote
 import pytest
 
 from stream2segment.download.db.models import WebService, Download
-from stream2segment.download.modules.datacenters import get_datacenters_df
+from stream2segment.download.modules.datacenters import get_stations_urls
 from stream2segment.download.modules.utils import fdsn_url as original_fdsn_url
 from stream2segment.download.exc import FailedDownload
 from stream2segment.download.url import URLError, HTTPError, responses
@@ -180,7 +180,7 @@ class Test:
         """1st arg. mocks `urllib.urlopen.read`: None, no mocking. Otherwise, it is the
         sequence of returned values of each url opened within this function call"""
         self.setup_urlopen(url_read_side_effect)
-        return get_datacenters_df(*a, **v)
+        return get_stations_urls(*a, **v)
 
     @patch('stream2segment.download.modules.datacenters.fdsn_url', return_value='a')
     def test_get_dcs_general(self, mock_urljoin, db):

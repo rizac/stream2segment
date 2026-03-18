@@ -18,7 +18,7 @@ from stream2segment.io.db import secure_dburl, close_session, models
 from stream2segment.download.inputvalidation import load_config_for_download, pop_param
 from stream2segment.download.exc import NothingToDownload, FailedDownload
 from stream2segment.download.modules.events import get_events_df
-from stream2segment.download.modules.datacenters import get_datacenters_df
+from stream2segment.download.modules.datacenters import get_stations_urls
 from stream2segment.download.modules.channels import (
     get_channels_df, setup_dataselect_urls
 )
@@ -237,9 +237,9 @@ def _run(session, download_id, events_url, starttime, endtime, data_url,
 
         # Get datacenters, store them in the db, returns the dc instances
         # (db rows) correctly added
-        stepinfo("Fetching data-centers")
+        stepinfo("Fetching channels urls")
         # get datacenters (might raise FailedDownload):
-        datacenters_df = get_datacenters_df(
+        station_urls = get_stations_urls(
             session,
             data_url,
             advanced_settings['routing_service_url'],
@@ -252,14 +252,13 @@ def _run(session, download_id, events_url, starttime, endtime, data_url,
             dbbufsize
         )
 
-        stepinfo("Fetching stations and channels from %d data-center%s",
-                 len(datacenters_df), "" if len(datacenters_df) == 1 else "s")
         channels_df = get_channels_df(
-            session, datacenters_df, network, station, location, channel,
+            session, station_urls, network, station, location, channel,
             starttime, endtime, min_sample_rate, update_metadata,
             max_thread_workers, advanced_settings['s_timeout'],
             download_blocksize, dbbufsize, isterminal
         )
+        stepinfo(f"{len(channels_df)} channels fetched")
 
         stepinfo("Preparing URLs to download segments from "
                  f"({'with credentials' if authorizer else 'open data only'})")

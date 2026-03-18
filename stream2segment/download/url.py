@@ -71,7 +71,7 @@ class CustomResponseCode(IntEnum):
     URL_ERROR = 1001
     TIMEOUT_ERROR = 1002
     GET_ADDR_INFO_ERROR = 1003
-    CONNECTION_REFUSED_ERROR = 1004
+    CONNECTION_ERROR = 1004
     HTTP_EXC_ERROR = 1005
     SSL_ERROR = 1006
 
@@ -84,8 +84,8 @@ responses[CustomResponseCode.TIMEOUT_ERROR] = \
     "Server takes too long to respond (connection or read timeout)"
 responses[CustomResponseCode.GET_ADDR_INFO_ERROR] = \
     "Hostname/address resolution failure (e.g., DNS)"
-responses[CustomResponseCode.CONNECTION_REFUSED_ERROR] = \
-    "Server actively refuses the connection (e.g., port closed, server down)"
+responses[CustomResponseCode.CONNECTION_ERROR] = \
+    "Server connection error (e.g., port closed, server down)"
 responses[CustomResponseCode.HTTP_EXC_ERROR] = \
     "HTTP response malformed or incomplete (bad headers, truncated data)"
 responses[CustomResponseCode.SSL_ERROR] = \
@@ -176,7 +176,7 @@ def urlread(
         elif isinstance(u_err.reason, socket.gaierror):
             code = CustomResponseCode.GET_ADDR_INFO_ERROR
         elif isinstance(u_err.reason, ConnectionRefusedError):
-            code = CustomResponseCode.CONNECTION_REFUSED_ERROR
+            code = CustomResponseCode.CONNECTION_ERROR
         elif isinstance(u_err.reason, ssl.SSLError):
             code = CustomResponseCode.SSL_ERROR
         u_err.__traceback__ = u_err.__context__ = u_err.__cause__ = None  # free mem.
@@ -185,6 +185,15 @@ def urlread(
         # (socket.error is the superclass of all socket exc)
         h_exc.__traceback__ = h_exc.__context__ = h_exc.__cause__ = None  # free mem.
         return Response(h_exc, CustomResponseCode.HTTP_EXC_ERROR, url)
+    except TimeoutError as t_exc:
+        t_exc.__traceback__ = t_exc.__context__ = t_exc.__cause__ = None  # free mem.
+        return Response(t_exc, CustomResponseCode.TIMEOUT_ERROR, url)
+    except ConnectionError as c_exc:
+        c_exc.__traceback__ = c_exc.__context__ = c_exc.__cause__ = None  # free mem.
+        return Response(c_exc, CustomResponseCode.CONNECTION_ERROR, url)
+    except Exception as e_exc:
+        asd = 9  # FIXME REMOVE
+        raise
 
 
 def read_async(

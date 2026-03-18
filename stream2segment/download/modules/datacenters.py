@@ -3,9 +3,12 @@ Data center(s) download functions
 
 :date: Dec 3, 2017
 """
+from collections.abc import Iterable
 from datetime import datetime
 import logging
+from itertools import chain
 from typing import Optional
+from urllib.request import urlopen
 
 import pandas as pd
 
@@ -20,7 +23,7 @@ from stream2segment.download.url import urlread
 logger = logging.getLogger(__name__)
 
 
-def get_datacenters_df(
+def get_stations_urls(
     session, webservice_url, routing_service_url,
     network: Optional[list[str]] = None,
     station: Optional[list[str]] = None,
@@ -29,115 +32,233 @@ def get_datacenters_df(
     starttime: Optional[datetime] = None,
     endtime: Optional[datetime] = None,
     db_bufsize=None
-):
-    """Returns a 2 elements tuple: the Dataframe of the datacenter(s) matching
-    `service`, and an EidaValidator (built on the EIDA routing service response)
-    for checking stations/channels duplicates after querying the datacenter(s)
-    for stations / channels. If service != 'eida', this argument is None
-
-    NOTE: The parameters
-    network, station, location, channel, starttime`, endtime
-    are NOT used and are here for legacy code, when we used them to filter
-    results in the eida routing service. The filter is now handled in the code
-    later
-
-    :param webservice_url: (list[str] or str) the dataselect *or* station url(s) in
-        FDSN format, or the shortcuts 'eida', or 'iris'
+) -> Iterable[str]:
+    """
+    Return an iterator of FDSN station urls from the given arguments
     """
     # eida response text will be needed anyway to create an EidaValidator
     eidars_response_text = None  # lazy loaded
-    discarded = 0
     if isinstance(webservice_url, str):
         webservice_url = [webservice_url]
-    params = (
-        ','.join(n for n in network or [] if not n.startswith('!')) or '*',
-        ','.join(s for s in station or [] if not s.startswith('!')) or '*',
-        ','.join(l for l in location or [] if not l.startswith('!')) or '*',
-        ','.join(c for c in channel or [] if not c.startswith('!')) or '*',
-        starttime,
-        endtime,
-    )
+    params = {
+        'net': ','.join(n for n in network or [] if not n.startswith('!')) or '*',
+        'sta': ','.join(s for s in station or [] if not s.startswith('!')) or '*',
+        'loc': ','.join(l for l in location or [] if not l.startswith('!')) or '*',
+        'cha': ','.join(c for c in channel or [] if not c.startswith('!')) or '*',
+        'start': starttime,
+        'end': endtime
+    }
 
-    urls: dict[str, set[tuple]] = {}  # station url -> query params
+    urls_done = set()
+    parsed_urls = []
     for service_url in webservice_url:
-        organization = service_url.lower().strip()
-        if organization == 'iris':
-            items = [('https://service.iris.edu/fdsnws/dataselect/1/query', params)]
-        elif organization == 'eida':
+        service_url = service_url.lower().strip()
+
+        if service_url in urls_done:
+            continue
+        urls_done.add(service_url)
+
+        if service_url == 'eida':
             if eidars_response_text is None:
                 eidars_response_text = get_eidars_response_text(
-                    routing_service_url, *params
+                    routing_service_url, **params
                 )
-            items = eidarsiter(eidars_response_text)
+            for url, _params in (
+                scan_eida_rs_station_response(eidars_response_text, True)
+            ):
+                # overwrite start end:
+                _params['start'] = starttime
+                _params['end'] = endtime
+                parsed_urls.append((url, _params))
+
         else:
-            items = [(service_url, params)]
+            if service_url == 'iris':
+                service_url = 'https://service.iris.edu/fdsnws/station/1/query'
+
+            # restrict the search if too big:
+            if params['net'] == '*' or params['sta'] == '*':
+                for start_, end_ in split_times(params['start'], params['end'], 5):
+                    _params = dict(params)
+                    _params['start'] = start_
+                    _params['end'] = end_
+                    parsed_urls.append((service_url, _params))
+
+
+    for url, params in parsed_urls:
+        try:
+            for url, params in check_and_yield(url, params):
+                yield fdsn_url_qs(url, **params, level='channel', format='text')
+        except ValueError as v_err:
+            logger.warning(formatmsg(str(v_err), '', url))  # FIXME CHECK
+
+
+def check_and_yield(url, params):
+    try:
+        fdsn_station_url = fdsn_url(url, new_service='station')
+    except ValueError as e:
+        raise ValueError("Invalid FDSN URL")
+
+    if params['net'] != '*':
+        yield fdsn_station_url, params
+        return
+    # no network specified, querymight take long (even for short time bounds).
+    # get all networks and perform n subsets queries
+    rows = []
+    try:
+        with urlopen(
+            fdsn_url_qs(fdsn_station_url, **params, level='network', format='text')
+        ) as r:
+            header = r.readline().decode().strip().split('|')
+            for line in r:
+                split_line = line.decode().strip().split('|')
+                rows.append((split_line[0], split_line[-1]))
+        df = pd.DataFrame(rows, columns=['net', 'count'])
+        df['count'] = df['count'].astype(int)
+        n = 5 # number of split requests
+        # cumulative sum of counts (running total)
+        c = df['count'].cumsum()
+        # total sum of counts
+        t = df['count'].sum()
+        # map cumulative proportion to chunk index [0, n-1]
+        df['chunk'] = (c / t * n).astype(int).clip(upper=n - 1)
+        for _, df_ in df.groupby('chunk'):
+            _params = dict(params)
+            _params['net'] = ",".join(sorted(set(df_['net'])))
+            yield fdsn_station_url, _params
+    except Exception as e:
+        raise ValueError("Request too big, unable to "
+                         "fetch network list to narrow it down")
+
 
         # harmonize urls and put them in the urls dict:
-        for url, params in items:
-            try:
-                station_url = fdsn_url(url, new_service='station')
-                urls.setdefault(station_url, set()).add(params)
-            except ValueError as verr:
-                discarded += 1
-                logger.warning(formatmsg("Discarding data center", (str(verr)), url))
+        # for url, params in items:
+        #     try:
+        #         station_url = fdsn_url(url, new_service='station')
+        #         urls.setdefault(station_url, set()).add(params)
+        #     except ValueError as verr:
+        #         discarded += 1
+        #         logger.warning(formatmsg("Discarding data center", (str(verr)), url))
 
-    if discarded > 0:
-        logger.info(formatmsg("%d data center(s) discarded"), discarded)
+    # if discarded > 0:
+    #     logger.info(formatmsg("%d data center(s) discarded"), discarded)
 
     # write to db:
-    ws_df = pd.DataFrame([{'url': u} for u in urls])
-    if ws_df.empty:
-        raise FailedDownload(Exception("No FDSN-compliant datacenter found"))
+    # ws_df = pd.DataFrame([{'url': u} for u in urls])
+    # if ws_df.empty:
+    #     raise FailedDownload(Exception("No FDSN-compliant datacenter found"))
+    #
+    # ws_df = dbsyncdf(
+    #     ws_df, session,
+    #     [WebService.url],
+    #     WebService.id,
+    #     buf_size=db_bufsize or len(urls),
+    #     keep_duplicates=False
+    # )
 
-    ws_df = dbsyncdf(
-        ws_df, session,
-        [WebService.url],
-        WebService.id,
-        buf_size=db_bufsize or len(urls),
-        keep_duplicates=False
-    )
+    # url2id = dict(zip(ws_df['url'], ws_df['id']))
+    # ws_id_col = Channel.webservice_id.key
+    # datacenters_df = []
+    # ws_url_col = WebService.url.key
+    # param_names = ('net', 'sta', 'loc', 'cha', 'start', 'end')
+    # for station_url, param_values_set in urls.items():
+    #     for param_values in param_values_set:
+    #         datacenters_df.append({
+    #             ws_url_col: station_url,
+    #             # ws_id_col: url2id[station_url],
+    #             **dict(zip(param_names, param_values))
+    #         })
+    #
+    # # convert to category the dtype of column more likely to have few distinct values:
+    # datacenters_df = pd.DataFrame(datacenters_df).astype({
+    #     ws_url_col: 'category',
+    #     # ws_id_col: int,
+    #     'net': 'category',
+    #     'loc': 'category',
+    #     'cha': 'category',
+    #     'start': 'category',
+    #     'end': 'category'
+    # }).drop_duplicates(keep='last')
+    # # note: We do not apply pd.to_datetime to 'start' and 'end' columns because pandas
+    # # high resolution (ns) => limited range => troubles with some dates way in the future
+    # # (check by supplying net=_ADARRAY. Although we replace start and end with our values
+    # # the problem might persist. Note that columns values still stay datetime though)
+    # return datacenters_df
 
-    datacenters_df = []
-    url2id = dict(zip(ws_df['url'], ws_df['id']))
+
+def scan_eida_rs_station_response(
+    eidars_response_text, aggregate_ignoring_time_bounds=True
+):
+    """
+    Yield tuples of the form:
+    (url, net, sta, loc, cha, start, end)
+    from the given eida routing service post response. All elements are strings.
+
+    :param aggregate_ignoring_time_bounds: if true, start and end time are ignored
+        in aggregating the URLs, and the returned start and end will be taken from
+        one of the first aggregated row (as such, users should not rely on them)
+    """
     ws_url_col = WebService.url.key
-    ws_id_col = Channel.webservice_id.key
-    param_names = ('net', 'sta', 'loc', 'cha', 'start', 'end')
-    for station_url, param_values_set in urls.items():
-        for param_values in param_values_set:
-            datacenters_df.append({
-                ws_url_col: station_url,
-                ws_id_col: url2id[station_url],
-                **dict(zip(param_names, param_values))
-            })
-    # convert to category the dtype of column more likely to have few distinct values:
-    datacenters_df = pd.DataFrame(datacenters_df).astype({
-        ws_url_col: 'category',
-        ws_id_col: int,
-        'net': 'category',
-        'loc': 'category',
-        'cha': 'category',
-        'end': 'category'
-    })
-    # note: We do not apply pd.to_datetime to 'start' and 'end' columns because pandas
-    # high resolution (ns) => limited range => troubles with some dates way in the future
-    # (check by supplying net=_ADARRAY)
-    return datacenters_df
+
+    dfr = []
+    for url, net, sta, loc, cha, start_, end_ in (
+        _scan_eida_rs_station_response(eidars_response_text)
+    ):
+        dfr.append({
+            ws_url_col: url,
+            'net': net,
+            'sta': sta,
+            'loc': loc,
+            'cha': cha,
+            'start': start_,
+            'end': end_,
+        })
+
+    # put in a dataframe and group urls to optimize queries:
+    dfr = pd.DataFrame(dfr)
+    all_cols = [ws_url_col, 'net', 'sta', 'loc', 'cha', 'start', 'end']
+    for col in ['cha', 'loc', 'sta', 'net']:
+        ret = []
+        cols = all_cols.copy()
+        cols.remove(col)
+        if aggregate_ignoring_time_bounds:
+            cols.remove('start')
+            cols.remove('end')
+        for _, sub_dfr in dfr.groupby(cols, sort=False, dropna=False):
+            if len(sub_dfr) > 1:
+                tmp_df = sub_dfr.iloc[:1]
+                tmp_df[col] = ",".join(sorted(set(sub_dfr[col])))
+                sub_dfr = tmp_df
+            ret.append(sub_dfr)
+        dfr = pd.concat(ret, axis=0, ignore_index=True, copy=False)
+
+    # yield each url
+    for url, net, sta, loc, cha, start, end in dfr[all_cols].itertuples(index=False):
+        yield url, {
+            'net': net,
+            'sta': sta,
+            'loc': loc,
+            'cha': cha,
+            'start': start,
+            'end': end
+        }
 
 
 def get_eidars_response_text(
     routing_service_url: list[str],
-    network: Optional[str] = None,
-    station: Optional[str] = None,
-    location: Optional[str] = None,
-    channel: Optional[str] = None,
-    starttime: Optional[datetime] = None,
-    endtime: Optional[datetime] = None
+    net: Optional[str] = None,
+    sta: Optional[str] = None,
+    loc: Optional[str] = None,
+    cha: Optional[str] = None,
+    start: Optional[datetime] = None,
+    end: Optional[datetime] = None
 ):
     """Return the EIDA Routing Service response text (str)"""
     for eida_rs_url in routing_service_url:
-        url = fdsn_url_qs(eida_rs_url, net=network, sta=station, loc=location,
-                          cha=channel, start=starttime, end=endtime,
-                          service='dataselect', format='post')
+        url = fdsn_url_qs(
+            eida_rs_url, net=net, sta=sta, loc=loc,
+            cha=cha, start=start, end=end,
+            service='dataselect', format='post'
+        )
         response = urlread(url, decode='utf8')
         if response.is_ok:
             return response.data
@@ -146,11 +267,12 @@ def get_eidars_response_text(
                          "settings")
 
 
-def eidarsiter(response_text):
-    """Iterator yielding from the given eida routing service post response
-    tuples of the form (url, params) where params is in turn a 6 element tuple
-    of 6 query parameters [net, sta, loc, cha, start, end] (all str).
-    url can be a station or dataselect FDSN url
+def _scan_eida_rs_station_response(response_text: str):
+    """
+    Simple scanner yielding
+    (url, net, sta, loc, cha, start, end)
+    from the given eida routing service post response.
+    No preocess is done here: all elements are string (* indicates: match all)
 
     :param response_text: (str) the EIDA routing service response text
     """
@@ -170,20 +292,28 @@ def eidarsiter(response_text):
         url = lines[0].strip()
         if not url:
             continue
-        yield_params = [''] * 6
         for line in lines[1:]:
             params = line.strip().split(" ")
             if len(params) != 6 or not all(params):  # assure 6 non empty elements
                 continue
             # validate date-times (sometime as date, in case later pandas complains):
-            try:
-                params[-1] = None if params[-1] == '*' else \
-                    datetime.fromisoformat(params[-1])
-                params[-2] = None if params[-1] == '*' else \
-                    datetime.fromisoformat(params[-2])
-            except ValueError:
-                continue
-            yield url, tuple(params)
+            # try:
+            #     if starttime is not None:
+            #         params[-2] = starttime
+            #     elif params[-2] == '*':
+            #         params[-2] = None
+            #     else:
+            #         params[-2] = datetime.fromisoformat(params[-2])
+            #     if endtime is not None:
+            #         params[-1] = endtime
+            #     elif params[-1] == '*':
+            #         params[-1] = None
+            #     else:
+            #         params[-1] = datetime.fromisoformat(params[-1])
+            # except ValueError:
+            #     continue
+            yield tuple([url] + params)
+            # yield (fdsn_url(url, new_service='station'),) + tuple(params[:-2])
         # for line in sorted(lines[1:]):
         #     # sorting is slightly inefficient but helps packing similar urls (see below)
         #     params = line.strip().split(" ")
@@ -213,3 +343,11 @@ def eidarsiter(response_text):
         #         yield_params = params
         # if any(yield_params):
         #     yield url, tuple(yield_params)
+
+
+def split_times(start: datetime, end: datetime, interval_years=5):
+    cur = start
+    while cur < end:
+        nxt = min(cur.replace(year=cur.year + interval_years), end)
+        yield cur, nxt
+        cur = nxt

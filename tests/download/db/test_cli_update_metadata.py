@@ -32,7 +32,7 @@ def tst_cmdline_inv_only(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
                           db, clirunner, pytestdir):
     mock_get_events_df.side_effect = lambda *a, **v: self.get_events_df(None, *a, **v)
     mock_get_datacenters_df.side_effect = \
-        lambda *a, **v: self.get_datacenters_df(None, *a, **v)
+        lambda *a, **v: self.get_stations_urls(None, *a, **v)
     mock_get_channels_df.side_effect = lambda *a, **v: self.get_channels_df(None, *a,
                                                                             **v)
     mock_save_inventories.side_effect = lambda *a, **v: self.save_stationxml(None, *a,

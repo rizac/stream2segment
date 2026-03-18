@@ -19,7 +19,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from stream2segment.download.db.models import Segment, Download, Station, Channel
 from stream2segment.download.modules.events import get_events_df
-from stream2segment.download.modules.datacenters import get_datacenters_df
+from stream2segment.download.modules.datacenters import get_stations_urls
 from stream2segment.download.modules.channels import get_channels_df
 from stream2segment.download.modules.stationsearch import merge_events_stations
 from stream2segment.download.modules.segments import prepare_for_download, \
@@ -218,7 +218,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
     def get_datacenters_df(self, url_read_side_effect, *a, **v):
         self.setup_urlopen(self._dc_urlread_sideeffect if url_read_side_effect is None else
                            url_read_side_effect)
-        return get_datacenters_df(*a, **v)
+        return get_stations_urls(*a, **v)
 
     def get_channels_df(self, url_read_side_effect, *a, **kw):
         self.setup_urlopen(self._sta_urlread_sideeffect if url_read_side_effect is None else
