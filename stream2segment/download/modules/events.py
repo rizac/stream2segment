@@ -4,6 +4,7 @@ Events download
 import os
 from datetime import timedelta
 import logging
+from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -13,10 +14,10 @@ from stream2segment.io.cli import get_progressbar
 from stream2segment.io.db.pdsql import DbManager
 from stream2segment.download.exc import FailedDownload, NothingToDownload
 from stream2segment.io.db.models import Event, WebService
-from stream2segment.download.url import urlread, socket, HTTPError, read_async
+from stream2segment.download.url import urlread, socket, HTTPError, read_async, get_host
 from stream2segment.download.modules.utils import (
     dbsyncdf, fdsn_event_response_text_to_df, formatmsg,
-    EVENTWS_MAPPING, strptime, fdsn_url_qs, DbExcLogger, RequestErrorOnceLogger
+    EVENTWS_MAPPING, strptime, fdsn_url_qs, DbExcLogger, IdOnceLogFilter, err2str
 )
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
@@ -356,7 +357,7 @@ def save_quakeml(session, events_df, max_thread_workers, timeout,
                  download_blocksize, db_bufsize, show_progress=False):
     """Save event's quakeML data. events_df must not be empty"""
 
-    evt_logger = RequestErrorOnceLogger("QuakeML download errors")
+    log_once_filter: Optional[IdOnceLogFilter] = None  # lazily created if needed
     downloaded, errors, empty = 0, 0, 0
     db_exc_logger = DbExcLogger([Event.id.key])
     dbmanager = DbManager(session, Event.id,
@@ -383,20 +384,33 @@ def save_quakeml(session, events_df, max_thread_workers, timeout,
         for obj, data, exc, status_code in reader:
             pbar.update(1)
             evt_id = obj[0]
-            if exc:
-                evt_logger.warn(url_builder(obj), exc)
-                errors += 1
-            else:
-                if not data:
-                    evt_logger.warn(url_builder(obj), "empty response")
-                    empty += 1
+            if exc or not data:
+                if log_once_filter is None:
+                    logger.warning(
+                        "QuakeML download errors\n"
+                        "(shown once per (URL domain, error type) combination)"
+                    )
+                    log_filter = IdOnceLogFilter()
+                    logger.addFilter(log_filter)
+                url_ = url_builder(obj)
+                if exc:
+                    msg = err2str(exc)
+                    errors += 1
                 else:
-                    downloaded += 1
-                    dfr = pd.DataFrame({Event.id.key: [evt_id],
-                                        Event.quakeml.key: [data]})
-                    dbmanager.add(dfr)
+                    msg = "empty response"
+                    empty += 1
+                logger.warning(
+                    url_, msg, extra={'ID': (get_host(url_), exc.__class__)}
+                )
+            else:
+                downloaded += 1
+                dfr = pd.DataFrame({Event.id.key: [evt_id],
+                                    Event.quakeml.key: [data]})
+                dbmanager.add(dfr)
 
     dbmanager.close()
+    if log_once_filter is not None:
+        logger.removeFilter(log_once_filter)
 
     return downloaded, empty, errors
 

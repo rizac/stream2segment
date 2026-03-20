@@ -4,6 +4,7 @@ Stations (inventory) download
 from datetime import datetime
 import logging
 from datetime import timedelta
+from typing import Optional
 from urllib.request import Request
 
 import pandas as pd
@@ -11,10 +12,10 @@ import pandas as pd
 from stream2segment.io.cli import get_progressbar
 from stream2segment.io.db.pdsql import DbManager, dbquery2df
 from stream2segment.io.db.models import WebService, Segment
-from stream2segment.download.url import read_async
+from stream2segment.download.url import read_async, get_host
 from stream2segment.download.modules.utils import (DbExcLogger,
-                                                   RequestErrorOnceLogger,
-                                                   fdsn_url_qs)
+                                                   IdOnceLogFilter,
+                                                   fdsn_url_qs, err2str)
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__)
@@ -66,10 +67,10 @@ def save_stationxml(session, stations_df, max_thread_workers, timeout,
                     download_blocksize, db_bufsize, show_progress=False):
     """Save StationXML data. stations_df must not be empty (not checked here)"""
 
-    inv_logger = RequestErrorOnceLogger("StationXML download errors")
+    log_once_filter: Optional[IdOnceLogFilter] = None  # lazily created if needed
     downloaded, errors, empty = 0, 0, 0
     id_col = Station.id.key
-    net_col = Station.network.key
+    net_col = Channel.network_code.key
     sta_col = Station.station.key
     xml_col = Station.stationxml.key
     db_exc_logger = DbExcLogger([id_col, net_col, sta_col])
@@ -96,18 +97,31 @@ def save_stationxml(session, stations_df, max_thread_workers, timeout,
         for obj, data, exc, status_code in reader:
             pbar.update(1)
             sta_id = obj[0]
-            if exc:
-                inv_logger.warn(url_builder(obj), exc)
-                errors += 1
-            else:
-                if not data:
-                    inv_logger.warn(url_builder(obj), "empty response")
-                    empty += 1
+            if exc or not data:
+                if log_once_filter is None:  # create lazily
+                    log_once_filter = IdOnceLogFilter()
+                    logger.addFilter(log_once_filter)
+                    logger.warning(
+                        "StationXML download errors\n"
+                        "(shown once per (URL domain, error type) combination)"
+                    )
+                url_ = url_builder(obj)
+                if exc:
+                    msg = err2str(exc)
+                    errors += 1
                 else:
-                    downloaded += 1
-                    dfr = pd.DataFrame({id_col: [sta_id], xml_col: [compress(data)]})
-                    dbmanager.add(dfr)
+                    msg = "empty response"
+                    empty += 1
+                logger.warning(
+                    url_,msg, extra={'ID': (get_host(url_), exc.__class__)}
+                )
+            else:
+                downloaded += 1
+                dfr = pd.DataFrame({id_col: [sta_id], xml_col: [compress(data)]})
+                dbmanager.add(dfr)
 
     dbmanager.close()
+    if log_once_filter is not None:
+        logger.removeFilter(log_once_filter)
 
     return downloaded, empty, errors

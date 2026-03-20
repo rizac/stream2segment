@@ -261,34 +261,35 @@ def dblog(table, inserted, not_inserted, updated=0, not_updated=0):
         dolog(updated, not_updated, "%d %s updated", ", %d discarded")
 
 
-class RequestErrorOnceLogger(set):
-    """Class handling request errors by logging only once per error type
-    and URL host
+class IdOnceLogFilter(logging.Filter):
+    """
+    logging Filter that expects an 'ID' attribute on each record
+    and filters out already processed record (comparing by same 'ID').
+
+    # Usage:
+
+    log_filter = IdOnceLogFilter()
+    logger.addFilter(log_filter)
+    logger.warn('message', extra={'ID': (1, 'x')})  # logged
+    logger.warn('another message', extra={'ID': (1, 'x')})  # not logged
+    # eventually, you can optionally remove the filter (freeing memeory):
+    logger.removeFilter(log_filter)
     """
 
-    def __init__(self, header):
-        """
-        :param header: str, the header to be shown in the log
-        """
-        super().__init__()
-        self.header = header
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.processed_ids = set()
 
-    def warn(self, request, exc):
-        """log a warning if the given error is not already reported
+    def filter(self, record):
+        _id = getattr(record, "ID", None)
+        if _id is None:
+            return True
 
-        :param request: the Request object
-        :param exc: the reported Exception or string message
-        """
-        url = get_host(request)
-        item = (url, err2str(exc))  # use err2str to uniquely identify exc
-        if item not in self:
-            if not self:
-                logger.warning(self.header)
-                logger.warning('(for readability, errors of the same type and from '
-                               'the same URL domain will be showed only once):')
-            self.add(item)
-            request_str = url2str(request)
-            logger.warning(formatmsg(exc, "", request_str))
+        if _id in self.processed_ids:
+            return False
+
+        self.processed_ids.add(_id)
+        return True
 
 
 def fdsn_response_text_to_df(response: str):

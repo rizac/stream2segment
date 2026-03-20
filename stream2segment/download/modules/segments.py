@@ -20,7 +20,8 @@ from stream2segment.io.db.models import WebService, Segment, Channel, MiniSeed, 
     FailedDownloadedSegment
 from stream2segment.download.modules.utils import (DbExcLogger, logwarn_dataframe,
                                                    DownloadStats, formatmsg,
-                                                   s2scodes, url2str, fdsn_url_qs)
+                                                   s2scodes, url2str, fdsn_url_qs,
+                                                   IdOnceLogFilter)
 from stream2segment.download.exc import NothingToDownload
 from stream2segment.download.modules.mseedlite import MSeedError, unpack as mseedunpack
 from stream2segment.download.url import (
@@ -334,7 +335,7 @@ def download_save_segments(session, segments_df, authorizer,
         max_thread_workers = adjust_max_concurrent_downloads()
 
     # report seg. errors only once per error type and data center:
-    seg_logger = SegmentLogger()
+    id_once_filter: IdOnceLogFilter = None  # noqa
     with get_progressbar(len(segments_df) if show_progress else 0) as pbar:
         # store dataframes with a 413 error and retry later:
         skipped_dataframes = []
@@ -347,7 +348,8 @@ def download_save_segments(session, segments_df, authorizer,
                                   download_blocksize):
 
                 num_segments = len(dframe)
-                url = get_host(dframe['webservice_url'].iloc[0])
+                request = dframe['webservice_url'].iloc[0]  # FIXME RENAME
+                url = get_host(request)  # FIXME RENAME
                 url_stats = stats[url]
 
                 if exc is None and data != b'':
@@ -396,7 +398,15 @@ def download_save_segments(session, segments_df, authorizer,
                         # log segment errors only once per error type and data
                         # center, otherwise the log is hundreds of Mb and it's
                         # unreadable:
-                        seg_logger.warn(request, url, code, exc)
+                        if id_once_filter is None:
+                            id_once_filter =  IdOnceLogFilter()
+                            logger.warning('Detailed segment download errors '
+                                           '(showing only first of each type per data '
+                                           'center):')
+                        logger.warning(formatmsg("Segment download error, code %s" %
+                                                 str(code), exc, url2str(request)),
+                                       extra={'ID': (url, code, exc.__class__)})  # FIXME NOT NEEDED, request is a url string already now
+                        # seg_logger.warn(request, url, code, exc)
 
                 segmanager.add(dframe)
                 pbar.update(num_segments)
@@ -414,6 +424,8 @@ def download_save_segments(session, segments_df, authorizer,
                 segments_df = pd.DataFrame()
 
     segmanager.close()  # flush remaining stuff to insert / update
+    if id_once_filter is not None:
+        logger.removeFilter(id_once_filter)
 
     if skipped_same_code:
         logger.warning(formatmsg(("%d already saved segment(s) with no "
@@ -751,27 +763,29 @@ def get_counts(dframe, dframe_column, na_key):
 #         return data, errors
 
 
-class SegmentLogger(set):
-    """A class handling segment errors and logging only once per error type and
-    datacenter to avoid polluting the log file/stream with hundreds of Mbytes
-    of redundant information"""
-
-    def warn(self, request, url, code, exc):
-        """Issue a logger.warn if the given error is not already reported
-
-        :param request: the Request object
-        :param url: string, usually the request's url host, to identify same
-            data centers
-        :param code: the error code
-        :pram exc: the reported Exception
-        """
-        item = (url, code, str(exc.__class__.__name__))
-        if item not in self:
-            if not self:
-                logger.warning('Detailed segment download errors '
-                               '(showing only first of each type per data '
-                               'center):')
-            self.add(item)
-            request_str = url2str(request)
-            logger.warning(formatmsg("Segment download error, code %s" %
-                                     str(code), exc, request_str))
+# class SegmentLogger(set):
+#     """
+#     A class handling segment errors and logging only once per error type and
+#     datacenter to avoid polluting the log file/stream with hundreds of Mbytes
+#     of redundant information
+#     """
+#
+#     def warn(self, request, url, code, exc):
+#         """Issue a logger.warn if the given error is not already reported
+#
+#         :param request: the Request object
+#         :param url: string, usually the request's url host, to identify same
+#             data centers
+#         :param code: the error code
+#         :pram exc: the reported Exception
+#         """
+#         item = (url, code, str(exc.__class__.__name__))
+#         if item not in self:
+#             if not self:
+#                 logger.warning('Detailed segment download errors '
+#                                '(showing only first of each type per data '
+#                                'center):')
+#             self.add(item)
+#             request_str = url2str(request)
+#             logger.warning(formatmsg("Segment download error, code %s" %
+#                                      str(code), exc, request_str))

@@ -9,6 +9,7 @@ from itertools import combinations
 from multiprocessing.pool import ThreadPool
 from urllib.parse import urlunparse, urlparse
 
+import numpy as np
 import pandas as pd
 from pandas.core.dtypes.common import is_categorical_dtype
 # from sqlalchemy import or_, and_
@@ -166,6 +167,7 @@ def get_channels_df(session, fdsn_station_urls, net, sta, loc, cha,
         cha_df = filter_out_channels_df(
             cha_df, net, sta, loc, cha, min_sample_rate
         )
+        cha_df = drop_duplicates(session, cha_df)
         cha_df = save_channels(session, cha_df, update, db_bufsize)
 
     # if len(failed_dframe_rows) > 0:
@@ -379,9 +381,6 @@ def save_channels(session, channels_df, update, db_bufsize):
 
     :param channels_df: pandas DataFrame
     """
-    channels_df, conflict_between, conflict_within = \
-        drop_duplicates(session, channels_df)
-
     if channels_df.empty:
         raise FailedDownload('No channel left after cleanup '
                              '(e.g., drop duplicates)')
@@ -482,14 +481,21 @@ def drop_duplicates(session, channels_df):
     # station_datacenters_from_db = None  # dataframe lazy loaded (see below)
 
     # first drop duplicates (all columns the same):
+    # this method does very few things as there might be rounding errors that
+    # prevent equal columns to be equalk. Anyway, we perform here more sound checks
     channels_df = channels_df.drop_duplicates(keep='first').reset_index(drop=True)
-    channels_df['conflict_between'] = False
-    channels_df['conflict_within'] = False
 
+    # Just for ref, this rows are not detected by duplicated (apparently, scale differs):
+    #        network_code station_code location_code channel_code   latitude  longitude  elevation  depth  azimuth  dip          scale  scale_freq scale_units  sample_rate          start_time   end_time                                              url  webservice_id
+    # 97463            GS        KAN12            01          HNE  37.297383    -97.998      425.5    0.0     90.0  0.0  184349.032785         1.0      m/s**2        200.0 2014-05-08 17:11:06 2015-04-14  https://service.iris.edu/fdsnws/station/1/query             11
+    # 131397           GS        KAN12            01          HNE  37.297383    -97.998      425.5    0.0     90.0  0.0  184349.032785         1.0      m/s**2        200.0 2014-05-08 17:11:06 2015-04-14  https://service.iris.edu/fdsnws/station/1/query             11
+    #
 
     grp1_cols = [
         Channel.network_code.key,
         Channel.station_code.key,
+        Channel.location_code.key,
+        Channel.channel_code.key,
     ]
     webs_id_col = Channel.webservice_id.key
     grp2_cols = [
@@ -500,7 +506,76 @@ def drop_duplicates(session, channels_df):
         webs_id_col,
         Channel.start_time.key,
     ]
-    # grp2_other_cols = channels_df.columns.difference(grp2_cols)
+    grp2_other_cols = list(channels_df.columns.difference(grp2_cols))
+
+    conflict_between = (
+        channels_df.groupby(grp1_cols)[webs_id_col].transform("nunique") > 1
+    )
+    (channels_df[conflict_between].sort_values(grp1_cols, ascending=True).
+    to_csv(
+        path_or_buf='/Users/rizac/work/code/stream2segment/conflict_between.csv',
+        index=False
+    ))
+
+    conflict_within = (
+        channels_df.groupby(grp2_cols)[grp2_other_cols].transform("nunique") > 1
+    ).any(axis=1)
+    (channels_df[conflict_within].sort_values(grp2_cols, ascending=True).
+    to_csv(
+        path_or_buf='/Users/rizac/work/code/stream2segment/conflict_within.csv',
+        index=False
+    ))
+
+    keep_first = True
+
+    conflict_between_indices = []
+    if conflict_between.any():
+        for (net, sta, loc, cha), cha_df in channels_df[conflict_between].groupby(
+            grp1_cols, sort=False
+        ):
+            real_dc_ids = set(
+                _[0] for _ in session.query(Channel.webservice_id).filter(
+                    (Channel.network_code == net) & (Channel.station_code == sta)
+                ).all()
+            )
+
+            if len(real_dc_ids) != 1:
+                # conflict found, unresolvable through already saved data.
+                # The real datacenter ids are more than one => we can
+                # not save the station: empty (=> discard) the dataframe
+                if keep_first:
+                    conflicting = cha_df[1:]
+                else:
+                    conflicting = cha_df
+            else:
+                # Conflict found, resolved through already saved data. The real webservice
+                # id is one => discard all (net, sta, stime) with different webservices id:
+                conflicting = cha_df[cha_df[webs_id_col] != next(iter(real_dc_ids))]
+
+            if not conflicting.empty:
+                conflict_between_indices.extend(conflicting.index)
+                # channels_df.loc[conflicting.index, 'conflict_between'] = True
+
+    # conflict within
+    conflict_within_indices = []
+    if conflict_between.any():
+        for _, cha_df in channels_df[conflict_within].groupby(
+            grp2_cols, sort=False
+        ):
+            if len(cha_df) <= 1:
+                continue
+
+            # take the row that has maximum time span. Though arbitrary and potentially
+            # overlapping with other rows, this way we might download once more which
+            # is preferable to skip some:
+            start_t = cha_df[Channel.start_time.key].copy()
+            # get end times, replacing None (no end) to a random max time
+            end_t = cha_df[Channel.end_time.key].copy()
+            end_t[pd.isna(end_t)] = end_t.max().replace(end_t.max().year + 1)
+            idx = np.argmax(end_t - start_t)
+            cha_df = cha_df.drop(index=cha_df.index[idx])
+            conflict_within_indices.extend(cha_df.index)
+            # channels_df.loc[conflicting.index, 'conflict_between'] = True
 
     #
     # start_col = Channel.start_time.key
@@ -508,72 +583,79 @@ def drop_duplicates(session, channels_df):
     # all_non_time_cols = [c for c in channels_df.columns if c not in {start_col, end_col}]
 
     # check conflicts
-    for (net, sta), cha_df in channels_df.groupby(grp1_cols, sort=False):
+    # for (net, sta), cha_df in channels_df.groupby(grp1_cols, sort=False):
+    #
+    #     # check conflict between:
+    #     if len(pd.unique(cha_df[webs_id_col])) > 1:
+    #         # We have more than one data center mapped to the tuple
+    #         # (net, sta): get all ids from the db:
+    #         real_dc_ids = set(
+    #             _[0] for _ in session.query(Channel.webservice_id).filter(
+    #                 (Channel.network_code == net) & (Channel.station_code == sta)
+    #             ).all()
+    #         )
+    #
+    #         # stmt = select(distinct(Channel.webservice_id)).where(
+    #         #     (Channel.network_code == net) & (Channel.station_code == sta)
+    #         # )
+    #         #
+    #         # # Execute and fetch unique IDs
+    #         # ids = [row[0] for row in conn.execute(stmt)]
+    #
+    #         if len(real_dc_ids) != 1:
+    #             # conflict found, unresolvable through already saved data.
+    #             # The real datacenter ids are more than one => we can
+    #             # not save the station: empty (=> discard) the dataframe
+    #             conflicting = cha_df
+    #         else:
+    #             # Conflict found, resolved through already saved data. The real webservice
+    #             # id is one => discard all (net, sta, stime) with different webservices id:
+    #             conflicting = cha_df[cha_df[webs_id_col] != next(iter(real_dc_ids))]
+    #
+    #         if not conflicting.empty:
+    #             channels_df.loc[conflicting.index, 'conflict_between'] = True
+    #
+    #         # conflict_between_dc.append(cha_df[conflicting])
+    #         # if conflicting.all():  # noqa
+    #         #     continue
+    #         # cha_df = cha_df[~conflicting]
+    #
+    #     # Check conflicts within:
+    #     for _, cha_df_tmp in cha_df.groupby(grp2_cols, sort=False):
+    #         if len(cha_df_tmp) > 1:
+    #             # df_sorted = cha_df_tmp.sort_values(Channel.start_time.key)
+    #             channels_df.loc[cha_df_tmp.index, 'conflict_within'] = True
+    #
+    #
+    #
+    #     # dupes = df_.duplicated(subset=nslc_cols, keep=False)
+    #     # if dupes.any():
+    #     #     tmp_ = []
+    #     #     for _, df__ in df_.groupby(nslc_cols, sort=False, observed=False):
+    #     #         if len(df__) > 1:
+    #     #             if not all(len(pd.unique(df__[c])) == 1 for c in all_non_time_cols):
+    #     #                 conflict_within_dc.append(df__)
+    #     #                 continue
+    #     #             # else:
+    #     #             #     # we still need to provide a single row dataframe with times
+    #     #             #     # adjusted, otherwise channels might not be saved due to db
+    #     #             #     # constraints (the same time adjustment will be performed to
+    #     #             #     # assess the station times from its channels):
+    #     #             #     df__ = _adjust_times(df__)
+    #     #         tmp_.append(df__)
+    #     #     if not tmp_:
+    #     #         continue
+    #     #     df_ = pd.concat(tmp_, axis=0)
+    #
+    #     # oks.append(cha_df)
 
-        # check conflict between:
-        if len(pd.unique(cha_df[webs_id_col])) > 1:
-            # We have more than one data center mapped to the tuple
-            # (net, sta): get all ids from the db:
-            real_dc_ids = set(
-                _[0] for _ in session.query(Channel.webservice_id).filter(
-                    (Channel.network_code == net) & (Channel.station_code == sta)
-                ).all()
-            )
-
-            # stmt = select(distinct(Channel.webservice_id)).where(
-            #     (Channel.network_code == net) & (Channel.station_code == sta)
-            # )
-            #
-            # # Execute and fetch unique IDs
-            # ids = [row[0] for row in conn.execute(stmt)]
-
-            if len(real_dc_ids) != 1:
-                # conflict found, unresolvable through already saved data.
-                # The real datacenter ids are more than one => we can
-                # not save the station: empty (=> discard) the dataframe
-                conflicting = cha_df
-            else:
-                # Conflict found, resolved through already saved data. The real webservice
-                # id is one => discard all (net, sta, stime) with different webservices id:
-                conflicting = cha_df[cha_df[webs_id_col] != next(iter(real_dc_ids))]
-
-            if not conflicting.empty:
-                channels_df.loc[conflicting.index, 'conflict_between'] = True
-
-            # conflict_between_dc.append(cha_df[conflicting])
-            # if conflicting.all():  # noqa
-            #     continue
-            # cha_df = cha_df[~conflicting]
-
-        # Check conflicts within:
-        for _, cha_df_tmp in cha_df.groupby(grp2_cols, sort=False):
-            if len(cha_df_tmp) > 1:
-                # df_sorted = cha_df_tmp.sort_values(Channel.start_time.key)
-                channels_df.loc[cha_df_tmp.index, 'conflict_within'] = True
-
-
-
-        # dupes = df_.duplicated(subset=nslc_cols, keep=False)
-        # if dupes.any():
-        #     tmp_ = []
-        #     for _, df__ in df_.groupby(nslc_cols, sort=False, observed=False):
-        #         if len(df__) > 1:
-        #             if not all(len(pd.unique(df__[c])) == 1 for c in all_non_time_cols):
-        #                 conflict_within_dc.append(df__)
-        #                 continue
-        #             # else:
-        #             #     # we still need to provide a single row dataframe with times
-        #             #     # adjusted, otherwise channels might not be saved due to db
-        #             #     # constraints (the same time adjustment will be performed to
-        #             #     # assess the station times from its channels):
-        #             #     df__ = _adjust_times(df__)
-        #         tmp_.append(df__)
-        #     if not tmp_:
-        #         continue
-        #     df_ = pd.concat(tmp_, axis=0)
-
-        # oks.append(cha_df)
-
+    conflict_between = channels_df.index.isin(conflict_between_indices)
+    conflict_within = channels_df.index.isin(conflict_within_indices)
+    return (
+        channels_df[~(conflict_between | conflict_within)],
+        channels_df.loc[conflict_between],
+        channels_df.loc[conflict_within],
+    )
     oks = pd.DataFrame() if not oks else \
         pd.concat(oks, axis=0, sort=False, ignore_index=True, copy=True)
     conflict_between_dc = pd.DataFrame() if not conflict_between_dc else \
