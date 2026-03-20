@@ -520,27 +520,35 @@ def drop_conflict_between(session, channels_df, keep_first=False):
         )
 
         conflict_between_indices = []
-        for (net, sta, loc, cha), cha_df in channels_df[conflict_between].groupby(
-            grp1_cols, sort=False
-        ):
+        # although we check conflicts by net.sta.loc.cha, we are interested in fixing
+        # the station problem here
+        for (net, sta) in channels_df.loc[
+            conflict_between, grp1_cols[:2]
+        ].drop_duplicates(keep='first'):
             real_dc_ids = set(
                 _[0] for _ in session.query(Channel.webservice_id).filter(
                     (Channel.network_code == net) & (Channel.station_code == sta)
                 ).all()
             )
+            conflicting = channels_df.loc[
+                conflict_between &
+                (Channel.network_code == net) &
+                (Channel.station_code == sta),
+                :
+            ]
 
-            if len(real_dc_ids) != 1:
-                # conflict found, unresolvable through already saved data.
-                # The real datacenter ids are more than one => we can
-                # not save the station: empty (=> discard) the dataframe
-                if keep_first:
-                    conflicting = cha_df[1:]
-                else:
-                    conflicting = cha_df
-            else:
+            real_ws_id = None
+            if len(real_dc_ids) == 1:
+                real_ws_id = next(iter(real_dc_ids))
+            elif keep_first:
+                # conflict found, unresolvable through already saved data. Get first
+                # if instructed to do so
+                real_ws_id = conflicting.iloc[0][webs_id_col]
+
+            if real_ws_id is not None:
                 # Conflict found, resolved through already saved data. The real webservice
                 # id is one => discard all (net, sta, stime) with different webservices id:
-                conflicting = cha_df[cha_df[webs_id_col] != next(iter(real_dc_ids))]
+                conflicting = conflicting[conflicting[webs_id_col] != real_ws_id]
 
             if not conflicting.empty:
                 conflict_between_indices.extend(conflicting.index)
