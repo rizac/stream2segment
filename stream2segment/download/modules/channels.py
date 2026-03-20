@@ -106,7 +106,7 @@ def get_channels_df(session, fdsn_station_urls, net, sta, loc, cha,
     failed_dframe_rows = []
     station_urls = set()
     with get_progressbar(len(urls) if show_progress else 0) as pbar:
-        for response in t_pool.imap_unordered(urlread, urls):
+        for response in t_pool.imap_unordered(_urlread, urls):
             pbar.update(1)
             # FIXME REMOVE
             # sta_ws_url = obj[0]
@@ -460,7 +460,7 @@ def save_channels(session, channels_df, update, db_bufsize):
         cols_to_print_on_err=colnames
     )
 
-    log_unsaved_channels(conflict_between, conflict_within)
+    # log_unsaved_channels(conflict_between, conflict_within)
 
     return channels_df
 
@@ -675,47 +675,47 @@ def drop_conflict_within(channels_df):
 #     return ret
 
 
-def log_unsaved_channels(conflict_between, conflict_within):
-    """log the results of channels and station saving.
-
-    :param conflict_between: Dataframe of channels conflicts between
-        datacenters (duplicated stations returned by more than one datacenter)
-    :param conflict_within: Dataframe of channels conflicts within the same
-        datacenter (violating channels unique constraints)
-    """
-    max_row_count = 50
-    cols2show = [Channel.network_code.key, Channel.station_code.key]
-    if not conflict_between.empty:
-        # conflict_between happen at a station level (avoid unnecessary channel
-        # details):
-        _ = conflict_between.drop_duplicates(subset=cols2show,
-                                             keep='first')
-        msg = formatmsg('%d station(s) and %d channel(s) not saved to db' %
-                        (len(_), len(conflict_between)),
-                        'wrong datacenter detected using either Routing '
-                        'services or already saved stations')
-        logwarn_dataframe(_, msg, cols2show, max_row_count)
-
-    cols2show = [
-        Channel.network_code.key,
-        Channel.station_code.key,
-        Channel.location_code.key,
-        Channel.channel_code.key
-    ]
-    if not conflict_within.empty:
-        # Do not count stations here, as some of those stations might have been
-        # saved as part of other correct channels
-        msg = formatmsg('%d channel(s) not saved to db' % len(conflict_within),
-                        'conflicting data, e.g. unique constraint failed')
-        logwarn_dataframe(conflict_within, msg, cols2show, max_row_count)
-
-    # if not conflict_null_sta_id.empty:
-    #     # Do not count stations here, as some of those stations might have been saved as
-    #     # part of other correct channels
-    #     msg = formatmsg('%d channel(s) not saved to db' %
-    #                     len(conflict_null_sta_id),
-    #                     'station id not found, unknown cause')
-    #     logwarn_dataframe(conflict_null_sta_id, msg, cols2show, max_row_count)
+# def log_unsaved_channels(conflict_between, conflict_within):
+#     """log the results of channels and station saving.
+#
+#     :param conflict_between: Dataframe of channels conflicts between
+#         datacenters (duplicated stations returned by more than one datacenter)
+#     :param conflict_within: Dataframe of channels conflicts within the same
+#         datacenter (violating channels unique constraints)
+#     """
+#     max_row_count = 50
+#     cols2show = [Channel.network_code.key, Channel.station_code.key]
+#     if not conflict_between.empty:
+#         # conflict_between happen at a station level (avoid unnecessary channel
+#         # details):
+#         _ = conflict_between.drop_duplicates(subset=cols2show,
+#                                              keep='first')
+#         msg = formatmsg('%d station(s) and %d channel(s) not saved to db' %
+#                         (len(_), len(conflict_between)),
+#                         'wrong datacenter detected using either Routing '
+#                         'services or already saved stations')
+#         logwarn_dataframe(_, msg, cols2show, max_row_count)
+#
+#     cols2show = [
+#         Channel.network_code.key,
+#         Channel.station_code.key,
+#         Channel.location_code.key,
+#         Channel.channel_code.key
+#     ]
+#     if not conflict_within.empty:
+#         # Do not count stations here, as some of those stations might have been
+#         # saved as part of other correct channels
+#         msg = formatmsg('%d channel(s) not saved to db' % len(conflict_within),
+#                         'conflicting data, e.g. unique constraint failed')
+#         logwarn_dataframe(conflict_within, msg, cols2show, max_row_count)
+#
+#     # if not conflict_null_sta_id.empty:
+#     #     # Do not count stations here, as some of those stations might have been saved as
+#     #     # part of other correct channels
+#     #     msg = formatmsg('%d channel(s) not saved to db' %
+#     #                     len(conflict_null_sta_id),
+#     #                     'station id not found, unknown cause')
+#     #     logwarn_dataframe(conflict_null_sta_id, msg, cols2show, max_row_count)
 
 
 def setup_dataselect_urls(session, channels_df, authorizer: Authorizer = None):
