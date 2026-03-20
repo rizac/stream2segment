@@ -453,7 +453,8 @@ def save_channels(session, channels_df, update, db_bufsize):
 
 
 def drop_conflict_between(session, channels_df, keep_first=False):
-    """Drop from channels_df conflict between, i.e., network.station codes
+    """
+    Drop from channels_df conflict between, i.e., network.station codes
     returned by several URLs. Duplicated rows will be resolved against the
     database or, if keep_first is True, by taking the first row
 
@@ -552,8 +553,15 @@ def drop_conflict_between(session, channels_df, keep_first=False):
     return channels_df
 
 
-def drop_conflict_within(session, channels_df, keep_first=False):
+def drop_conflict_within(channels_df):
+    """
+    Drop from channels_df conflict within, i.e., same
+    network.station.location.channel.start_time  returned by the same URLs.
+    Duplicated rows will be resolved by taking the item which spans the
+    biggest time range (which is the least bad option)
 
+    :return: a new dataframe with duplicated rows removed
+    """
     # conflict within
     webs_id_col = Channel.webservice_id.key
     grp2_cols = [
