@@ -169,7 +169,20 @@ def get_channels_df(session, fdsn_station_urls, net, sta, loc, cha,
         cha_df = filter_out_channels_df(
             cha_df, net, sta, loc, cha, min_sample_rate
         )
-        cha_df = drop_duplicates(session, cha_df)
+        # set ranking based on the order of urls
+        cha_df['_rank_'] = len(cha_df)
+        _urls_done = set()
+        for u in urls:
+            u = u[:u.find("?")] if "?" in u else u  # no query string
+            if u in _urls_done:
+                continue
+            _urls_done.add(u)
+            cha_df.loc[
+                cha_df[WebService.url.key].str.startswith(u) , '_rank_'
+            ] = len(_urls_done)
+        cha_df = drop_conflict_between(session, cha_df, '_rank_')
+        cha_df.drop(columns=['_rank_'], inplace=True)
+        cha_df = drop_conflict_within(cha_df)
         cha_df = save_channels(session, cha_df, update, db_bufsize)
 
     # if len(failed_dframe_rows) > 0:
@@ -452,12 +465,16 @@ def save_channels(session, channels_df, update, db_bufsize):
     return channels_df
 
 
-def drop_conflict_between(session, channels_df, keep_first=False):
+def drop_conflict_between(session, channels_df, rank_col_name=''):
     """
     Drop from channels_df conflict between, i.e., network.station codes
     returned by several URLs. Duplicated rows will be resolved against the
     database or, if keep_first is True, by taking the first row
 
+    :param channels_df: pandas DataFrame
+    :param rank_col_name: a columns that denotes a ranking / priority order
+        to choose from in case of conflicts unresolved by the DB. **NOTE: lower values
+        mean higher priority**
     :return: a new dataframe with duplicated rows removed
     """
     # conflict between case is when station webservice is not unique, e.g.:
@@ -522,9 +539,10 @@ def drop_conflict_between(session, channels_df, keep_first=False):
         conflict_between_indices = []
         # although we check conflicts by net.sta.loc.cha, we are interested in fixing
         # the station problem here
-        for (net, sta) in channels_df.loc[
-            conflict_between, grp1_cols[:2]
-        ].drop_duplicates(keep='first'):
+        rank_col_exists = rank_col_name in channels_df.columns
+        net_sta_df = channels_df.loc[conflict_between, grp1_cols[:2]]
+        net_sta_df = net_sta_df.drop_duplicates(keep='first')
+        for (net, sta) in net_sta_df.itertuples(index=False, name=None):
             real_dc_ids = set(
                 _[0] for _ in session.query(Channel.webservice_id).filter(
                     (Channel.network_code == net) & (Channel.station_code == sta)
@@ -540,10 +558,12 @@ def drop_conflict_between(session, channels_df, keep_first=False):
             real_ws_id = None
             if len(real_dc_ids) == 1:
                 real_ws_id = next(iter(real_dc_ids))
-            elif keep_first:
+            elif rank_col_exists:
                 # conflict found, unresolvable through already saved data. Get first
                 # if instructed to do so
-                real_ws_id = conflicting.iloc[0][webs_id_col]
+                real_ws_id = conflicting[
+                    conflicting[rank_col_name] == conflicting[rank_col_name].min()
+                ].iloc[0][webs_id_col]
 
             if real_ws_id is not None:
                 # Conflict found, resolved through already saved data. The real webservice
