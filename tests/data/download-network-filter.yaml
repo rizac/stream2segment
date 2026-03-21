@@ -197,7 +197,7 @@ search_radius:
 # routing service is configurable in `advanced_settings`
 dataws:
   - 'eida'
-  - 'iris'
+  # - 'iris'
 
 # The model to asses the travel time of a wave from the event location to a station
 # location, which will be used to get the segment arrival time (travel time +

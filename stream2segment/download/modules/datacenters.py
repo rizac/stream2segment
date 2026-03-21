@@ -111,8 +111,11 @@ def check_and_yield(url, params):
             header = r.readline().decode().strip().split('|')
             for line in r:
                 split_line = line.decode().strip().split('|')
-                rows.append((split_line[0], split_line[-1]))
+                rows.append((split_line[0].strip(), split_line[-1].strip()))
         df = pd.DataFrame(rows, columns=['net', 'count'])
+        # convert count to numeric (should be int, but we set NaN as #station mean):
+        df['count'] = pd.to_numeric(df['count'], errors='coerce')
+        df.loc[pd.isna(df['count']), 'count'] = df['count'].mean()
         df['count'] = df['count'].astype(int)
         n = 5 # number of split requests
         # cumulative sum of counts (running total)
@@ -126,8 +129,9 @@ def check_and_yield(url, params):
             _params['net'] = ",".join(sorted(set(df_['net'])))
             yield fdsn_station_url, _params
     except Exception as e:
-        raise ValueError("Request too big, unable to "
-                         "fetch network list to narrow it down")
+        yield fdsn_station_url, params
+        # raise ValueError("Request too big, unable to "
+        #                  "fetch network list to narrow it down")
 
 
         # harmonize urls and put them in the urls dict:

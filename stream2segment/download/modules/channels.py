@@ -497,7 +497,7 @@ def drop_conflict_between(session, channels_df, rank_col_name=''):
     # prevent equal columns to be equalk. Anyway, we perform here more sound checks
     channels_df = channels_df.drop_duplicates(keep='first').reset_index(drop=True)
 
-    # Just for ref, this rows are not detected by duplicated (apparently, scale differs):
+    # Just for ref, these rows are not detected by duplicated (apparently, scale differs):
     #        network_code station_code location_code channel_code   latitude  longitude  elevation  depth  azimuth  dip          scale  scale_freq scale_units  sample_rate          start_time   end_time                                              url  webservice_id
     # 97463            GS        KAN12            01          HNE  37.297383    -97.998      425.5    0.0     90.0  0.0  184349.032785         1.0      m/s**2        200.0 2014-05-08 17:11:06 2015-04-14  https://service.iris.edu/fdsnws/station/1/query             11
     # 131397           GS        KAN12            01          HNE  37.297383    -97.998      425.5    0.0     90.0  0.0  184349.032785         1.0      m/s**2        200.0 2014-05-08 17:11:06 2015-04-14  https://service.iris.edu/fdsnws/station/1/query             11
@@ -524,11 +524,11 @@ def drop_conflict_between(session, channels_df, rank_col_name=''):
     if conflict_between.any():
         log_df = channels_df[conflict_between].groupby(
             grp1_cols[:2], as_index=False
-        ).agg({ WebService.url.key: lambda x: ", ".join(x) })
+        ).agg({ WebService.url.key: lambda x: ", ".join(sorted(set(x))) })
         logger.warning(
-            f'Conflict: different URLs returning the same stations. Conflicts summary:'
+            f'Conflict: different URLs returning the same station. Conflicts summary:'
         )
-        columns2show = grp1_cols[:2] + ['URLs returning the station (should be 1)']
+        columns2show = grp1_cols[:2] + ['URLs (should be 1)']
         log_df = log_df.rename(columns={WebService.url.key: columns2show[-1]})
         logger.warning(
             log_df[columns2show].sort_values(by=columns2show).to_string(
@@ -550,8 +550,8 @@ def drop_conflict_between(session, channels_df, rank_col_name=''):
             )
             conflicting = channels_df.loc[
                 conflict_between &
-                (Channel.network_code == net) &
-                (Channel.station_code == sta),
+                (channels_df[Channel.network_code.key] == net) &
+                (channels_df[Channel.station_code.key] == sta),
                 :
             ]
 
@@ -613,17 +613,19 @@ def drop_conflict_within(channels_df):
     conflict_within_indices = []
     if conflict_within.any():
 
-        log_df = channels_df[conflict_within].groupby(grp2_cols, as_index=False).size()
+        log_df = channels_df[conflict_within].groupby(
+            [WebService.url.key] + grp2_cols[:-1], as_index=False
+        ).size()
         logger.warning(
-            f'Conflict: a single URL returning the same channel multiple times. '
+            f'Conflict: the same URL returning a channel multiple times. '
             f'Conflicts summary:  '
         )
-        columns2show = grp2_cols[:-1] + ["Returned channels (should be 1)"]
+        columns2show = [WebService.url.key] + grp2_cols[:4] + ["instances (should be 1)"]
         log_df = log_df.rename(columns={"size": columns2show[-1]})
         logger.warning(
-            log_df[columns2show].sort_values(by=columns2show).to_string(
-                na_rep='', index=False
-            )
+            log_df[columns2show].sort_values(
+                by=columns2show[-1:], ascending=False
+            ).to_string(na_rep='', index=False)
         )
 
         for _, cha_df in channels_df[conflict_within].groupby(
