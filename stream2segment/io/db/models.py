@@ -31,9 +31,9 @@ from stream2segment.io.db import sqlalchemy_version
 from stream2segment.io.db.sqlconstructs import concat, deg2km, duration_sec
 
 try:
-    from sqlalchemy.ext.declarative import declarative_base  # v<1.4
-except ImportError:
     from sqlalchemy.orm import declarative_base  # v1.4+
+except ImportError:
+    from sqlalchemy.ext.declarative import declarative_base  # v<1.4
 
 
 if sqlalchemy_version < 2:  # https://stackoverflow.com/a/75634238

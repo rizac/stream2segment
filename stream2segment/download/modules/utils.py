@@ -17,20 +17,20 @@ from itertools import chain
 from collections import OrderedDict
 from functools import cmp_to_key
 import logging
-from io import BytesIO
-import gzip
-import zipfile
-import zlib
-import bz2
+# from io import BytesIO
+# import gzip
+# import zipfile
+# import zlib
+# import bz2
 from urllib.parse import urlencode, unquote, urlparse, urlunparse
 from urllib.request import Request
 
 import pandas as pd
 
 # from stream2segment.io.db.models import MINISEED_READ_ERROR_CODE
-from stream2segment.io.db.pdsql import apply_table_dtypes, syncdf
+from stream2segment.io.db.pdsql import apply_table_dtypes
 from stream2segment.io.db.models import Event, Channel, WebService
-from stream2segment.download.exc import FailedDownload
+# from stream2segment.download.exc import FailedDownload
 from stream2segment.download.url import responses, get_host, urlread
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
@@ -111,43 +111,44 @@ def url2str(obj, maxlen=None):
     return url
 
 
-def dbsyncdf(dataframe, session, matching_columns, autoincrement_pkey_col,
-             update=False, buf_size=10, keep_duplicates=False, return_df=True,
-             cols_to_print_on_err=None):
-    """Call `syncdf` and writes to the logger before returning the new
-    Dataframe. Raises a :class:`FailedDownload` if the returned Dataframe is
-    empty (no row saved)
-    this function should be used for bulk insert/updates of metadata (event,
-    station, channels). Segments inserts/updates use the underling
-    :class:`pdsql.DbManager`
-    """
-    db_exc_logger = DbExcLogger(cols_to_print_on_err)
-
-    inserted, not_inserted, updated, not_updated, dfr = \
-        syncdf(dataframe, session, matching_columns, autoincrement_pkey_col,
-               update, buf_size, keep_duplicates,
-               db_exc_logger.failed_insert,  # on duplicates callback
-               db_exc_logger.failed_insert,   # on insert err callback
-               db_exc_logger.failed_update)   # on update err callback
-
-    table = autoincrement_pkey_col.class_
-    if dfr.empty:
-        # Build a meaningful error message for the FailedDownload exception
-        err_count = len(db_exc_logger.exc_history)
-        if not err_count:
-            first_err = 'Unknown. Try to check log for details'
-        else:
-            # Take the 1st item of the Set, who cares if it's not the first inserted:
-            first_err = next(iter(db_exc_logger.exc_history))
-        if err_count > 1:
-            err_msg = ("%d errors. Check log for details, first reported error "
-                       "is: %s") % (err_count, first_err)
-        else:
-            err_msg = 'error: ' + first_err
-        raise FailedDownload(formatmsg("No row saved to table '%s'" %
-                                       table.__tablename__, err_msg))
-    dblog(table, inserted, not_inserted, updated, not_updated)
-    return dfr
+# FIXME REMOVE
+# def dbsyncdf(dataframe, session, matching_columns, autoincrement_pkey_col,
+#              update=False, buf_size=10, keep_duplicates=False, return_df=True,
+#              cols_to_print_on_err=None):
+#     """Call `syncdf` and writes to the logger before returning the new
+#     Dataframe. Raises a :class:`FailedDownload` if the returned Dataframe is
+#     empty (no row saved)
+#     this function should be used for bulk insert/updates of metadata (event,
+#     station, channels). Segments inserts/updates use the underling
+#     :class:`pdsql.DbManager`
+#     """
+#     db_exc_logger = DbExcLogger(cols_to_print_on_err)
+#
+#     inserted, not_inserted, updated, not_updated, dfr = \
+#         syncdf(dataframe, session, matching_columns, autoincrement_pkey_col,
+#                update, buf_size, keep_duplicates,
+#                db_exc_logger.failed_insert,  # on duplicates callback
+#                db_exc_logger.failed_insert,   # on insert err callback
+#                db_exc_logger.failed_update)   # on update err callback
+#
+#     table = autoincrement_pkey_col.class_
+#     if dfr.empty:
+#         # Build a meaningful error message for the FailedDownload exception
+#         err_count = len(db_exc_logger.exc_history)
+#         if not err_count:
+#             first_err = 'Unknown. Try to check log for details'
+#         else:
+#             # Take the 1st item of the Set, who cares if it's not the first inserted:
+#             first_err = next(iter(db_exc_logger.exc_history))
+#         if err_count > 1:
+#             err_msg = ("%d errors. Check log for details, first reported error "
+#                        "is: %s") % (err_count, first_err)
+#         else:
+#             err_msg = 'error: ' + first_err
+#         raise FailedDownload(formatmsg("No row saved to table '%s'" %
+#                                        table.__tablename__, err_msg))
+#     dblog(table, inserted, not_inserted, updated, not_updated)
+#     return dfr
 
 
 class DbExcLogger:

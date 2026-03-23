@@ -17,12 +17,13 @@ from sqlalchemy.dialects.mssql.information_schema import columns
 # from sqlalchemy import or_, and_
 
 from stream2segment.io.cli import get_progressbar
-from stream2segment.io.db.pdsql import shared_colnames  # dbquery2df, , mergeupdate
+from stream2segment.io.db.pdsql import shared_colnames, \
+    Inserter, sync_pkey, df2db  # dbquery2df, , mergeupdate
 from stream2segment.io.db.models import Channel, WebService, Segment
 from stream2segment.download.exc import FailedDownload
 from stream2segment.download.url import urlread, get_host
 from stream2segment.download.modules.utils import (fdsn_channel_response_text_to_df,
-                                                   dbsyncdf, formatmsg, fdsn_url,
+                                                   formatmsg, fdsn_url,
                                                    logwarn_dataframe, strconvert,
                                                    Authorizer, fdsn_url_qs)
 
@@ -153,14 +154,24 @@ def get_channels_df(session, fdsn_station_urls, net, sta, loc, cha,
         cha_df = pd.concat(channels_dfs, axis=0, ignore_index=True, copy=False)
         cha_df[ws_url_col] = cha_df[ws_url_col].astype('category')
         # assign the webservice ids. First create / get those ids:
-        ws_df = dbsyncdf(
+
+        ws_df, i_err, _ = df2db(
             pd.DataFrame([{ws_url_col: u} for u in cha_df[ws_url_col].cat.categories]),
-            session,
-            [WebService.url],
-            WebService.id,
-            buf_size=db_bufsize or len(urls),
-            keep_duplicates=False
+            Channel,
+            session.get_bind(),
+            'id',
+            [ws_url_col]
         )
+
+        # ws_df = dbsyncdf(
+        #     pd.DataFrame([{ws_url_col: u} for u in cha_df[ws_url_col].cat.categories]),
+        #     session,
+        #     [WebService.url],
+        #     WebService.id,
+        #     buf_size=db_bufsize or len(urls),
+        #     keep_duplicates=False
+        # )
+
         # now assign:
         cha_df = cha_df.merge(
             ws_df.rename(columns={"id": "webservice_id"}), on=ws_url_col, how="left"
@@ -445,20 +456,29 @@ def save_channels(session, channels_df, update, db_bufsize):
 
     # Add channels to db. First set columns defining channel identity (db
     # unique constraint):
-    cols = [Channel.station_id, Channel.location, Channel.channel]
-    colnames = [Channel.network_code.key, Channel.station_code.key,
-                Channel.location_code.key, Channel.channel_code.key]
-    # Then add (sync actually, already existing channels are not inserted):
-    channels_df = dbsyncdf(
-        channels_df,
-        session,
-        cols,
-        Channel.id,
-        update,
-        buf_size=db_bufsize,
-        keep_duplicates=False,
-        cols_to_print_on_err=colnames
-    )
+    # cols = [Channel.station_id, Channel.location, Channel.channel]
+    cols = [
+        Channel.network_code, Channel.station_code,
+        Channel.location_code, Channel.channel_code, Channel.start_time,
+        Channel.webservice_id
+    ]
+    channels_df = sync_pkey(channels_df, [c.key for c in cols])
+    with Inserter(session.get_bind(), Channel, len(channels_df)) as inserter:
+        inserter.insert(channels_df)
+
+    inserter.failed()
+
+    # # Then add (sync actually, already existing channels are not inserted):
+    # channels_df = dbsyncdf(
+    #     channels_df,
+    #     session,
+    #     cols,
+    #     Channel.id,
+    #     update,
+    #     buf_size=db_bufsize,
+    #     keep_duplicates=False,
+    #     cols_to_print_on_err=[c. key for c in cols]
+    # )
 
     # log_unsaved_channels(conflict_between, conflict_within)
 

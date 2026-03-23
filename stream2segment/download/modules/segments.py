@@ -15,7 +15,7 @@ import pandas as pd
 
 from stream2segment.io import Fdsnws
 from stream2segment.io.cli import get_progressbar
-from stream2segment.io.db.pdsql import dbquery2df, mergeupdate, DbManager
+from stream2segment.io.db.pdsql import db2df, mergeupdate, DbManager
 from stream2segment.io.db.models import WebService, Segment, Channel, MiniSeed, \
     FailedDownloadedSegment
 from stream2segment.download.modules.utils import (DbExcLogger, logwarn_dataframe,
@@ -141,7 +141,7 @@ def fetch_already_downloaded_segments_df(session, segments_df):
     seg_df_tmp = segments_df[~restricted_segs]
     chids = pd.unique(seg_df_tmp[SEG.CHAID]).tolist()
     evids = pd.unique(seg_df_tmp[SEG.EVID]).tolist()
-    df1 = dbquery2df(
+    df1 = db2df(
         session.query(*columns2query).filter(
             Segment.channel_id.in_(chids) &
             Segment.event_id.in_(evids) &
@@ -153,7 +153,7 @@ def fetch_already_downloaded_segments_df(session, segments_df):
         seg_df_tmp = segments_df[restricted_segs]
         chids = pd.unique(seg_df_tmp[SEG.CHAID]).tolist()
         evids = pd.unique(seg_df_tmp[SEG.EVID]).tolist()
-        df2 = dbquery2df(
+        df2 = db2df(
             session.query(*columns2query).filter(
                 Segment.channel_id.in_(chids) &
                 Segment.event_id.in_(evids) &

@@ -11,12 +11,12 @@ import pandas as pd
 from sqlalchemy import func
 
 from stream2segment.io.cli import get_progressbar
-from stream2segment.io.db.pdsql import DbManager
+from stream2segment.io.db.pdsql import DbManager, df2db
 from stream2segment.download.exc import FailedDownload, NothingToDownload
 from stream2segment.io.db.models import Event, WebService
 from stream2segment.download.url import urlread, socket, HTTPError, read_async, get_host
 from stream2segment.download.modules.utils import (
-    dbsyncdf, fdsn_event_response_text_to_df, formatmsg,
+    fdsn_event_response_text_to_df, formatmsg,
     EVENTWS_MAPPING, strptime, fdsn_url_qs, DbExcLogger, IdOnceLogFilter, err2str
 )
 
@@ -43,12 +43,23 @@ def get_events_df(session, url, evt_query_args, start, end,
     if local_file:
         check_events_df_from_local_file(events_df, session, show_progress)
 
-    events_df = dbsyncdf(events_df, session,
-                         [Event.eventid, Event.webservice_id], Event.id,
-                         buf_size=db_bufsize,
-                         cols_to_print_on_err=[Event.eventid.key, Event.magnitude.key,
-                                               Event.time.key],
-                         keep_duplicates='first')
+    events_df, failed_i, _ = df2db(
+        events_df,
+        Event,
+        session.get_bind(),
+        'id',
+        [Event.eventid.key, Event.catalog.key],
+        chunksize=db_bufsize,
+    )
+    # FIXME: log failed?
+
+    # FIXME REMOVE
+    # dbsyncdf(events_df, session,
+    #                  [Event.eventid, Event.webservice_id], Event.id,
+    #                  buf_size=db_bufsize,
+    #                  cols_to_print_on_err=[Event.eventid.key, Event.magnitude.key,
+    #                                        Event.time.key],
+    #                  keep_duplicates='first'))
 
     # try to release memory for unused columns (FIXME: NEEDS TO BE TESTED)
     return events_df[[Event.id.key, Event.magnitude.key, Event.latitude.key,
@@ -67,8 +78,17 @@ def configure_ws_fk(eventws_url, session, db_bufsize):
 
     if eventws_id is None:  # write url to table
         dfr = pd.DataFrame((eventws_url,), columns=[WebService.url.key])
-        dfr = dbsyncdf(dfr, session, [WebService.url], WebService.id,
-                       buf_size=db_bufsize)
+
+        dfr, i_err, _ = df2db(
+            dfr,
+            WebService,
+            session.get_bind(),
+            'id',
+            [WebService.url.key],
+        )
+
+        # dfr = dbsyncdf(dfr, session, [WebService.url], WebService.id,
+        #                buf_size=db_bufsize)
         eventws_id = dfr.iloc[0][WebService.id.key]
 
     return eventws_id

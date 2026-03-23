@@ -10,7 +10,7 @@ from urllib.request import Request
 import pandas as pd
 
 from stream2segment.io.cli import get_progressbar
-from stream2segment.io.db.pdsql import DbManager, dbquery2df
+from stream2segment.io.db.pdsql import DbManager, db2df
 from stream2segment.io.db.models import WebService, Segment
 from stream2segment.download.url import read_async, get_host
 from stream2segment.download.modules.utils import (DbExcLogger,
@@ -37,7 +37,7 @@ def get_station_df_for_inventory_download(session, update_metadata):
          (Station.id, `Station.network`, `Station.station`, WebService.url,
         Station.start_time, Station.end_time)
     """
-    sta_df = dbquery2df(_query4inventorydownload(session, update_metadata))
+    sta_df = db2df(_query4inventorydownload(session, update_metadata))
     sta_df[WebService.url.key] = sta_df[WebService.url.key].astype('category')  # save space
     # sort values in order to 1. download first most recent events and 2: shuffle
     # datacenters and try to diversify the requests to different URLs:

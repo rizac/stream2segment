@@ -6,16 +6,14 @@ Data center(s) download functions
 from collections.abc import Iterable
 from datetime import datetime
 import logging
-from itertools import chain
+# from itertools import chain
 from typing import Optional
 from urllib.request import urlopen
 
 import pandas as pd
 
-from stream2segment.io.db.models import WebService, Channel
-from stream2segment.download.modules.utils import (
-    dbsyncdf, formatmsg, fdsn_url_qs, fdsn_url
-)
+from stream2segment.io.db.models import WebService  # , Channel
+from stream2segment.download.modules.utils import (formatmsg, fdsn_url_qs, fdsn_url)
 from stream2segment.download.exc import FailedDownload
 from stream2segment.download.url import urlread
 
