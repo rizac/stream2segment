@@ -868,7 +868,10 @@ def sync_pkey(
         if nan_count > 0:
             dfr.loc[nans, id_col] = range(pkey_max + 1, pkey_max + nan_count + 1, 1)
             dfr.loc[nans, id_col] = dfr.loc[nans, id_col]
+
+    if not pd.api.types.is_integer_dtype(dfr[id_col]):  # for safety
         dfr[id_col] = dfr[id_col].astype(int)
+
     return dfr
 
 
@@ -967,22 +970,26 @@ class SqlBatchExecutor:
         self.chunksize = chunksize
         self._buf = []
         self._failed_indices = []
-        self.conn = None
 
-    def execute(self, dataframe):
+    def add(self, dataframe):
         curr_length = sum(len(_) for _ in self._buf)
         if curr_length + len(dataframe) > self.chunksize:
-            self._failed_indices.extend(self._execute())
-            self._buf.clear()
+            self.execute()
         self._buf.append(dataframe[shared_colnames(self.table_model, dataframe)])
+
+    def execute(self):
+        if self._buf:
+            dfr = pd.concat(self._buf, ignore_index=False)
+            with self.engine.begin() as conn:
+                self._failed_indices.extend(self._execute(dfr, self.table_model, conn))
+            self._buf.clear()
+
+    def _execute(self, dfr, table_model, conn) -> Sequence[int]:
+        raise NotImplementedError('')
 
     def close(self):
         """manual close"""
-        if self._buf:
-            self.execute()
-
-    def _execute(self) -> Sequence[int]:
-        raise NotImplementedError('')
+        self.execute()
 
     @property
     def failed_indices(self):
@@ -990,27 +997,20 @@ class SqlBatchExecutor:
 
     # Context manager methods
     def __enter__(self):
-        if self.conn:
-            self.conn.close()
-        self.conn = self.engine.connect()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
-        if self.conn:
-            self.conn.close()
-            self.conn = None
 
 
 class Inserter(SqlBatchExecutor):
 
     def insert(self, dataframe):
-        """Wrapper for `execute` implemented for clarity"""
-        self.execute(dataframe)
+        """Wrapper for `add` implemented for clarity"""
+        self.add(dataframe)
 
-    def _execute(self):
-        dfr = pd.concat(self._buf, ignore_index=False)
-        return insert(dfr, self.table_model, self.conn)
+    def _execute(self, dfr, table_model, conn):
+        return insert(dfr, table_model, conn)
 
 
 def insert(df, table_model, conn):
@@ -1022,6 +1022,7 @@ def insert(df, table_model, conn):
     in case of doubts)
 
     :return: the indices (subset of the dataframe index) of the failed rows (int type)
+    :param conn: the result of `engine.begin()`
     """
     # table = table_model.__table__
     # columns = table.columns.keys()
@@ -1066,13 +1067,12 @@ class Updater(SqlBatchExecutor):
         self.update_cols = update_cols
 
     def update(self, dataframe):
-        """Wrapper for `execute` implemented for clarity"""
-        self.execute(dataframe)
+        """Wrapper for `add` implemented for clarity"""
+        self.add(dataframe)
 
-    def _execute(self):
-        dfr = pd.concat(self._buf, ignore_index=False)
+    def _execute(self, dfr, table_model, conn):
         return update(
-            dfr, self.table_model, self.conn, self.where_col, self.update_cols
+            dfr, table_model, conn, self.where_col, self.update_cols
         )
 
 
@@ -1085,6 +1085,7 @@ def update(df, table_model, conn, where_col, update_cols):
     in case of doubts)
 
     :return: the indices (subset of the dataframe index) of the failed rows (int type)
+    :param conn: the result of `engine.begin()`
     """
     failed_rows = []
 
