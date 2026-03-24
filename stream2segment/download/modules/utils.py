@@ -111,6 +111,11 @@ def url2str(obj, maxlen=None):
     return url
 
 
+def df2str(df, **kwargs):
+    kwargs.setdefault('max_rows', 20)
+    kwargs.setdefault('index', True)
+    return df.set_index(pd.RangeIndex(start=1, stop=len(df)+1)).to_string(**kwargs)
+
 # FIXME REMOVE
 # def dbsyncdf(dataframe, session, matching_columns, autoincrement_pkey_col,
 #              update=False, buf_size=10, keep_duplicates=False, return_df=True,

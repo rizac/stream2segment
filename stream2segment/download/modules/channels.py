@@ -25,7 +25,7 @@ from stream2segment.download.url import urlread, get_host
 from stream2segment.download.modules.utils import (fdsn_channel_response_text_to_df,
                                                    formatmsg, fdsn_url,
                                                    logwarn_dataframe, strconvert,
-                                                   Authorizer, fdsn_url_qs)
+                                                   Authorizer, fdsn_url_qs, df2str)
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__)
@@ -157,43 +157,43 @@ def get_channels_df(session, fdsn_station_urls, net, sta, loc, cha,
 
         ws_df, i_err, _ = df2db(
             pd.DataFrame([{ws_url_col: u} for u in cha_df[ws_url_col].cat.categories]),
-            Channel,
+            WebService,
             session.get_bind(),
             'id',
             [ws_url_col]
         )
-
-        # ws_df = dbsyncdf(
-        #     pd.DataFrame([{ws_url_col: u} for u in cha_df[ws_url_col].cat.categories]),
-        #     session,
-        #     [WebService.url],
-        #     WebService.id,
-        #     buf_size=db_bufsize or len(urls),
-        #     keep_duplicates=False
-        # )
-
+        logger.info(f'{len(ws_df):,} of {(len(ws_df) + len(i_err)):,} station url(s) saved')
+        if i_err:
+            logger.warning(f"Unable to save {len(i_err)} station url(s):")
+            logger.warning(df2str(i_err))
         # now assign:
         cha_df = cha_df.merge(
-            ws_df.rename(columns={"id": "webservice_id"}), on=ws_url_col, how="left"
+            ws_df.rename(columns={"id": Channel.webservice_id.key}),
+            on=ws_url_col,
+            how="left"
         )
+        wsid_na = pd.isna(cha_df[Channel.webservice_id.key])
+        if wsid_na.any():
+            logger.warning(f"Unable to get station urls for {wsid_na.sum()} channel(s) "
+                           f"(discarding):")
+            logger.warning(df2str(cha_df[wsid_na]))
+            cha_df = cha_df[~wsid_na].copy()
+
         # post filter (negation "!", sample rate) which raises FailedDownload if no rows:
         cha_df = filter_out_channels_df(
             cha_df, net, sta, loc, cha, min_sample_rate
         )
+
+        # first drop duplicates (all columns the same):
+        # this method does very few things as there might be rounding errors that
+        # prevent equal columns to be equal. Anyway, we perform here more sound checks
+        channels_df = cha_df.drop_duplicates(keep='first').reset_index(drop=True)
+
         # set ranking based on the order of urls
-        cha_df['_rank_'] = len(cha_df)
-        _urls_done = set()
-        for u in urls:
-            u = u[:u.find("?")] if "?" in u else u  # no query string
-            if u in _urls_done:
-                continue
-            _urls_done.add(u)
-            cha_df.loc[
-                cha_df[WebService.url.key].str.startswith(u) , '_rank_'
-            ] = len(_urls_done)
-        cha_df = drop_conflict_between(session, cha_df, '_rank_')
-        cha_df.drop(columns=['_rank_'], inplace=True)
+        cha_df = drop_conflict_between(session, cha_df, urls)
+
         cha_df = drop_conflict_within(cha_df)
+
         cha_df = save_channels(session, cha_df, update, db_bufsize)
 
     # if len(failed_dframe_rows) > 0:
@@ -308,6 +308,427 @@ def filter_out_channels_df(channels_df, net, sta, loc, cha, min_sample_rate):
     return ret
 
 
+def drop_conflict_between(session, channels_df, urls:list[str] = None):
+    """
+    Drop from channels_df conflict between, i.e., network.station codes
+    returned by several URLs. Duplicated rows will be resolved against the
+    database or, if keep_first is True, by taking the first row
+
+    :param channels_df: pandas DataFrame
+    :param urls: an optional list of source station FDSN urls that where used to build
+        the passed dataframe. Order matters as conflicts will be resolved by taking
+        the first matching url. If None, conflicts will cause all channels
+        involved to be dropped
+    :return: a new dataframe with duplicated rows removed
+    """
+    # conflict between case is when station webservice is not unique, e.g.:
+    #   net sta webservice_id
+    #   N   S   1
+    #   N   S   2
+
+    grp_cols = [
+        Channel.network_code.key,
+        Channel.station_code.key,
+        Channel.location_code.key,
+        Channel.channel_code.key,
+    ]
+    webs_id_col = Channel.webservice_id.key
+
+    conflict_between = (
+        channels_df.groupby(grp_cols)[webs_id_col].transform("nunique") > 1
+    )
+    # (channels_df[conflict_between].sort_values(grp1_cols, ascending=True).
+    # to_csv(
+    #     path_or_buf=os.expanduser('~/work/code/stream2segment/conflict_between.csv'),
+    #     index=False
+    # ))
+
+    # log messages:
+    if conflict_between.any():
+        log_df = channels_df[conflict_between].groupby(
+            grp_cols[:2], as_index=False
+        ).agg({ WebService.url.key: lambda x: ", ".join(sorted(set(x))) })
+        logger.warning(
+            f'Conflict: different URLs returning the same station. Conflicts summary:'
+        )
+        columns2show = grp_cols[:2] + ['URLs (should be 1)']
+        log_df = log_df.rename(columns={WebService.url.key: columns2show[-1]})
+        logger.warning(
+            log_df[columns2show].sort_values(by=columns2show).to_string(
+                na_rep='', index=False
+            )
+        )
+
+        conflict_between_indices = []
+        # although we check conflicts by net.sta.loc.cha, we are interested in fixing
+        # the station problem here
+        rank_col_name = None
+        if urls is not None:
+            rank_col_name = '_rank'
+            while rank_col_name in channels_df.columns:
+                rank_col_name += '_'
+            urls_rank = np.full(len(channels_df), np.iinfo(int).max, dtype=int)
+            _urls_done = set()
+            for url in urls:
+                url = url[:url.find("?")] if "?" in url else url  # no query string
+                if url in _urls_done:
+                    continue
+                _urls_done.add(url)
+                url_rank = len(_urls_done)
+                urls_rank[channels_df[WebService.url.key].str.startswith(url)] = url_rank
+            channels_df[rank_col_name] = urls_rank
+
+        net_sta_df = channels_df.loc[conflict_between, grp_cols[:2]]
+        net_sta_df = net_sta_df.drop_duplicates(keep='first')
+        for (net, sta) in net_sta_df.itertuples(index=False, name=None):
+            real_dc_ids = set(
+                _[0] for _ in session.query(Channel.webservice_id).filter(
+                    (Channel.network_code == net) & (Channel.station_code == sta)
+                ).all()
+            )
+            conflicting = channels_df.loc[
+                conflict_between &
+                (channels_df[Channel.network_code.key] == net) &
+                (channels_df[Channel.station_code.key] == sta),
+                :
+            ]
+
+            real_ws_id = None
+            if len(real_dc_ids) == 1:
+                real_ws_id = next(iter(real_dc_ids))
+            elif rank_col_name is not None:
+                # conflict found, unresolvable through already saved data. Get first
+                # if instructed to do so
+                real_ws_id = conflicting[
+                    conflicting[rank_col_name] == conflicting[rank_col_name].min()
+                ].iloc[0][webs_id_col]
+
+            if real_ws_id is not None:
+                # Conflict found, resolved through already saved data. The real webservice
+                # id is one => discard all (net, sta, stime) with different webservices id:
+                conflicting = conflicting[conflicting[webs_id_col] != real_ws_id]
+
+            if not conflicting.empty:
+                conflict_between_indices.extend(conflicting.index)
+                # channels_df.loc[conflicting.index, 'conflict_between'] = True
+
+        if rank_col_name is not None:
+            channels_df = channels_df.drop(columns=rank_col_name)
+
+        channels_df = channels_df[
+            ~channels_df.index.isin(conflict_between_indices)
+        ].copy()
+
+    return channels_df
+
+
+def drop_conflict_within(channels_df):
+    """
+    Drop from channels_df conflict within, i.e., same
+    network.station.location.channel.start_time  returned by the same URLs.
+    Duplicated rows will be resolved by taking the item which spans the
+    biggest time range (which is the least bad option)
+
+    :return: a new dataframe with duplicated rows removed
+    """
+    # conflict within
+    webs_id_col = Channel.webservice_id.key
+    start_col = Channel.start_time.key
+    end_col = Channel.end_time.key
+    grp_cols = [
+        Channel.network_code.key,
+        Channel.station_code.key,
+        Channel.location_code.key,
+        Channel.channel_code.key,
+        Channel.start_time.key,
+        webs_id_col,
+    ]
+    grp_other_cols = list(channels_df.columns.difference(grp_cols))
+
+    # Just for ref, these rows are not detected by duplicated (apparently, scale differs):
+    #        network_code station_code location_code channel_code   latitude  longitude  elevation  depth  azimuth  dip          scale  scale_freq scale_units  sample_rate          start_time   end_time                                              url  webservice_id
+    # 97463            GS        KAN12            01          HNE  37.297383    -97.998      425.5    0.0     90.0  0.0  184349.032785         1.0      m/s**2        200.0 2014-05-08 17:11:06 2015-04-14  https://service.iris.edu/fdsnws/station/1/query             11
+    # 131397           GS        KAN12            01          HNE  37.297383    -97.998      425.5    0.0     90.0  0.0  184349.032785         1.0      m/s**2        200.0 2014-05-08 17:11:06 2015-04-14  https://service.iris.edu/fdsnws/station/1/query             11
+    #
+
+    conflict_within = (
+        channels_df.groupby(grp_cols)[grp_other_cols].transform("nunique") > 1
+    ).any(axis=1)
+    # (channels_df[conflict_within].sort_values(grp2_cols, ascending=True).
+    # to_csv(
+    #     path_or_buf=os.expanduser('~/work/code/stream2segment/conflict_within.csv'),
+    #     index=False
+    # ))
+    conflict_within_indices = []
+    if conflict_within.any():
+
+        log_df = channels_df[conflict_within].groupby(
+            [WebService.url.key] + grp_cols[:-1], as_index=False
+        ).size()
+        logger.warning(
+            f'Conflict: the same URL returning a channel multiple times. '
+            f'Conflicts summary:  '
+        )
+        columns2show = [WebService.url.key] + grp_cols[:4] + ["instances (should be 1)"]
+        log_df = log_df.rename(columns={"size": columns2show[-1]})
+        logger.warning(
+            log_df[columns2show].sort_values(
+                by=columns2show[-1:], ascending=False
+            ).to_string(na_rep='', index=False)
+        )
+
+        for _, cha_df in channels_df[conflict_within].groupby(
+            grp_cols, sort=False
+        ):
+            if len(cha_df) <= 1:
+                continue
+
+            # get how many end times match existing start times
+            other_idx = ~channels_df.index.isin(cha_df.index)
+            num_matches = np.array([
+                (channels_df[other_idx][end_col] == cha_df.iloc[i][start_col]).sum()
+                for i in range(len(cha_df))],
+                dtype=int
+            )
+            # if some match and some don't remove those who don't:
+            if (num_matches > 0).any() and (num_matches ==0).any():
+                cha_df = cha_df[num_matches > 0]
+                conflict_within_indices.extend(cha_df[num_matches == 0].index)
+
+            if len(cha_df) <= 1:
+                continue
+
+            # No conflict resolution. So take the row that has maximum time span.
+            # Though arbitrary and potentially
+            # overlapping with other rows, this way we might download once more which
+            # is preferable to skip some:
+            # get end times, replacing None (no end) to a random max time
+            end_t = cha_df[end_col].copy()
+            end_t[pd.isna(end_t)] = end_t.max().replace(end_t.max().year + 1)
+            time_ranges = end_t - cha_df[start_col].copy()
+            cha_df = cha_df.drop(index=cha_df.index[np.argmax(time_ranges)])
+            conflict_within_indices.extend(cha_df.index)
+            # channels_df.loc[conflicting.index, 'conflict_between'] = True
+
+        channels_df = channels_df[
+            ~channels_df.index.isin(conflict_within_indices)
+        ].copy()
+
+    return channels_df
+
+def save_channels(session, channels_df, update, db_bufsize):
+    """Saves to db channels (and their stations) and returns a dataframe with
+    only channels saved. The returned Dataframe will have the column 'id'
+    (`Station.id`) renamed to 'station_id' (`Channel.station_id`) and a new
+    'id' column referring to the Channel id (`Channel.id`)
+
+    :param channels_df: pandas DataFrame
+    """
+    if channels_df.empty:
+        raise FailedDownload('No channel left after cleanup '
+                             '(e.g., drop duplicates)')
+
+    # if update is True, don't update inventories HERE (handled later)
+    _update_stations = update
+    if _update_stations:
+        _update_stations = list(shared_colnames(Channel, channels_df, pkey=False))
+
+    # # Add stations to db (Note: no need to check for `empty(channels_df)`,
+    # # `dbsyncdf` raises a `FailedDownload` in case). First set columns
+    # # defining channel identity (db unique constraint):
+    # cols = [Station.network, Station.station, Station.webservice_id]
+    # colnames = [c.key for c in cols]
+    # # convert numeric values from channel level to station level using
+    # # mean, min or max depending on column:
+    # sta_df = []
+    # for _, df_ in channels_df.groupby(colnames, sort=False, observed=False):
+    #     if len(df_) > 1:
+    #         # modify df_ first row and then take that 1st row only (df_ slice):
+    #         i0 = df_.index[0]
+    #         df_ = df_.copy()
+    #         for c in [Station.latitude.key, Station.longitude.key,
+    #                   Station.elevation.key]:
+    #             df_.at[i0, c] = df_[c].mean()
+    #         df_ = _adjust_times(df_)
+    #     sta_df.append(df_)
+
+    # # Then sync with db:
+    # sta_df = dbsyncdf(pd.concat(sta_df, axis=0),
+    #                   session, cols, Station.id, _update_stations,
+    #                   buf_size=db_bufsize, keep_duplicates=False,
+    #                   cols_to_print_on_err=colnames)
+    # # `sta_df` will have the STA_ID columns, `channels_df` not: set it from the
+    # # former to the latter:
+    # channels_df = mergeupdate(channels_df, sta_df, colnames, [Station.id.key])
+    # # rename now 'id' to 'station_id' before writing the channels to db:
+    # channels_df.rename(columns={Channel.id.key: Channel.station_id.key}, inplace=True)
+
+    # check channels with empty station id (should never happen, let's be
+    # picky):
+    # null_sta_id = channels_df[Channel.station_id.key].isnull()
+    # conflict_null_sta_id = pd.DataFrame()
+    # if null_sta_id.any():
+    #     conflict_null_sta_id = channels_df[null_sta_id]
+    #     channels_df = channels_df[~null_sta_id]
+
+    # Add channels to db. First set columns defining channel identity (db
+    # unique constraint):
+    # cols = [Channel.station_id, Channel.location, Channel.channel]
+    cols = [
+        Channel.network_code, Channel.station_code,
+        Channel.location_code, Channel.channel_code, Channel.start_time,
+        Channel.webservice_id
+    ]
+    channels_df = sync_pkey(channels_df, [c.key for c in cols])
+    with Inserter(session.get_bind(), Channel, len(channels_df)) as inserter:
+        inserter.insert(channels_df)
+
+    inserter.failed()
+
+    # # Then add (sync actually, already existing channels are not inserted):
+    # channels_df = dbsyncdf(
+    #     channels_df,
+    #     session,
+    #     cols,
+    #     Channel.id,
+    #     update,
+    #     buf_size=db_bufsize,
+    #     keep_duplicates=False,
+    #     cols_to_print_on_err=[c. key for c in cols]
+    # )
+
+    # log_unsaved_channels(conflict_between, conflict_within)
+
+    return channels_df
+
+
+def setup_dataselect_urls(session, channels_df, authorizer: Authorizer = None):
+    """Prepares `cgannels_df` and `authorizer` for dataselct download, adding
+    urls and db id of the URLs to the former, and - if the latter is not None -
+    setting users and passwords (required for downloading) in it"""
+    ws_url_col = WebService.url.key
+    station_urls = channels_df[ws_url_col].cat.categories
+
+    url_mapping = {}  # station url -> dataselect_url
+    errors = set()
+
+    for url in station_urls:
+        method = 'query'
+        if authorizer is not None:
+            try:
+                authorizer.add_url(url)
+                method = 'queryauth'
+            except Exception as exc:
+                logger.warning(formatmsg("Downloading open data only, "
+                                         "Unable to acquire credentials for "
+                                         "restricted data",
+                                         str(exc), url))
+                errors.add(url)
+
+        url_mapping[url] = fdsn_url(url, new_service='dataselect', new_method=method)
+
+    if errors:
+        logger.info(formatmsg('Downloading open data only from: %s'
+                              % ", ".join(errors),
+                              'Unable to acquire credentials for '
+                              'restricted data'))
+
+    # replace station urls with new dataselect urls (query or queryauth methods):
+    channels_df[ws_url_col] = channels_df[ws_url_col].cat.rename_categories(url_mapping)
+
+    # remove webservice_id (which refers to FDSN station). FIXME: useless
+    # channels_df.drop(columns=[Channel.webservice_id.key], inplace=True)
+    # now set webservice id with the FDSN dataselect ids.
+
+    # Step1: get ids of the new dataselect urls (synch with db):
+    ws_df = pd.DataFrame([{'url': u} for u in url_mapping.values()])
+    ws_df = dbsyncdf(
+        ws_df, session, [WebService.url], WebService.id, buf_size=len(url_mapping),
+        keep_duplicates=False
+    )
+    ws_ids = dict(zip(ws_df['url'], ws_df['id']))
+
+    # Step 2: Extract the codes (an integer array of length N = channels_df rows).
+    # Each row gets an int (int8 / int16 / int32 depending on K = number of categories).
+    # Size: N integers (efficient, much smaller than N strings).
+    codes = channels_df[ws_url_col].cat.codes
+
+    # Step 3: Extract the categories (Index of all unique labels).
+    # This is tiny: only K elements.
+    categories = channels_df[ws_url_col].cat.categories
+
+    # Step 4: Build an array that maps category index -> ws_id.
+    # categories.map(ws_ids) creates a Series of length K (one id per category).
+    # .to_numpy() converts it to a NumPy array of length K.
+    codes_to_ids = categories.map(ws_ids).to_numpy()
+
+    # Step 5: Use the codes (length N) to index into codes_to_ids (length K).
+    # This produces a new integer array of length N, one ws_id per row.
+    channels_df[Segment.webservice_id.key] = codes_to_ids[codes]
+
+    return channels_df.copy()
+
+
+# # FIXME REMOVE
+# def _adjust_times(dfr: pd.DataFrame):
+#     """Adjust start_time and ent_time in df_, returning a new single row dataframe
+#     with min start_time, and max end_time (or NaT if any end time is NaT).
+#
+#     :param dfr: a DataFrame with ALL rows equal except start_time and end_time
+#     """
+#     i0 = dfr.index[0]
+#     ret = dfr.loc[[i0], :].copy()  # [i0] => 1 row dataframe (i0 => p.Series)
+#     ret.at[i0, Channel.start_time.key] = dfr[Channel.start_time.key].min()
+#     ret.at[i0, Channel.end_time.key] = pd.NaT
+#     if pd.notna(dfr[Channel.end_time.key]).all():
+#         ret.at[i0, Channel.end_time.key] = dfr[Channel.end_time.key].max()
+#     return ret
+
+
+# def log_unsaved_channels(conflict_between, conflict_within):
+#     """log the results of channels and station saving.
+#
+#     :param conflict_between: Dataframe of channels conflicts between
+#         datacenters (duplicated stations returned by more than one datacenter)
+#     :param conflict_within: Dataframe of channels conflicts within the same
+#         datacenter (violating channels unique constraints)
+#     """
+#     max_row_count = 50
+#     cols2show = [Channel.network_code.key, Channel.station_code.key]
+#     if not conflict_between.empty:
+#         # conflict_between happen at a station level (avoid unnecessary channel
+#         # details):
+#         _ = conflict_between.drop_duplicates(subset=cols2show,
+#                                              keep='first')
+#         msg = formatmsg('%d station(s) and %d channel(s) not saved to db' %
+#                         (len(_), len(conflict_between)),
+#                         'wrong datacenter detected using either Routing '
+#                         'services or already saved stations')
+#         logwarn_dataframe(_, msg, cols2show, max_row_count)
+#
+#     cols2show = [
+#         Channel.network_code.key,
+#         Channel.station_code.key,
+#         Channel.location_code.key,
+#         Channel.channel_code.key
+#     ]
+#     if not conflict_within.empty:
+#         # Do not count stations here, as some of those stations might have been
+#         # saved as part of other correct channels
+#         msg = formatmsg('%d channel(s) not saved to db' % len(conflict_within),
+#                         'conflicting data, e.g. unique constraint failed')
+#         logwarn_dataframe(conflict_within, msg, cols2show, max_row_count)
+#
+#     # if not conflict_null_sta_id.empty:
+#     #     # Do not count stations here, as some of those stations might have been saved as
+#     #     # part of other correct channels
+#     #     msg = formatmsg('%d channel(s) not saved to db' %
+#     #                     len(conflict_null_sta_id),
+#     #                     'station id not found, unknown cause')
+#     #     logwarn_dataframe(conflict_null_sta_id, msg, cols2show, max_row_count)
+
+
+
 # FIXME REMOVE
 # def _get_channels_df_from_db(session, station_ws_db_id, net, sta, loc, cha,
 #                             starttime, endtime):
@@ -398,410 +819,3 @@ def filter_out_channels_df(channels_df, net, sta, loc, cha, min_sample_rate):
 #
 #     return True if not sa_bin_exprs else and_(*sa_bin_exprs)
 
-
-def save_channels(session, channels_df, update, db_bufsize):
-    """Saves to db channels (and their stations) and returns a dataframe with
-    only channels saved. The returned Dataframe will have the column 'id'
-    (`Station.id`) renamed to 'station_id' (`Channel.station_id`) and a new
-    'id' column referring to the Channel id (`Channel.id`)
-
-    :param channels_df: pandas DataFrame
-    """
-    if channels_df.empty:
-        raise FailedDownload('No channel left after cleanup '
-                             '(e.g., drop duplicates)')
-
-    # if update is True, don't update inventories HERE (handled later)
-    _update_stations = update
-    if _update_stations:
-        _update_stations = list(shared_colnames(Channel, channels_df, pkey=False))
-
-    # # Add stations to db (Note: no need to check for `empty(channels_df)`,
-    # # `dbsyncdf` raises a `FailedDownload` in case). First set columns
-    # # defining channel identity (db unique constraint):
-    # cols = [Station.network, Station.station, Station.webservice_id]
-    # colnames = [c.key for c in cols]
-    # # convert numeric values from channel level to station level using
-    # # mean, min or max depending on column:
-    # sta_df = []
-    # for _, df_ in channels_df.groupby(colnames, sort=False, observed=False):
-    #     if len(df_) > 1:
-    #         # modify df_ first row and then take that 1st row only (df_ slice):
-    #         i0 = df_.index[0]
-    #         df_ = df_.copy()
-    #         for c in [Station.latitude.key, Station.longitude.key,
-    #                   Station.elevation.key]:
-    #             df_.at[i0, c] = df_[c].mean()
-    #         df_ = _adjust_times(df_)
-    #     sta_df.append(df_)
-
-    # # Then sync with db:
-    # sta_df = dbsyncdf(pd.concat(sta_df, axis=0),
-    #                   session, cols, Station.id, _update_stations,
-    #                   buf_size=db_bufsize, keep_duplicates=False,
-    #                   cols_to_print_on_err=colnames)
-    # # `sta_df` will have the STA_ID columns, `channels_df` not: set it from the
-    # # former to the latter:
-    # channels_df = mergeupdate(channels_df, sta_df, colnames, [Station.id.key])
-    # # rename now 'id' to 'station_id' before writing the channels to db:
-    # channels_df.rename(columns={Channel.id.key: Channel.station_id.key}, inplace=True)
-
-    # check channels with empty station id (should never happen, let's be
-    # picky):
-    # null_sta_id = channels_df[Channel.station_id.key].isnull()
-    # conflict_null_sta_id = pd.DataFrame()
-    # if null_sta_id.any():
-    #     conflict_null_sta_id = channels_df[null_sta_id]
-    #     channels_df = channels_df[~null_sta_id]
-
-    # Add channels to db. First set columns defining channel identity (db
-    # unique constraint):
-    # cols = [Channel.station_id, Channel.location, Channel.channel]
-    cols = [
-        Channel.network_code, Channel.station_code,
-        Channel.location_code, Channel.channel_code, Channel.start_time,
-        Channel.webservice_id
-    ]
-    channels_df = sync_pkey(channels_df, [c.key for c in cols])
-    with Inserter(session.get_bind(), Channel, len(channels_df)) as inserter:
-        inserter.insert(channels_df)
-
-    inserter.failed()
-
-    # # Then add (sync actually, already existing channels are not inserted):
-    # channels_df = dbsyncdf(
-    #     channels_df,
-    #     session,
-    #     cols,
-    #     Channel.id,
-    #     update,
-    #     buf_size=db_bufsize,
-    #     keep_duplicates=False,
-    #     cols_to_print_on_err=[c. key for c in cols]
-    # )
-
-    # log_unsaved_channels(conflict_between, conflict_within)
-
-    return channels_df
-
-
-def drop_conflict_between(session, channels_df, rank_col_name=''):
-    """
-    Drop from channels_df conflict between, i.e., network.station codes
-    returned by several URLs. Duplicated rows will be resolved against the
-    database or, if keep_first is True, by taking the first row
-
-    :param channels_df: pandas DataFrame
-    :param rank_col_name: a columns that denotes a ranking / priority order
-        to choose from in case of conflicts unresolved by the DB. **NOTE: lower values
-        mean higher priority**
-    :return: a new dataframe with duplicated rows removed
-    """
-    # conflict between case is when station webservice is not unique, e.g.:
-    #   net sta webservice_id
-    #   N   S   1
-    #   N   S   2
-
-    # conflict_between_dc = []  # add here unresolvable conflicts
-
-    # Conflict within is when the same channel has same net sta loc cha webservice_id start_time.
-    # In this case, choose the one that has a date matching with another one, if exist,
-    # or the most recent one if not
-
-
-    # oks = []
-    # station_datacenters_from_db = None  # dataframe lazy loaded (see below)
-
-    # first drop duplicates (all columns the same):
-    # this method does very few things as there might be rounding errors that
-    # prevent equal columns to be equalk. Anyway, we perform here more sound checks
-    channels_df = channels_df.drop_duplicates(keep='first').reset_index(drop=True)
-
-    # Just for ref, these rows are not detected by duplicated (apparently, scale differs):
-    #        network_code station_code location_code channel_code   latitude  longitude  elevation  depth  azimuth  dip          scale  scale_freq scale_units  sample_rate          start_time   end_time                                              url  webservice_id
-    # 97463            GS        KAN12            01          HNE  37.297383    -97.998      425.5    0.0     90.0  0.0  184349.032785         1.0      m/s**2        200.0 2014-05-08 17:11:06 2015-04-14  https://service.iris.edu/fdsnws/station/1/query             11
-    # 131397           GS        KAN12            01          HNE  37.297383    -97.998      425.5    0.0     90.0  0.0  184349.032785         1.0      m/s**2        200.0 2014-05-08 17:11:06 2015-04-14  https://service.iris.edu/fdsnws/station/1/query             11
-    #
-
-    grp1_cols = [
-        Channel.network_code.key,
-        Channel.station_code.key,
-        Channel.location_code.key,
-        Channel.channel_code.key,
-    ]
-    webs_id_col = Channel.webservice_id.key
-
-    conflict_between = (
-        channels_df.groupby(grp1_cols)[webs_id_col].transform("nunique") > 1
-    )
-    # (channels_df[conflict_between].sort_values(grp1_cols, ascending=True).
-    # to_csv(
-    #     path_or_buf=os.expanduser('~/work/code/stream2segment/conflict_between.csv'),
-    #     index=False
-    # ))
-
-    # log messages:
-    if conflict_between.any():
-        log_df = channels_df[conflict_between].groupby(
-            grp1_cols[:2], as_index=False
-        ).agg({ WebService.url.key: lambda x: ", ".join(sorted(set(x))) })
-        logger.warning(
-            f'Conflict: different URLs returning the same station. Conflicts summary:'
-        )
-        columns2show = grp1_cols[:2] + ['URLs (should be 1)']
-        log_df = log_df.rename(columns={WebService.url.key: columns2show[-1]})
-        logger.warning(
-            log_df[columns2show].sort_values(by=columns2show).to_string(
-                na_rep='', index=False
-            )
-        )
-
-        conflict_between_indices = []
-        # although we check conflicts by net.sta.loc.cha, we are interested in fixing
-        # the station problem here
-        rank_col_exists = rank_col_name in channels_df.columns
-        net_sta_df = channels_df.loc[conflict_between, grp1_cols[:2]]
-        net_sta_df = net_sta_df.drop_duplicates(keep='first')
-        for (net, sta) in net_sta_df.itertuples(index=False, name=None):
-            real_dc_ids = set(
-                _[0] for _ in session.query(Channel.webservice_id).filter(
-                    (Channel.network_code == net) & (Channel.station_code == sta)
-                ).all()
-            )
-            conflicting = channels_df.loc[
-                conflict_between &
-                (channels_df[Channel.network_code.key] == net) &
-                (channels_df[Channel.station_code.key] == sta),
-                :
-            ]
-
-            real_ws_id = None
-            if len(real_dc_ids) == 1:
-                real_ws_id = next(iter(real_dc_ids))
-            elif rank_col_exists:
-                # conflict found, unresolvable through already saved data. Get first
-                # if instructed to do so
-                real_ws_id = conflicting[
-                    conflicting[rank_col_name] == conflicting[rank_col_name].min()
-                ].iloc[0][webs_id_col]
-
-            if real_ws_id is not None:
-                # Conflict found, resolved through already saved data. The real webservice
-                # id is one => discard all (net, sta, stime) with different webservices id:
-                conflicting = conflicting[conflicting[webs_id_col] != real_ws_id]
-
-            if not conflicting.empty:
-                conflict_between_indices.extend(conflicting.index)
-                # channels_df.loc[conflicting.index, 'conflict_between'] = True
-
-        channels_df = channels_df[
-            ~channels_df.index.isin(conflict_between_indices)
-        ].copy()
-
-    return channels_df
-
-
-def drop_conflict_within(channels_df):
-    """
-    Drop from channels_df conflict within, i.e., same
-    network.station.location.channel.start_time  returned by the same URLs.
-    Duplicated rows will be resolved by taking the item which spans the
-    biggest time range (which is the least bad option)
-
-    :return: a new dataframe with duplicated rows removed
-    """
-    # conflict within
-    webs_id_col = Channel.webservice_id.key
-    grp2_cols = [
-        Channel.network_code.key,
-        Channel.station_code.key,
-        Channel.location_code.key,
-        Channel.channel_code.key,
-        Channel.start_time.key,
-        webs_id_col,
-    ]
-    grp2_other_cols = list(channels_df.columns.difference(grp2_cols))
-
-    conflict_within = (
-        channels_df.groupby(grp2_cols)[grp2_other_cols].transform("nunique") > 1
-    ).any(axis=1)
-    # (channels_df[conflict_within].sort_values(grp2_cols, ascending=True).
-    # to_csv(
-    #     path_or_buf=os.expanduser('~/work/code/stream2segment/conflict_within.csv'),
-    #     index=False
-    # ))
-    conflict_within_indices = []
-    if conflict_within.any():
-
-        log_df = channels_df[conflict_within].groupby(
-            [WebService.url.key] + grp2_cols[:-1], as_index=False
-        ).size()
-        logger.warning(
-            f'Conflict: the same URL returning a channel multiple times. '
-            f'Conflicts summary:  '
-        )
-        columns2show = [WebService.url.key] + grp2_cols[:4] + ["instances (should be 1)"]
-        log_df = log_df.rename(columns={"size": columns2show[-1]})
-        logger.warning(
-            log_df[columns2show].sort_values(
-                by=columns2show[-1:], ascending=False
-            ).to_string(na_rep='', index=False)
-        )
-
-        for _, cha_df in channels_df[conflict_within].groupby(
-            grp2_cols, sort=False
-        ):
-            if len(cha_df) <= 1:
-                continue
-
-            # take the row that has maximum time span. Though arbitrary and potentially
-            # overlapping with other rows, this way we might download once more which
-            # is preferable to skip some:
-            start_t = cha_df[Channel.start_time.key].copy()
-            # get end times, replacing None (no end) to a random max time
-            end_t = cha_df[Channel.end_time.key].copy()
-            end_t[pd.isna(end_t)] = end_t.max().replace(end_t.max().year + 1)
-            idx = np.argmax(end_t - start_t)
-            cha_df = cha_df.drop(index=cha_df.index[idx])
-            conflict_within_indices.extend(cha_df.index)
-            # channels_df.loc[conflicting.index, 'conflict_between'] = True
-
-        channels_df = channels_df[
-            ~channels_df.index.isin(conflict_within_indices)
-        ].copy()
-
-    return channels_df
-    oks = pd.DataFrame() if not oks else \
-        pd.concat(oks, axis=0, sort=False, ignore_index=True, copy=True)
-    conflict_between_dc = pd.DataFrame() if not conflict_between_dc else \
-        pd.concat(conflict_between_dc, axis=0, sort=False)
-    conflict_within_dc = pd.DataFrame() if not conflict_within_dc else \
-        pd.concat(conflict_within_dc, axis=0, sort=False)
-
-    return oks, conflict_between_dc, conflict_within_dc
-
-
-# # FIXME REMOVE
-# def _adjust_times(dfr: pd.DataFrame):
-#     """Adjust start_time and ent_time in df_, returning a new single row dataframe
-#     with min start_time, and max end_time (or NaT if any end time is NaT).
-#
-#     :param dfr: a DataFrame with ALL rows equal except start_time and end_time
-#     """
-#     i0 = dfr.index[0]
-#     ret = dfr.loc[[i0], :].copy()  # [i0] => 1 row dataframe (i0 => p.Series)
-#     ret.at[i0, Channel.start_time.key] = dfr[Channel.start_time.key].min()
-#     ret.at[i0, Channel.end_time.key] = pd.NaT
-#     if pd.notna(dfr[Channel.end_time.key]).all():
-#         ret.at[i0, Channel.end_time.key] = dfr[Channel.end_time.key].max()
-#     return ret
-
-
-# def log_unsaved_channels(conflict_between, conflict_within):
-#     """log the results of channels and station saving.
-#
-#     :param conflict_between: Dataframe of channels conflicts between
-#         datacenters (duplicated stations returned by more than one datacenter)
-#     :param conflict_within: Dataframe of channels conflicts within the same
-#         datacenter (violating channels unique constraints)
-#     """
-#     max_row_count = 50
-#     cols2show = [Channel.network_code.key, Channel.station_code.key]
-#     if not conflict_between.empty:
-#         # conflict_between happen at a station level (avoid unnecessary channel
-#         # details):
-#         _ = conflict_between.drop_duplicates(subset=cols2show,
-#                                              keep='first')
-#         msg = formatmsg('%d station(s) and %d channel(s) not saved to db' %
-#                         (len(_), len(conflict_between)),
-#                         'wrong datacenter detected using either Routing '
-#                         'services or already saved stations')
-#         logwarn_dataframe(_, msg, cols2show, max_row_count)
-#
-#     cols2show = [
-#         Channel.network_code.key,
-#         Channel.station_code.key,
-#         Channel.location_code.key,
-#         Channel.channel_code.key
-#     ]
-#     if not conflict_within.empty:
-#         # Do not count stations here, as some of those stations might have been
-#         # saved as part of other correct channels
-#         msg = formatmsg('%d channel(s) not saved to db' % len(conflict_within),
-#                         'conflicting data, e.g. unique constraint failed')
-#         logwarn_dataframe(conflict_within, msg, cols2show, max_row_count)
-#
-#     # if not conflict_null_sta_id.empty:
-#     #     # Do not count stations here, as some of those stations might have been saved as
-#     #     # part of other correct channels
-#     #     msg = formatmsg('%d channel(s) not saved to db' %
-#     #                     len(conflict_null_sta_id),
-#     #                     'station id not found, unknown cause')
-#     #     logwarn_dataframe(conflict_null_sta_id, msg, cols2show, max_row_count)
-
-
-def setup_dataselect_urls(session, channels_df, authorizer: Authorizer = None):
-    """Prepares `cgannels_df` and `authorizer` for dataselct download, adding
-    urls and db id of the URLs to the former, and - if the latter is not None -
-    setting users and passwords (required for downloading) in it"""
-    ws_url_col = WebService.url.key
-    station_urls = channels_df[ws_url_col].cat.categories
-
-    url_mapping = {}  # station url -> dataselect_url
-    errors = set()
-
-    for url in station_urls:
-        method = 'query'
-        if authorizer is not None:
-            try:
-                authorizer.add_url(url)
-                method = 'queryauth'
-            except Exception as exc:
-                logger.warning(formatmsg("Downloading open data only, "
-                                         "Unable to acquire credentials for "
-                                         "restricted data",
-                                         str(exc), url))
-                errors.add(url)
-
-        url_mapping[url] = fdsn_url(url, new_service='dataselect', new_method=method)
-
-    if errors:
-        logger.info(formatmsg('Downloading open data only from: %s'
-                              % ", ".join(errors),
-                              'Unable to acquire credentials for '
-                              'restricted data'))
-
-    # replace station urls with new dataselect urls (query or queryauth methods):
-    channels_df[ws_url_col] = channels_df[ws_url_col].cat.rename_categories(url_mapping)
-
-    # remove webservice_id (which refers to FDSN station). FIXME: useless
-    # channels_df.drop(columns=[Channel.webservice_id.key], inplace=True)
-    # now set webservice id with the FDSN dataselect ids.
-
-    # Step1: get ids of the new dataselect urls (synch with db):
-    ws_df = pd.DataFrame([{'url': u} for u in url_mapping.values()])
-    ws_df = dbsyncdf(
-        ws_df, session, [WebService.url], WebService.id, buf_size=len(url_mapping),
-        keep_duplicates=False
-    )
-    ws_ids = dict(zip(ws_df['url'], ws_df['id']))
-
-    # Step 2: Extract the codes (an integer array of length N = channels_df rows).
-    # Each row gets an int (int8 / int16 / int32 depending on K = number of categories).
-    # Size: N integers (efficient, much smaller than N strings).
-    codes = channels_df[ws_url_col].cat.codes
-
-    # Step 3: Extract the categories (Index of all unique labels).
-    # This is tiny: only K elements.
-    categories = channels_df[ws_url_col].cat.categories
-
-    # Step 4: Build an array that maps category index -> ws_id.
-    # categories.map(ws_ids) creates a Series of length K (one id per category).
-    # .to_numpy() converts it to a NumPy array of length K.
-    codes_to_ids = categories.map(ws_ids).to_numpy()
-
-    # Step 5: Use the codes (length N) to index into codes_to_ids (length K).
-    # This produces a new integer array of length N, one ws_id per row.
-    channels_df[Segment.webservice_id.key] = codes_to_ids[codes]
-
-    return channels_df.copy()

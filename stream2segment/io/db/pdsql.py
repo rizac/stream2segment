@@ -793,7 +793,8 @@ def df2db(
             if len(updater.failed_indices):
                 failed_u = dfr_with_pkeys.loc[updater.failed_indices, :].copy()
 
-    dfr_with_pkeys[id_col] = dfr_with_pkeys[id_col].astype(int)  # for safety
+    if not pd.api.types.is_integer_dtype(dfr[id_col]):  # for safety
+        dfr_with_pkeys[id_col] = dfr_with_pkeys[id_col].astype(int)
 
     return dfr_with_pkeys, failed_i, failed_u
 
@@ -826,10 +827,10 @@ def sync_pkey(
     """
     columns = table_model.__table__.c  # columns collection
     col_names = [id_col] + list(uc_cols)
-    stmt_base = select([columns[c] for c in col_names])
+    stmt_base = select(*(columns[c] for c in col_names))
     if id_col in dfr.columns:
         dfr.drop(columns=[id_col], inplace=True)
-    pkey_max = dfr.attrs[f'{id_col}_max'] = _get_max(engine, columns[id_col])
+    pkey_max = _get_max(engine, columns[id_col])
 
     if chunksize <= 0:  # fetch at once (db table small to medium size)
         db_df = db2df(stmt_base, engine)
@@ -867,10 +868,10 @@ def sync_pkey(
         nan_count = nans.sum()
         if nan_count > 0:
             dfr.loc[nans, id_col] = range(pkey_max + 1, pkey_max + nan_count + 1, 1)
-            dfr.loc[nans, id_col] = dfr.loc[nans, id_col]
 
     if not pd.api.types.is_integer_dtype(dfr[id_col]):  # for safety
         dfr[id_col] = dfr[id_col].astype(int)
+    dfr.attrs[f'{id_col}_max'] = pkey_max
 
     return dfr
 
@@ -1039,7 +1040,7 @@ def insert(df, table_model, conn):
 
         with conn.begin_nested():  # SAVEPOINT
             try:
-                conn.execute(stmt, iter_rows(chunk))
+                conn.execute(stmt, list(iter_rows(chunk)))
             except IntegrityError:
                 # rollback of this chunk happens automatically
                 if len(chunk) == 1:
@@ -1106,7 +1107,7 @@ def update(df, table_model, conn, where_col, update_cols):
 
         with conn.begin_nested():  # SAVEPOINT
             try:
-                conn.execute(stmt, iter_rows(chunk))
+                conn.execute(stmt, list(iter_rows(chunk)))
             except IntegrityError:
                 if len(chunk) == 1:
                     failed_rows.extend(chunk.index)
