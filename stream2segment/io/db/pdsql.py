@@ -30,7 +30,7 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
-from sqlalchemy import select
+from sqlalchemy import select, UpdateBase
 
 # Sql-alchemy:
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
@@ -793,7 +793,7 @@ def df2db(
             if len(updater.failed_indices):
                 failed_u = dfr_with_pkeys.loc[updater.failed_indices, :].copy()
 
-    if not pd.api.types.is_integer_dtype(dfr[id_col]):  # for safety
+    if not pd.api.types.is_integer_dtype(dfr_with_pkeys[id_col]):  # for safety
         dfr_with_pkeys[id_col] = dfr_with_pkeys[id_col].astype(int)
 
     return dfr_with_pkeys, failed_i, failed_u
@@ -803,7 +803,7 @@ def sync_pkey(
     dfr,
     table_model,
     engine,
-    id_col:str,
+    pkey_col:str,
     uc_cols: list[str],
     chunksize=0
 ):
@@ -817,7 +817,7 @@ def sync_pkey(
     ON THE DATABASE**: the id was assigned to be safely used in insert operation.
 
 
-    :param id_col: string denoting the ID (primary key) table column. It
+    :param pkey_col: string denoting the ID (primary key) table column. It
         MUST be a SQL numeric column (preferably, an auto increment primary key
         of type int)
     :param and uc_cols: list of strings denoting the unique constraint columns,
@@ -826,11 +826,11 @@ def sync_pkey(
         performance
     """
     columns = table_model.__table__.c  # columns collection
-    col_names = [id_col] + list(uc_cols)
+    col_names = [pkey_col] + list(uc_cols)
     stmt_base = select(*(columns[c] for c in col_names))
-    if id_col in dfr.columns:
-        dfr.drop(columns=[id_col], inplace=True)
-    pkey_max = _get_max(engine, columns[id_col])
+    if pkey_col in dfr.columns:
+        dfr.drop(columns=[pkey_col], inplace=True)
+    pkey_max = _get_max(engine, columns[pkey_col])
 
     if chunksize <= 0:  # fetch at once (db table small to medium size)
         db_df = db2df(stmt_base, engine)
@@ -839,7 +839,7 @@ def sync_pkey(
     else:  # fetch in chunks (db table huge):
         # create an id_col + suffix where we put fetched db values:
         suffix = '_'
-        while id_col + suffix in dfr.columns:
+        while pkey_col + suffix in dfr.columns:
             suffix += '_'
         stmt = stmt_base.order_by(columns.id.asc()).limit(chunksize)
         while True:
@@ -849,29 +849,29 @@ def sync_pkey(
             dfr = dfr.merge(db_df, how='left', on=uc_cols, suffixes=('', suffix))
             # because we are fetching in chunks, id_col might already exist, so
             # we now have id_col and id_col+suffix. we need to merge into id_col:
-            if id_col + suffix in dfr.columns:
+            if pkey_col + suffix in dfr.columns:
                 # Replace original values with new ones where available:
-                dfr[id_col] = dfr[id_col + suffix].combine_first(dfr[id_col])
+                dfr[pkey_col] = dfr[pkey_col + suffix].combine_first(dfr[pkey_col])
                 # drop new ids (already merged):
-                dfr = dfr.drop(columns=[id_col + suffix])
+                dfr = dfr.drop(columns=[pkey_col + suffix])
             stmt = (
                 stmt_base.
-                where(columns.id > db_df[id_col].max()).
+                where(columns.id > db_df[pkey_col].max()).
                 order_by(columns.id.asc()).
                 limit(chunksize)
             )
 
-    if id_col not in dfr.columns:
-        dfr[id_col] = range(pkey_max + 1, pkey_max + len(dfr) + 1, 1)
+    if pkey_col not in dfr.columns:
+        dfr[pkey_col] = range(pkey_max + 1, pkey_max + len(dfr) + 1, 1)
     else:
-        nans = pd.isna(dfr[id_col])
+        nans = pd.isna(dfr[pkey_col])
         nan_count = nans.sum()
         if nan_count > 0:
-            dfr.loc[nans, id_col] = range(pkey_max + 1, pkey_max + nan_count + 1, 1)
+            dfr.loc[nans, pkey_col] = range(pkey_max + 1, pkey_max + nan_count + 1, 1)
 
-    if not pd.api.types.is_integer_dtype(dfr[id_col]):  # for safety
-        dfr[id_col] = dfr[id_col].astype(int)
-    dfr.attrs[f'{id_col}_max'] = pkey_max
+    if not pd.api.types.is_integer_dtype(dfr[pkey_col]):  # for safety
+        dfr[pkey_col] = dfr[pkey_col].astype(int)
+    dfr.attrs[f'{pkey_col}_max'] = pkey_max
 
     return dfr
 
@@ -1027,28 +1027,31 @@ def insert(df, table_model, conn):
     """
     # table = table_model.__table__
     # columns = table.columns.keys()
-    failed_rows = []
+    return _execute_sql(df, table_model.__table__.insert(), conn)
 
+
+def _execute_sql(df: pd.DataFrame, stmt: UpdateBase, conn):
     # Process DataFrame in chunks
+    failed_rows = []
+    # use a stack for recursion. start_index will be set on failure
+    stack = [(df.index, list(iter_rows(df)))]
 
-    stmt = table_model.__table__.insert()
-    stack = [df]  # use a stack for recursion
     while stack:
-        chunk = stack.pop()
+        pd_index, chunk = stack.pop()
         if len(chunk) == 0:
             continue
 
         with conn.begin_nested():  # SAVEPOINT
             try:
-                conn.execute(stmt, list(iter_rows(chunk)))
+                conn.execute(stmt, chunk)
             except IntegrityError:
                 # rollback of this chunk happens automatically
                 if len(chunk) == 1:
-                    failed_rows.extend(chunk.index)
+                    failed_rows.extend(pd_index)
                 else:
                     mid = len(chunk) // 2
-                    stack.append(chunk.iloc[mid:])
-                    stack.append(chunk.iloc[:mid])
+                    stack.append((pd_index[mid:], chunk[mid:]))
+                    stack.append((pd_index[:mid], chunk[:mid]))
 
     return np.array(failed_rows, dtype=int)
 
@@ -1077,7 +1080,7 @@ class Updater(SqlBatchExecutor):
         )
 
 
-def update(df, table_model, conn, where_col, update_cols):
+def update(df, table_model, conn, where_col:str, update_cols:list[str]):
     """
     Efficient bulk update from DataFrame to SQLAlchemy ORM table.
     Recursively isolates failing rows on constraint errors.
@@ -1088,35 +1091,14 @@ def update(df, table_model, conn, where_col, update_cols):
     :return: the indices (subset of the dataframe index) of the failed rows (int type)
     :param conn: the result of `engine.begin()`
     """
-    failed_rows = []
-
     table = table_model.__table__
-
+    columns = table.c
     stmt = (
         table.update()
-        .where(getattr(table.c, where_col) == bindparam(where_col))
+        .where(columns[where_col] == bindparam(where_col))
         .values({col: bindparam(col) for col in update_cols})
     )
-
-    stack = [df]
-
-    while stack:
-        chunk = stack.pop()
-        if len(chunk) == 0:
-            continue
-
-        with conn.begin_nested():  # SAVEPOINT
-            try:
-                conn.execute(stmt, list(iter_rows(chunk)))
-            except IntegrityError:
-                if len(chunk) == 1:
-                    failed_rows.extend(chunk.index)
-                else:
-                    mid = len(chunk) // 2
-                    stack.append(chunk.iloc[mid:])
-                    stack.append(chunk.iloc[:mid])
-
-    return np.array(failed_rows, dtype=int)
+    return _execute_sql(df, stmt, conn)
 
 
 # def updatedf(dataframe, session, where_col, colnames2update=None, buf_size=10,

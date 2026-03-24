@@ -163,7 +163,7 @@ def get_channels_df(session, fdsn_station_urls, net, sta, loc, cha,
             [ws_url_col]
         )
         logger.info(f'{len(ws_df):,} of {(len(ws_df) + len(i_err)):,} station url(s) saved')
-        if i_err:
+        if len(i_err):
             logger.warning(f"Unable to save {len(i_err)} station url(s):")
             logger.warning(df2str(i_err))
         # now assign:
@@ -187,7 +187,7 @@ def get_channels_df(session, fdsn_station_urls, net, sta, loc, cha,
         # first drop duplicates (all columns the same):
         # this method does very few things as there might be rounding errors that
         # prevent equal columns to be equal. Anyway, we perform here more sound checks
-        channels_df = cha_df.drop_duplicates(keep='first').reset_index(drop=True)
+        cha_df = cha_df.drop_duplicates(keep='first').reset_index(drop=True)
 
         # set ranking based on the order of urls
         cha_df = drop_conflict_between(session, cha_df, urls)
@@ -505,10 +505,9 @@ def drop_conflict_within(channels_df):
             # get end times, replacing None (no end) to a random max time
             end_t = cha_df[end_col].copy()
             end_t[pd.isna(end_t)] = end_t.max().replace(end_t.max().year + 1)
-            time_ranges = end_t - cha_df[start_col].copy()
-            cha_df = cha_df.drop(index=cha_df.index[np.argmax(time_ranges)])
-            conflict_within_indices.extend(cha_df.index)
-            # channels_df.loc[conflicting.index, 'conflict_between'] = True
+            time_ranges = end_t - cha_df[start_col]
+            drop_indices = cha_df.index.copy().delete(np.argmax(time_ranges))
+            conflict_within_indices.extend(drop_indices)
 
         channels_df = channels_df[
             ~channels_df.index.isin(conflict_within_indices)
