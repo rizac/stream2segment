@@ -493,40 +493,49 @@ def drop_conflict_within(channels_df):
             if not cha_df['overlap_with_next'].any():
                 continue
 
-            drop_indices = cha_df.index
-            if cha_df['overlap_with_next'].all():
-                # if columns differ only for instrument attributes,
-                # then we re-arrange time ranges
-                ignore_cols = {
+            if not cha_df['overlap_with_next'].all():
+                conflict_within_indices.extend(cha_df.index)
+                continue
+
+            # if columns differ only for instrument attributes,
+            # then we re-arrange time ranges
+            ignore_cols = {
+                Channel.scale.key,
+                Channel.scale_freq.key,
+                Channel.scale_units.key,
+                Channel.sample_rate.key,
+                start_col,
+                end_col,
+                WebService.url.key,
+                Channel.webservice_id.key
+            }
+            col_equal = all(
+                np.allclose(cha_df[c].iloc[0], cha_df[c].iloc[1:])
+                for c in cha_df.columns.difference(ignore_cols)
+            )
+            if not col_equal:
+                conflict_within_indices.extend(cha_df.index)
+                continue
+
+            if all(
+                np.allclose(cha_df[c].iloc[0], cha_df[c].iloc[1:])
+                for c in [
                     Channel.scale.key,
                     Channel.scale_freq.key,
-                    Channel.scale_units.key,
-                    Channel.sample_rate.key,
-                    start_col,
-                    end_col,
-                    WebService.url.key,
-                    Channel.webservice_id.key
-                }
-                col_equal = all(
-                    np.allclose(cha_df[c].iloc[0], cha_df[c].iloc[1:])
-                    for c in cha_df.columns.difference(ignore_cols)
-                )
-                if col_equal:
-                    if all(
-                        np.allclose(cha_df[c].iloc[0], cha_df[c].iloc[1:])
-                        for c in [
-                            Channel.scale.key,
-                            Channel.scale_freq.key,
-                            Channel.sample_rate.key
-                        ]
-                    ) and len(pd.unique(cha_df[Channel.scale_units.key])) == 1:
-                        # merge all columns:
-                        drop_indices = cha_df.index[1:]
-                        idx = cha_df.index[0]
-                        channels_df.at[idx, start_col] = cha_df[start_col].min()
-                        channels_df.at[idx, end_col] = cha_df[end_col].max()
-                    else:
-                        # FIXME: set start time of next equal to end time of previous
+                    Channel.sample_rate.key
+                ]
+            ) and len(pd.unique(cha_df[Channel.scale_units.key])) == 1:
+                # everything is really the same, merge all columns:
+                conflict_within_indices.extend(cha_df.index[1:])
+                idx = cha_df.index[0]
+                channels_df.at[idx, start_col] = cha_df[start_col].min()
+                channels_df.at[idx, end_col] = cha_df[end_col].max()
+            else:
+                # Only instrument values differ, set start time of next equal to
+                # end time of previous:
+                for i in range(len(cha_df) -1):
+                    start_time = cha_df.at[cha_df.index[i + 1], start_col]
+                    channels_df.at[cha_df.index[i], end_col] = start_time
 
             # # overlapping times. Check if other columns are qual:
             # col_equal = {
@@ -554,7 +563,7 @@ def drop_conflict_within(channels_df):
             #     channels_df.at[idx, start_col] = s_time.min()
             #     channels_df.at[idx, end_col] = e_time.max()
 
-            conflict_within_indices.extend(drop_indices)
+            # conflict_within_indices.extend(drop_indices)
 
             # # overlapping times, all other columns equal. Take min and max time, and
             # # discard others:
