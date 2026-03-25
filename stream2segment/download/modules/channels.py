@@ -443,7 +443,7 @@ def drop_conflict_within(channels_df):
         # Channel.start_time.key,
         webs_id_col,
     ]
-    grp_other_cols = list(channels_df.columns.difference(grp_cols))
+    grp_other_cols = list(channels_df.columns.difference(grp_cols).difference(WebService.url.key))
 
     # Just for ref, these rows are not detected by duplicated (apparently, scale differs):
     #        network_code station_code location_code channel_code   latitude  longitude  elevation  depth  azimuth  dip          scale  scale_freq scale_units  sample_rate          start_time   end_time                                              url  webservice_id
@@ -487,13 +487,16 @@ def drop_conflict_within(channels_df):
             cha_df.loc[pd.isna(cha_df[end_col]), end_col] = pd.Timestamp.now()
             cha_df = cha_df.sort_values(by=[start_col, end_col], ascending=True)
             cha_df['overlap_with_next'] = (
-                cha_df[end_col][:-1] > cha_df[start_col].values[1:]
-            ).append(False).astype(bool)
+                np.append(
+                    [cha_df[end_col].values[:-1] > cha_df[start_col].values[1:]],
+                    False
+                ).astype(bool)
+            )
 
             if not cha_df['overlap_with_next'].any():
                 continue
 
-            if not cha_df['overlap_with_next'].all():
+            if not cha_df['overlap_with_next'][:-1].all():  # ignore last elm., is False
                 conflict_within_indices.extend(cha_df.index)
                 continue
 
@@ -506,12 +509,11 @@ def drop_conflict_within(channels_df):
                 Channel.sample_rate.key,
                 start_col,
                 end_col,
-                WebService.url.key,
-                Channel.webservice_id.key
+                WebService.url.key
             }
             col_equal = all(
                 np.allclose(cha_df[c].iloc[0], cha_df[c].iloc[1:])
-                for c in cha_df.columns.difference(ignore_cols)
+                for c in cha_df.columns.difference(grp_cols).difference(ignore_cols)
             )
             if not col_equal:
                 conflict_within_indices.extend(cha_df.index)
