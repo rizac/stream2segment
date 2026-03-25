@@ -217,11 +217,16 @@ def get_channels_df(session, fdsn_station_urls, net, sta, loc, cha,
     # post process cha_df and return only relevant data
 
     # convert to categorical type (for safety):
-    for c in (Channel.network_code.key, Channel.channel_code.key,
-              Channel.location_code.key,
-              Channel.station_code.key, ws_url_col):
+    for c in (
+        Channel.network_code.key,
+        Channel.station_code.key,
+        Channel.location_code.key,
+        Channel.channel_code.key,
+        ws_url_col
+    ):
         if not is_categorical_dtype(cha_df[c]):
             cha_df[c] = cha_df[c].astype('str').astype('category')
+
     # return a copy of relevant columns only:
     return cha_df[[
         Channel.id.key,
@@ -435,6 +440,20 @@ def drop_conflict_within(channels_df):
     webs_id_col = Channel.webservice_id.key
     start_col = Channel.start_time.key
     end_col = Channel.end_time.key
+    geoloc_cols = [
+        Channel.latitude.key,
+        Channel.longitude.key,
+        Channel.elevation.key,
+        Channel.depth.key,
+        Channel.azimuth.key,
+        Channel.dip.key,
+    ]
+    inst_cols = [
+        Channel.scale.key,
+        Channel.scale_freq.key,
+        Channel.scale_units.key,
+        Channel.sample_rate.key
+    ]
     grp_cols = [
         Channel.network_code.key,
         Channel.station_code.key,
@@ -443,7 +462,12 @@ def drop_conflict_within(channels_df):
         # Channel.start_time.key,
         webs_id_col,
     ]
-    grp_other_cols = list(channels_df.columns.difference(grp_cols).difference(WebService.url.key))
+
+    def allclose(col: pd.Series, **kwargs):
+        """np.allclose robust to non-numeric dtypes"""
+        if pd.api.types.is_numeric_dtype(col):
+            return np.allclose(col.iloc[0], col.iloc[1:], **kwargs)
+        return len(pd.unique(col)) == 1
 
     # Just for ref, these rows are not detected by duplicated (apparently, scale differs):
     #        network_code station_code location_code channel_code   latitude  longitude  elevation  depth  azimuth  dip          scale  scale_freq scale_units  sample_rate          start_time   end_time                                              url  webservice_id
@@ -452,7 +476,7 @@ def drop_conflict_within(channels_df):
     #
 
     conflict_within = (
-        channels_df.groupby(grp_cols)[grp_other_cols].transform("nunique") > 1
+        channels_df.groupby(grp_cols)[geoloc_cols + inst_cols].transform("nunique") > 1
     ).any(axis=1)
     # (channels_df[conflict_within].sort_values(grp2_cols, ascending=True).
     # to_csv(
@@ -483,58 +507,46 @@ def drop_conflict_within(channels_df):
             if len(cha_df) <= 1:  # for safety
                 continue
 
+            if cha_df.station_code.iloc[0] ==  'KAN12':
+                asd = 9
             cha_df = cha_df.copy()
             cha_df.loc[pd.isna(cha_df[end_col]), end_col] = pd.Timestamp.now()
             cha_df = cha_df.sort_values(by=[start_col, end_col], ascending=True)
-            cha_df['overlap_with_next'] = (
+            overlap_with_next = (
                 np.append(
                     [cha_df[end_col].values[:-1] > cha_df[start_col].values[1:]],
                     False
                 ).astype(bool)
             )
 
-            if not cha_df['overlap_with_next'].any():
+            if not overlap_with_next.any():  # no time range overlaps -> ok
                 continue
 
-            if not cha_df['overlap_with_next'][:-1].all():  # ignore last elm., is False
+            if not overlap_with_next[:-1].all():
+                # not all time ranges overlap ->  discard
                 conflict_within_indices.extend(cha_df.index)
                 continue
 
-            # if columns differ only for instrument attributes,
-            # then we re-arrange time ranges
-            ignore_cols = {
-                Channel.scale.key,
-                Channel.scale_freq.key,
-                Channel.scale_units.key,
-                Channel.sample_rate.key,
-                start_col,
-                end_col,
-                WebService.url.key
-            }
-            col_equal = all(
-                np.allclose(cha_df[c].iloc[0], cha_df[c].iloc[1:])
-                for c in cha_df.columns.difference(grp_cols).difference(ignore_cols)
-            )
-            if not col_equal:
+            # First check that geo locations match (otherwise we might have
+            # inconsistencies in arrival times for same channel) by relaxing a bit
+            # equality (use allclose):
+            if not all(allclose(cha_df[c]) for c in geoloc_cols):
+                # geo position mismatch: discard all
                 conflict_within_indices.extend(cha_df.index)
                 continue
 
-            if all(
-                np.allclose(cha_df[c].iloc[0], cha_df[c].iloc[1:])
-                for c in [
-                    Channel.scale.key,
-                    Channel.scale_freq.key,
-                    Channel.sample_rate.key
-                ]
-            ) and len(pd.unique(cha_df[Channel.scale_units.key])) == 1:
-                # everything is really the same, merge all columns:
-                conflict_within_indices.extend(cha_df.index[1:])
+            if all(allclose(cha_df[c]) for c in inst_cols):
+                # only time ranges differ, merge all columns into first:
                 idx = cha_df.index[0]
+                # merge time ranges:
                 channels_df.at[idx, start_col] = cha_df[start_col].min()
                 channels_df.at[idx, end_col] = cha_df[end_col].max()
+                # discard other columns:
+                conflict_within_indices.extend(cha_df.index[1:])
             else:
-                # Only instrument values differ, set start time of next equal to
-                # end time of previous:
+                # Only instrument values differ, then it is likely a problem in time
+                # ranges. Because they all overlap, set end times to not overlap next
+                # start time (keep all columns):
                 for i in range(len(cha_df) -1):
                     start_time = cha_df.at[cha_df.index[i + 1], start_col]
                     channels_df.at[cha_df.index[i], end_col] = start_time
@@ -618,9 +630,20 @@ def save_channels(session, channels_df, update, db_bufsize):
                              '(e.g., drop duplicates)')
 
     # if update is True, don't update inventories HERE (handled later)
-    _update_stations = update
-    if _update_stations:
-        _update_stations = list(shared_colnames(Channel, channels_df, pkey=False))
+    update_cols = []
+    if update:
+        update_cols = [
+            Channel.latitude.key,
+            Channel.longitude.key,
+            Channel.elevation.key,
+            Channel.depth.key,
+            Channel.azimuth.key,
+            Channel.dip.key,
+            Channel.scale.key,
+            Channel.scale_freq.key,
+            Channel.scale_units.key,
+            Channel.sample_rate.key,
+        ]
 
     # # Add stations to db (Note: no need to check for `empty(channels_df)`,
     # # `dbsyncdf` raises a `FailedDownload` in case). First set columns
@@ -663,16 +686,21 @@ def save_channels(session, channels_df, update, db_bufsize):
     # Add channels to db. First set columns defining channel identity (db
     # unique constraint):
     # cols = [Channel.station_id, Channel.location, Channel.channel]
-    cols = [
-        Channel.network_code, Channel.station_code,
-        Channel.location_code, Channel.channel_code, Channel.start_time,
-        Channel.webservice_id
+    uc_cols = [
+        Channel.network_code.key,
+        Channel.station_code.key,
+        Channel.location_code.key,
+        Channel.channel_code.key,
+        Channel.start_time.key,
     ]
-    channels_df = sync_pkey(channels_df, [c.key for c in cols])
-    with Inserter(session.get_bind(), Channel, len(channels_df)) as inserter:
-        inserter.insert(channels_df)
-
-    inserter.failed()
+    channels_df, i_err, u_failed = df2db(
+        channels_df, Channel, session.get_bind(), Channel.id.key, uc_cols, update_cols
+    )
+    logger.info(f'{len(channels_df):,} of {(len(channels_df) + len(i_err)):,} '
+                f'seismic channel(s) saved')
+    if len(i_err):
+        logger.warning(f"Unable to save {len(i_err)} seismic channel(s):")
+        logger.warning(df2str(i_err))
 
     # # Then add (sync actually, already existing channels are not inserted):
     # channels_df = dbsyncdf(
