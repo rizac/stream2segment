@@ -440,7 +440,7 @@ def drop_conflict_within(channels_df):
         Channel.station_code.key,
         Channel.location_code.key,
         Channel.channel_code.key,
-        Channel.start_time.key,
+        # Channel.start_time.key,
         webs_id_col,
     ]
     grp_other_cols = list(channels_df.columns.difference(grp_cols))
@@ -480,34 +480,113 @@ def drop_conflict_within(channels_df):
         for _, cha_df in channels_df[conflict_within].groupby(
             grp_cols, sort=False
         ):
-            if len(cha_df) <= 1:
+            if len(cha_df) <= 1:  # for safety
                 continue
 
-            # get how many end times match existing start times
-            other_idx = ~channels_df.index.isin(cha_df.index)
-            num_matches = np.array([
-                (channels_df[other_idx][end_col] == cha_df.iloc[i][start_col]).sum()
-                for i in range(len(cha_df))],
-                dtype=int
-            )
-            # if some match and some don't remove those who don't:
-            if (num_matches > 0).any() and (num_matches ==0).any():
-                cha_df = cha_df[num_matches > 0]
-                conflict_within_indices.extend(cha_df[num_matches == 0].index)
+            cha_df = cha_df.copy()
+            cha_df.loc[pd.isna(cha_df[end_col]), end_col] = pd.Timestamp.now()
+            cha_df = cha_df.sort_values(by=[start_col, end_col], ascending=True)
+            cha_df['overlap_with_next'] = (
+                cha_df[end_col][:-1] > cha_df[start_col].values[1:]
+            ).append(False).astype(bool)
 
-            if len(cha_df) <= 1:
+            if not cha_df['overlap_with_next'].any():
                 continue
 
-            # No conflict resolution. So take the row that has maximum time span.
-            # Though arbitrary and potentially
-            # overlapping with other rows, this way we might download once more which
-            # is preferable to skip some:
-            # get end times, replacing None (no end) to a random max time
-            end_t = cha_df[end_col].copy()
-            end_t[pd.isna(end_t)] = end_t.max().replace(end_t.max().year + 1)
-            time_ranges = end_t - cha_df[start_col]
-            drop_indices = cha_df.index.copy().delete(np.argmax(time_ranges))
+            drop_indices = cha_df.index
+            if cha_df['overlap_with_next'].all():
+                # if columns differ only for instrument attributes,
+                # then we re-arrange time ranges
+                ignore_cols = {
+                    Channel.scale.key,
+                    Channel.scale_freq.key,
+                    Channel.scale_units.key,
+                    Channel.sample_rate.key,
+                    start_col,
+                    end_col,
+                    WebService.url.key,
+                    Channel.webservice_id.key
+                }
+                col_equal = all(
+                    np.allclose(cha_df[c].iloc[0], cha_df[c].iloc[1:])
+                    for c in cha_df.columns.difference(ignore_cols)
+                )
+                if col_equal:
+                    if all(
+                        np.allclose(cha_df[c].iloc[0], cha_df[c].iloc[1:])
+                        for c in [
+                            Channel.scale.key,
+                            Channel.scale_freq.key,
+                            Channel.sample_rate.key
+                        ]
+                    ) and len(pd.unique(cha_df[Channel.scale_units.key])) == 1:
+                        # merge all columns:
+                        drop_indices = cha_df.index[1:]
+                        idx = cha_df.index[0]
+                        channels_df.at[idx, start_col] = cha_df[start_col].min()
+                        channels_df.at[idx, end_col] = cha_df[end_col].max()
+                    else:
+                        # FIXME: set start time of next equal to end time of previous
+
+            # # overlapping times. Check if other columns are qual:
+            # col_equal = {
+            #     c: len(cha_df[c].value_counts(dropna=False)) == 1
+            #     for c in grp_other_cols if c not in {start_col, end_col}
+            # }
+            # if not all(col_equal.values()):
+            #     for key, all_equal in col_equal.items():
+            #         if not all_equal:
+            #             if not pd.api.types.is_numeric_dtype(cha_df[key]):
+            #                 break
+            #             kwargs = {}
+            #             if key in [Channel.latitude.key, Channel.longitude.key]:
+            #                 kwargs = {'atol': 0.005, 'rtol': 0}  # atol 0.005 ~= 555 mt
+            #             all_equal = col_equal[key] = np.allclose(
+            #                 cha_df[key].iloc[0], cha_df[key].iloc[1:], **kwargs
+            #             )
+            #         if not all_equal:
+            #             break
+            # if not all(col_equal.values()):
+            #     drop_indices = cha_df.index
+            # else:
+            #     drop_indices = cha_df.index[1:]
+            #     idx = cha_df.index[0]
+            #     channels_df.at[idx, start_col] = s_time.min()
+            #     channels_df.at[idx, end_col] = e_time.max()
+
             conflict_within_indices.extend(drop_indices)
+
+            # # overlapping times, all other columns equal. Take min and max time, and
+            # # discard others:
+            # discard_indices = cha_df
+            # cha_df.loc
+            #
+            #
+            # # get how many end times match existing start times
+            # other_idx = ~channels_df.index.isin(cha_df.index)
+            # num_matches = np.array([
+            #     (channels_df[other_idx][end_col] == cha_df.iloc[i][start_col]).sum()
+            #     for i in range(len(cha_df))],
+            #     dtype=int
+            # )
+            # # if some match and some don't remove those who don't:
+            # if (num_matches > 0).any() and (num_matches ==0).any():
+            #     cha_df = cha_df[num_matches > 0]
+            #     conflict_within_indices.extend(cha_df[num_matches == 0].index)
+            #
+            # if len(cha_df) <= 1:
+            #     continue
+            #
+            # # No conflict resolution. So take the row that has maximum time span.
+            # # Though arbitrary and potentially
+            # # overlapping with other rows, this way we might download once more which
+            # # is preferable to skip some:
+            # # get end times, replacing None (no end) to a random max time
+            # end_t = cha_df[end_col].copy()
+            # end_t[pd.isna(end_t)] = end_t.max().replace(end_t.max().year + 1)
+            # time_ranges = end_t - cha_df[start_col]
+            # drop_indices = cha_df.index.copy().delete(np.argmax(time_ranges))
+            # conflict_within_indices.extend(drop_indices)
 
         channels_df = channels_df[
             ~channels_df.index.isin(conflict_within_indices)
