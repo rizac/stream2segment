@@ -965,24 +965,34 @@ def db2df(query, engine) -> pd.DataFrame:
 
 class SqlBatchExecutor:
 
-    def __init__(self, engine, table_model, chunksize=1000):
+    def __init__(self, engine, table_model, chunksize=10000):
         self.engine = engine
         self.table_model = table_model
         self.chunksize = chunksize
         self._buf = []
-        self._failed_indices = []
+        self._failed_indices = np.array([], dtype=int)
 
     def add(self, dataframe):
         curr_length = sum(len(_) for _ in self._buf)
-        if curr_length + len(dataframe) > self.chunksize:
-            self.execute()
-        self._buf.append(dataframe[shared_colnames(self.table_model, dataframe)])
+        while curr_length + len(dataframe) >= self.chunksize:
+            self._buf.append(dataframe.iloc[:self.chunksize - curr_length])
+            dataframe = dataframe.iloc[self.chunksize - curr_length:]
+            self.execute()  # resets _buf to 0, so:
+            curr_length = 0
+        if not dataframe.empty:
+            self._buf.append(dataframe)
+
 
     def execute(self):
         if self._buf:
             dfr = pd.concat(self._buf, ignore_index=False)
             with self.engine.begin() as conn:
-                self._failed_indices.extend(self._execute(dfr, self.table_model, conn))
+                failed_idxs = self._execute(
+                    dfr[shared_colnames(self.table_model, dfr)],
+                    self.table_model,
+                    conn
+                )
+                np.append(self._failed_indices, failed_idxs)
             self._buf.clear()
 
     def _execute(self, dfr, table_model, conn) -> Sequence[int]:
@@ -994,7 +1004,7 @@ class SqlBatchExecutor:
 
     @property
     def failed_indices(self):
-        return self._failed_indices or []
+        return self._failed_indices
 
     # Context manager methods
     def __enter__(self):
@@ -1028,32 +1038,6 @@ def insert(df, table_model, conn):
     # table = table_model.__table__
     # columns = table.columns.keys()
     return _execute_sql(df, table_model.__table__.insert(), conn)
-
-
-def _execute_sql(df: pd.DataFrame, stmt: UpdateBase, conn):
-    # Process DataFrame in chunks
-    failed_rows = []
-    # use a stack for recursion. start_index will be set on failure
-    stack = [(df.index, list(iter_rows(df)))]
-
-    while stack:
-        pd_index, chunk = stack.pop()
-        if len(chunk) == 0:
-            continue
-
-        with conn.begin_nested():  # SAVEPOINT
-            try:
-                conn.execute(stmt, chunk)
-            except IntegrityError:
-                # rollback of this chunk happens automatically
-                if len(chunk) == 1:
-                    failed_rows.extend(pd_index)
-                else:
-                    mid = len(chunk) // 2
-                    stack.append((pd_index[mid:], chunk[mid:]))
-                    stack.append((pd_index[:mid], chunk[:mid]))
-
-    return np.array(failed_rows, dtype=int)
 
 
 class Updater(SqlBatchExecutor):
@@ -1099,6 +1083,32 @@ def update(df, table_model, conn, where_col:str, update_cols:list[str]):
         .values({col: bindparam(col) for col in update_cols})
     )
     return _execute_sql(df, stmt, conn)
+
+
+def _execute_sql(df: pd.DataFrame, stmt: UpdateBase, conn):
+    # Process DataFrame in chunks
+    failed_rows = []
+    # use a stack for recursion. start_index will be set on failure
+    stack = [(df.index, list(iter_rows(df)))]
+
+    while stack:
+        pd_index, chunk = stack.pop()
+        if len(chunk) == 0:
+            continue
+
+        try:
+            with conn.begin_nested():  # SAVEPOINT
+                conn.execute(stmt, chunk)
+        except IntegrityError:
+            # rollback of this chunk happens automatically
+            if len(chunk) == 1:
+                failed_rows.append(pd_index[0])
+            else:
+                mid = len(chunk) // 2
+                stack.append((pd_index[mid:], chunk[mid:]))
+                stack.append((pd_index[:mid], chunk[:mid]))
+
+    return np.array(failed_rows, dtype=int)
 
 
 # def updatedf(dataframe, session, where_col, colnames2update=None, buf_size=10,

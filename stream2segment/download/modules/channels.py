@@ -187,7 +187,7 @@ def get_channels_df(session, fdsn_station_urls, net, sta, loc, cha,
         # first drop duplicates (all columns the same):
         # this method does very few things as there might be rounding errors that
         # prevent equal columns to be equal. Anyway, we perform here more sound checks
-        cha_df = cha_df.drop_duplicates(keep='first').reset_index(drop=True)
+        cha_df = cha_df.drop_duplicates(keep='first')
 
         # set ranking based on the order of urls
         cha_df = drop_conflict_between(session, cha_df, urls)
@@ -326,6 +326,7 @@ def drop_conflict_between(session, channels_df, urls:list[str] = None):
         involved to be dropped
     :return: a new dataframe with duplicated rows removed
     """
+    channels_df.reset_index(drop=True, inplace=True)
     # conflict between case is when station webservice is not unique, e.g.:
     #   net sta webservice_id
     #   N   S   1
@@ -436,6 +437,7 @@ def drop_conflict_within(channels_df):
 
     :return: a new dataframe with duplicated rows removed
     """
+    channels_df.reset_index(drop=True, inplace=True)
     # conflict within
     webs_id_col = Channel.webservice_id.key
     start_col = Channel.start_time.key
@@ -507,8 +509,6 @@ def drop_conflict_within(channels_df):
             if len(cha_df) <= 1:  # for safety
                 continue
 
-            if cha_df.station_code.iloc[0] ==  'KAN12':
-                asd = 9
             cha_df = cha_df.copy()
             cha_df.loc[pd.isna(cha_df[end_col]), end_col] = pd.Timestamp.now()
             cha_df = cha_df.sort_values(by=[start_col, end_col], ascending=True)
@@ -690,9 +690,16 @@ def save_channels(session, channels_df, update, db_bufsize):
         Channel.network_code.key,
         Channel.station_code.key,
         Channel.location_code.key,
-        Channel.channel_code.key,
+        Channel.band_code.key,
+        Channel.instrument_code.key,
+        Channel.orientation_code.key,
         Channel.start_time.key,
     ]
+    channels_df[[
+        Channel.band_code.key,
+        Channel.instrument_code.key,
+        Channel.orientation_code.key
+    ]] = channels_df['channel_code'].str.extract(r'(.)(.)(.)').astype('category')
     channels_df, i_err, u_failed = df2db(
         channels_df, Channel, session.get_bind(), Channel.id.key, uc_cols, update_cols
     )
