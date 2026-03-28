@@ -255,6 +255,7 @@ def _run(session, download_id, events_url, starttime, endtime, data_url,
         channels_df = get_channels_df(
             session, station_urls, network, station, location, channel,
             starttime, endtime, min_sample_rate, update_metadata,
+            advanced_settings['routing_service_url'],
             max_thread_workers, advanced_settings['s_timeout'],
             download_blocksize, dbbufsize, isterminal
         )

@@ -6,19 +6,22 @@ Stations/Channels download functions
 import re
 import logging
 from itertools import combinations
+from datetime import datetime
 from multiprocessing.pool import ThreadPool
 from urllib.parse import urlunparse, urlparse
 
 import numpy as np
 import pandas as pd
 from pandas.core.dtypes.common import is_categorical_dtype
+from sqlalchemy import select
 from sqlalchemy.dialects.mssql.information_schema import columns
 
+from stream2segment.download.modules.datacenters import get_eida_rs_response
 # from sqlalchemy import or_, and_
 
 from stream2segment.io.cli import get_progressbar
 from stream2segment.io.db.pdsql import shared_colnames, \
-    Inserter, sync_pkey, df2db  # dbquery2df, , mergeupdate
+    Inserter, sync_pkey, df2db, get_row_count  # dbquery2df, , mergeupdate
 from stream2segment.io.db.models import Channel, WebService, Segment
 from stream2segment.download.exc import FailedDownload
 from stream2segment.download.url import urlread, get_host
@@ -32,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 
 def get_channels_df(session, fdsn_station_urls, net, sta, loc, cha,
-                    starttime, endtime, min_sample_rate, update,
+                    starttime, endtime, min_sample_rate, update, eida_rs_urls,
                     max_thread_workers, timeout, blocksize, db_bufsize,
                     show_progress=False):
     """Return a Dataframe representing a query to the station service of each
@@ -98,8 +101,8 @@ def get_channels_df(session, fdsn_station_urls, net, sta, loc, cha,
     #         yield fdsn_url_qs(url, **kw_args)
 
     t_pool = ThreadPool(2)
-    def _urlread(url):
-        return urlread(url, timeout=timeout, blocksize=blocksize)
+    def _urlread(_):
+        return _[0], urlread(_[1], timeout=timeout, blocksize=blocksize)
 
     urls = list(fdsn_station_urls)
 
@@ -107,7 +110,7 @@ def get_channels_df(session, fdsn_station_urls, net, sta, loc, cha,
     failed_dframe_rows = []
     station_urls = set()
     with get_progressbar(len(urls) if show_progress else 0) as pbar:
-        for response in t_pool.imap_unordered(_urlread, urls):
+        for idx, response in t_pool.imap_unordered(_urlread, enumerate(urls)):
             pbar.update(1)
             # FIXME REMOVE
             # sta_ws_url = obj[0]
@@ -121,6 +124,7 @@ def get_channels_df(session, fdsn_station_urls, net, sta, loc, cha,
 
             try:
                 dframe = fdsn_channel_response_text_to_df(response.data.decode('utf8'))
+                dframe['__.rank.__'] = idx
                 discarded = dframe.attrs.pop('discarded', 0)
                 if discarded > 0:
                     logger.warning(formatmsg(f"{discarded} row(s) discarded",
@@ -190,7 +194,7 @@ def get_channels_df(session, fdsn_station_urls, net, sta, loc, cha,
         cha_df = cha_df.drop_duplicates(keep='first')
 
         # set ranking based on the order of urls
-        cha_df = drop_conflict_between(session, cha_df, urls)
+        cha_df = drop_conflict_between(session, cha_df, eida_rs_urls)
 
         cha_df = drop_conflict_within(cha_df)
 
@@ -313,7 +317,7 @@ def filter_out_channels_df(channels_df, net, sta, loc, cha, min_sample_rate):
     return ret
 
 
-def drop_conflict_between(session, channels_df, urls:list[str] = None):
+def drop_conflict_between(session, channels_df, eida_rs_urls: list[str] | None = None):
     """
     Drop from channels_df conflict between, i.e., network.station codes
     returned by several URLs. Duplicated rows will be resolved against the
@@ -331,13 +335,11 @@ def drop_conflict_between(session, channels_df, urls:list[str] = None):
     #   net sta webservice_id
     #   N   S   1
     #   N   S   2
-
-    grp_cols = [
-        Channel.network_code.key,
-        Channel.station_code.key,
-        Channel.location_code.key,
-        Channel.channel_code.key,
-    ]
+    net_col = Channel.network_code.key
+    sta_col = Channel.station_code.key
+    loc_col = Channel.location_code.key
+    cha_col = Channel.channel_code.key
+    grp_cols = [net_col, sta_col, loc_col, cha_col]
     webs_id_col = Channel.webservice_id.key
 
     conflict_between = (
@@ -349,15 +351,17 @@ def drop_conflict_between(session, channels_df, urls:list[str] = None):
     #     index=False
     # ))
 
+    table_empty = get_row_count(channels_df) < 1
+
     # log messages:
     if conflict_between.any():
         log_df = channels_df[conflict_between].groupby(
-            grp_cols[:2], as_index=False
+            [net_col, sta_col], as_index=False
         ).agg({ WebService.url.key: lambda x: ", ".join(sorted(set(x))) })
         logger.warning(
             f'Conflict: different URLs returning the same station. Conflicts summary:'
         )
-        columns2show = grp_cols[:2] + ['URLs (should be 1)']
+        columns2show = [net_col, sta_col] + ['URLs (should be 1)']
         log_df = log_df.rename(columns={WebService.url.key: columns2show[-1]})
         logger.warning(
             log_df[columns2show].sort_values(by=columns2show).to_string(
@@ -368,55 +372,40 @@ def drop_conflict_between(session, channels_df, urls:list[str] = None):
         conflict_between_indices = []
         # although we check conflicts by net.sta.loc.cha, we are interested in fixing
         # the station problem here
-        rank_col_name = None
-        if urls is not None:
-            rank_col_name = '_rank'
-            while rank_col_name in channels_df.columns:
-                rank_col_name += '_'
-            urls_rank = np.full(len(channels_df), np.iinfo(int).max, dtype=int)
-            _urls_done = set()
-            for url in urls:
-                url = url[:url.find("?")] if "?" in url else url  # no query string
-                if url in _urls_done:
-                    continue
-                _urls_done.add(url)
-                url_rank = len(_urls_done)
-                urls_rank[channels_df[WebService.url.key].str.startswith(url)] = url_rank
-            channels_df[rank_col_name] = urls_rank
+        rank_col_name = '__.rank.__'
 
-        net_sta_df = channels_df.loc[conflict_between, grp_cols[:2]]
-        net_sta_df = net_sta_df.drop_duplicates(keep='first')
-        for (net, sta) in net_sta_df.itertuples(index=False, name=None):
-            real_dc_ids = set(
-                _[0] for _ in session.query(Channel.webservice_id).filter(
-                    (Channel.network_code == net) & (Channel.station_code == sta)
-                ).all()
-            )
-            conflicting = channels_df.loc[
-                conflict_between &
-                (channels_df[Channel.network_code.key] == net) &
-                (channels_df[Channel.station_code.key] == sta),
-                :
-            ]
+        for (net, sta, loc, cha_prefix), cha_df in (
+            channels_df.loc[conflict_between].groupby([
+                net_col, sta_col, loc_col, channels_df[cha_col].str[:2]
+            ], sort=False)
+        ):
+            if not table_empty:
+                keep_indices = _check_conflict_between_via_db(
+                    session.get_bind(),
+                    cha_df,
+                    net,
+                    sta,
+                    loc,
+                    cha_prefix[0],
+                    cha_prefix[1]
+                )
+                cha_df = cha_df[~cha_df.index.isin(keep_indices)]
 
-            real_ws_id = None
-            if len(real_dc_ids) == 1:
-                real_ws_id = next(iter(real_dc_ids))
-            elif rank_col_name is not None:
+            if eida_rs_urls is not None and not cha_df.empty:
+                eida_rs_json = get_eida_rs_response(eida_rs_urls, net=net, sta=sta)
+                _keep_indices = _check_conflict_between_via_eida_rs(
+                    cha_df, eida_rs_json, net_col, sta_col, loc_col, cha_col
+                )
+                cha_df = cha_df[~cha_df.index.isin(_keep_indices)]
+
+            if not cha_df.empty:
                 # conflict found, unresolvable through already saved data. Get first
-                # if instructed to do so
-                real_ws_id = conflicting[
-                    conflicting[rank_col_name] == conflicting[rank_col_name].min()
+                # if instructed to do so. FIXME add param or do it automatically likle here?
+                real_ws_id = cha_df[
+                    cha_df[rank_col_name] == cha_df[rank_col_name].min()
                 ].iloc[0][webs_id_col]
-
-            if real_ws_id is not None:
-                # Conflict found, resolved through already saved data. The real webservice
-                # id is one => discard all (net, sta, stime) with different webservices id:
-                conflicting = conflicting[conflicting[webs_id_col] != real_ws_id]
-
-            if not conflicting.empty:
-                conflict_between_indices.extend(conflicting.index)
-                # channels_df.loc[conflicting.index, 'conflict_between'] = True
+                keep_indices = cha_df[cha_df[webs_id_col] == real_ws_id].index
+                conflict_between_indices.extend(~cha_df.index.isin(keep_indices))
 
         if rank_col_name is not None:
             channels_df = channels_df.drop(columns=rank_col_name)
@@ -426,6 +415,81 @@ def drop_conflict_between(session, channels_df, urls:list[str] = None):
         ].copy()
 
     return channels_df
+
+
+def _check_conflict_between_via_db(engine, cha_df, net, sta, loc, band, inst):
+
+    webs_id_col = Channel.webservice_id.key
+    keep_indices = []
+
+    for _, cha_df in cha_df.groupby([webs_id_col], sort=False):
+
+        stmt = (
+            select(Channel.webservice_id)
+            .where(
+                (Channel.network_code == net) &
+                (Channel.station_code == sta) &
+                (Channel.location_code == loc) &
+                (Channel.band_code == band) &
+                (Channel.instrument_code == inst)
+            )
+        )
+
+        with engine.connect() as conn:
+            real_ws_ids = conn.execute(stmt).all()
+
+        if len(real_ws_ids) == 1:
+            keep_indices.extend(
+                cha_df[cha_df[webs_id_col] == next(iter(real_ws_ids))].index
+            )
+        return keep_indices
+
+
+def _check_conflict_between_via_eida_rs(
+    eida_rs_json, cha_df, net_col, sta_col,  loc_col, cha_col
+):
+
+    keep_indices = []
+    urls = []
+    for item in eida_rs_json:
+        urls.append(item['url'])
+        flt = cha_df[WebService.url.key] == item['url']
+        for params in item['params']:
+            if params['priority'] != 1:
+                continue
+            for df_col, eida_col in {
+                net_col: 'net',
+                sta_col: 'sta',
+                loc_col: 'loc',
+                cha_col: 'cha'
+            }.items():
+                flt &= (
+                    cha_df[df_col].str.match(_fdsn_pval_to_regex(params[eida_col]))
+                )
+            flt &= (
+                cha_df[Channel.start_time.key] >=
+                datetime.fromisoformat(params['start'])
+            )
+            if params['end']:
+                flt &= (
+                           cha_df[Channel.end_time.key] <=
+                           datetime.fromisoformat(params['end'])
+                       ) | cha_df[Channel.end_time.key].isna()
+        keep_indices.extend(cha_df[flt].index)
+
+    # channels not in any eida url have to be taken because we could not infer:
+    keep_indices.extend(cha_df[~cha_df[WebService.url.key].isin(urls)].index)
+    return keep_indices
+
+
+def _fdsn_pval_to_regex(fdsn_value: str):
+    return (
+        "^" + fdsn_value
+        .replace('.', r'\.')
+        .replace('?', '.')
+        .replace('*', '.*') +
+        "$"
+    )
 
 
 def drop_conflict_within(channels_df):

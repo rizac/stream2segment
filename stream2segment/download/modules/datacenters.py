@@ -4,6 +4,7 @@ Data center(s) download functions
 :date: Dec 3, 2017
 """
 from collections.abc import Iterable
+import json
 from datetime import datetime
 import logging
 # from itertools import chain
@@ -34,8 +35,6 @@ def get_stations_urls(
     """
     Return an iterator of FDSN station urls from the given arguments
     """
-    # eida response text will be needed anyway to create an EidaValidator
-    eidars_response_text = None  # lazy loaded
     if isinstance(webservice_url, str):
         webservice_url = [webservice_url]
     params = {
@@ -57,17 +56,42 @@ def get_stations_urls(
         urls_done.add(service_url)
 
         if service_url == 'eida':
-            if eidars_response_text is None:
-                eidars_response_text = get_eidars_response_text(
-                    routing_service_url, **params
+            priority_skipped = 0
+            # if eidars_response_text is None:  # FIXME REMOVE
+            #     eidars_response_text = get_eidars_response_text(
+            #         routing_service_url, **params
+            #     )
+            eida_rs: dict = get_eida_rs_response(routing_service_url, **params)
+            # sort (for easier grouping here below):
+            for eida_dc_dict in eida_rs:
+                eida_dc_dict['params'] = sorted(
+                    eida_dc_dict['params'],
+                    key=lambda p: (p['net'], p['sta'], p['loc'], p['cha'])
                 )
-            for url, _params in (
-                scan_eida_rs_station_response(eidars_response_text, True)
-            ):
+            for line in eida_rs:
                 # overwrite start end:
-                _params['start'] = starttime
-                _params['end'] = endtime
-                parsed_urls.append((url, _params))
+                url = line['url']
+                for _params in line['params']:
+                    if _params.get('priority', 2) > 1:
+                        priority_skipped += 1
+                        continue
+                    _params.pop('priority')
+                    _params['start'] = starttime
+                    _params['end'] = endtime
+                    merged_into_previous = False
+                    if len(parsed_urls) and parsed_urls[-1][0] == url:
+                        _last_params = parsed_urls[-1][1]
+                        for prm in ['net', 'sta', 'loc', 'cha']:
+                            if all(
+                                _params[p] in _last_params[p].split(",")
+                                for p in ['net', 'sta', 'loc', 'cha'] if p != prm
+                            ):
+                                if _params[prm] not in _last_params[prm].split(','):
+                                    _last_params[prm] += f',{_params[prm]}'
+                                merged_into_previous = True
+                                break
+                    if not merged_into_previous:
+                        parsed_urls.append((url, _params))
 
         else:
             if service_url == 'iris':
@@ -187,166 +211,190 @@ def check_and_yield(url, params):
     # return datacenters_df
 
 
-def scan_eida_rs_station_response(
-    eidars_response_text, aggregate_ignoring_time_bounds=True
-):
-    """
-    Yield tuples of the form:
-    (url, net, sta, loc, cha, start, end)
-    from the given eida routing service post response. All elements are strings.
+# def scan_eida_rs_station_response(
+#     eidars_response, aggregate_ignoring_time_bounds=True
+# ):
+#     """
+#     Yield tuples of the form:
+#     (url, net, sta, loc, cha, start, end)
+#     from the given eida routing service post response. All elements are strings.
+#
+#     :param aggregate_ignoring_time_bounds: if true, start and end time are ignored
+#         in aggregating the URLs, and the returned start and end will be taken from
+#         one of the first aggregated row (as such, users should not rely on them)
+#     """
+#     ws_url_col = WebService.url.key
+#
+#     dfr = []
+#     for url, net, sta, loc, cha, start_, end_ in (
+#         _scan_eida_rs_station_response(eidars_response_text)
+#     ):
+#         dfr.append({
+#             ws_url_col: url,
+#             'net': net,
+#             'sta': sta,
+#             'loc': loc,
+#             'cha': cha,
+#             'start': start_,
+#             'end': end_,
+#         })
+#
+#     # put in a dataframe and group urls to optimize queries:
+#     dfr = pd.DataFrame(dfr)
+#     all_cols = [ws_url_col, 'net', 'sta', 'loc', 'cha', 'start', 'end']
+#     for col in ['cha', 'loc', 'sta', 'net']:
+#         ret = []
+#         cols = all_cols.copy()
+#         cols.remove(col)
+#         if aggregate_ignoring_time_bounds:
+#             cols.remove('start')
+#             cols.remove('end')
+#         for _, sub_dfr in dfr.groupby(cols, sort=False, dropna=False):
+#             if len(sub_dfr) > 1:
+#                 tmp_df = sub_dfr.iloc[:1]
+#                 tmp_df[col] = ",".join(sorted(set(sub_dfr[col])))
+#                 sub_dfr = tmp_df
+#             ret.append(sub_dfr)
+#         dfr = pd.concat(ret, axis=0, ignore_index=True, copy=False)
 
-    :param aggregate_ignoring_time_bounds: if true, start and end time are ignored
-        in aggregating the URLs, and the returned start and end will be taken from
-        one of the first aggregated row (as such, users should not rely on them)
-    """
-    ws_url_col = WebService.url.key
+    # # yield each url
+    # for url, net, sta, loc, cha, start, end in dfr[all_cols].itertuples(index=False):
+    #     yield url, {
+    #         'net': net,
+    #         'sta': sta,
+    #         'loc': loc,
+    #         'cha': cha,
+    #         'start': start,
+    #         'end': end
+    #     }
 
-    dfr = []
-    for url, net, sta, loc, cha, start_, end_ in (
-        _scan_eida_rs_station_response(eidars_response_text)
-    ):
-        dfr.append({
-            ws_url_col: url,
-            'net': net,
-            'sta': sta,
-            'loc': loc,
-            'cha': cha,
-            'start': start_,
-            'end': end_,
-        })
-
-    # put in a dataframe and group urls to optimize queries:
-    dfr = pd.DataFrame(dfr)
-    all_cols = [ws_url_col, 'net', 'sta', 'loc', 'cha', 'start', 'end']
-    for col in ['cha', 'loc', 'sta', 'net']:
-        ret = []
-        cols = all_cols.copy()
-        cols.remove(col)
-        if aggregate_ignoring_time_bounds:
-            cols.remove('start')
-            cols.remove('end')
-        for _, sub_dfr in dfr.groupby(cols, sort=False, dropna=False):
-            if len(sub_dfr) > 1:
-                tmp_df = sub_dfr.iloc[:1]
-                tmp_df[col] = ",".join(sorted(set(sub_dfr[col])))
-                sub_dfr = tmp_df
-            ret.append(sub_dfr)
-        dfr = pd.concat(ret, axis=0, ignore_index=True, copy=False)
-
-    # yield each url
-    for url, net, sta, loc, cha, start, end in dfr[all_cols].itertuples(index=False):
-        yield url, {
-            'net': net,
-            'sta': sta,
-            'loc': loc,
-            'cha': cha,
-            'start': start,
-            'end': end
-        }
-
-
-def get_eidars_response_text(
+def get_eida_rs_response(
     routing_service_url: list[str],
     net: Optional[str] = None,
     sta: Optional[str] = None,
     loc: Optional[str] = None,
     cha: Optional[str] = None,
     start: Optional[datetime] = None,
-    end: Optional[datetime] = None
-):
+    end: Optional[datetime] = None,
+    service='dataselect'
+) -> dict:
     """Return the EIDA Routing Service response text (str)"""
     for eida_rs_url in routing_service_url:
         url = fdsn_url_qs(
             eida_rs_url, net=net, sta=sta, loc=loc,
             cha=cha, start=start, end=end,
-            service='dataselect', format='post'
+            service=service, format='json'
         )
         response = urlread(url, decode='utf8')
         if response.is_ok:
-            return response.data
+            return json.loads(response.data)
     raise FailedDownload("None of the EIDA routing services returned valid data. "
                          "Check internet connection or configure the URLs in advanced "
                          "settings")
 
 
-def _scan_eida_rs_station_response(response_text: str):
-    """
-    Simple scanner yielding
-    (url, net, sta, loc, cha, start, end)
-    from the given eida routing service post response.
-    No preocess is done here: all elements are string (* indicates: match all)
-
-    :param response_text: (str) the EIDA routing service response text
-    """
-    start = 0
-    textlen = len(response_text)
-
-    while start < textlen:
-        # find the end of the url block (double newline):
-        end = response_text.find("\n\n", start)
-        # if not found, move to the end:
-        if end < 0:
-            end = textlen
-        lines = response_text[start:end].strip().split("\n")
-        start = end + 2
-        if len(lines) < 2:
-            continue
-        url = lines[0].strip()
-        if not url:
-            continue
-        for line in lines[1:]:
-            params = line.strip().split(" ")
-            if len(params) != 6 or not all(params):  # assure 6 non empty elements
-                continue
-            # validate date-times (sometime as date, in case later pandas complains):
-            # try:
-            #     if starttime is not None:
-            #         params[-2] = starttime
-            #     elif params[-2] == '*':
-            #         params[-2] = None
-            #     else:
-            #         params[-2] = datetime.fromisoformat(params[-2])
-            #     if endtime is not None:
-            #         params[-1] = endtime
-            #     elif params[-1] == '*':
-            #         params[-1] = None
-            #     else:
-            #         params[-1] = datetime.fromisoformat(params[-1])
-            # except ValueError:
-            #     continue
-            yield tuple([url] + params)
-            # yield (fdsn_url(url, new_service='station'),) + tuple(params[:-2])
-        # for line in sorted(lines[1:]):
-        #     # sorting is slightly inefficient but helps packing similar urls (see below)
-        #     params = line.strip().split(" ")
-        #     if len(params) != 6 or not all(params):  # assure 6 non empty elements
-        #         continue
-        #     # validate date-times (sometime as date, in case later pandas complains):
-        #     try:
-        #         params[-1] = None if params[-1] == '*' else \
-        #             datetime.fromisoformat(params[-1])
-        #         params[-2] = None if params[-1] == '*' else \
-        #             datetime.fromisoformat(params[-2])
-        #     except ValueError:
-        #         continue
-        #     # try to pack together FDSN request urls if possible:
-        #     arg_where_diff = [i for i in range(6) if params[i] != yield_params[i]]
-        #     # only one index difference (and not in time ranges, i.e. < 4)?
-        #     if len(arg_where_diff) == 1 and arg_where_diff[0] < 4:
-        #         i = arg_where_diff[0]
-        #         if yield_params[i] == '*' or params[i] == '*':
-        #             yield_params[i] = '*'
-        #         elif params[i] not in yield_params[i].split(','):
-        #             # 2nd check is because sometimes items are returned twice
-        #             yield_params[i] = f'{yield_params[i]},{params[i]}'
-        #     else:
-        #         if any(yield_params):
-        #             yield url, tuple(yield_params)
-        #         yield_params = params
-        # if any(yield_params):
-        #     yield url, tuple(yield_params)
-
-
+# def get_eidars_response_text(
+#     routing_service_url: list[str],
+#     net: Optional[str] = None,
+#     sta: Optional[str] = None,
+#     loc: Optional[str] = None,
+#     cha: Optional[str] = None,
+#     start: Optional[datetime] = None,
+#     end: Optional[datetime] = None
+# ):
+#     """Return the EIDA Routing Service response text (str)"""
+#     for eida_rs_url in routing_service_url:
+#         url = fdsn_url_qs(
+#             eida_rs_url, net=net, sta=sta, loc=loc,
+#             cha=cha, start=start, end=end,
+#             service='dataselect', format='post'
+#         )
+#         response = urlread(url, decode='utf8')
+#         if response.is_ok:
+#             return response.data
+#     raise FailedDownload("None of the EIDA routing services returned valid data. "
+#                          "Check internet connection or configure the URLs in advanced "
+#                          "settings")
+#
+#
+# def _scan_eida_rs_station_response(response_text: str):
+#     """
+#     Simple scanner yielding
+#     (url, net, sta, loc, cha, start, end)
+#     from the given eida routing service post response.
+#     No preocess is done here: all elements are string (* indicates: match all)
+#
+#     :param response_text: (str) the EIDA routing service response text
+#     """
+#     start = 0
+#     textlen = len(response_text)
+#
+#     while start < textlen:
+#         # find the end of the url block (double newline):
+#         end = response_text.find("\n\n", start)
+#         # if not found, move to the end:
+#         if end < 0:
+#             end = textlen
+#         lines = response_text[start:end].strip().split("\n")
+#         start = end + 2
+#         if len(lines) < 2:
+#             continue
+#         url = lines[0].strip()
+#         if not url:
+#             continue
+#         for line in lines[1:]:
+#             params = line.strip().split(" ")
+#             if len(params) != 6 or not all(params):  # assure 6 non empty elements
+#                 continue
+#             # validate date-times (sometime as date, in case later pandas complains):
+#             # try:
+#             #     if starttime is not None:
+#             #         params[-2] = starttime
+#             #     elif params[-2] == '*':
+#             #         params[-2] = None
+#             #     else:
+#             #         params[-2] = datetime.fromisoformat(params[-2])
+#             #     if endtime is not None:
+#             #         params[-1] = endtime
+#             #     elif params[-1] == '*':
+#             #         params[-1] = None
+#             #     else:
+#             #         params[-1] = datetime.fromisoformat(params[-1])
+#             # except ValueError:
+#             #     continue
+#             yield tuple([url] + params)
+#             # yield (fdsn_url(url, new_service='station'),) + tuple(params[:-2])
+#         # for line in sorted(lines[1:]):
+#         #     # sorting is slightly inefficient but helps packing similar urls (see below)
+#         #     params = line.strip().split(" ")
+#         #     if len(params) != 6 or not all(params):  # assure 6 non empty elements
+#         #         continue
+#         #     # validate date-times (sometime as date, in case later pandas complains):
+#         #     try:
+#         #         params[-1] = None if params[-1] == '*' else \
+#         #             datetime.fromisoformat(params[-1])
+#         #         params[-2] = None if params[-1] == '*' else \
+#         #             datetime.fromisoformat(params[-2])
+#         #     except ValueError:
+#         #         continue
+#         #     # try to pack together FDSN request urls if possible:
+#         #     arg_where_diff = [i for i in range(6) if params[i] != yield_params[i]]
+#         #     # only one index difference (and not in time ranges, i.e. < 4)?
+#         #     if len(arg_where_diff) == 1 and arg_where_diff[0] < 4:
+#         #         i = arg_where_diff[0]
+#         #         if yield_params[i] == '*' or params[i] == '*':
+#         #             yield_params[i] = '*'
+#         #         elif params[i] not in yield_params[i].split(','):
+#         #             # 2nd check is because sometimes items are returned twice
+#         #             yield_params[i] = f'{yield_params[i]},{params[i]}'
+#         #     else:
+#         #         if any(yield_params):
+#         #             yield url, tuple(yield_params)
+#         #         yield_params = params
+#         # if any(yield_params):
+#         #     yield url, tuple(yield_params)
+#
+#
 def split_times(start: datetime, end: datetime, interval_years=5):
     cur = start
     while cur < end:

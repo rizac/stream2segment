@@ -30,7 +30,7 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
-from sqlalchemy import select, UpdateBase
+from sqlalchemy import select, UpdateBase, Column
 
 # Sql-alchemy:
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
@@ -197,21 +197,339 @@ def apply_table_dtypes(
     return dataframe
 
 
-def _get_max(engine, numeric_column: str):
-    """Return the maximum value from a given numeric column, usually a primary
-    key with auto-increment=True. If it's the case, from `_get_max() + 1` we
-    assure unique identifier for adding new objects to the table of
-    `numeric_column`. SqlAlchemy has the ability to set autoincrement for us
-    but telling explicitly the id value for an autoincrement primary key
-    speeds up *a lot* the insertion (especially if used in conjunction with
-    SQLAlchemy core methods
+def df2db(
+    dfr,
+    table_model,
+    engine,
+    id_col: str,
+    uc_cols: list[str],
+    update_cols: Optional[list[str]]=None,
+    chunksize=10
+):
+    """
+    Write the given dataframe to the relative table. Return the tuple
 
-    :param session: an sqlalchemy session
-    :param numeric_column: a column of an ORM model (mapping a db table column)
+    (dfr, failed_insert, failed_update)
+
+    where:
+        dfr is the passed dataframe with 'id_col' set (it must not be present
+            before calling this method) minus failed_i (see below)
+        failed_insert: the subset of the passed dataframe that could not
+            be inserted for some db error
+        failed_update: the subset of the passed dataframe that could not be
+            updated for some db error. NOTE: contrarily to `failed_insert`,
+            these rows are still included in the returned dataframe
+
+    :param dfr: a pandas dataframe. IMPORTANT: the index should be a
+        RangeIndex (call `reset_index(drop=True)` if unsure) to easily identify
+        each row via `.loc`, and must not have id_col set
+    :param engine: a sql-alchemy engine
+    :param uc_cols: a list of ORM columns for comparing `dataframe`
+        rows and T rows: when two rows are found that are equal (according to
+        all `matching_columns` values), then the data frame row `id_col` value
+        is set = T row value
+    :param id_col: the ORM column denoting a NUMERIC and UNIQUE Column of T
+        (e.g., INTEGER primary key): unexpected results if the column does not
+        match those criteria. The column needs not to be a column of
+        `dataframe`. The returned `dataframe` will have in any case this column
+        set with non-NA values and the proper python type (corresponding to
+        the column  SQL type)
+    :param update: boolean or list of strings. Whether to update or not:
+        - If True, all shared columns between dataframes and table model will
+          be updated (except id_col): the shared columns are calculated only
+          the first time a dataframe is added to this object.
+        - If list of STRINGS, then the columns which matching names are updated
+          only (the string name of id_col should not be in the list)
+        - If False (or, in general falsy, so empty list or None is the same):
+          do not update
+    :param buf_size: integer, defaults to 10. The buffer size before committing.
+        Increase this number for better performances (speed) at the cost of some
+        "false negative" (committing a series of operations where one raise an
+        integrity error discards all subsequent operations regardless if they
+        would raise as well or not)
+    """
+    dfr_with_pkeys = sync_pkey(dfr, table_model, engine, id_col, uc_cols, chunksize)
+    failed_i = pd.DataFrame(columns=dfr_with_pkeys.columns, data=[])
+    failed_u = pd.DataFrame(columns=dfr_with_pkeys.columns, data=[])
+
+    id_max = dfr_with_pkeys.attrs[f'{id_col}_max']
+    to_insert: pd.Series = dfr.index > id_max
+
+    if to_insert.any():
+        with Inserter(engine, table_model, chunksize) as inserter:
+            inserter.insert(dfr_with_pkeys.loc[to_insert, :])
+        if len(inserter.failed_indices):
+            failed_i = dfr_with_pkeys.loc[inserter.failed_indices, :].copy()
+            dfr_with_pkeys = dfr_with_pkeys.loc[~inserter.failed_indices, :].copy()
+
+    if update_cols:
+        to_update = ~to_insert
+        if to_update.any():
+            with Updater(engine, table_model, id_col, update_cols, chunksize) as updater:
+                updater.update(dfr_with_pkeys.loc[to_update, :])
+            if len(updater.failed_indices):
+                failed_u = dfr_with_pkeys.loc[updater.failed_indices, :].copy()
+
+    if not pd.api.types.is_integer_dtype(dfr_with_pkeys[id_col]):  # for safety
+        dfr_with_pkeys[id_col] = dfr_with_pkeys[id_col].astype(int)
+
+    return dfr_with_pkeys, failed_i, failed_u
+
+
+def sync_pkey(
+    dfr,
+    table_model,
+    engine,
+    pkey_col:str,
+    uc_cols: list[str],
+    chunksize=0
+):
+    """
+    Synchronize the primary key `id_col` using the related `table_model` and
+    `uc_cols` to match existing db rows. Return `dfr` with an `id_col` set
+    (replacing entirely the existing dataframe `id_col`, if any) of type int.
+    The returned dataframe will also have an attribute `dfr.attrs[id_col+"_max"]`
+    denoting the current maximum of `id_col` on the db: consequently, dataframe
+    rows whose `id_col` value is greater than that maximum **ARE NOT YET INSERTED
+    ON THE DATABASE**: the id was assigned to be safely used in insert operation.
+
+
+    :param pkey_col: string denoting the ID (primary key) table column. It
+        MUST be a SQL numeric column (preferably, an auto increment primary key
+        of type int)
+    :param and uc_cols: list of strings denoting the unique constraint columns,
+        i.e. the columns that must be unique for each row and can then be used to
+        match equal rows. They should be relatively few and of type integer for better
+        performance
+    """
+    columns = table_model.__table__.c  # columns collection
+    col_names = [pkey_col] + list(uc_cols)
+    stmt = select(*(columns[c] for c in col_names))
+    if pkey_col in dfr.columns:
+        dfr.drop(columns=[pkey_col], inplace=True)
+    pkey_max = get_max(engine, columns[pkey_col])
+
+    if chunksize <= 0:  # fetch at once (db table small to medium size)
+        db_df = db2df(stmt, engine)
+        if not db_df.empty:
+            dfr = dfr.merge(db_df, how='left', on=uc_cols)
+    else:  # fetch in chunks (db table huge):
+        # create an id_col + suffix where we put fetched db values:
+        suffix = '_'
+        while pkey_col + suffix in dfr.columns:
+            suffix += '_'
+        stmt_base = stmt.order_by(columns.id.asc()).limit(chunksize)
+        stmt = stmt_base
+        while True:
+            db_df = db2df(stmt, engine)
+            if db_df.empty:
+                break
+            dfr = dfr.merge(db_df, how='left', on=uc_cols, suffixes=('', suffix))
+            # because we are fetching in chunks, id_col might already exist, so
+            # we now have id_col and id_col+suffix. we need to merge into id_col:
+            if pkey_col + suffix in dfr.columns:
+                # Replace original values with new ones where available:
+                dfr[pkey_col] = dfr[pkey_col + suffix].combine_first(dfr[pkey_col])
+                # drop new ids (already merged):
+                dfr = dfr.drop(columns=[pkey_col + suffix])
+            stmt = stmt_base.where(columns.id > db_df[pkey_col].max())
+
+    if pkey_col not in dfr.columns:
+        dfr[pkey_col] = range(pkey_max + 1, pkey_max + len(dfr) + 1, 1)
+    else:
+        nans = pd.isna(dfr[pkey_col])
+        nan_count = nans.sum()
+        if nan_count > 0:
+            dfr.loc[nans, pkey_col] = range(pkey_max + 1, pkey_max + nan_count + 1, 1)
+
+    if not pd.api.types.is_integer_dtype(dfr[pkey_col]):  # for safety
+        dfr[pkey_col] = dfr[pkey_col].astype(int)
+    dfr.attrs[f'{pkey_col}_max'] = pkey_max
+
+    return dfr
+
+
+def get_max(engine, numeric_column: Column):
+    """
+    Return the table maximum value from a given numeric column, usually a primary
+    key with auto-increment=True. Values from `get_max() + 1` can be safely inserted on
+    the table we
+    assure unique identifier for adding new objects to the table of
+    `numeric_column`.
+
+    :param engine:
+    :param numeric_column: a sqlalchemy.schema.Column object
     """
     # return session.query(func.max(numeric_column)).scalar() or 0
     with engine.connect() as conn:
         return conn.execute(select(func.max(numeric_column))).scalar() or 0
+
+
+def get_row_count(engine, table_model):
+    """
+    Return the table number of rows.
+
+    :param engine:
+    :param table_model: ORM model
+    """
+    # return session.query(func.max(numeric_column)).scalar() or 0
+    with engine.connect() as conn:
+        return conn.execute(select(func.count()).select_from(table_model)).scalar() or 0
+
+
+def db2df(query, engine) -> pd.DataFrame:
+    columns = [c['name'] for c in query.column_descriptions]
+    with engine.connect() as conn:
+        return pd.DataFrame(conn.execute(query).fetchall(), columns=columns)
+
+
+class SqlBatchExecutor:
+
+    def __init__(self, engine, table_model, chunksize=10000):
+        self.engine = engine
+        self.table_model = table_model
+        self.chunksize = chunksize
+        self._buf = []
+        self._failed_indices = np.array([], dtype=int)
+
+    def add(self, dataframe):
+        curr_length = sum(len(_) for _ in self._buf)
+        while curr_length + len(dataframe) >= self.chunksize:
+            self._buf.append(dataframe.iloc[:self.chunksize - curr_length])
+            dataframe = dataframe.iloc[self.chunksize - curr_length:]
+            self.execute()  # resets _buf to 0, so:
+            curr_length = 0
+        if not dataframe.empty:
+            self._buf.append(dataframe)
+
+
+    def execute(self):
+        if self._buf:
+            dfr = pd.concat(self._buf, ignore_index=False)
+            with self.engine.begin() as conn:
+                failed_idxs = self._execute(
+                    dfr[shared_colnames(self.table_model, dfr)],
+                    self.table_model,
+                    conn
+                )
+                np.append(self._failed_indices, failed_idxs)
+            self._buf.clear()
+
+    def _execute(self, dfr, table_model, conn) -> Sequence[int]:
+        raise NotImplementedError('')
+
+    def close(self):
+        """manual close"""
+        self.execute()
+
+    @property
+    def failed_indices(self):
+        return self._failed_indices
+
+    # Context manager methods
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
+
+class Inserter(SqlBatchExecutor):
+
+    def insert(self, dataframe):
+        """Wrapper for `add` implemented for clarity"""
+        self.add(dataframe)
+
+    def _execute(self, dfr, table_model, conn):
+        return insert(dfr, table_model, conn)
+
+
+def insert(df, table_model, conn):
+    """
+    Efficient bulk insert from DataFrame to SQLAlchemy ORM table.
+    Recursively isolates failing rows on constraint errors.
+    Single flat function, memory-efficient for large DataFrames with BLOBs.
+    `df` index needs to be a RangeIndex (call `df.reset_index(drop=True, inplace=True)`
+    in case of doubts)
+
+    :return: the indices (subset of the dataframe index) of the failed rows (int type)
+    :param conn: the result of `engine.begin()`
+    """
+    # table = table_model.__table__
+    # columns = table.columns.keys()
+    return _execute_sql(df, table_model.__table__.insert(), conn)
+
+
+class Updater(SqlBatchExecutor):
+
+    def __init__(
+        self,
+        engine,
+        table_model,
+        where_col:str,
+        update_cols: list[str],
+        chunksize=1000
+    ):
+        super().__init__(engine, table_model, chunksize)
+        self.where_col = where_col
+        self.update_cols = update_cols
+
+    def update(self, dataframe):
+        """Wrapper for `add` implemented for clarity"""
+        self.add(dataframe)
+
+    def _execute(self, dfr, table_model, conn):
+        return update(
+            dfr, table_model, conn, self.where_col, self.update_cols
+        )
+
+
+def update(df, table_model, conn, where_col:str, update_cols:list[str]):
+    """
+    Efficient bulk update from DataFrame to SQLAlchemy ORM table.
+    Recursively isolates failing rows on constraint errors.
+    Single flat function, memory-efficient for large DataFrames with BLOBs.
+    `df` index needs to be a RangeIndex (call `df.reset_index(drop=True, inplace=True)`
+    in case of doubts)
+
+    :return: the indices (subset of the dataframe index) of the failed rows (int type)
+    :param conn: the result of `engine.begin()`
+    """
+    table = table_model.__table__
+    columns = table.c
+    stmt = (
+        table.update()
+        .where(columns[where_col] == bindparam(where_col))
+        .values({col: bindparam(col) for col in update_cols})
+    )
+    return _execute_sql(df, stmt, conn)
+
+
+def _execute_sql(df: pd.DataFrame, stmt: UpdateBase, conn):
+    # Process DataFrame in chunks
+    failed_rows = []
+    # use a stack for recursion. start_index will be set on failure
+    stack = [(df.index, list(iter_rows(df)))]
+
+    while stack:
+        pd_index, chunk = stack.pop()
+        if len(chunk) == 0:
+            continue
+
+        try:
+            with conn.begin_nested():  # SAVEPOINT
+                conn.execute(stmt, chunk)
+        except IntegrityError:
+            # rollback of this chunk happens automatically
+            if len(chunk) == 1:
+                failed_rows.append(pd_index[0])
+            else:
+                mid = len(chunk) // 2
+                stack.append((pd_index[mid:], chunk[mid:]))
+                stack.append((pd_index[:mid], chunk[:mid]))
+
+    return np.array(failed_rows, dtype=int)
+
 
 
 # def syncdf(dataframe, session, matching_columns, id_col, update=False,
@@ -440,7 +758,7 @@ class DbManager:
         self.dfs = []
         self._toinsert_count = 0
         self._toupdate_count = 0
-        self._max = _get_max(session, id_col)
+        self._max = get_max(session, id_col)
         self.oninsert_err_callback = oninsert_err_callback
         self.onupdate_err_callback = onupdate_err_callback
 
@@ -718,170 +1036,8 @@ def _get_shared_colnames(table_model, dataframe, where_col=None):
 #                           dtype=get_dtype(seq_col.type))
 #     dataframe[pkeyname] = new_pkeys
 #     return dataframe
-
-
-def df2db(
-    dfr,
-    table_model,
-    engine,
-    id_col: str,
-    uc_cols: list[str],
-    update_cols: Optional[list[str]]=None,
-    chunksize=10
-):
-    """
-    Write the given dataframe to the relative table. Return the tuple
-
-    (dfr, failed_insert, failed_update)
-
-    where:
-        dfr is the passed dataframe with 'id_col' set (it must not be present
-            before calling this method) minus failed_i (see below)
-        failed_insert: the subset of the passed dataframe that could not
-            be inserted for some db error
-        failed_update: the subset of the passed dataframe that could not be
-            updated for some db error. NOTE: contrarily to `failed_insert`,
-            these rows are still included in the returned dataframe
-
-    :param dfr: a pandas dataframe. IMPORTANT: the index should be a
-        RangeIndex (call `reset_index(drop=True)` if unsure) to easily identify
-        each row via `.loc`, and must not have id_col set
-    :param engine: a sql-alchemy engine
-    :param uc_cols: a list of ORM columns for comparing `dataframe`
-        rows and T rows: when two rows are found that are equal (according to
-        all `matching_columns` values), then the data frame row `id_col` value
-        is set = T row value
-    :param id_col: the ORM column denoting a NUMERIC and UNIQUE Column of T
-        (e.g., INTEGER primary key): unexpected results if the column does not
-        match those criteria. The column needs not to be a column of
-        `dataframe`. The returned `dataframe` will have in any case this column
-        set with non-NA values and the proper python type (corresponding to
-        the column  SQL type)
-    :param update: boolean or list of strings. Whether to update or not:
-        - If True, all shared columns between dataframes and table model will
-          be updated (except id_col): the shared columns are calculated only
-          the first time a dataframe is added to this object.
-        - If list of STRINGS, then the columns which matching names are updated
-          only (the string name of id_col should not be in the list)
-        - If False (or, in general falsy, so empty list or None is the same):
-          do not update
-    :param buf_size: integer, defaults to 10. The buffer size before committing.
-        Increase this number for better performances (speed) at the cost of some
-        "false negative" (committing a series of operations where one raise an
-        integrity error discards all subsequent operations regardless if they
-        would raise as well or not)
-    """
-    dfr_with_pkeys = sync_pkey(dfr, table_model, engine, id_col, uc_cols, chunksize)
-    failed_i = pd.DataFrame(columns=dfr_with_pkeys.columns, data=[])
-    failed_u = pd.DataFrame(columns=dfr_with_pkeys.columns, data=[])
-
-    id_max = dfr_with_pkeys.attrs[f'{id_col}_max']
-    to_insert: pd.Series = dfr.index > id_max
-
-    if to_insert.any():
-        with Inserter(engine, table_model, chunksize) as inserter:
-            inserter.insert(dfr_with_pkeys.loc[to_insert, :])
-        if len(inserter.failed_indices):
-            failed_i = dfr_with_pkeys.loc[inserter.failed_indices, :].copy()
-            dfr_with_pkeys = dfr_with_pkeys.loc[~inserter.failed_indices, :].copy()
-
-    if update_cols:
-        to_update = ~to_insert
-        if to_update.any():
-            with Updater(engine, table_model, id_col, update_cols, chunksize) as updater:
-                updater.update(dfr_with_pkeys.loc[to_update, :])
-            if len(updater.failed_indices):
-                failed_u = dfr_with_pkeys.loc[updater.failed_indices, :].copy()
-
-    if not pd.api.types.is_integer_dtype(dfr_with_pkeys[id_col]):  # for safety
-        dfr_with_pkeys[id_col] = dfr_with_pkeys[id_col].astype(int)
-
-    return dfr_with_pkeys, failed_i, failed_u
-
-
-def sync_pkey(
-    dfr,
-    table_model,
-    engine,
-    pkey_col:str,
-    uc_cols: list[str],
-    chunksize=0
-):
-    """
-    Synchronize the primary key `id_col` using the related `table_model` and
-    `uc_cols` to match existing db rows. Return `dfr` with an `id_col` set
-    (replacing entirely the existing dataframe `id_col`, if any) of type int.
-    The returned dataframe will also have an attribute `dfr.attrs[id_col+"_max"]`
-    denoting the current maximum of `id_col` on the db: consequently, dataframe
-    rows whose `id_col` value is greater than that maximum **ARE NOT YET INSERTED
-    ON THE DATABASE**: the id was assigned to be safely used in insert operation.
-
-
-    :param pkey_col: string denoting the ID (primary key) table column. It
-        MUST be a SQL numeric column (preferably, an auto increment primary key
-        of type int)
-    :param and uc_cols: list of strings denoting the unique constraint columns,
-        i.e. the columns that must be unique for each row and can then be used to
-        match equal rows. They should be relatively few and of type integer for better
-        performance
-    """
-    columns = table_model.__table__.c  # columns collection
-    col_names = [pkey_col] + list(uc_cols)
-    stmt_base = select(*(columns[c] for c in col_names))
-    if pkey_col in dfr.columns:
-        dfr.drop(columns=[pkey_col], inplace=True)
-    pkey_max = _get_max(engine, columns[pkey_col])
-
-    if chunksize <= 0:  # fetch at once (db table small to medium size)
-        db_df = db2df(stmt_base, engine)
-        if not db_df.empty:
-            dfr = dfr.merge(db_df, how='left', on=uc_cols)
-    else:  # fetch in chunks (db table huge):
-        # create an id_col + suffix where we put fetched db values:
-        suffix = '_'
-        while pkey_col + suffix in dfr.columns:
-            suffix += '_'
-        stmt = stmt_base.order_by(columns.id.asc()).limit(chunksize)
-        while True:
-            db_df = db2df(stmt, engine)
-            if db_df.empty:
-                break
-            dfr = dfr.merge(db_df, how='left', on=uc_cols, suffixes=('', suffix))
-            # because we are fetching in chunks, id_col might already exist, so
-            # we now have id_col and id_col+suffix. we need to merge into id_col:
-            if pkey_col + suffix in dfr.columns:
-                # Replace original values with new ones where available:
-                dfr[pkey_col] = dfr[pkey_col + suffix].combine_first(dfr[pkey_col])
-                # drop new ids (already merged):
-                dfr = dfr.drop(columns=[pkey_col + suffix])
-            stmt = (
-                stmt_base.
-                where(columns.id > db_df[pkey_col].max()).
-                order_by(columns.id.asc()).
-                limit(chunksize)
-            )
-
-    if pkey_col not in dfr.columns:
-        dfr[pkey_col] = range(pkey_max + 1, pkey_max + len(dfr) + 1, 1)
-    else:
-        nans = pd.isna(dfr[pkey_col])
-        nan_count = nans.sum()
-        if nan_count > 0:
-            dfr.loc[nans, pkey_col] = range(pkey_max + 1, pkey_max + nan_count + 1, 1)
-
-    if not pd.api.types.is_integer_dtype(dfr[pkey_col]):  # for safety
-        dfr[pkey_col] = dfr[pkey_col].astype(int)
-    dfr.attrs[f'{pkey_col}_max'] = pkey_max
-
-    return dfr
-
-
-def db2df(query, engine) -> pd.DataFrame:
-    columns = [c['name'] for c in query.column_descriptions]
-    with engine.connect() as conn:
-        return pd.DataFrame(conn.execute(query).fetchall(), columns=columns)
-
-
+#
+#
 # def insertdf(dataframe, session, table_model, colnames2insert=None,
 #              buf_size=10, return_df=True,
 #              onerr=None):
@@ -962,155 +1118,8 @@ def db2df(query, engine) -> pd.DataFrame:
 #                 ret_df = dataframe.iloc[indices]
 #
 #     return new, ret_df
-
-class SqlBatchExecutor:
-
-    def __init__(self, engine, table_model, chunksize=10000):
-        self.engine = engine
-        self.table_model = table_model
-        self.chunksize = chunksize
-        self._buf = []
-        self._failed_indices = np.array([], dtype=int)
-
-    def add(self, dataframe):
-        curr_length = sum(len(_) for _ in self._buf)
-        while curr_length + len(dataframe) >= self.chunksize:
-            self._buf.append(dataframe.iloc[:self.chunksize - curr_length])
-            dataframe = dataframe.iloc[self.chunksize - curr_length:]
-            self.execute()  # resets _buf to 0, so:
-            curr_length = 0
-        if not dataframe.empty:
-            self._buf.append(dataframe)
-
-
-    def execute(self):
-        if self._buf:
-            dfr = pd.concat(self._buf, ignore_index=False)
-            with self.engine.begin() as conn:
-                failed_idxs = self._execute(
-                    dfr[shared_colnames(self.table_model, dfr)],
-                    self.table_model,
-                    conn
-                )
-                np.append(self._failed_indices, failed_idxs)
-            self._buf.clear()
-
-    def _execute(self, dfr, table_model, conn) -> Sequence[int]:
-        raise NotImplementedError('')
-
-    def close(self):
-        """manual close"""
-        self.execute()
-
-    @property
-    def failed_indices(self):
-        return self._failed_indices
-
-    # Context manager methods
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.close()
-
-
-class Inserter(SqlBatchExecutor):
-
-    def insert(self, dataframe):
-        """Wrapper for `add` implemented for clarity"""
-        self.add(dataframe)
-
-    def _execute(self, dfr, table_model, conn):
-        return insert(dfr, table_model, conn)
-
-
-def insert(df, table_model, conn):
-    """
-    Efficient bulk insert from DataFrame to SQLAlchemy ORM table.
-    Recursively isolates failing rows on constraint errors.
-    Single flat function, memory-efficient for large DataFrames with BLOBs.
-    `df` index needs to be a RangeIndex (call `df.reset_index(drop=True, inplace=True)`
-    in case of doubts)
-
-    :return: the indices (subset of the dataframe index) of the failed rows (int type)
-    :param conn: the result of `engine.begin()`
-    """
-    # table = table_model.__table__
-    # columns = table.columns.keys()
-    return _execute_sql(df, table_model.__table__.insert(), conn)
-
-
-class Updater(SqlBatchExecutor):
-
-    def __init__(
-        self,
-        engine,
-        table_model,
-        where_col:str,
-        update_cols: list[str],
-        chunksize=1000
-    ):
-        super().__init__(engine, table_model, chunksize)
-        self.where_col = where_col
-        self.update_cols = update_cols
-
-    def update(self, dataframe):
-        """Wrapper for `add` implemented for clarity"""
-        self.add(dataframe)
-
-    def _execute(self, dfr, table_model, conn):
-        return update(
-            dfr, table_model, conn, self.where_col, self.update_cols
-        )
-
-
-def update(df, table_model, conn, where_col:str, update_cols:list[str]):
-    """
-    Efficient bulk update from DataFrame to SQLAlchemy ORM table.
-    Recursively isolates failing rows on constraint errors.
-    Single flat function, memory-efficient for large DataFrames with BLOBs.
-    `df` index needs to be a RangeIndex (call `df.reset_index(drop=True, inplace=True)`
-    in case of doubts)
-
-    :return: the indices (subset of the dataframe index) of the failed rows (int type)
-    :param conn: the result of `engine.begin()`
-    """
-    table = table_model.__table__
-    columns = table.c
-    stmt = (
-        table.update()
-        .where(columns[where_col] == bindparam(where_col))
-        .values({col: bindparam(col) for col in update_cols})
-    )
-    return _execute_sql(df, stmt, conn)
-
-
-def _execute_sql(df: pd.DataFrame, stmt: UpdateBase, conn):
-    # Process DataFrame in chunks
-    failed_rows = []
-    # use a stack for recursion. start_index will be set on failure
-    stack = [(df.index, list(iter_rows(df)))]
-
-    while stack:
-        pd_index, chunk = stack.pop()
-        if len(chunk) == 0:
-            continue
-
-        try:
-            with conn.begin_nested():  # SAVEPOINT
-                conn.execute(stmt, chunk)
-        except IntegrityError:
-            # rollback of this chunk happens automatically
-            if len(chunk) == 1:
-                failed_rows.append(pd_index[0])
-            else:
-                mid = len(chunk) // 2
-                stack.append((pd_index[mid:], chunk[mid:]))
-                stack.append((pd_index[:mid], chunk[:mid]))
-
-    return np.array(failed_rows, dtype=int)
-
-
+#
+#
 # def updatedf(dataframe, session, where_col, colnames2update=None, buf_size=10,
 #              return_df=True, onerr=None):
 #     """Update efficiently rows of `dataframe` to the corresponding database
