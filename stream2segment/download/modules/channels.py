@@ -27,15 +27,20 @@ from stream2segment.download.exc import FailedDownload
 from stream2segment.download.url import urlread, get_host
 from stream2segment.download.modules.utils import (fdsn_channel_response_text_to_df,
                                                    formatmsg, fdsn_url,
-                                                   logwarn_dataframe, strconvert,
+                                                   logwarn_dataframe, #strconvert,
                                                    Authorizer, fdsn_url_qs, df2str)
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__)
 
 
-def get_channels_df(session, fdsn_station_urls, net, sta, loc, cha,
-                    starttime, endtime, min_sample_rate, update, eida_rs_urls,
+def get_channels_df(session, fdsn_station_urls,
+                    no_net: list[str],
+                    no_sta: list[str],
+                    no_loc: list[str],
+                    no_cha: list[str],
+                    # starttime, endtime,
+                    min_sample_rate, update, eida_rs_urls,
                     max_thread_workers, timeout, blocksize, db_bufsize,
                     show_progress=False):
     """Return a Dataframe representing a query to the station service of each
@@ -159,46 +164,47 @@ def get_channels_df(session, fdsn_station_urls, net, sta, loc, cha,
         cha_df[ws_url_col] = cha_df[ws_url_col].astype('category')
         # assign the webservice ids. First create / get those ids:
 
-        ws_df, i_err, _ = df2db(
-            pd.DataFrame([{ws_url_col: u} for u in cha_df[ws_url_col].cat.categories]),
-            WebService,
-            session.get_bind(),
-            'id',
-            [ws_url_col]
-        )
-        logger.info(f'{len(ws_df):,} of {(len(ws_df) + len(i_err)):,} station url(s) saved')
-        if len(i_err):
-            logger.warning(f"Unable to save {len(i_err)} station url(s):")
-            logger.warning(df2str(i_err))
-        # now assign:
-        cha_df = cha_df.merge(
-            ws_df.rename(columns={"id": Channel.webservice_id.key}),
-            on=ws_url_col,
-            how="left"
-        )
-        wsid_na = pd.isna(cha_df[Channel.webservice_id.key])
-        if wsid_na.any():
-            logger.warning(f"Unable to get station urls for {wsid_na.sum()} channel(s) "
-                           f"(discarding):")
-            logger.warning(df2str(cha_df[wsid_na]))
-            cha_df = cha_df[~wsid_na].copy()
-
         # post filter (negation "!", sample rate) which raises FailedDownload if no rows:
         cha_df = filter_out_channels_df(
-            cha_df, net, sta, loc, cha, min_sample_rate
+            cha_df, no_net, no_sta, no_loc, no_cha, min_sample_rate
         )
 
         # first drop duplicates (all columns the same):
         # this method does very few things as there might be rounding errors that
         # prevent equal columns to be equal. Anyway, we perform here more sound checks
-        cha_df = cha_df.drop_duplicates(keep='first')
+        # cha_df = cha_df.drop_duplicates(keep='first')
 
+        orig_cha_df = cha_df
         # set ranking based on the order of urls
         cha_df = drop_conflict_between(session, cha_df, eida_rs_urls)
-
+        cha_df = cha_df.drop(columns='__.rank.__')
         cha_df = drop_conflict_within(cha_df)
-
+        cha_df = sync_webservice_ids_with_db(cha_df, session.get_bind())
         cha_df = save_channels(session, cha_df, update, db_bufsize)
+
+        # move (rename) current station ids and urls:
+        cha_df = cha_df.rename(columns={
+            ws_url_col: f'channel_{ws_url_col}',
+            Channel.webservice_id.key: f'channel_{Channel.webservice_id.key}',
+        })
+        # get dataselect urls:
+        dataselect_urls = {
+            u: fdsn_url(u, new_service='dataselect') for u in
+            pd.unique(cha_df[f'channel_{ws_url_col}'])
+        }
+        # set new "url" column with dataselect urls:
+        cha_df[ws_url_col] = cha_df[f'channel_{ws_url_col}'].map(dataselect_urls)
+        # sync dataselect urls:
+        cha_df = sync_webservice_ids_with_db(cha_df, session.get_bind())
+        cha_df[ws_url_col] = cha_df[ws_url_col].astype('category')
+
+        logger.info(
+            f'{len(cha_df):,} of {(len(orig_cha_df)):,} station url(s) saved'
+        )
+        if len(orig_cha_df) > len(cha_df):
+            logger.warning(f"Unable to save {len(orig_cha_df) - len(cha_df)} "
+                           f"channel(s) (e.g., dropped due to conflicts, "
+                           f"not written due to db errors)")
 
     # if len(failed_dframe_rows) > 0:
     #     # get_channels_df_from_db(session, sta_ws_id, net, sta, loc, cha,
@@ -245,7 +251,9 @@ def get_channels_df(session, fdsn_station_urls, net, sta, loc, cha,
     ]].copy()
 
 
-def filter_out_channels_df(channels_df, net, sta, loc, cha, min_sample_rate):
+def filter_out_channels_df(
+    channels_df, net: list[str], sta: list[str], loc, cha: list[str], min_sample_rate
+):
     """Filter out `channels_df` according to the given parameters. Raise
     `FailedDownload` if the returned filtered data frame woul be empty
 
@@ -280,12 +288,13 @@ def filter_out_channels_df(channels_df, net, sta, loc, cha, min_sample_rate):
     for lst, sa_col in zip((net, sta, loc, cha), sa_cols):
         if not lst:
             continue
-        lst = [_ for _ in lst if _[0:1] == '!']  # take only negation expr.
-        if not lst:
-            continue
+        # FIXME REMOVE:
+        # lst = [_ for _ in lst if _[0:1] == '!']  # take only negation expr.
+        #if not lst:
+        #    continue
         # condition = ("^%s$" if len(lst) == 1 else "^(?:%s)$") % \
         #     "|".join(strconvert.wild2re(x[1:]) for x in lst)
-        condition = "|".join(f"^(?:{strconvert.wild2re(x[1:])})$" for x in lst)
+        condition = "|".join(f"^(?:{wild2regex(x[1:])})$" for x in lst)
         flt = channels_df[sa_col.key].str.match(re.compile(condition))
         if df_filter is None:
             df_filter = flt
@@ -340,10 +349,10 @@ def drop_conflict_between(session, channels_df, eida_rs_urls: list[str] | None =
     loc_col = Channel.location_code.key
     cha_col = Channel.channel_code.key
     grp_cols = [net_col, sta_col, loc_col, cha_col]
-    webs_id_col = Channel.webservice_id.key
+    webs_url_col = WebService.url.key
 
     conflict_between = (
-        channels_df.groupby(grp_cols)[webs_id_col].transform("nunique") > 1
+        channels_df.groupby(grp_cols)[webs_url_col].transform("nunique") > 1
     )
     # (channels_df[conflict_between].sort_values(grp1_cols, ascending=True).
     # to_csv(
@@ -372,7 +381,6 @@ def drop_conflict_between(session, channels_df, eida_rs_urls: list[str] | None =
         conflict_between_indices = []
         # although we check conflicts by net.sta.loc.cha, we are interested in fixing
         # the station problem here
-        rank_col_name = '__.rank.__'
 
         for (net, sta, loc, cha_prefix), cha_df in (
             channels_df.loc[conflict_between].groupby([
@@ -394,21 +402,18 @@ def drop_conflict_between(session, channels_df, eida_rs_urls: list[str] | None =
             if eida_rs_urls is not None and not cha_df.empty:
                 eida_rs_json = get_eida_rs_response(eida_rs_urls, net=net, sta=sta)
                 _keep_indices = _check_conflict_between_via_eida_rs(
-                    cha_df, eida_rs_json, net_col, sta_col, loc_col, cha_col
+                    cha_df, eida_rs_json
                 )
                 cha_df = cha_df[~cha_df.index.isin(_keep_indices)]
 
             if not cha_df.empty:
                 # conflict found, unresolvable through already saved data. Get first
                 # if instructed to do so. FIXME add param or do it automatically likle here?
-                real_ws_id = cha_df[
-                    cha_df[rank_col_name] == cha_df[rank_col_name].min()
-                ].iloc[0][webs_id_col]
-                keep_indices = cha_df[cha_df[webs_id_col] == real_ws_id].index
+                real_ws_url = cha_df[
+                    cha_df['__.rank.__'] == cha_df['__.rank.__'].min()
+                ].iloc[0][webs_url_col]
+                keep_indices = cha_df[cha_df[webs_url_col] == real_ws_url].index
                 conflict_between_indices.extend(~cha_df.index.isin(keep_indices))
-
-        if rank_col_name is not None:
-            channels_df = channels_df.drop(columns=rank_col_name)
 
         channels_df = channels_df[
             ~channels_df.index.isin(conflict_between_indices)
@@ -419,41 +424,43 @@ def drop_conflict_between(session, channels_df, eida_rs_urls: list[str] | None =
 
 def _check_conflict_between_via_db(engine, cha_df, net, sta, loc, band, inst):
 
-    webs_id_col = Channel.webservice_id.key
+    webs_url_col = WebService.url.key
     keep_indices = []
 
-    for _, cha_df in cha_df.groupby([webs_id_col], sort=False):
+    for _, cha_df in cha_df.groupby([webs_url_col], sort=False):
 
         stmt = (
-            select(Channel.webservice_id)
+            select(WebService.url)
+            .join(Channel, Channel.webservice_id == WebService.id)
             .where(
-                (Channel.network_code == net) &
-                (Channel.station_code == sta) &
-                (Channel.location_code == loc) &
-                (Channel.band_code == band) &
-                (Channel.instrument_code == inst)
+                Channel.network_code == net,
+                Channel.station_code == sta,
             )
         )
 
         with engine.connect() as conn:
-            real_ws_ids = conn.execute(stmt).all()
+            real_ws_urls = conn.execute(stmt).scalars().all()
 
-        if len(real_ws_ids) == 1:
+        if len(real_ws_urls) == 1:
             keep_indices.extend(
-                cha_df[cha_df[webs_id_col] == next(iter(real_ws_ids))].index
+                cha_df[cha_df[webs_url_col] == next(iter(real_ws_urls))].index
             )
         return keep_indices
 
 
-def _check_conflict_between_via_eida_rs(
-    eida_rs_json, cha_df, net_col, sta_col,  loc_col, cha_col
-):
-
+def _check_conflict_between_via_eida_rs(eida_rs_json, cha_df):
     keep_indices = []
     urls = []
+
+    net_col = Channel.network_code.key
+    sta_col = Channel.station_code.key
+    loc_col = Channel.location_code.key
+    cha_col = Channel.channel_code.key
+    webs_url_col = WebService.url.key
+
     for item in eida_rs_json:
         urls.append(item['url'])
-        flt = cha_df[WebService.url.key] == item['url']
+        flt = cha_df[webs_url_col] == item['url']
         for params in item['params']:
             if params['priority'] != 1:
                 continue
@@ -463,32 +470,28 @@ def _check_conflict_between_via_eida_rs(
                 loc_col: 'loc',
                 cha_col: 'cha'
             }.items():
-                flt &= (
-                    cha_df[df_col].str.match(_fdsn_pval_to_regex(params[eida_col]))
-                )
-            flt &= (
-                cha_df[Channel.start_time.key] >=
-                datetime.fromisoformat(params['start'])
-            )
+                flt &= cha_df[df_col].str.match(f"^{wild2regex(params[eida_col])}$")
+            start = datetime.fromisoformat(params['start'])
+            flt &= cha_df[Channel.start_time.key] >= start
             if params['end']:
+                end = datetime.fromisoformat(params['end'])
                 flt &= (
-                           cha_df[Channel.end_time.key] <=
-                           datetime.fromisoformat(params['end'])
-                       ) | cha_df[Channel.end_time.key].isna()
+                    (cha_df[Channel.end_time.key] <= end) |
+                    cha_df[Channel.end_time.key].isna()
+                )
         keep_indices.extend(cha_df[flt].index)
 
     # channels not in any eida url have to be taken because we could not infer:
-    keep_indices.extend(cha_df[~cha_df[WebService.url.key].isin(urls)].index)
+    keep_indices.extend(cha_df[~cha_df[webs_url_col].isin(urls)].index)
     return keep_indices
 
 
-def _fdsn_pval_to_regex(fdsn_value: str):
+def wild2regex(text: str):
     return (
-        "^" + fdsn_value
+        text
         .replace('.', r'\.')
         .replace('?', '.')
-        .replace('*', '.*') +
-        "$"
+        .replace('*', '.*')
     )
 
 
@@ -502,8 +505,7 @@ def drop_conflict_within(channels_df):
     :return: a new dataframe with duplicated rows removed
     """
     channels_df.reset_index(drop=True, inplace=True)
-    # conflict within
-    webs_id_col = Channel.webservice_id.key
+    webs_url_col = WebService.url.key
     start_col = Channel.start_time.key
     end_col = Channel.end_time.key
     geoloc_cols = [
@@ -526,7 +528,7 @@ def drop_conflict_within(channels_df):
         Channel.location_code.key,
         Channel.channel_code.key,
         # Channel.start_time.key,
-        webs_id_col,
+        webs_url_col,
     ]
 
     def allclose(col: pd.Series, **kwargs):
@@ -681,6 +683,7 @@ def drop_conflict_within(channels_df):
 
     return channels_df
 
+
 def save_channels(session, channels_df, update, db_bufsize):
     """Saves to db channels (and their stations) and returns a dataframe with
     only channels saved. The returned Dataframe will have the column 'id'
@@ -790,71 +793,97 @@ def save_channels(session, channels_df, update, db_bufsize):
     return channels_df
 
 
-def setup_dataselect_urls(session, channels_df, authorizer: Authorizer = None):
-    """Prepares `cgannels_df` and `authorizer` for dataselct download, adding
-    urls and db id of the URLs to the former, and - if the latter is not None -
-    setting users and passwords (required for downloading) in it"""
-    ws_url_col = WebService.url.key
-    station_urls = channels_df[ws_url_col].cat.categories
+def sync_webservice_ids_with_db(cha_df, engine, urls_col=WebService.url.key):
 
-    url_mapping = {}  # station url -> dataselect_url
-    errors = set()
-
-    for url in station_urls:
-        method = 'query'
-        if authorizer is not None:
-            try:
-                authorizer.add_url(url)
-                method = 'queryauth'
-            except Exception as exc:
-                logger.warning(formatmsg("Downloading open data only, "
-                                         "Unable to acquire credentials for "
-                                         "restricted data",
-                                         str(exc), url))
-                errors.add(url)
-
-        url_mapping[url] = fdsn_url(url, new_service='dataselect', new_method=method)
-
-    if errors:
-        logger.info(formatmsg('Downloading open data only from: %s'
-                              % ", ".join(errors),
-                              'Unable to acquire credentials for '
-                              'restricted data'))
-
-    # replace station urls with new dataselect urls (query or queryauth methods):
-    channels_df[ws_url_col] = channels_df[ws_url_col].cat.rename_categories(url_mapping)
-
-    # remove webservice_id (which refers to FDSN station). FIXME: useless
-    # channels_df.drop(columns=[Channel.webservice_id.key], inplace=True)
-    # now set webservice id with the FDSN dataselect ids.
-
-    # Step1: get ids of the new dataselect urls (synch with db):
-    ws_df = pd.DataFrame([{'url': u} for u in url_mapping.values()])
-    ws_df = dbsyncdf(
-        ws_df, session, [WebService.url], WebService.id, buf_size=len(url_mapping),
-        keep_duplicates=False
+    ws_df, i_err, _ = df2db(
+        pd.DataFrame([{urls_col: u} for u in cha_df[urls_col].cat.categories]),
+        WebService,
+        engine,
+        'id',
+        [urls_col]
     )
-    ws_ids = dict(zip(ws_df['url'], ws_df['id']))
+    # now assign:
+    cha_df = cha_df.merge(
+        ws_df.rename(columns={"id": Channel.webservice_id.key}),
+        on=urls_col,
+        how="left"
+    )
+    wsid_na = pd.isna(cha_df[Channel.webservice_id.key])
+    wsurl_na = pd.unique(cha_df[wsid_na][urls_col])
+    if wsid_na.any():
+        logger.warning(f"Unable to store {wsurl_na:,} url(s) "
+                       f"for a total of {wsid_na.sum()} channel(s) "
+                       f"discarded:")
+        logger.warning(df2str(cha_df[wsid_na]))
+        cha_df = cha_df[~wsid_na].copy()
+    return cha_df
 
-    # Step 2: Extract the codes (an integer array of length N = channels_df rows).
-    # Each row gets an int (int8 / int16 / int32 depending on K = number of categories).
-    # Size: N integers (efficient, much smaller than N strings).
-    codes = channels_df[ws_url_col].cat.codes
 
-    # Step 3: Extract the categories (Index of all unique labels).
-    # This is tiny: only K elements.
-    categories = channels_df[ws_url_col].cat.categories
-
-    # Step 4: Build an array that maps category index -> ws_id.
-    # categories.map(ws_ids) creates a Series of length K (one id per category).
-    # .to_numpy() converts it to a NumPy array of length K.
-    codes_to_ids = categories.map(ws_ids).to_numpy()
-
-    # Step 5: Use the codes (length N) to index into codes_to_ids (length K).
-    # This produces a new integer array of length N, one ws_id per row.
-    channels_df[Segment.webservice_id.key] = codes_to_ids[codes]
-
-    return channels_df.copy()
+# def setup_dataselect_urls(session, channels_df, authorizer: Authorizer = None):
+#     """Prepares `cgannels_df` and `authorizer` for dataselct download, adding
+#     urls and db id of the URLs to the former, and - if the latter is not None -
+#     setting users and passwords (required for downloading) in it"""
+#     ws_url_col = WebService.url.key
+#     station_urls = channels_df[ws_url_col].cat.categories
+#
+#     url_mapping = {}  # station url -> dataselect_url
+#     errors = set()
+#
+#     for url in station_urls:
+#         method = 'query'
+#         if authorizer is not None:
+#             try:
+#                 authorizer.add_url(url)
+#                 method = 'queryauth'
+#             except Exception as exc:
+#                 logger.warning(formatmsg("Downloading open data only, "
+#                                          "Unable to acquire credentials for "
+#                                          "restricted data",
+#                                          str(exc), url))
+#                 errors.add(url)
+#
+#         url_mapping[url] = fdsn_url(url, new_service='dataselect', new_method=method)
+#
+#     if errors:
+#         logger.info(formatmsg('Downloading open data only from: %s'
+#                               % ", ".join(errors),
+#                               'Unable to acquire credentials for '
+#                               'restricted data'))
+#
+#     # replace station urls with new dataselect urls (query or queryauth methods):
+#     channels_df[ws_url_col] = channels_df[ws_url_col].cat.rename_categories(url_mapping)
+#
+#     # remove webservice_id (which refers to FDSN station). FIXME: useless
+#     # channels_df.drop(columns=[Channel.webservice_id.key], inplace=True)
+#     # now set webservice id with the FDSN dataselect ids.
+#
+#     # Step1: get ids of the new dataselect urls (synch with db):
+#     ws_df = pd.DataFrame([{'url': u} for u in url_mapping.values()])
+#     ws_df = dbsyncdf(
+#         ws_df, session, [WebService.url], WebService.id, buf_size=len(url_mapping),
+#         keep_duplicates=False
+#     )
+#     ws_ids = dict(zip(ws_df['url'], ws_df['id']))
+#
+#     # Step 2: Extract the codes (an integer array of length N = channels_df rows).
+#     # Each row gets an int (int8 / int16 / int32 depending on K = number of categories).
+#     # Size: N integers (efficient, much smaller than N strings).
+#     codes = channels_df[ws_url_col].cat.codes
+#
+#     # Step 3: Extract the categories (Index of all unique labels).
+#     # This is tiny: only K elements.
+#     categories = channels_df[ws_url_col].cat.categories
+#
+#     # Step 4: Build an array that maps category index -> ws_id.
+#     # categories.map(ws_ids) creates a Series of length K (one id per category).
+#     # .to_numpy() converts it to a NumPy array of length K.
+#     codes_to_ids = categories.map(ws_ids).to_numpy()
+#
+#     # Step 5: Use the codes (length N) to index into codes_to_ids (length K).
+#     # This produces a new integer array of length N, one ws_id per row.
+#     channels_df[Segment.webservice_id.key] = codes_to_ids[codes]
+#
+#     return channels_df.copy()
 
 
 # # FIXME REMOVE

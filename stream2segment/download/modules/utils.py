@@ -112,7 +112,7 @@ def url2str(obj, maxlen=None):
 
 
 def df2str(df, **kwargs):
-    kwargs.setdefault('max_rows', 20)
+    kwargs.setdefault('max_rows', 20)  # FIXME call this func throughout the code?
     kwargs.setdefault('index', True)
     return df.set_index(pd.RangeIndex(start=1, stop=len(df)+1)).to_string(**kwargs)
 
@@ -947,92 +947,6 @@ class Authorizer(dict[str, tuple[str, str]]):
     #     return self._uname, self._pswd
 
 
-class strconvert:
-    """String conversion utilities from sql-LIKE operator's wildcards,
-    Filesystem's wildcards, and regular expressions
-    """
-    @staticmethod
-    def sql2wild(text):
-        """Return a new string from `text` by replacing all sql-LIKE-operator's
-        wildcard characters ('sql') with their filesystem's counterparts
-        ('wild'):
-
-        === ==== === ===============================
-        sql wild re  meaning
-        === ==== === ===============================
-        %   *    .*  matches zero or more characters
-        _   ?    .   matches exactly one character
-        === ==== === ===============================
-
-        :return: string. Note that this function performs a simple
-            replacement: wildcard characters in the input string will result in
-            a string that is not the perfect translation of the input
-        """
-        return text.replace("%", "*").replace("_", "?")
-
-    @staticmethod
-    def wild2sql(text):
-        """Return a new string from `text` by replacing all filesystem's wildcard
-        characters ('wild') with their sql-LIKE-operator's counterparts ('sql'):
-
-        === ==== === ===============================
-        sql wild re  meaning
-        === ==== === ===============================
-        %   *    .*  matches zero or more characters
-        _   ?    .   matches exactly one character
-        === ==== === ===============================
-
-        :return: string. Note that this function performs a simple replacement:
-            sql special characters in the input string will result in a string
-            that is not the perfect translation of the input
-        """
-        return text.replace("*", "%").replace("?", "_")
-
-    @staticmethod
-    def wild2re(text):
-        """Return a new string from `text` by replacing all filesystem's wildcard
-        characters ('wild') with their regular expression's counterparts ('re'):
-
-        === ==== === ===============================
-        sql wild re  meaning
-        === ==== === ===============================
-        %   *    .*  matches zero or more characters
-        _   ?    .   matches exactly one character
-        === ==== === ===============================
-
-        :return: string. Note that this function performs a simple replacement:
-            regexp special characters in the input string will result in a
-            string that is not the perfect translation of the input
-        """
-        return re.escape(text).replace(r"\*", ".*").replace(r"\?", ".")
-
-    @staticmethod
-    def sql2re(text):
-        """Return a new string from `text` by replacing all sql-LIKE-operator's
-        wildcard characters ('sql') with their regular expression's
-        counterparts ('re'):
-
-        === ==== === ===============================
-        sql wild re  meaning
-        === ==== === ===============================
-        %   *    .*  matches zero or more characters
-        _   ?    .   matches exactly one character
-        === ==== === ===============================
-
-        :return: string. Note that this function performs a simple replacement:
-            regexp special characters in the input string will result in a
-            string that is not the perfect translation of the input
-        """
-        if sys.version_info[0] == 3 and sys.version_info[1] < 7:
-            # versions up to 3.7 do not escape anymore "_":
-            percent, underscore = r"\%", "_"
-        else:
-            # from version 3.7, only special characters are escaped,
-            # thus neither "%" nor "_" are escaped:
-            percent, underscore = "%", "_"
-        return re.escape(text).replace(percent, ".*").replace(underscore, ".")
-
-
 def strptime(obj):
     """Convert `obj` to a `datetime` object **in UTC without tzinfo** (if the datetime
     is timezone aware, it will be converted to UTC and then its tzinfo removed).
@@ -1245,3 +1159,92 @@ def fdsn_url_qs(base_url: str, **query_args):
                     safe_chars.add('.')
         qs[k] = v
     return f'{base_url}?{urlencode(qs, safe="".join(safe_chars))}'
+
+
+# FIXME REMOVE:
+# class strconvert:
+#     """String conversion utilities from sql-LIKE operator's wildcards,
+#     Filesystem's wildcards, and regular expressions
+#     """
+#     @staticmethod
+#     def sql2wild(text):
+#         """Return a new string from `text` by replacing all sql-LIKE-operator's
+#         wildcard characters ('sql') with their filesystem's counterparts
+#         ('wild'):
+#
+#         === ==== === ===============================
+#         sql wild re  meaning
+#         === ==== === ===============================
+#         %   *    .*  matches zero or more characters
+#         _   ?    .   matches exactly one character
+#         === ==== === ===============================
+#
+#         :return: string. Note that this function performs a simple
+#             replacement: wildcard characters in the input string will result in
+#             a string that is not the perfect translation of the input
+#         """
+#         return text.replace("%", "*").replace("_", "?")
+#
+#     @staticmethod
+#     def wild2sql(text):
+#         """Return a new string from `text` by replacing all filesystem's wildcard
+#         characters ('wild') with their sql-LIKE-operator's counterparts ('sql'):
+#
+#         === ==== === ===============================
+#         sql wild re  meaning
+#         === ==== === ===============================
+#         %   *    .*  matches zero or more characters
+#         _   ?    .   matches exactly one character
+#         === ==== === ===============================
+#
+#         :return: string. Note that this function performs a simple replacement:
+#             sql special characters in the input string will result in a string
+#             that is not the perfect translation of the input
+#         """
+#         return text.replace("*", "%").replace("?", "_")
+#
+#     @staticmethod
+#     def wild2re(text):
+#         """Return a new string from `text` by replacing all filesystem's wildcard
+#         characters ('wild') with their regular expression's counterparts ('re'):
+#
+#         === ==== === ===============================
+#         sql wild re  meaning
+#         === ==== === ===============================
+#         %   *    .*  matches zero or more characters
+#         _   ?    .   matches exactly one character
+#         === ==== === ===============================
+#
+#         :return: string. Note that this function performs a simple replacement:
+#             regexp special characters in the input string will result in a
+#             string that is not the perfect translation of the input
+#         """
+#         return re.escape(text).replace(r"\*", ".*").replace(r"\?", ".")
+#
+#     @staticmethod
+#     def sql2re(text):
+#         """Return a new string from `text` by replacing all sql-LIKE-operator's
+#         wildcard characters ('sql') with their regular expression's
+#         counterparts ('re'):
+#
+#         === ==== === ===============================
+#         sql wild re  meaning
+#         === ==== === ===============================
+#         %   *    .*  matches zero or more characters
+#         _   ?    .   matches exactly one character
+#         === ==== === ===============================
+#
+#         :return: string. Note that this function performs a simple replacement:
+#             regexp special characters in the input string will result in a
+#             string that is not the perfect translation of the input
+#         """
+#         if sys.version_info[0] == 3 and sys.version_info[1] < 7:
+#             # versions up to 3.7 do not escape anymore "_":
+#             percent, underscore = r"\%", "_"
+#         else:
+#             # from version 3.7, only special characters are escaped,
+#             # thus neither "%" nor "_" are escaped:
+#             percent, underscore = "%", "_"
+#         return re.escape(text).replace(percent, ".*").replace(underscore, ".")
+
+

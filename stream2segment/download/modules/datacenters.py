@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 def get_stations_urls(
-    session, webservice_url, routing_service_url,
+    webservice_url, routing_service_url,
     network: Optional[list[str]] = None,
     station: Optional[list[str]] = None,
     location: Optional[list[str]] = None,
@@ -38,10 +38,10 @@ def get_stations_urls(
     if isinstance(webservice_url, str):
         webservice_url = [webservice_url]
     params = {
-        'net': ','.join(n for n in network or [] if not n.startswith('!')) or '*',
-        'sta': ','.join(s for s in station or [] if not s.startswith('!')) or '*',
-        'loc': ','.join(l for l in location or [] if not l.startswith('!')) or '*',
-        'cha': ','.join(c for c in channel or [] if not c.startswith('!')) or '*',
+        'net': ','.join(n for n in network or []) or '*',
+        'sta': ','.join(s for s in station or []) or '*',
+        'loc': ','.join(l for l in location or []) or '*',
+        'cha': ','.join(c for c in channel or []) or '*',
         'start': starttime,
         'end': endtime
     }
@@ -123,7 +123,7 @@ def check_and_yield(url, params):
     if params['net'] != '*':
         yield fdsn_station_url, params
         return
-    # no network specified, querymight take long (even for short time bounds).
+    # no network specified, query might take long (even for short time bounds).
     # get all networks and perform n subsets queries
     rows = []
     try:
