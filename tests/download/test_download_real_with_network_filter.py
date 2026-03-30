@@ -43,7 +43,7 @@ class patches:
     # ThreadPool = 'stream2segment.download.url.ThreadPool'
     configlog4download = 'stream2segment.download.main.configlog4download'
     download_save_segments = 'stream2segment.download.main.download_save_segments'
-    get_events_df = 'stream2segment.download.main.get_events_df'
+    get_events_df = 'stream2segment.download.main.get_events'
     get_post_data = 'stream2segment.download.modules.channels.get_post_data'
     mock_merge_event_stations = 'stream2segment.download.main.merge_events_stations'
 

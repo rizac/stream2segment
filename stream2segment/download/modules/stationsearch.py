@@ -16,15 +16,15 @@ from stream2segment.io.db.models import Channel, Event, Segment
 from stream2segment.download.modules.utils import formatmsg
 from stream2segment.download.exc import FailedDownload
 from stream2segment.io.cli import get_progressbar
-# from stream2segment.io.db.pdsql import mergeupdate
 
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__)
 
 
-def merge_events_stations(events_df, channels_df, search_radius,
-                          tttable, show_progress=False):
+def merge_events_stations(
+    events_df, channels_df, search_radius, tttable, show_progress=False
+):
     """Merge `events_df` and `channels_df` by returning a new dataframe
     representing all channels within a specific search radius. *Each row of the
     returned data frame is basically a segment to be potentially donwloaded*.
@@ -84,25 +84,27 @@ def merge_events_stations(events_df, channels_df, search_radius,
         oneday = timedelta(days=1)
         # for min_radius, max_radius, (ev_id, ev_lat, ev_lon, ev_time, ev_depth) \
         #         in radia_event_iter:
-        for min_radius, max_radius, ev_id, ev_lat, ev_lon, ev_time, ev_depth in \
-                zip(min_radia,
-                    max_radia,
-                    events_df[EVT_ID],
-                    events_df[EVT_LAT],
-                    events_df[EVT_LON],
-                    events_df[EVT_TIME],
-                    events_df[EVT_DEPTH]):
+        for min_radius, max_radius, ev_id, ev_lat, ev_lon, ev_time, ev_depth in zip(
+            min_radia,
+            max_radia,
+            events_df[EVT_ID],
+            events_df[EVT_LAT],
+            events_df[EVT_LON],
+            events_df[EVT_TIME],
+            events_df[EVT_DEPTH]
+        ):
 
-            l2d = locations2degrees(channels_df[CHA_LAT], channels_df[CHA_LON],
-                                    ev_lat, ev_lon)
+            l2d = locations2degrees(
+                channels_df[CHA_LAT], channels_df[CHA_LON], ev_lat, ev_lon
+            )
             # set condition incrementally. First, distance must be finite:
             condition = pd.notna(l2d) & (np.abs(l2d) != np.inf)
             # channel start time matches event time:
             condition &= (channels_df[CHA_STIME] <= ev_time)
             # channel end time None or matches event time:
             condition &= (
-                    pd.isnull(channels_df[CHA_ETIME]) |
-                    (channels_df[CHA_ETIME] >= ev_time + oneday)
+                channels_df[CHA_ETIME].isna() |
+                (channels_df[CHA_ETIME] >= ev_time + oneday)
             )
             # add conditions based on matching radia:
             if min_radius:  # not None (legacy code) or 0:
@@ -165,34 +167,34 @@ def merge_events_stations(events_df, channels_df, search_radius,
     # now concat:
     ret = pd.concat(ret, axis=0, ignore_index=True, copy=True)
 
-    # check categoricals are preserved:
+    # check categorical dtypes are preserved:
     for c in [CHA_NET, CHA_STA, CHA_LOC, CHA_CHA]:
         if not pd.api.types.is_categorical_dtype(ret[c]):
             ret[c] = ret[c].astype('category')
 
     # compute travel times. Doing it on a single array is much faster
-    sourcedepths = ret.pop(EVT_DEPTH).values
+    source_depths = ret.pop(EVT_DEPTH).values
     distances = ret[SEG_EVDIST].values
-    traveltimes = tttable(sourcedepths, 0, distances)
-    # eventtimes = np.array(eventtimes, dtype='datetime64[us]')  # or "M8[us]"
-    eventtimes = ret.pop(EVT_TIME)
+    traveltimes = tttable(source_depths, 0, distances)
+    # event_times = np.array(event_times, dtype='datetime64[us]')  # or "M8[us]"
+    event_times = ret.pop(EVT_TIME)
     if not pd.api.types.is_datetime64_any_dtype:  # safety check? FIXME: needed?
-        eventtimes = pd.to_datetime(eventtimes)
-    # now to compute arrival times: eventtimes + traveltimes does not work
+        event_times = pd.to_datetime(event_times)
+    # now to compute arrival times: event_times + traveltimes does not work
     # (we cannot sum np.datetime64 and np.float). Convert traveltimes to
     # np.timedelta: we first multiply by 1000000 to preserve the millisecond
     # resolution and then we write traveltimes.astype("m8[us]") which means:
     # 8bytes timedelta with microsecond resolution (10^-6). Side note: all
     # numpy timedelta constructors (as well as "astype") round to int argument,
     # at least in numpy13.
-    ret[SEG_ATIME] = eventtimes.values + (traveltimes*1000000).astype("m8[us]")
+    ret[SEG_ATIME] = event_times.values + (traveltimes*1000000).astype("m8[us]")
     # drop nat values
-    oldlen = len(ret)
-    # another safety check (arival times NaT):
+    old_len = len(ret)
+    # another safety check (arrival times NaT):
     ret.dropna(subset=[SEG_ATIME], inplace=True)
-    if oldlen > len(ret):
+    if old_len > len(ret):
         logger.info(formatmsg("%d of %d segments discarded", "Travel times NaN"),
-                    oldlen-len(ret), oldlen)
+                    old_len-len(ret), old_len)
         if ret.empty:
             raise FailedDownload(formatmsg("No segments to process",
                                            "All travel times NaN"))
@@ -278,8 +280,8 @@ def get_magdep_search_radius(mag, minmag, maxmag, minmag_radius, maxmag_radius):
     :return: the max radius/radia (in degrees)
     """
     mag = np.asarray(mag)  # do NOT copies data for existing arrays
-    isscalar = not mag.shape
-    if isscalar:
+    is_scalar = not mag.shape
+    if is_scalar:
         mag = np.array(mag, ndmin=1)  # copies data, assures an array of dim=1
 
     if minmag == maxmag:
@@ -287,9 +289,10 @@ def get_magdep_search_radius(mag, minmag, maxmag, minmag_radius, maxmag_radius):
         dist[mag < minmag] = minmag_radius
         dist[mag >= minmag] = maxmag_radius
     else:
-        dist = minmag_radius + \
-            np.true_divide(maxmag_radius - minmag_radius, maxmag - minmag) * (mag - minmag)
+        dist = minmag_radius + (maxmag_radius - minmag_radius) * np.true_divide(
+            mag - minmag, maxmag - minmag
+        )
         dist[dist < minmag_radius] = minmag_radius
         dist[dist > maxmag_radius] = maxmag_radius
 
-    return dist[0] if isscalar else dist
+    return dist[0] if is_scalar else dist

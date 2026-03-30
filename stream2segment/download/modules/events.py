@@ -24,18 +24,25 @@ from stream2segment.download.modules.utils import (
 logger = logging.getLogger(__name__)
 
 
-def get_events_df(session, url, evt_query_args, start, end,
-                  db_bufsize=30, timeout=15,
-                  show_progress=False):
+def get_events(
+    session,
+    url,
+    evt_query_args,
+    start,
+    end,
+    # db_bufsize=30,
+    # timeout=15,
+    show_progress=True
+) -> pd.DataFrame:
     """Return the event data frame from the given url or local file"""
     local_file = is_local_file(url)
 
     eventws_id = configure_ws_fk(
         f"file:///.../{os.path.basename(url)}" if local_file else url,
-        session, db_bufsize
+        session
     )
 
-    pd_df_list = events_df_list(url, evt_query_args, start, end, timeout, show_progress)
+    pd_df_list = events_df_list(url, evt_query_args, start, end, 120, show_progress)
     # pd_df_list surely not empty (otherwise we raised FailedDownload)
     events_df = pd.concat(pd_df_list, axis=0, ignore_index=True, copy=False)
     events_df[Event.webservice_id.key] = eventws_id
@@ -49,7 +56,7 @@ def get_events_df(session, url, evt_query_args, start, end,
         session.get_bind(),
         'id',
         [Event.eventid.key, Event.catalog.key],
-        chunksize=db_bufsize,
+        # chunksize=db_bufsize,
     )
     # FIXME: log failed?
 
@@ -66,7 +73,7 @@ def get_events_df(session, url, evt_query_args, start, end,
                       Event.longitude.key, Event.depth_km.key, Event.time.key]].copy()
 
 
-def configure_ws_fk(eventws_url, session, db_bufsize):
+def configure_ws_fk(eventws_url, session):
     """Configure the web service foreign key creating such a db row if it does
     not exist and returning its id"""
     ws_name = ''
@@ -101,7 +108,7 @@ ERR_READ_FDSN = "Unable to read events, data not in the supported FDSN format"
 ERR_FETCH_NODATA = "No event received, search parameters might be too strict"
 
 
-def events_df_list(url, evt_query_args, start, end, timeout=15, show_progress=False):
+def events_df_list(url, evt_query_args, start, end, timeout=120, show_progress=False):
     """Return a list of pandas dataframe(s) from the event url or file
 
     :param url: a valid url, a mappings string, or a local file (fdsn 'text'

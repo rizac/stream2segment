@@ -7,7 +7,7 @@ Http requests with multi-threading
 """
 from collections import defaultdict, deque
 from itertools import chain
-from threading import Semaphore, current_thread, main_thread, Lock, Event
+from threading import Condition, current_thread, main_thread, Lock, Event
 import signal
 import socket
 import os
@@ -201,7 +201,8 @@ def read_async(
     url_callback=None,
     max_concurrency=None,
     suspend_trigger=25,
-    suspend_trigger_c=10,
+    max_concurrency_d=4,
+    suspend_trigger_d=10,
     blocksize=-1,
     decode=None,
     timeout=None,
@@ -229,9 +230,13 @@ def read_async(
     :param suspend_trigger: int denoting the maximum downloads from the same
         domain if any download error is repeatedly returned by the server. Default: 25.
         After that, the domain remaining requests will simply not be yielded
-    :param suspend_trigger_c: int denoting the maximum downloads from the same
-        domain if the same error is repeatedly returned by the server. Default: 10.
-        After that, the domain remaining requests will simply not be yielded
+    :param max_concurrency_d: integer or None (the default) denoting the max parallel
+        downloads per url domain (e.g. "geofon.gfz.de"). Defaults to 4. when zero
+        is reached (see `suspend_trigger_d`) it is equivalent to hit `suspend_trigger`
+        (downloads for the saem domain will be suspended)
+    :param suspend_trigger_d: int denoting the maximum downloads from the same
+        url domain (e.g. "geofon.gfz.de") if the same error is repeatedly returned by
+        the server. Default: 10. After that, max_concurrency_d will be decreased.
     :param blocksize: integer defaulting to 1024*1024 specifying, when connecting to one
         of the given urls, the maximum number of bytes to be read at each call of
         `urlopen.read`. If the size argument is negative or omitted, read all data until
@@ -255,6 +260,7 @@ def read_async(
 
     Implementation details:
 
+    FIXME REMOVE:
     ThreadPool vs ThreadPoolExecutor: this function changed from using
     `concurrent.futures.ThreadPoolExecutor` into the "old"
     `multiprocessing.pool.ThreadPool`: the latter consumes in most cases less memory
@@ -307,8 +313,8 @@ def read_async(
     try:
 
         per_domain_lock = thread_lock_factory()
-
         aborted_download_domains = set()
+        limiters: dict[str, DynamicLimiter] = {}
 
         def url_wrapper(obj):
             if stop_event is not None and stop_event.is_set():
@@ -323,13 +329,21 @@ def read_async(
                 if domain in aborted_download_domains:
                     return None
 
-            if pswd is not None:
-                opener = openers.setdefault(domain, _get_opener(domain, user, pswd))
-            else:
-                opener = openers.get(domain, None)
+                if pswd is not None:
+                    opener = openers.setdefault(domain, _get_opener(domain, user, pswd))
+                else:
+                    opener = openers.get(domain, None)
 
-            resp = urlread(url, blocksize, decode, timeout, opener, **kwargs)
-            return domain, obj, resp
+                hostname_limiter = limiters.setdefault(
+                    domain, DynamicLimiter(max_concurrency_d)
+                )
+                hostname_limiter.acquire()
+                try:
+                    resp = urlread(url, blocksize, decode, timeout, opener, **kwargs)
+                finally:
+                    hostname_limiter.release()
+
+                return domain, obj, resp
 
         last_n_errors = {}
 
@@ -349,21 +363,29 @@ def read_async(
                         yield resp_queue.pop()
                 continue
 
-            resp_queue = last_n_errors.setdefault(
-                domain, deque(maxlen=suspend_trigger)
-            )
+            # error response. Append to queue:
+            resp_queue = last_n_errors.setdefault(domain, deque(maxlen=suspend_trigger))
             resp_queue.appendleft((obj, response))
 
-            abort_download = len(resp_queue) >= suspend_trigger
-            if not abort_download and len(resp_queue) >= suspend_trigger_c:
-                if len({_.status_code for _ in resp_queue[:suspend_trigger_c]}) == 1:
-                    abort_download = True
+            if len(resp_queue) < suspend_trigger_d:
+                # threshold not yet reached, go on:
+                continue
 
-            # dequeue limit reached: yield? discard? partial yield?
-            if abort_download:
+            if len({_.status_code for _ in resp_queue[:suspend_trigger_d]}) == 1:
+                # same error got more than threshold. Decrease domain concurrency:
+                new_limit = limiters[domain].adjust_limit(-1)
+                resp_queue.clear()
+                if new_limit <= 0:
+                    # cannot decrease further: discard domain downloads
+                    with per_domain_lock(domain):
+                        aborted_download_domains.add(domain)
+                continue
+
+            if len(resp_queue) >= suspend_trigger:
+                # too many errors (any error): discard domain downloads
                 with per_domain_lock(domain):
                     aborted_download_domains.add(domain)
-                    resp_queue.clear()
+                resp_queue.clear()
 
         # yield suspended results:
         for domain, resp_queue in last_n_errors.items():
@@ -410,6 +432,36 @@ def thread_lock_factory():
             return thread_locks.setdefault(domain, Lock())
 
     return get_thread_lock
+
+
+class DynamicLimiter:
+    def __init__(self, limit=4):
+        self.limit = limit
+        self.active = 0
+        self.cond = Condition()
+
+    def adjust_limit(self, delta):
+        with self.cond:
+            new_limit = self.limit + delta
+            # prevent invalid state
+            if new_limit < 0:
+                new_limit = 0
+            self.limit = new_limit
+            if new_limit > self.active:
+                # wake up waiters in case capacity increased
+                self.cond.notify_all()
+        return new_limit
+
+    def acquire(self):
+        with self.cond:
+            while self.active >= self.limit:
+                self.cond.wait()
+            self.active += 1
+
+    def release(self):
+        with self.cond:
+            self.active -= 1
+            self.cond.notify_all()
 
 
 def _ismainthread():

@@ -5,18 +5,18 @@ Stations/Channels download functions
 """
 import re
 import logging
-from itertools import combinations
+from collections.abc import Iterable
+import json
 from datetime import datetime
 from multiprocessing.pool import ThreadPool
 from urllib.parse import urlunparse, urlparse
+from urllib.request import urlopen
 
 import numpy as np
 import pandas as pd
 from pandas.core.dtypes.common import is_categorical_dtype
-from sqlalchemy import select
-from sqlalchemy.dialects.mssql.information_schema import columns
+from sqlalchemy import select, Engine
 
-from stream2segment.download.modules.datacenters import get_eida_rs_response
 # from sqlalchemy import or_, and_
 
 from stream2segment.io.cli import get_progressbar
@@ -27,22 +27,328 @@ from stream2segment.download.exc import FailedDownload
 from stream2segment.download.url import urlread, get_host
 from stream2segment.download.modules.utils import (fdsn_channel_response_text_to_df,
                                                    formatmsg, fdsn_url,
-                                                   logwarn_dataframe, #strconvert,
-                                                   Authorizer, fdsn_url_qs, df2str)
+                                                   fdsn_url_qs, df2str)
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__)
 
+def get_channels(
+    session,
+    datacenter_urls,
+    network: list[str],
+    station: list[str],
+    location: list[str],
+    channel: list[str],
+    starttime,
+    endtime,
+    min_sample_rate,
+    update_metadata,
+    eida_rs_urls,
+    # max_thread_workers,
+    # timeout,
+    # blocksize,
+    # db_bufsize,
+    show_progress=False
+):
+    cha_urls = list(get_channel_urls(
+        datacenter_urls,
+        eida_rs_urls,
+        [n for n in network if not n.startswith('!')],
+        [s for s in station if not s.startswith('!')],
+        [l for l in location if not l.startswith('!')],
+        [c for c in channel if not c.startswith('!')],
+        starttime,
+        endtime
+    ))
 
-def get_channels_df(session, fdsn_station_urls,
-                    no_net: list[str],
-                    no_sta: list[str],
-                    no_loc: list[str],
-                    no_cha: list[str],
-                    # starttime, endtime,
-                    min_sample_rate, update, eida_rs_urls,
-                    max_thread_workers, timeout, blocksize, db_bufsize,
-                    show_progress=False):
+    cha_df = download_channels(
+        # session.get_bind(),
+        cha_urls,
+        # eida_rs_urls,
+        # max_thread_workers,
+        #advanced_settings['s_timeout'],
+        #download_blocksize,
+        #dbbufsize,
+        # isterminal
+    )
+
+    # post filter (negation "!", sample rate) which raises FailedDownload if no rows:
+    cha_df = filter_out_channels_df(
+        cha_df,
+        [n for n in network if n.startswith('!')],
+        [s for s in station if s.startswith('!')],
+        [l for l in location if l.startswith('!')],
+        [c for c in channel if c.startswith('!')],
+        # network, station, location, channel, starttime, endtime,
+        min_sample_rate
+    )
+
+    # first drop duplicates (all columns the same):
+    # this method does very few things as there might be rounding errors that
+    # prevent equal columns to be equal. Anyway, we perform here more sound checks
+    # cha_df = cha_df.drop_duplicates(keep='first')
+
+    engine = session.get_bind()
+    orig_cha_df = cha_df
+    # set ranking based on the order of urls
+    cha_df = drop_conflict_between(engine, cha_df, eida_rs_urls)
+    cha_df = cha_df.drop(columns='__.rank.__')
+
+    cha_df = drop_conflict_within(cha_df)
+    cha_df = sync_webservice_ids_with_db(cha_df, engine)
+    cha_df = save_channels(engine, cha_df, update_metadata)
+
+    # move (rename) current station ids and urls:
+    ws_url_col = WebService.url.key
+    cha_df = cha_df.rename(columns={
+        ws_url_col: f'channel_{ws_url_col}',
+        Channel.webservice_id.key: f'channel_{Channel.webservice_id.key}',
+    })
+    # get dataselect urls:
+    dataselect_urls = {
+        u: fdsn_url(u, new_service='dataselect') for u in
+        pd.unique(cha_df[f'channel_{ws_url_col}'])
+    }
+    # set new "url" column with dataselect urls:
+    cha_df[ws_url_col] = cha_df[f'channel_{ws_url_col}'].map(dataselect_urls)
+    # sync dataselect urls:
+    cha_df = sync_webservice_ids_with_db(cha_df, engine)
+    cha_df[ws_url_col] = cha_df[ws_url_col].astype('category')
+
+    logger.info(
+        f'{len(cha_df):,} of {(len(orig_cha_df)):,} station url(s) saved'
+    )
+    if len(orig_cha_df) > len(cha_df):
+        logger.warning(f"Unable to save {len(orig_cha_df) - len(cha_df)} "
+                       f"channel(s) (e.g., dropped due to conflicts, "
+                       f"not written due to db errors)")
+
+    # if len(failed_dframe_rows) > 0:
+    #     # get_channels_df_from_db(session, sta_ws_id, net, sta, loc, cha,
+    #     #                                     starttime, endtime)
+    #     # logger.info(formatmsg(f"Fetching stations data from database for "
+    #     #                       f"{len(failed_dframe_rows)} failed http request(s)",
+    #     #                       "download errors occurred"))
+    #     logger.info(formatmsg(f"{len(failed_dframe_rows)} failed download(s), "
+    #                           f"unable to fetch all available stations",
+    #                           "download errors occurred"))
+    if cha_df.empty:
+        # ok, now let's see if we have remaining datacenters to be
+        # fetched from the db
+        raise FailedDownload(formatmsg("No station found",
+                                       "Unable to fetch stations from all "
+                                       "data-centers, no data to fetch from "
+                                       "the database. Check config and log "
+                                       "for details"))
+
+    # post process cha_df and return only relevant data
+
+    # convert to categorical type (for safety):
+    for c in (
+        Channel.network_code.key,
+        Channel.station_code.key,
+        Channel.location_code.key,
+        Channel.channel_code.key,
+        ws_url_col
+    ):
+        if not is_categorical_dtype(cha_df[c]):
+            cha_df[c] = cha_df[c].astype('str').astype('category')
+
+    # return a copy of relevant columns only:
+    return cha_df[[
+        Channel.id.key,
+        Channel.latitude.key,
+        Channel.longitude.key,
+        Channel.network_code.key,
+        Channel.station_code.key,
+        Channel.location_code.key,
+        Channel.channel_code.key,
+        # ws_id_col,
+        ws_url_col
+    ]].copy()
+
+
+def get_channel_urls(
+    webservice_url, routing_service_url,
+    network: list[str] | None = None,
+    station: list[str] | None = None,
+    location: list[str] | None = None,
+    channel: list[str] | None= None,
+    starttime: datetime | None = None,
+    endtime: datetime | None = None
+) -> Iterable[str]:
+    """
+    Return an iterator of FDSN station urls from the given arguments
+    """
+    if isinstance(webservice_url, str):
+        webservice_url = [webservice_url]
+    params = {
+        'net': ','.join(n for n in network or []) or '*',
+        'sta': ','.join(s for s in station or []) or '*',
+        'loc': ','.join(l for l in location or []) or '*',
+        'cha': ','.join(c for c in channel or []) or '*',
+        'start': starttime,
+        'end': endtime
+    }
+
+    urls_done = set()
+    parsed_urls = []
+    for service_url in webservice_url:
+        service_url = service_url.lower().strip()
+
+        if service_url in urls_done:
+            continue
+        urls_done.add(service_url)
+
+        if service_url == 'eida':
+            priority_skipped = 0
+            # if eidars_response_text is None:  # FIXME REMOVE
+            #     eidars_response_text = get_eidars_response_text(
+            #         routing_service_url, **params
+            #     )
+            eida_rs: dict = get_eida_rs_response(routing_service_url, **params)
+            # sort (for easier grouping here below):
+            for eida_dc_dict in eida_rs:
+                eida_dc_dict['params'] = sorted(
+                    eida_dc_dict['params'],
+                    key=lambda p: (p['net'], p['sta'], p['loc'], p['cha'])
+                )
+            for line in eida_rs:
+                # overwrite start end:
+                url = line['url']
+                for _params in line['params']:
+                    if _params.get('priority', 2) > 1:
+                        priority_skipped += 1
+                        continue
+                    _params.pop('priority')
+                    _params['start'] = starttime
+                    _params['end'] = endtime
+                    merged_into_previous = False
+                    if len(parsed_urls) and parsed_urls[-1][0] == url:
+                        _last_params = parsed_urls[-1][1]
+                        for prm in ['net', 'sta', 'loc', 'cha']:
+                            if all(
+                                _params[p] in _last_params[p].split(",")
+                                for p in ['net', 'sta', 'loc', 'cha'] if p != prm
+                            ):
+                                if _params[prm] not in _last_params[prm].split(','):
+                                    _last_params[prm] += f',{_params[prm]}'
+                                merged_into_previous = True
+                                break
+                    if not merged_into_previous:
+                        parsed_urls.append((url, _params))
+
+        else:
+            if service_url == 'iris':
+                service_url = 'https://service.iris.edu/fdsnws/station/1/query'
+
+            # restrict the search if too big:
+            if params['net'] == '*' or params['sta'] == '*':
+                for start_, end_ in split_times(params['start'], params['end'], 5):
+                    _params = dict(params)
+                    _params['start'] = start_
+                    _params['end'] = end_
+                    parsed_urls.append((service_url, _params))
+
+
+    for url, params in parsed_urls:
+        try:
+            for url, params in check_and_yield_fdsn_urls(url, params):
+                yield fdsn_url_qs(url, **params, level='channel', format='text')
+        except ValueError as v_err:
+            logger.warning(formatmsg(str(v_err), '', url))  # FIXME CHECK
+
+
+def get_eida_rs_response(
+    routing_service_url: list[str],
+    net: str | None = None,
+    sta: str | None = None,
+    loc: str | None = None,
+    cha: str | None= None,
+    start: datetime | None = None,
+    end: datetime | None = None,
+    service='dataselect'
+) -> dict:
+    """Return the EIDA Routing Service response text (str)"""
+    for eida_rs_url in routing_service_url:
+        url = fdsn_url_qs(
+            eida_rs_url, net=net, sta=sta, loc=loc,
+            cha=cha, start=start, end=end,
+            service=service, format='json'
+        )
+        response = urlread(url, decode='utf8')
+        if response.is_ok:
+            return json.loads(response.data)
+    raise FailedDownload("None of the EIDA routing services returned valid data. "
+                         "Check internet connection or configure the URLs in advanced "
+                         "settings")
+
+
+def split_times(start: datetime, end: datetime, interval_years=5):
+    cur = start
+    while cur < end:
+        nxt = min(cur.replace(year=cur.year + interval_years), end)
+        yield cur, nxt
+        cur = nxt
+
+
+def check_and_yield_fdsn_urls(url, params):
+    try:
+        fdsn_station_url = fdsn_url(url, new_service='station')
+    except ValueError as e:
+        raise ValueError("Invalid FDSN URL")
+
+    if params['net'] != '*':
+        yield fdsn_station_url, params
+        return
+    # no network specified, query might take long (even for short time bounds).
+    # get all networks and perform n subsets queries
+    rows = []
+    try:
+        with urlopen(
+            fdsn_url_qs(fdsn_station_url, **params, level='network', format='text')
+        ) as r:
+            header = r.readline().decode().strip().split('|')
+            for line in r:
+                split_line = line.decode().strip().split('|')
+                rows.append((split_line[0].strip(), split_line[-1].strip()))
+        df = pd.DataFrame(rows, columns=['net', 'count'])
+        # convert count to numeric (should be int, but we set NaN as #station mean):
+        df['count'] = pd.to_numeric(df['count'], errors='coerce')
+        df.loc[pd.isna(df['count']), 'count'] = df['count'].mean()
+        df['count'] = df['count'].astype(int)
+        n = 5 # number of split requests
+        # cumulative sum of counts (running total)
+        c = df['count'].cumsum()
+        # total sum of counts
+        t = df['count'].sum()
+        # map cumulative proportion to chunk index [0, n-1]
+        df['chunk'] = (c / t * n).astype(int).clip(upper=n - 1)
+        for _, df_ in df.groupby('chunk'):
+            _params = dict(params)
+            _params['net'] = ",".join(sorted(set(df_['net'])))
+            yield fdsn_station_url, _params
+    except Exception as e:
+        yield fdsn_station_url, params
+
+
+def download_channels(
+    # session,
+    fdsn_station_urls,
+    # no_net: list[str],
+    # no_sta: list[str],
+    # no_loc: list[str],
+    # no_cha: list[str],
+    # starttime, endtime,
+    # min_sample_rate,
+    # update,
+    # eida_rs_urls,
+    # max_thread_workers,
+    # timeout,
+    # blocksize,
+    # db_bufsize,
+    show_progress=False
+):
     """Return a Dataframe representing a query to the station service of each
     URL in :func:`stream2segment.download.modules.datacenters_df` with the
     given arguments.
@@ -107,7 +413,7 @@ def get_channels_df(session, fdsn_station_urls,
 
     t_pool = ThreadPool(2)
     def _urlread(_):
-        return _[0], urlread(_[1], timeout=timeout, blocksize=blocksize)
+        return _[0], urlread(_[1], timeout=120, blocksize=-1)
 
     urls = list(fdsn_station_urls)
 
@@ -162,93 +468,8 @@ def get_channels_df(session, fdsn_station_urls,
         # save urls and set them as categorical
         cha_df = pd.concat(channels_dfs, axis=0, ignore_index=True, copy=False)
         cha_df[ws_url_col] = cha_df[ws_url_col].astype('category')
-        # assign the webservice ids. First create / get those ids:
 
-        # post filter (negation "!", sample rate) which raises FailedDownload if no rows:
-        cha_df = filter_out_channels_df(
-            cha_df, no_net, no_sta, no_loc, no_cha, min_sample_rate
-        )
-
-        # first drop duplicates (all columns the same):
-        # this method does very few things as there might be rounding errors that
-        # prevent equal columns to be equal. Anyway, we perform here more sound checks
-        # cha_df = cha_df.drop_duplicates(keep='first')
-
-        orig_cha_df = cha_df
-        # set ranking based on the order of urls
-        cha_df = drop_conflict_between(session, cha_df, eida_rs_urls)
-        cha_df = cha_df.drop(columns='__.rank.__')
-        cha_df = drop_conflict_within(cha_df)
-        cha_df = sync_webservice_ids_with_db(cha_df, session.get_bind())
-        cha_df = save_channels(session, cha_df, update, db_bufsize)
-
-        # move (rename) current station ids and urls:
-        cha_df = cha_df.rename(columns={
-            ws_url_col: f'channel_{ws_url_col}',
-            Channel.webservice_id.key: f'channel_{Channel.webservice_id.key}',
-        })
-        # get dataselect urls:
-        dataselect_urls = {
-            u: fdsn_url(u, new_service='dataselect') for u in
-            pd.unique(cha_df[f'channel_{ws_url_col}'])
-        }
-        # set new "url" column with dataselect urls:
-        cha_df[ws_url_col] = cha_df[f'channel_{ws_url_col}'].map(dataselect_urls)
-        # sync dataselect urls:
-        cha_df = sync_webservice_ids_with_db(cha_df, session.get_bind())
-        cha_df[ws_url_col] = cha_df[ws_url_col].astype('category')
-
-        logger.info(
-            f'{len(cha_df):,} of {(len(orig_cha_df)):,} station url(s) saved'
-        )
-        if len(orig_cha_df) > len(cha_df):
-            logger.warning(f"Unable to save {len(orig_cha_df) - len(cha_df)} "
-                           f"channel(s) (e.g., dropped due to conflicts, "
-                           f"not written due to db errors)")
-
-    # if len(failed_dframe_rows) > 0:
-    #     # get_channels_df_from_db(session, sta_ws_id, net, sta, loc, cha,
-    #     #                                     starttime, endtime)
-    #     # logger.info(formatmsg(f"Fetching stations data from database for "
-    #     #                       f"{len(failed_dframe_rows)} failed http request(s)",
-    #     #                       "download errors occurred"))
-    #     logger.info(formatmsg(f"{len(failed_dframe_rows)} failed download(s), "
-    #                           f"unable to fetch all available stations",
-    #                           "download errors occurred"))
-    if cha_df.empty:
-        # ok, now let's see if we have remaining datacenters to be
-        # fetched from the db
-        raise FailedDownload(formatmsg("No station found",
-                                       "Unable to fetch stations from all "
-                                       "data-centers, no data to fetch from "
-                                       "the database. Check config and log "
-                                       "for details"))
-
-    # post process cha_df and return only relevant data
-
-    # convert to categorical type (for safety):
-    for c in (
-        Channel.network_code.key,
-        Channel.station_code.key,
-        Channel.location_code.key,
-        Channel.channel_code.key,
-        ws_url_col
-    ):
-        if not is_categorical_dtype(cha_df[c]):
-            cha_df[c] = cha_df[c].astype('str').astype('category')
-
-    # return a copy of relevant columns only:
-    return cha_df[[
-        Channel.id.key,
-        Channel.latitude.key,
-        Channel.longitude.key,
-        Channel.network_code.key,
-        Channel.station_code.key,
-        Channel.location_code.key,
-        Channel.channel_code.key,
-        # ws_id_col,
-        ws_url_col
-    ]].copy()
+    return cha_df
 
 
 def filter_out_channels_df(
@@ -326,7 +547,9 @@ def filter_out_channels_df(
     return ret
 
 
-def drop_conflict_between(session, channels_df, eida_rs_urls: list[str] | None = None):
+def drop_conflict_between(
+    engine: Engine, channels_df, eida_rs_urls: list[str] | None = None
+):
     """
     Drop from channels_df conflict between, i.e., network.station codes
     returned by several URLs. Duplicated rows will be resolved against the
@@ -360,7 +583,7 @@ def drop_conflict_between(session, channels_df, eida_rs_urls: list[str] | None =
     #     index=False
     # ))
 
-    table_empty = get_row_count(channels_df) < 1
+    table_empty = get_row_count(engine, Channel) < 1
 
     # log messages:
     if conflict_between.any():
@@ -389,7 +612,7 @@ def drop_conflict_between(session, channels_df, eida_rs_urls: list[str] | None =
         ):
             if not table_empty:
                 keep_indices = _check_conflict_between_via_db(
-                    session.get_bind(),
+                    engine,
                     cha_df,
                     net,
                     sta,
@@ -448,7 +671,7 @@ def _check_conflict_between_via_db(engine, cha_df, net, sta, loc, band, inst):
         return keep_indices
 
 
-def _check_conflict_between_via_eida_rs(eida_rs_json, cha_df):
+def _check_conflict_between_via_eida_rs(cha_df, eida_rs_json):
     keep_indices = []
     urls = []
 
@@ -684,7 +907,7 @@ def drop_conflict_within(channels_df):
     return channels_df
 
 
-def save_channels(session, channels_df, update, db_bufsize):
+def save_channels(engine: Engine, channels_df: pd.DataFrame, update: bool):
     """Saves to db channels (and their stations) and returns a dataframe with
     only channels saved. The returned Dataframe will have the column 'id'
     (`Station.id`) renamed to 'station_id' (`Channel.station_id`) and a new
@@ -768,7 +991,7 @@ def save_channels(session, channels_df, update, db_bufsize):
         Channel.orientation_code.key
     ]] = channels_df['channel_code'].str.extract(r'(.)(.)(.)').astype('category')
     channels_df, i_err, u_failed = df2db(
-        channels_df, Channel, session.get_bind(), Channel.id.key, uc_cols, update_cols
+        channels_df, Channel, engine, Channel.id.key, uc_cols, update_cols
     )
     logger.info(f'{len(channels_df):,} of {(len(channels_df) + len(i_err)):,} '
                 f'seismic channel(s) saved')

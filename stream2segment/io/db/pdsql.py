@@ -385,7 +385,7 @@ def db2df(query, engine) -> pd.DataFrame:
 
 class SqlBatchExecutor:
 
-    def __init__(self, engine, table_model, chunksize=10000):
+    def __init__(self, engine, table_model, chunksize=5000):
         self.engine = engine
         self.table_model = table_model
         self.chunksize = chunksize

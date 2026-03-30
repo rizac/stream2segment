@@ -116,45 +116,6 @@ def df2str(df, **kwargs):
     kwargs.setdefault('index', True)
     return df.set_index(pd.RangeIndex(start=1, stop=len(df)+1)).to_string(**kwargs)
 
-# FIXME REMOVE
-# def dbsyncdf(dataframe, session, matching_columns, autoincrement_pkey_col,
-#              update=False, buf_size=10, keep_duplicates=False, return_df=True,
-#              cols_to_print_on_err=None):
-#     """Call `syncdf` and writes to the logger before returning the new
-#     Dataframe. Raises a :class:`FailedDownload` if the returned Dataframe is
-#     empty (no row saved)
-#     this function should be used for bulk insert/updates of metadata (event,
-#     station, channels). Segments inserts/updates use the underling
-#     :class:`pdsql.DbManager`
-#     """
-#     db_exc_logger = DbExcLogger(cols_to_print_on_err)
-#
-#     inserted, not_inserted, updated, not_updated, dfr = \
-#         syncdf(dataframe, session, matching_columns, autoincrement_pkey_col,
-#                update, buf_size, keep_duplicates,
-#                db_exc_logger.failed_insert,  # on duplicates callback
-#                db_exc_logger.failed_insert,   # on insert err callback
-#                db_exc_logger.failed_update)   # on update err callback
-#
-#     table = autoincrement_pkey_col.class_
-#     if dfr.empty:
-#         # Build a meaningful error message for the FailedDownload exception
-#         err_count = len(db_exc_logger.exc_history)
-#         if not err_count:
-#             first_err = 'Unknown. Try to check log for details'
-#         else:
-#             # Take the 1st item of the Set, who cares if it's not the first inserted:
-#             first_err = next(iter(db_exc_logger.exc_history))
-#         if err_count > 1:
-#             err_msg = ("%d errors. Check log for details, first reported error "
-#                        "is: %s") % (err_count, first_err)
-#         else:
-#             err_msg = 'error: ' + first_err
-#         raise FailedDownload(formatmsg("No row saved to table '%s'" %
-#                                        table.__tablename__, err_msg))
-#     dblog(table, inserted, not_inserted, updated, not_updated)
-#     return dfr
-
 
 class DbExcLogger:
     """Class handling db I/O error and logging the rows not inserted
@@ -395,130 +356,6 @@ def fdsn_channel_response_text_to_df(response: str):
     if dframe.empty:
         raise ValueError("Malformed data (e.g., no data, type mismatch, NaN)")
     return dframe
-
-#  FIXME REMOVE!
-# def harmonize_dataframe_to_fdsn(dataframe, query_type):
-#     """Return a normalized and harmonized dataframe from raw_data. dbmodel_key
-#     can be 'event' 'station' or 'channel'. Raises ValueError if the resulting
-#     dataframe is empty or if a `ValueError` is raised from sub-functions
-#
-#     :param dataframe: the result of response_text_to_df. For
-#         info see https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf#page=12
-#     :param query_type: a string denoting the web service type:
-#         "event", "station" (for a station query with parameter level=station)
-#         or "channel" (for a station query with parameter level=channel)
-#     """
-#     dframe = _rename_columns(dataframe, query_type)
-#     dframe = _harmonize_fdsn_dframe(dframe, query_type)
-#     if dframe.empty:
-#         raise ValueError("Malformed data (e.g., type mismatch, NaN)")
-#     return dframe
-#
-#
-# def _rename_columns(query_df, query_type):
-#     """Rename the columns of `query_df` according to the ORM model representing
-#     the FDSN query type ('event', 'station', 'channel') originating the data frame
-#     """
-#     if query_df.empty:
-#         return query_df
-#     columns = query_df.columns
-#     expected_columns_count = len(columns)  # reassigned below (here to silence warnings)
-#     try:
-#         if query_type.lower() in {"event", "events"}:
-#             expected_columns_count = 11
-#             # EventID|Time|Latitude|Longitude|Depth/km|Author|Catalog|Contributor|
-#             # ContributorID|MagType|Magnitude|MagAuthor|EventLocationName|EventType
-#             columns = {
-#                 columns[0]: Event.event_id.key,
-#                 columns[1]: Event.time.key,
-#                 columns[2]: Event.latitude.key,
-#                 columns[3]: Event.longitude.key,
-#                 columns[4]: Event.depth_km.key,
-#                 # skip Author (Rarely used, memory-intensive text field)
-#                 columns[6]: Event.catalog.key,
-#                 # skip Contributor (Rarely used, memory-intensive text field)
-#                 # skip ContributorID (Rarely used, memory-intensive text field)
-#                 columns[9]: Event.mag_type.key,
-#                 columns[10]: Event.magnitude.key
-#                 # skip MagAuthor (Rarely used, memory-intensive text field)
-#                 # skip EventLocationName (Rarely used, memory-intensive text field)
-#                 # skip EventType (Rarely used, memory-intensive text field)
-#             }
-#         elif query_type.lower() in {"station", "stations"}:
-#             expected_columns_count = 8
-#             # Network|Station|Latitude|Longitude|Elevation|SiteName|StartTime|EndTime
-#             # Set this table columns mapping (by name, so we can safely add any
-#             # new column at any index):
-#             columns = {
-#                 columns[0]: Channel.network_code.key,
-#                 columns[1]: Channel.station_code.key,
-#                 columns[2]: Channel.latitude.key,
-#                 columns[3]: Channel.longitude.key,
-#                 columns[4]: Channel.elevation.key,
-#                 # skip site_name (Rarely used, memory-intensive text field)
-#                 columns[6]: Channel.start_time.key,
-#                 columns[7]: Channel.end_time.key
-#             }
-#         elif query_type.lower() in {"channel", "channels"}:
-#             expected_columns_count = 17
-#             # Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|
-#             # Azimuth|Dip|SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|
-#             # StartTime|EndTime`
-#             columns = {
-#                 columns[0]: Channel.network_code.key,
-#                 columns[1]: Channel.station_code.key,
-#                 columns[2]: Channel.location_code.key,
-#                 columns[3]: "channel_code",
-#                 columns[4]: Channel.latitude.key,
-#                 columns[5]: Channel.longitude.key,
-#                 columns[6]: Channel.elevation.key,
-#                 columns[7]: Channel.depth.key,
-#                 columns[8]: Channel.azimuth.key,
-#                 columns[9]: Channel.dip.key,
-#                 # skip sensor_description (Rarely used, memory-intensive text field)
-#                 columns[11]: Channel.scale.key,
-#                 columns[12]: Channel.scale_freq.key,
-#                 columns[13]: Channel.scale_units.key,
-#                 columns[14]: Channel.sample_rate.key,
-#                 columns[15]: Channel.start_time.key,
-#                 columns[16]: Channel.end_time.key
-#             }
-#         else:
-#             raise ValueError("Invalid fdsn_model: supply Events, "
-#                              "Station or Channel class")
-#     except IndexError:
-#         # do not provide long messages, the exception is likely to be wrapped
-#         # also do not print columns, which are often just numbers with no meaning:
-#         raise ValueError("Data has %d column(s), expected: %d" %
-#                          (expected_columns_count, len(columns)))
-#
-#     return query_df.rename(columns=columns)[list(columns.values())]
-#
-#
-# def _harmonize_fdsn_dframe(query_df, query_type):
-#     """Harmonize the query dataframe (convert to dataframe dtypes, removes
-#     NaNs and so on) according to query_type ('event', 'station', 'channel').
-#     """
-#     if query_df.empty:
-#         return query_df
-#
-#     if query_type.lower() in ("event", "events"):
-#         fdsn_model_classes = [Event]
-#     elif query_type.lower() in ("station", "stations"):
-#         fdsn_model_classes = [Station]
-#     elif query_type.lower() in ("channel", "channels"):
-#         fdsn_model_classes = [Station, Channel]
-#     else:
-#         return query_df
-#
-#     # convert columns to correct dtypes (datetime, numeric etcetera). Values
-#     # not conforming will be set to NaN or NaT or None, thus detectable via
-#     # pandas.dropna or pandas.isnull
-#     for fdsn_model_class in fdsn_model_classes:
-#         query_df = harmonize_columns(fdsn_model_class, query_df)
-#         query_df = dropnulls(fdsn_model_class, query_df)
-#
-#     return query_df
 
 
 class s2scodes:  # pylint: disable=too-few-public-methods, invalid-name
@@ -991,61 +828,6 @@ else:
         return datetime.fromisoformat(string)
 
 
-# def urljoin(*urlpath, **query_args):
-#     """Join urls and appends to it the query string obtained by kwargs
-#     Note that this function is intended to be simple and fast: No check is made
-#     about white-spaces in strings, no encoding is done, and if some value of
-#     `query_args` needs special formatting (e.g., "%1.1f"), that needs to be
-#     done before calling this function
-#
-#     :param urlpath: portion of urls which will build the query url Q. For more
-#         complex url functions see `urlparse` library: this function builds the
-#         url path via a simple join stripping slashes:
-#         ```
-#         '/'.join(url.strip('/') for url in urlpath)
-#         ```
-#         So to preserve slashes (e.g., at the beginning) pass "/" or "" as
-#         arguments (e.g. as first argument to preserve relative paths).
-#     :query_args: keyword arguments which will build the query string
-#
-#     :return: a query url built from arguments (string)
-#
-#     Examples:
-#     ```
-#     >>> urljoin("https://abc", start='2015-01-01T00:05:00', mag=5.1, arg=True)
-#     'https://abc?start=2015-01-01T00:05:00&mag=5.1&arg=True'
-#
-#     >>> urljoin("http://abc", "data", start='2015-01-01', mag=5.459, arg=True)
-#     'http://abc/data?start=2015-01-01&mag=5.459&arg=True'
-#
-#     Note how slashes are handled in urlpath. These two examples give the
-#     same url path:
-#
-#     >>> urljoin("http://www.domain", "data")
-#     'http://www.domain/data?'
-#
-#     >>> urljoin("http://www.domain/", "/data")
-#     'http://www.domain/data?'
-#
-#     # leading and trailing slashes on each element of urlpath are removed:
-#
-#     >>> urljoin("/www.domain/", "/data")
-#     'www.domain/data?'
-#
-#     # so if you want to preserve them, provide an empty argument or a slash:
-#
-#     >>> urljoin("", "/www.domain/", "/data")
-#     '/www.domain/data?'
-#
-#     >>> urljoin("/", "/www.domain/", "/data")
-#     '/www.domain/data?'
-#     ```
-#     """
-#     # For a discussion, see https://stackoverflow.com/q/1793261
-#     return "{}?{}".format('/'.join(url.strip('/') for url in urlpath),
-#                           "&".join("{}={}".format(k, v)
-#                                    for k, v in query_args.items()))
-
 def fdsn_url(url: str, new_service: str = None, new_method: str = None, check_scheme=True):  # noqa
     """Check that the given url is a valid FDSN URL and return it (with new service and
     method substrings, if given). Raise ValueError if the url is invalid. The URL query
@@ -1162,6 +944,63 @@ def fdsn_url_qs(base_url: str, **query_args):
 
 
 # FIXME REMOVE:
+
+
+# def urljoin(*urlpath, **query_args):
+#     """Join urls and appends to it the query string obtained by kwargs
+#     Note that this function is intended to be simple and fast: No check is made
+#     about white-spaces in strings, no encoding is done, and if some value of
+#     `query_args` needs special formatting (e.g., "%1.1f"), that needs to be
+#     done before calling this function
+#
+#     :param urlpath: portion of urls which will build the query url Q. For more
+#         complex url functions see `urlparse` library: this function builds the
+#         url path via a simple join stripping slashes:
+#         ```
+#         '/'.join(url.strip('/') for url in urlpath)
+#         ```
+#         So to preserve slashes (e.g., at the beginning) pass "/" or "" as
+#         arguments (e.g. as first argument to preserve relative paths).
+#     :query_args: keyword arguments which will build the query string
+#
+#     :return: a query url built from arguments (string)
+#
+#     Examples:
+#     ```
+#     >>> urljoin("https://abc", start='2015-01-01T00:05:00', mag=5.1, arg=True)
+#     'https://abc?start=2015-01-01T00:05:00&mag=5.1&arg=True'
+#
+#     >>> urljoin("http://abc", "data", start='2015-01-01', mag=5.459, arg=True)
+#     'http://abc/data?start=2015-01-01&mag=5.459&arg=True'
+#
+#     Note how slashes are handled in urlpath. These two examples give the
+#     same url path:
+#
+#     >>> urljoin("http://www.domain", "data")
+#     'http://www.domain/data?'
+#
+#     >>> urljoin("http://www.domain/", "/data")
+#     'http://www.domain/data?'
+#
+#     # leading and trailing slashes on each element of urlpath are removed:
+#
+#     >>> urljoin("/www.domain/", "/data")
+#     'www.domain/data?'
+#
+#     # so if you want to preserve them, provide an empty argument or a slash:
+#
+#     >>> urljoin("", "/www.domain/", "/data")
+#     '/www.domain/data?'
+#
+#     >>> urljoin("/", "/www.domain/", "/data")
+#     '/www.domain/data?'
+#     ```
+#     """
+#     # For a discussion, see https://stackoverflow.com/q/1793261
+#     return "{}?{}".format('/'.join(url.strip('/') for url in urlpath),
+#                           "&".join("{}={}".format(k, v)
+#                                    for k, v in query_args.items()))
+
 # class strconvert:
 #     """String conversion utilities from sql-LIKE operator's wildcards,
 #     Filesystem's wildcards, and regular expressions
@@ -1246,5 +1085,166 @@ def fdsn_url_qs(base_url: str, **query_args):
 #             # thus neither "%" nor "_" are escaped:
 #             percent, underscore = "%", "_"
 #         return re.escape(text).replace(percent, ".*").replace(underscore, ".")
+#
+# def harmonize_dataframe_to_fdsn(dataframe, query_type):
+#     """Return a normalized and harmonized dataframe from raw_data. dbmodel_key
+#     can be 'event' 'station' or 'channel'. Raises ValueError if the resulting
+#     dataframe is empty or if a `ValueError` is raised from sub-functions
+#
+#     :param dataframe: the result of response_text_to_df. For
+#         info see https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf#page=12
+#     :param query_type: a string denoting the web service type:
+#         "event", "station" (for a station query with parameter level=station)
+#         or "channel" (for a station query with parameter level=channel)
+#     """
+#     dframe = _rename_columns(dataframe, query_type)
+#     dframe = _harmonize_fdsn_dframe(dframe, query_type)
+#     if dframe.empty:
+#         raise ValueError("Malformed data (e.g., type mismatch, NaN)")
+#     return dframe
+#
+#
+# def _rename_columns(query_df, query_type):
+#     """Rename the columns of `query_df` according to the ORM model representing
+#     the FDSN query type ('event', 'station', 'channel') originating the data frame
+#     """
+#     if query_df.empty:
+#         return query_df
+#     columns = query_df.columns
+#     expected_columns_count = len(columns)  # reassigned below (here to silence warnings)
+#     try:
+#         if query_type.lower() in {"event", "events"}:
+#             expected_columns_count = 11
+#             # EventID|Time|Latitude|Longitude|Depth/km|Author|Catalog|Contributor|
+#             # ContributorID|MagType|Magnitude|MagAuthor|EventLocationName|EventType
+#             columns = {
+#                 columns[0]: Event.event_id.key,
+#                 columns[1]: Event.time.key,
+#                 columns[2]: Event.latitude.key,
+#                 columns[3]: Event.longitude.key,
+#                 columns[4]: Event.depth_km.key,
+#                 # skip Author (Rarely used, memory-intensive text field)
+#                 columns[6]: Event.catalog.key,
+#                 # skip Contributor (Rarely used, memory-intensive text field)
+#                 # skip ContributorID (Rarely used, memory-intensive text field)
+#                 columns[9]: Event.mag_type.key,
+#                 columns[10]: Event.magnitude.key
+#                 # skip MagAuthor (Rarely used, memory-intensive text field)
+#                 # skip EventLocationName (Rarely used, memory-intensive text field)
+#                 # skip EventType (Rarely used, memory-intensive text field)
+#             }
+#         elif query_type.lower() in {"station", "stations"}:
+#             expected_columns_count = 8
+#             # Network|Station|Latitude|Longitude|Elevation|SiteName|StartTime|EndTime
+#             # Set this table columns mapping (by name, so we can safely add any
+#             # new column at any index):
+#             columns = {
+#                 columns[0]: Channel.network_code.key,
+#                 columns[1]: Channel.station_code.key,
+#                 columns[2]: Channel.latitude.key,
+#                 columns[3]: Channel.longitude.key,
+#                 columns[4]: Channel.elevation.key,
+#                 # skip site_name (Rarely used, memory-intensive text field)
+#                 columns[6]: Channel.start_time.key,
+#                 columns[7]: Channel.end_time.key
+#             }
+#         elif query_type.lower() in {"channel", "channels"}:
+#             expected_columns_count = 17
+#             # Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|
+#             # Azimuth|Dip|SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|
+#             # StartTime|EndTime`
+#             columns = {
+#                 columns[0]: Channel.network_code.key,
+#                 columns[1]: Channel.station_code.key,
+#                 columns[2]: Channel.location_code.key,
+#                 columns[3]: "channel_code",
+#                 columns[4]: Channel.latitude.key,
+#                 columns[5]: Channel.longitude.key,
+#                 columns[6]: Channel.elevation.key,
+#                 columns[7]: Channel.depth.key,
+#                 columns[8]: Channel.azimuth.key,
+#                 columns[9]: Channel.dip.key,
+#                 # skip sensor_description (Rarely used, memory-intensive text field)
+#                 columns[11]: Channel.scale.key,
+#                 columns[12]: Channel.scale_freq.key,
+#                 columns[13]: Channel.scale_units.key,
+#                 columns[14]: Channel.sample_rate.key,
+#                 columns[15]: Channel.start_time.key,
+#                 columns[16]: Channel.end_time.key
+#             }
+#         else:
+#             raise ValueError("Invalid fdsn_model: supply Events, "
+#                              "Station or Channel class")
+#     except IndexError:
+#         # do not provide long messages, the exception is likely to be wrapped
+#         # also do not print columns, which are often just numbers with no meaning:
+#         raise ValueError("Data has %d column(s), expected: %d" %
+#                          (expected_columns_count, len(columns)))
+#
+#     return query_df.rename(columns=columns)[list(columns.values())]
+#
+#
+# def _harmonize_fdsn_dframe(query_df, query_type):
+#     """Harmonize the query dataframe (convert to dataframe dtypes, removes
+#     NaNs and so on) according to query_type ('event', 'station', 'channel').
+#     """
+#     if query_df.empty:
+#         return query_df
+#
+#     if query_type.lower() in ("event", "events"):
+#         fdsn_model_classes = [Event]
+#     elif query_type.lower() in ("station", "stations"):
+#         fdsn_model_classes = [Station]
+#     elif query_type.lower() in ("channel", "channels"):
+#         fdsn_model_classes = [Station, Channel]
+#     else:
+#         return query_df
+#
+#     # convert columns to correct dtypes (datetime, numeric etcetera). Values
+#     # not conforming will be set to NaN or NaT or None, thus detectable via
+#     # pandas.dropna or pandas.isnull
+#     for fdsn_model_class in fdsn_model_classes:
+#         query_df = harmonize_columns(fdsn_model_class, query_df)
+#         query_df = dropnulls(fdsn_model_class, query_df)
+#
+#     return query_df
+#
+# def dbsyncdf(dataframe, session, matching_columns, autoincrement_pkey_col,
+#              update=False, buf_size=10, keep_duplicates=False, return_df=True,
+#              cols_to_print_on_err=None):
+#     """Call `syncdf` and writes to the logger before returning the new
+#     Dataframe. Raises a :class:`FailedDownload` if the returned Dataframe is
+#     empty (no row saved)
+#     this function should be used for bulk insert/updates of metadata (event,
+#     station, channels). Segments inserts/updates use the underling
+#     :class:`pdsql.DbManager`
+#     """
+#     db_exc_logger = DbExcLogger(cols_to_print_on_err)
+#
+#     inserted, not_inserted, updated, not_updated, dfr = \
+#         syncdf(dataframe, session, matching_columns, autoincrement_pkey_col,
+#                update, buf_size, keep_duplicates,
+#                db_exc_logger.failed_insert,  # on duplicates callback
+#                db_exc_logger.failed_insert,   # on insert err callback
+#                db_exc_logger.failed_update)   # on update err callback
+#
+#     table = autoincrement_pkey_col.class_
+#     if dfr.empty:
+#         # Build a meaningful error message for the FailedDownload exception
+#         err_count = len(db_exc_logger.exc_history)
+#         if not err_count:
+#             first_err = 'Unknown. Try to check log for details'
+#         else:
+#             # Take the 1st item of the Set, who cares if it's not the first inserted:
+#             first_err = next(iter(db_exc_logger.exc_history))
+#         if err_count > 1:
+#             err_msg = ("%d errors. Check log for details, first reported error "
+#                        "is: %s") % (err_count, first_err)
+#         else:
+#             err_msg = 'error: ' + first_err
+#         raise FailedDownload(formatmsg("No row saved to table '%s'" %
+#                                        table.__tablename__, err_msg))
+#     dblog(table, inserted, not_inserted, updated, not_updated)
+#     return dfr
 
 

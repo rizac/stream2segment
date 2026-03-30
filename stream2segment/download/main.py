@@ -17,9 +17,9 @@ from stream2segment.io import yaml_safe_dump
 from stream2segment.io.db import secure_dburl, close_session, models
 from stream2segment.download.inputvalidation import load_config_for_download, pop_param
 from stream2segment.download.exc import NothingToDownload, FailedDownload
-from stream2segment.download.modules.events import get_events_df
+from stream2segment.download.modules.events import get_events
 from stream2segment.download.modules.datacenters import get_stations_urls
-from stream2segment.download.modules.channels import get_channels_df
+from stream2segment.download.modules.channels import get_channels
 from stream2segment.download.modules.stationsearch import merge_events_stations
 from stream2segment.download.modules.segments import (
     prepare_for_download, download_save_segments  #, DcDataselectManager  # FIXME REMOVE
@@ -229,53 +229,76 @@ def _run(session, download_id, events_url, starttime, endtime, data_url,
 
     try:
         stepinfo("Fetching events")
-        events_df = get_events_df(session, events_url, events_extra_params,
-                                  starttime, endtime, dbbufsize,
-                                  advanced_settings['e_timeout'], isterminal)
+        events = get_events(
+            session,
+            events_url,
+            events_extra_params,
+            starttime,
+            endtime,
+            # dbbufsize,
+            # advanced_settings['e_timeout'],
+            # isterminal
+        )
 
         # Get datacenters, store them in the db, returns the dc instances
         # (db rows) correctly added
         stepinfo("Fetching channels urls")
-        # get datacenters (might raise FailedDownload):
-        station_urls = get_stations_urls(
+
+        channels = get_channels(
+            session,
             data_url,
-            advanced_settings['routing_service_url'],
-            [n for n in network if not n.startswith('!')],
-            [s for s in station if not s.startswith('!')],
-            [l for l in location if not l.startswith('!')],
-            [c for c in channel if not c.startswith('!')],
+            network,
+            station,
+            location,
+            channel,
             starttime,
             endtime,
-            dbbufsize
+            min_sample_rate,
+            update_metadata,
+            advanced_settings['routing_service_url'],
+            True
         )
 
-        channels_df = get_channels_df(
-            session.get_bind(), station_urls,
-            [n for n in network if n.startswith('!')],
-            [s for s in station if s.startswith('!')],
-            [l for l in location if l.startswith('!')],
-            [c for c in channel if c.startswith('!')],
-            # network, station, location, channel, starttime, endtime,
-            min_sample_rate, update_metadata,
-            advanced_settings['routing_service_url'],
-            max_thread_workers, advanced_settings['s_timeout'],
-            download_blocksize, dbbufsize, isterminal
-        )
-        stepinfo(f"{len(channels_df)} channels fetched")
+        # # get datacenters (might raise FailedDownload):
+        # station_urls = get_stations_urls(
+        #     data_url,
+        #     advanced_settings['routing_service_url'],
+        #     [n for n in network if not n.startswith('!')],
+        #     [s for s in station if not s.startswith('!')],
+        #     [l for l in location if not l.startswith('!')],
+        #     [c for c in channel if not c.startswith('!')],
+        #     starttime,
+        #     endtime,
+        #     dbbufsize
+        # )
+        #
+        # channels_df = get_channels_df(
+        #     session.get_bind(), station_urls,
+        #     [n for n in network if n.startswith('!')],
+        #     [s for s in station if s.startswith('!')],
+        #     [l for l in location if l.startswith('!')],
+        #     [c for c in channel if c.startswith('!')],
+        #     # network, station, location, channel, starttime, endtime,
+        #     min_sample_rate, update_metadata,
+        #     advanced_settings['routing_service_url'],
+        #     max_thread_workers, advanced_settings['s_timeout'],
+        #     download_blocksize, dbbufsize, isterminal
+        # )
+        # stepinfo(f"{len(channels_df)} channels fetched")
 
         # stepinfo("Preparing URLs to download segments from "
         #          f"({'with credentials' if authorizer else 'open data only'})")
         # channels_df = setup_dataselect_urls(channels_df, authorizer)
 
-        stepinfo(f"Selecting station channels ({len(channels_df):,}) "
-                 f"within search area around each event ({len(events_df):,})")
+        stepinfo(f"Selecting station channels ({len(channels):,}) "
+                 f"within search area around each event ({len(events):,})")
         # merge vents and stations (might raise FailedDownload):
-        segments_df = merge_events_stations(events_df, channels_df,
+        segments_df = merge_events_stations(events, channels,
                                             search_radius, tt_table,
                                             isterminal)
         # help gc by deleting the (only) refs to unused dataframes
-        del events_df
-        del channels_df
+        del events
+        del channels
 
         # if authorizer.token:  # FIXME REMOVE
         #     stepinfo("Acquiring credentials from token in order to "
