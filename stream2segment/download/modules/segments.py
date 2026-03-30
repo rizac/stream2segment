@@ -16,9 +16,10 @@ from sqlalchemy import select
 
 from stream2segment.io import Fdsnws
 from stream2segment.io.cli import get_progressbar
-from stream2segment.io.db.pdsql import DbManager, sync_pkey
-from stream2segment.io.db.models import WebService, Segment, Channel, MiniSeed, \
-    FailedDownloadedSegment, NoDataSegment
+from stream2segment.io.db.pdsql import DbManager, sync_pkey, get_max, db2df
+from stream2segment.io.db.models import (
+    WebService, Segment, Channel, MiniSeed, NoDataSegment
+)
 from stream2segment.download.modules.utils import (DbExcLogger, logwarn_dataframe,
                                                    DownloadStats, formatmsg,
                                                    s2scodes, url2str, fdsn_url_qs,
@@ -57,21 +58,32 @@ def prepare_for_download(
     if restricted_download:
         return segments.copy()
 
-    segments_with_pkeys = sync_pkey(
-        segments,
-        NoDataSegment,
-        engine,
-        NoDataSegment.id.key,
-        [NoDataSegment.event_id.key, NoDataSegment.channel_id.key],
-        [NoDataSegment.download_code.key],
-        chunksize=min(1000, len(segments))
-    )
-    max_id = segments_with_pkeys.attrs.pop(f'{Segment.id.key}_max')
-    discarded = segments_with_pkeys[segments_with_pkeys.id.key] <= max_id
-    if discarded:
-        logger.info(f"Discarding {len(discarded):, } already downloaded segments")
-        segments = segments_with_pkeys[~discarded]
-        segments.pop(Segment.id.key)
+    # Let's remove also 2xx 3xx errors (e.g., no data), and retry only errors
+    base_stmt = (select([
+        NoDataSegment.id,
+        NoDataSegment.event_id,
+        NoDataSegment.channel_id,
+        NoDataSegment.download_code
+    ]).order_by(NoDataSegment.id.asc()).limit(50000))
+    stmt = base_stmt
+    uc_cols = [NoDataSegment.event_id.key, NoDataSegment.channel_id.key]
+    set_cols = [NoDataSegment.id.key, NoDataSegment.download_code.key]
+    for col in set_cols:
+        segments[col] = pd.Series(pd.NA, index=segments.index, dtype="Int64")
+    suffix = '_'
+    while True:
+        dfr = db2df(stmt, engine)
+        if dfr.empty:
+            break
+        stmt = base_stmt.where(NoDataSegment.id > int(dfr[NoDataSegment.id.key].max()))
+        segments = segments.merge(dfr, how='left', on=uc_cols, suffixes=('', suffix))
+        for c in set_cols:
+            dfr[c] = dfr[c + suffix].combine_first(dfr[c])
+        segments = segments.drop(columns=[c + suffix for c in set_cols])
+
+        # segments = segments[segments[Segment.id.key + '_'].na()].copy()
+
+    return segments
 
 # def prepare_for_download(
 #     session,
@@ -324,7 +336,7 @@ class SEG:  # noqa
     START = "start_time"
     END = "end_time"
     DATA = MiniSeed.data.key  # noqa
-    DWLCODE = FailedDownloadedSegment.download_code.key  # noqa
+    DWLCODE = NoDataSegment.download_code.key  # noqa
     # DATAID = Segment.data_seed_id.key  # noqa
     MGAP = Segment.maxgap_numsamples.key  # noqa
     DWLID = Segment.download_run_id.key  # noqa

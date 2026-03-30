@@ -590,7 +590,7 @@ def drop_conflict_between(
     if conflict_between.any():
         # create a new dataframe where "webs_url_col" has all URLs separated by ",":
         log_df = channels_df[conflict_between].groupby(
-            grp_cols + [webs_url_col], as_index=False, sort=True, ascending=False
+            grp_cols + [webs_url_col], as_index=False, sort=True
         ).agg({ webs_url_col: lambda x: ", ".join(sorted(set(x))) }). rename(
             columns={ webs_url_col: 'URLs (should be 1)' }
         )

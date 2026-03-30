@@ -30,7 +30,7 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
-from sqlalchemy import select, UpdateBase, Column
+from sqlalchemy import select, UpdateBase, Column, Select
 
 # Sql-alchemy:
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
@@ -282,7 +282,7 @@ def sync_pkey(
     engine,
     pkey_col:str,
     uc_cols: list[str],
-    chunksize=0
+    chunksize=50000
 ):
     """
     Synchronize the primary key `id_col` using the related `table_model` and
@@ -305,15 +305,14 @@ def sync_pkey(
     columns = table_model.__table__.c  # columns collection
     col_names = [pkey_col] + list(uc_cols)
     stmt = select(*(columns[c] for c in col_names))
-    if pkey_col in dfr.columns:
-        dfr.drop(columns=[pkey_col], inplace=True)
+    # set column nullable int type (for now):
+    dfr[pkey_col] = pd.Series(pd.NA, index = dfr.index, dtype="Int64")
     pkey_max = get_max(engine, columns[pkey_col])
 
     if chunksize <= 0:  # fetch at once (db table small to medium size)
-        db_df = db2df(stmt, engine)
-        if not db_df.empty:
-            dfr = dfr.merge(db_df, how='left', on=uc_cols)
-    else:  # fetch in chunks (db table huge):
+        chunksize = get_row_count(engine, table_model)
+
+    if chunksize > 0:  # fetch in chunks (db table huge):
         # create an id_col + suffix where we put fetched db values:
         suffix = '_'
         while pkey_col + suffix in dfr.columns:
@@ -325,25 +324,19 @@ def sync_pkey(
             if db_df.empty:
                 break
             dfr = dfr.merge(db_df, how='left', on=uc_cols, suffixes=('', suffix))
-            # because we are fetching in chunks, id_col might already exist, so
-            # we now have id_col and id_col+suffix. we need to merge into id_col:
-            if pkey_col + suffix in dfr.columns:
-                # Replace original values with new ones where available:
-                dfr[pkey_col] = dfr[pkey_col + suffix].combine_first(dfr[pkey_col])
-                # drop new ids (already merged):
-                dfr = dfr.drop(columns=[pkey_col + suffix])
+            # we now have id_col and id_col + suffix. The latter might be populated
+            # with NA (no match) or integers (match). Replace the latter in id_col:
+            dfr[pkey_col] = dfr[pkey_col + suffix].combine_first(dfr[pkey_col])
+            # drop new ids (already merged):
+            dfr = dfr.drop(columns=[pkey_col + suffix])
             stmt = stmt_base.where(columns.id > db_df[pkey_col].max())
 
-    if pkey_col not in dfr.columns:
-        dfr[pkey_col] = range(pkey_max + 1, pkey_max + len(dfr) + 1, 1)
-    else:
-        nans = pd.isna(dfr[pkey_col])
-        nan_count = nans.sum()
-        if nan_count > 0:
-            dfr.loc[nans, pkey_col] = range(pkey_max + 1, pkey_max + nan_count + 1, 1)
+    nans = pd.isna(dfr[pkey_col])
+    nan_count = nans.sum()
+    if nan_count > 0:
+        dfr.loc[nans, pkey_col] = range(pkey_max + 1, pkey_max + nan_count + 1, 1)
 
-    if not pd.api.types.is_integer_dtype(dfr[pkey_col]):  # for safety
-        dfr[pkey_col] = dfr[pkey_col].astype(int)
+    dfr[pkey_col] = dfr[pkey_col].astype(int)  # from Int64 back to natural int (faster)
     dfr.attrs[f'{pkey_col}_max'] = pkey_max
 
     return dfr
@@ -377,7 +370,7 @@ def get_row_count(engine, table_model):
         return conn.execute(select(func.count()).select_from(table_model)).scalar() or 0
 
 
-def db2df(query, engine) -> pd.DataFrame:
+def db2df(query: Select, engine) -> pd.DataFrame:
     columns = [c['name'] for c in query.column_descriptions]
     with engine.connect() as conn:
         return pd.DataFrame(conn.execute(query).fetchall(), columns=columns)
