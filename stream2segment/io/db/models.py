@@ -493,10 +493,10 @@ class MiniSeed(Base):
     data = Column(LargeBinary, nullable=False)
 
 
-class FailedDownloadedSegment(Base):
+class NoDataSegment(Base):
     """
-    Model representing a failed Downloaded segment (no data, server / client error, miniseed error,
-    timeout)
+    Model representing a segment with no data (204 Http response,
+    server / client error, miniSEED data error, timeout)
     """
     __tablename__ = 'failed_downloaded_segment'
 

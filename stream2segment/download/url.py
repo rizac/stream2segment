@@ -68,12 +68,12 @@ def _get_opener(base_url, user, password):
 # custom codes:
 
 class CustomResponseCode(IntEnum):
-    URL_ERROR = 1001
-    TIMEOUT_ERROR = 1002
-    GET_ADDR_INFO_ERROR = 1003
-    CONNECTION_ERROR = 1004
-    HTTP_EXC_ERROR = 1005
-    SSL_ERROR = 1006
+    URL_ERROR = -1001
+    TIMEOUT_ERROR = -1002
+    GET_ADDR_INFO_ERROR = -1003
+    CONNECTION_ERROR = -1004
+    HTTP_EXC_ERROR = -1005
+    SSL_ERROR = -1006
 
 
 responses = dict(builtin_responses)

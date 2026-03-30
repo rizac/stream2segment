@@ -216,6 +216,11 @@ def _run(session, download_id, events_url, starttime, endtime, data_url,
     # calculate steps (note that booleans work, e.g: 8 - True == 7):
     # __steps = 6 + inventory + (True if authorizer.token else False)
     __steps = 6 + inventory
+
+    steps = [
+
+    ]
+
     stepiter = iter(range(1, __steps+1))
 
     # custom function for logging.info different steps:
@@ -235,6 +240,7 @@ def _run(session, download_id, events_url, starttime, endtime, data_url,
             events_extra_params,
             starttime,
             endtime,
+            True
             # dbbufsize,
             # advanced_settings['e_timeout'],
             # isterminal
@@ -256,6 +262,7 @@ def _run(session, download_id, events_url, starttime, endtime, data_url,
             min_sample_rate,
             update_metadata,
             advanced_settings['routing_service_url'],
+            authorizer is not None,
             True
         )
 
@@ -315,15 +322,15 @@ def _run(session, download_id, events_url, starttime, endtime, data_url,
         segments_df = prepare_for_download(
             session,
             segments_df,
-            authorizer,
-            time_window,
-            retry_seg_not_found,
-            retry_url_err,
-            retry_mseed_err,
-            retry_client_err,
-            retry_server_err,
-            retry_timespan_err,
-            retry_timespan_warn=False
+            # authorizer,
+            # time_window,
+            # retry_seg_not_found,
+            # retry_url_err,
+            # retry_mseed_err,
+            # retry_client_err,
+            # retry_server_err,
+            # retry_timespan_err,
+            # retry_timespan_warn=False
         )
 
         # prepare_for_download raises a NothingToDownload if there is no

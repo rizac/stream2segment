@@ -112,8 +112,9 @@ def url2str(obj, maxlen=None):
 
 
 def df2str(df, **kwargs):
-    kwargs.setdefault('max_rows', 20)  # FIXME call this func throughout the code?
+    kwargs.setdefault('max_rows', 30)  # FIXME call this func throughout the code?
     kwargs.setdefault('index', True)
+    kwargs.setdefault('na_rep', '')
     return df.set_index(pd.RangeIndex(start=1, stop=len(df)+1)).to_string(**kwargs)
 
 
@@ -881,8 +882,10 @@ def fdsn_url(url: str, new_service: str = None, new_method: str = None, check_sc
     if method not in methods:
         raise ValueError(f"Invalid method in url: {method}")
 
-    if new_service is not None or new_method is not None:
-        path2 = f'/fdsnws/{new_service or service}/{majorversion}/{new_method or method}'
+    change_service = new_service is not None and new_service != service
+    change_method = new_method is not None and new_method != method
+    if change_service or change_method:
+        path2 = f'/fdsnws/{new_service}/{majorversion}/{new_method}'
         new_parsed = parsed_url._replace(path=path2)
         url = urlunparse(new_parsed)
 

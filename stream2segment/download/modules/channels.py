@@ -5,7 +5,7 @@ Stations/Channels download functions
 """
 import re
 import logging
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 import json
 from datetime import datetime
 from multiprocessing.pool import ThreadPool
@@ -20,8 +20,7 @@ from sqlalchemy import select, Engine
 # from sqlalchemy import or_, and_
 
 from stream2segment.io.cli import get_progressbar
-from stream2segment.io.db.pdsql import shared_colnames, \
-    Inserter, sync_pkey, df2db, get_row_count  # dbquery2df, , mergeupdate
+from stream2segment.io.db.pdsql import df2db, get_row_count
 from stream2segment.io.db.models import Channel, WebService, Segment
 from stream2segment.download.exc import FailedDownload
 from stream2segment.download.url import urlread, get_host
@@ -44,13 +43,14 @@ def get_channels(
     min_sample_rate,
     update_metadata,
     eida_rs_urls,
+    restricted_download: bool,
     # max_thread_workers,
     # timeout,
     # blocksize,
     # db_bufsize,
     show_progress=False
 ):
-    cha_urls = list(get_channel_urls(
+    cha_urls = get_channel_urls(
         datacenter_urls,
         eida_rs_urls,
         [n for n in network if not n.startswith('!')],
@@ -59,11 +59,12 @@ def get_channels(
         [c for c in channel if not c.startswith('!')],
         starttime,
         endtime
-    ))
+    )
 
     cha_df = download_channels(
         # session.get_bind(),
         cha_urls,
+        show_progress=show_progress
         # eida_rs_urls,
         # max_thread_workers,
         #advanced_settings['s_timeout'],
@@ -71,6 +72,9 @@ def get_channels(
         #dbbufsize,
         # isterminal
     )
+    if cha_df.empty:
+        raise FailedDownload('No channel downloaded')
+    num_downloaded_channels = len(cha_df)
 
     # post filter (negation "!", sample rate) which raises FailedDownload if no rows:
     cha_df = filter_out_channels_df(
@@ -82,6 +86,8 @@ def get_channels(
         # network, station, location, channel, starttime, endtime,
         min_sample_rate
     )
+    if cha_df.empty:
+        raise FailedDownload('No channel to work with after filtering out')
 
     # first drop duplicates (all columns the same):
     # this method does very few things as there might be rounding errors that
@@ -92,11 +98,23 @@ def get_channels(
     orig_cha_df = cha_df
     # set ranking based on the order of urls
     cha_df = drop_conflict_between(engine, cha_df, eida_rs_urls)
-    cha_df = cha_df.drop(columns='__.rank.__')
+    if not cha_df.empty:
+        cha_df = cha_df.drop(columns='__.rank.__')
+        cha_df = drop_conflict_within(cha_df)
 
-    cha_df = drop_conflict_within(cha_df)
+    if cha_df.empty:
+        raise FailedDownload('No channel to work with after conflicts dropping')
+
     cha_df = sync_webservice_ids_with_db(cha_df, engine)
+    if cha_df.empty:
+        raise FailedDownload(
+            'No channel to work with after attempting to save channel webservices'
+        )
     cha_df = save_channels(engine, cha_df, update_metadata)
+    if cha_df.empty:
+        raise FailedDownload(
+            'No channel to work with after attempting to save channels'
+        )
 
     # move (rename) current station ids and urls:
     ws_url_col = WebService.url.key
@@ -105,43 +123,30 @@ def get_channels(
         Channel.webservice_id.key: f'channel_{Channel.webservice_id.key}',
     })
     # get dataselect urls:
-    dataselect_urls = {
-        u: fdsn_url(u, new_service='dataselect') for u in
-        pd.unique(cha_df[f'channel_{ws_url_col}'])
-    }
+    dataselect_urls = {}
+    for sta_url in pd.unique(cha_df[f'channel_{ws_url_col}']):
+        dataselect_urls[sta_url] = fdsn_url(
+            sta_url,
+            new_service='dataselect',
+            new_method='queryuauth' if restricted_download else None
+        )
+
     # set new "url" column with dataselect urls:
-    cha_df[ws_url_col] = cha_df[f'channel_{ws_url_col}'].map(dataselect_urls)
+    cha_df[ws_url_col] = cha_df[f'channel_{ws_url_col}'].map(
+        dataselect_urls
+    ).astype('category')
     # sync dataselect urls:
     cha_df = sync_webservice_ids_with_db(cha_df, engine)
-    cha_df[ws_url_col] = cha_df[ws_url_col].astype('category')
+    if cha_df.empty:
+        raise FailedDownload(
+            'No channel to work with after attempting to save channel webservices'
+        )
 
     logger.info(
-        f'{len(cha_df):,} of {(len(orig_cha_df)):,} station url(s) saved'
+        f'Working with {len(cha_df):,} station channels '
+        f'(downloaded {num_downloaded_channels:,}, '
+        f'discarded: {len(cha_df)-num_downloaded_channels:,})'
     )
-    if len(orig_cha_df) > len(cha_df):
-        logger.warning(f"Unable to save {len(orig_cha_df) - len(cha_df)} "
-                       f"channel(s) (e.g., dropped due to conflicts, "
-                       f"not written due to db errors)")
-
-    # if len(failed_dframe_rows) > 0:
-    #     # get_channels_df_from_db(session, sta_ws_id, net, sta, loc, cha,
-    #     #                                     starttime, endtime)
-    #     # logger.info(formatmsg(f"Fetching stations data from database for "
-    #     #                       f"{len(failed_dframe_rows)} failed http request(s)",
-    #     #                       "download errors occurred"))
-    #     logger.info(formatmsg(f"{len(failed_dframe_rows)} failed download(s), "
-    #                           f"unable to fetch all available stations",
-    #                           "download errors occurred"))
-    if cha_df.empty:
-        # ok, now let's see if we have remaining datacenters to be
-        # fetched from the db
-        raise FailedDownload(formatmsg("No station found",
-                                       "Unable to fetch stations from all "
-                                       "data-centers, no data to fetch from "
-                                       "the database. Check config and log "
-                                       "for details"))
-
-    # post process cha_df and return only relevant data
 
     # convert to categorical type (for safety):
     for c in (
@@ -267,7 +272,7 @@ def get_eida_rs_response(
     cha: str | None= None,
     start: datetime | None = None,
     end: datetime | None = None,
-    service='dataselect'
+    service='station'
 ) -> dict:
     """Return the EIDA Routing Service response text (str)"""
     for eida_rs_url in routing_service_url:
@@ -411,7 +416,7 @@ def download_channels(
     #             kw_args['end'] = end
     #         yield fdsn_url_qs(url, **kw_args)
 
-    t_pool = ThreadPool(2)
+    t_pool = ThreadPool(4)
     def _urlread(_):
         return _[0], urlread(_[1], timeout=120, blocksize=-1)
 
@@ -534,10 +539,6 @@ def filter_out_channels_df(
     if df_filter is not None:
         ret = channels_df[~df_filter].copy()
 
-    if ret.empty:
-        raise FailedDownload("No channel matches user defined filters "
-                             "(network, channel, sample rate, ...)")
-
     discarded_sr = len(channels_df) - len(ret)
     if discarded_sr:
         logger.warning(f"{discarded_sr:,} channel(s) discarded according to "
@@ -587,19 +588,16 @@ def drop_conflict_between(
 
     # log messages:
     if conflict_between.any():
+        # create a new dataframe where "webs_url_col" has all URLs separated by ",":
         log_df = channels_df[conflict_between].groupby(
-            [net_col, sta_col], as_index=False
-        ).agg({ WebService.url.key: lambda x: ", ".join(sorted(set(x))) })
+            grp_cols + [webs_url_col], as_index=False, sort=True, ascending=False
+        ).agg({ webs_url_col: lambda x: ", ".join(sorted(set(x))) }). rename(
+            columns={ webs_url_col: 'URLs (should be 1)' }
+        )
         logger.warning(
             f'Conflict: different URLs returning the same station. Conflicts summary:'
         )
-        columns2show = [net_col, sta_col] + ['URLs (should be 1)']
-        log_df = log_df.rename(columns={WebService.url.key: columns2show[-1]})
-        logger.warning(
-            log_df[columns2show].sort_values(by=columns2show).to_string(
-                na_rep='', index=False
-            )
-        )
+        logger.warning(df2str(log_df))
 
         conflict_between_indices = []
         # although we check conflicts by net.sta.loc.cha, we are interested in fixing
@@ -611,7 +609,7 @@ def drop_conflict_between(
             ], sort=False)
         ):
             if not table_empty:
-                keep_indices = _check_conflict_between_via_db(
+                keep = _check_conflict_between_via_db(
                     engine,
                     cha_df,
                     net,
@@ -620,14 +618,14 @@ def drop_conflict_between(
                     cha_prefix[0],
                     cha_prefix[1]
                 )
-                cha_df = cha_df[~cha_df.index.isin(keep_indices)]
+                cha_df = cha_df[~keep]
 
             if eida_rs_urls is not None and not cha_df.empty:
                 eida_rs_json = get_eida_rs_response(eida_rs_urls, net=net, sta=sta)
-                _keep_indices = _check_conflict_between_via_eida_rs(
+                keep = _check_conflict_between_via_eida_rs(
                     cha_df, eida_rs_json
                 )
-                cha_df = cha_df[~cha_df.index.isin(_keep_indices)]
+                cha_df = cha_df[~keep]
 
             if not cha_df.empty:
                 # conflict found, unresolvable through already saved data. Get first
@@ -635,23 +633,34 @@ def drop_conflict_between(
                 real_ws_url = cha_df[
                     cha_df['__.rank.__'] == cha_df['__.rank.__'].min()
                 ].iloc[0][webs_url_col]
-                keep_indices = cha_df[cha_df[webs_url_col] == real_ws_url].index
-                conflict_between_indices.extend(~cha_df.index.isin(keep_indices))
+                keep = cha_df[webs_url_col] == real_ws_url
+                cha_df = cha_df[~keep]
 
-        channels_df = channels_df[
-            ~channels_df.index.isin(conflict_between_indices)
-        ].copy()
+            if not cha_df.empty:
+                conflict_between_indices.extend(cha_df.index)
+
+        if conflict_between_indices:
+            drop = channels_df.index.isin(conflict_between_indices)
+            channels_df = channels_df[~drop].copy()
+            log_df = channels_df[drop]
+            logger.warning('Station channels dropped after applying conflict resolver:')
+            logger.warning(
+                log_df[grp_cols + [webs_url_col]].sort_values(by=webs_url_col).to_string(
+                    na_rep='', index=False
+                )
+            )
 
     return channels_df
 
 
-def _check_conflict_between_via_db(engine, cha_df, net, sta, loc, band, inst):
+def _check_conflict_between_via_db(
+    engine, cha_df, net, sta, loc, band, inst
+) -> Sequence[bool]:
 
+    keep = np.zeros(len(cha_df), dtype=bool)
     webs_url_col = WebService.url.key
-    keep_indices = []
 
     for _, cha_df in cha_df.groupby([webs_url_col], sort=False):
-
         stmt = (
             select(WebService.url)
             .join(Channel, Channel.webservice_id == WebService.id)
@@ -665,14 +674,14 @@ def _check_conflict_between_via_db(engine, cha_df, net, sta, loc, band, inst):
             real_ws_urls = conn.execute(stmt).scalars().all()
 
         if len(real_ws_urls) == 1:
-            keep_indices.extend(
-                cha_df[cha_df[webs_url_col] == next(iter(real_ws_urls))].index
-            )
-        return keep_indices
+            keep |= (cha_df[webs_url_col] == next(iter(real_ws_urls))).values
+
+    return keep
 
 
-def _check_conflict_between_via_eida_rs(cha_df, eida_rs_json):
-    keep_indices = []
+def _check_conflict_between_via_eida_rs(cha_df, eida_rs_json) -> Sequence[bool]:
+    keep = np.zeros(len(cha_df), dtype=bool)
+
     urls = []
 
     net_col = Channel.network_code.key
@@ -702,11 +711,11 @@ def _check_conflict_between_via_eida_rs(cha_df, eida_rs_json):
                     (cha_df[Channel.end_time.key] <= end) |
                     cha_df[Channel.end_time.key].isna()
                 )
-        keep_indices.extend(cha_df[flt].index)
+            keep |= flt.values
 
     # channels not in any eida url have to be taken because we could not infer:
-    keep_indices.extend(cha_df[~cha_df[webs_url_col].isin(urls)].index)
-    return keep_indices
+    keep |= (~cha_df[webs_url_col].isin(urls)).values
+    return keep
 
 
 def wild2regex(text: str):
@@ -777,20 +786,15 @@ def drop_conflict_within(channels_df):
     conflict_within_indices = []
     if conflict_within.any():
 
-        log_df = channels_df[conflict_within].groupby(
-            [WebService.url.key] + grp_cols[:-1], as_index=False
-        ).size()
+        log_df = channels_df.loc[conflict_within, grp_cols].groupby(
+            grp_cols, as_index=False, sort=True
+        ).size().rename(columns={'size': "channels (should be 1)"})
+        # (log_df has columns=grp_cols - because as_index=False - and an added col size)
         logger.warning(
             f'Conflict: the same URL returning a channel multiple times. '
             f'Conflicts summary:  '
         )
-        columns2show = [WebService.url.key] + grp_cols[:4] + ["instances (should be 1)"]
-        log_df = log_df.rename(columns={"size": columns2show[-1]})
-        logger.warning(
-            log_df[columns2show].sort_values(
-                by=columns2show[-1:], ascending=False
-            ).to_string(na_rep='', index=False)
-        )
+        logger.warning(df2str(log_df))
 
         for _, cha_df in channels_df[conflict_within].groupby(
             grp_cols, sort=False
@@ -840,69 +844,17 @@ def drop_conflict_within(channels_df):
                     start_time = cha_df.at[cha_df.index[i + 1], start_col]
                     channels_df.at[cha_df.index[i], end_col] = start_time
 
-            # # overlapping times. Check if other columns are qual:
-            # col_equal = {
-            #     c: len(cha_df[c].value_counts(dropna=False)) == 1
-            #     for c in grp_other_cols if c not in {start_col, end_col}
-            # }
-            # if not all(col_equal.values()):
-            #     for key, all_equal in col_equal.items():
-            #         if not all_equal:
-            #             if not pd.api.types.is_numeric_dtype(cha_df[key]):
-            #                 break
-            #             kwargs = {}
-            #             if key in [Channel.latitude.key, Channel.longitude.key]:
-            #                 kwargs = {'atol': 0.005, 'rtol': 0}  # atol 0.005 ~= 555 mt
-            #             all_equal = col_equal[key] = np.allclose(
-            #                 cha_df[key].iloc[0], cha_df[key].iloc[1:], **kwargs
-            #             )
-            #         if not all_equal:
-            #             break
-            # if not all(col_equal.values()):
-            #     drop_indices = cha_df.index
-            # else:
-            #     drop_indices = cha_df.index[1:]
-            #     idx = cha_df.index[0]
-            #     channels_df.at[idx, start_col] = s_time.min()
-            #     channels_df.at[idx, end_col] = e_time.max()
-
-            # conflict_within_indices.extend(drop_indices)
-
-            # # overlapping times, all other columns equal. Take min and max time, and
-            # # discard others:
-            # discard_indices = cha_df
-            # cha_df.loc
-            #
-            #
-            # # get how many end times match existing start times
-            # other_idx = ~channels_df.index.isin(cha_df.index)
-            # num_matches = np.array([
-            #     (channels_df[other_idx][end_col] == cha_df.iloc[i][start_col]).sum()
-            #     for i in range(len(cha_df))],
-            #     dtype=int
-            # )
-            # # if some match and some don't remove those who don't:
-            # if (num_matches > 0).any() and (num_matches ==0).any():
-            #     cha_df = cha_df[num_matches > 0]
-            #     conflict_within_indices.extend(cha_df[num_matches == 0].index)
-            #
-            # if len(cha_df) <= 1:
-            #     continue
-            #
-            # # No conflict resolution. So take the row that has maximum time span.
-            # # Though arbitrary and potentially
-            # # overlapping with other rows, this way we might download once more which
-            # # is preferable to skip some:
-            # # get end times, replacing None (no end) to a random max time
-            # end_t = cha_df[end_col].copy()
-            # end_t[pd.isna(end_t)] = end_t.max().replace(end_t.max().year + 1)
-            # time_ranges = end_t - cha_df[start_col]
-            # drop_indices = cha_df.index.copy().delete(np.argmax(time_ranges))
-            # conflict_within_indices.extend(drop_indices)
-
-        channels_df = channels_df[
-            ~channels_df.index.isin(conflict_within_indices)
-        ].copy()
+        if conflict_within_indices:
+            drop = channels_df.index.isin(conflict_within_indices)
+            channels_df = channels_df[~drop].copy()
+            log_df = channels_df[drop]
+            logger.warning('Station channels dropped after applying conflict resolver:')
+            logger.warning(
+                log_df[grp_cols].sort_values(
+                    by=webs_url_col).to_string(
+                    na_rep='', index=False
+                )
+            )
 
     return channels_df
 
@@ -915,10 +867,6 @@ def save_channels(engine: Engine, channels_df: pd.DataFrame, update: bool):
 
     :param channels_df: pandas DataFrame
     """
-    if channels_df.empty:
-        raise FailedDownload('No channel left after cleanup '
-                             '(e.g., drop duplicates)')
-
     # if update is True, don't update inventories HERE (handled later)
     update_cols = []
     if update:

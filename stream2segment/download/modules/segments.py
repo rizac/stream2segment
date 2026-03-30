@@ -12,12 +12,13 @@ from urllib.request import Request
 
 import numpy as np
 import pandas as pd
+from sqlalchemy import select
 
 from stream2segment.io import Fdsnws
 from stream2segment.io.cli import get_progressbar
-from stream2segment.io.db.pdsql import db2df, mergeupdate, DbManager
+from stream2segment.io.db.pdsql import DbManager, sync_pkey
 from stream2segment.io.db.models import WebService, Segment, Channel, MiniSeed, \
-    FailedDownloadedSegment
+    FailedDownloadedSegment, NoDataSegment
 from stream2segment.download.modules.utils import (DbExcLogger, logwarn_dataframe,
                                                    DownloadStats, formatmsg,
                                                    s2scodes, url2str, fdsn_url_qs,
@@ -31,200 +32,249 @@ from stream2segment.download.url import (
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__)
 
-
-def prepare_for_download(session, segments_df, authorizer, timespan,
-                         retry_seg_not_found, retry_url_err, retry_mseed_err,
-                         retry_client_err, retry_server_err,
-                         retry_timespan_err, retry_timespan_warn=False):
-    """Drop the segments which are already present on the database and updates
-    the primary keys for those not present (adding them to the db). Add new
-    columns to the returned Data frame
-
-    :param session: the sql-alchemy session bound to an existing database
-    :param segments_df: pandas DataFrame resulting from `get_arrivaltimes`
-    """
-    opendataonly = authorizer is None
-    # Fetch already downloaded segments and return the corresponding dataframe.
-    # which will have also the boolean column SEG.RETRY, which is True for
-    # suspiciously restricted (SR) segments, i.e. segments whose download code
-    # MIGHT denote that they are restricted (see `s2scodes.restricted_data`):
-    db_seg_df = fetch_already_downloaded_segments_df(session, segments_df)
-    # store now the ids of the SR segments, we will use them later.
-    # If open data, `db_seg_df` does not have the column SEG.RETRY so set the
-    # ids to a (empty) DataFrame for consistency:
-    force_retry_ids = pd.DataFrame() if opendataonly else \
-        db_seg_df[SEG.ID][db_seg_df[SEG.RETRY]]
-    # Now update the SEG.RETRY col. (or create it) according to the flags set:
-    set_segments_to_retry(db_seg_df, opendataonly, retry_seg_not_found,
-                          retry_url_err, retry_mseed_err, retry_client_err,
-                          retry_server_err, retry_timespan_err,
-                          retry_timespan_warn)
-
-    # Now merge/update existing dataframe (`segments_df`) with the db values
-    # (`db_seg_df`). Do it in two steps: 1) set columns and defaults (for int
-    # types, sets np.nan). Note that if we have something to retry
-    # (db_seg_df[SEG_RETRY].any()), we add also a column SEG.DWLCODE with
-    # None/nan as default: checking if that column exists will be the way later
-    # to know if we need to update rows or only insert new rows.
-    cols2set = OrderedDict([(SEG.ID, np.nan), (SEG.RETRY, True),
-                            (SEG.REQSTART, pd.NaT), (SEG.REQEND, pd.NaT)] +
-                           ([(SEG.DWLCODE, np.nan)]
-                            if db_seg_df[SEG.RETRY].any() else []))
-    for colname, default_ in cols2set.items():
-        segments_df[colname] = default_
-    # 2) assign/override values of cols2set from db_seg_df to segments_df,
-    # matching rows via the [SEG_CHID, SEG_EVID] cols:
-    segments_df = mergeupdate(segments_df, db_seg_df, [SEG.CHAID, SEG.EVID],
-                              list(cols2set.keys()))
-    set_requested_timebounds(segments_df, timespan)
-
-    oldlen = len(segments_df)
-    # do a copy to avoid SettingWithCopyWarning. Moreover, copy should
-    # re-allocate contiguous arrays which might be faster (and less memory
-    # consuming after unused memory is released)
-    segments_df = segments_df[segments_df[SEG.RETRY]].copy()
-    if oldlen != len(segments_df):
-        reason = "already downloaded, no retry"
-        logger.info(formatmsg("%d segments discarded", reason),
-                    oldlen-len(segments_df))
-
-    if segments_df.empty:
-        raise NothingToDownload("Nothing to download: all segments already "
-                                "downloaded according to the current "
-                                "configuration")
-
-    check_suspiciously_duplicated_segment(segments_df)
-
-    # Last step: the policy later will be to UPDATE (=overwrite existing
-    # segments on the database) only segments whose download code changed (see
-    # comment on line 354)  because yes, it might save a lot of time. E.g.,
-    # suppose retry_server_error=true and a segment on the db with download
-    # code=500 => update it only if the server returns some code != 500.
-    # However, if we are downloading with credentials, we need to force
-    # updating SR segments which were downloaded with no credentials, by
-    # definition of SR (suspiciously restricted). Thus, if we have those
-    # segments (`not force_retry_ids.empty`) and we are performing a download
-    # on an already existing database (`SEG.DWLCODE in segments_df.columns`),
-    # for those SR segments we will set the value of the column `SEG.DWLCODE` to
-    # None/nan: as we will never get any response code = None from the server,
-    # those SR segments will always be updated
-    if not force_retry_ids.empty and SEG.DWLCODE in segments_df.columns:
-        segments_df.loc[segments_df[SEG.ID].isin(force_retry_ids),
-                        SEG.DWLCODE] = np.nan
-
-    segments_df.drop([SEG.RETRY], axis=1, inplace=True)
-    # sort values in order to 1. download first most recent events and 2: shuffle
-    # datacenters to try diversify the requests to different URLs
-    segments_df.sort_values(by=SEG.REQSTART, ascending=False, inplace=True)
-
-    return segments_df
-
-
-def fetch_already_downloaded_segments_df(session, segments_df):
-    """Return a Dataframe with potentially already downloaded segments, using
-    the existing `segments_df` dataframe of currently to-download segments.
-    If `is_opendataonly` is False, the returned dataframe will also have a
-    column named SEG.RETRY with boolean denoting segments that should be
-    re-downloaded regardless of the user-defined classes (e.g. 204, 404)
-    """
-    restricted_segs = segments_df[WebService.url].str.endswith('/queryauth')
-
-    # set the list of columns to query
-    columns2query = [
-        Segment.id, Segment.channel_id, Segment.download_code, Segment.event_id
-    ]
-
-    has_restricted = restricted_segs.any()
-
-    # everything that is != 200, 204 has to be downloaded again
-    # query relevant data into data frame (speeds up calculations:
-    seg_df_tmp = segments_df[~restricted_segs]
-    chids = pd.unique(seg_df_tmp[SEG.CHAID]).tolist()
-    evids = pd.unique(seg_df_tmp[SEG.EVID]).tolist()
-    df1 = db2df(
-        session.query(*columns2query).filter(
-            Segment.channel_id.in_(chids) &
-            Segment.event_id.in_(evids) &
-            ((Segment.download_code < 200) | (Segment.download_code > 299))
-        )
+def prepare_for_download(
+    engine,
+    segments: pd.DataFrame,
+    restricted_download: bool,
+    timespan
+):
+    # remove already downloaded segments (with data):
+    segments_with_pkeys = sync_pkey(
+        segments,
+        Segment,
+        engine,
+        Segment.id.key,
+    [Segment.event_id.key, Segment.channel_id.key],
+        chunksize=min(1000, len(segments))
     )
+    max_id = segments_with_pkeys.attrs.pop(f'{Segment.id.key}_max')
+    discarded = segments_with_pkeys[segments_with_pkeys.id.key] <= max_id
+    if discarded:
+        logger.info(f"Discarding {len(discarded):, } already downloaded segments")
+        segments = segments_with_pkeys[~discarded]
+        segments.pop(Segment.id.key)
 
-    if has_restricted:
-        seg_df_tmp = segments_df[restricted_segs]
-        chids = pd.unique(seg_df_tmp[SEG.CHAID]).tolist()
-        evids = pd.unique(seg_df_tmp[SEG.EVID]).tolist()
-        df2 = db2df(
-            session.query(*columns2query).filter(
-                Segment.channel_id.in_(chids) &
-                Segment.event_id.in_(evids) &
-                (Segment.download_code != 204)
-            )
-        )
-        if not df2.empty:
-            df1 = pd.concat([df1, df2], axis=0)
+    if restricted_download:
+        return segments.copy()
 
-    return df1
+    segments_with_pkeys = sync_pkey(
+        segments,
+        NoDataSegment,
+        engine,
+        NoDataSegment.id.key,
+        [NoDataSegment.event_id.key, NoDataSegment.channel_id.key],
+        [NoDataSegment.download_code.key],
+        chunksize=min(1000, len(segments))
+    )
+    max_id = segments_with_pkeys.attrs.pop(f'{Segment.id.key}_max')
+    discarded = segments_with_pkeys[segments_with_pkeys.id.key] <= max_id
+    if discarded:
+        logger.info(f"Discarding {len(discarded):, } already downloaded segments")
+        segments = segments_with_pkeys[~discarded]
+        segments.pop(Segment.id.key)
 
-    # codes = s2scodes
-    # # if downloading with authorization, add a boolean last column representing
-    # # when retry has to be forced. This happens when all the following two
-    # # conditions are met:
-    # # 1. segment was downloaded with no credentials
-    # # 2. segment download code suggests unauthorized access
-    # #    (codes.restricted_data = 404, 204, 401, 403)
-    # # (segments already downloaded with credentials and with code 404, 401,
-    # # 403 will be retried if the flag 'retry_client_err' is True, as usual)
-    # if not is_opendataonly:
-    #     columns2query += [(Segment.download_code.isnot(None) &
-    #                        Segment.download_code.in_(codes.restricted_data) &
-    #                        Segment.queryauth.isnot(True)).label(SEG.RETRY)]
-    # # Note above: we need isnot(None) because in_(codes.restricted_data) might
-    # # return None for segment with NULL download status code (we want either
-    # # True or False, not None)
-    #
-    # # query relevant data into data frame (speeds up calculations:
-    # chids = pd.unique(segments_df[SEG.CHAID]).tolist()
-    # evids = pd.unique(segments_df[SEG.EVID]).tolist()
-    # return dbquery2df(session.query(*columns2query).
-    #                   filter(Segment.channel_id.in_(chids) &  # noqa
-    #                          Segment.event_id.in_(evids)  # noqa
-    #                          )
-    #                   )
-
-
-def set_segments_to_retry(db_seg_df, is_opendataonly, retry_seg_not_found,
-                          retry_url_err, retry_mseed_err, retry_client_err,
-                          retry_server_err, retry_timespan_err,
-                          retry_timespan_warn):
-    """Set the segments to retry by appending a boolean column SEG.RETRY. Such
-    a column might already exist if we are downloading restricted data.
-    `db_seg_df` is modified in place
-    """
-    codes = s2scodes
-    # set the boolean array telling whether we need to retry db_seg_df elements
-    # (those already downloaded)
-    mask = False
-    if retry_seg_not_found:
-        mask |= pd.isnull(db_seg_df[SEG.DWLCODE])
-    if retry_url_err:
-        mask |= db_seg_df[SEG.DWLCODE] == codes.url_err
-    if retry_mseed_err:
-        mask |= db_seg_df[SEG.DWLCODE] == codes.mseed_err
-    if retry_client_err:
-        mask |= (db_seg_df[SEG.DWLCODE] >= 400) & (db_seg_df[SEG.DWLCODE] < 500)
-    if retry_server_err:
-        mask |= (db_seg_df[SEG.DWLCODE] >= 500) & (db_seg_df[SEG.DWLCODE] < 600)
-    if retry_timespan_err:
-        mask |= db_seg_df[SEG.DWLCODE] == codes.timespan_err
-    if retry_timespan_warn:
-        mask |= db_seg_df[SEG.DWLCODE] == codes.timespan_warn
-
-    if is_opendataonly:
-        # SEG_RETRY is not in db_seg_df, assing:
-        db_seg_df[SEG.RETRY] = mask
-    elif mask is not False:  # just to avoid useless operations
-        # SEG_RETRY is in db_seg_df, merge:
-        db_seg_df[SEG.RETRY] |= mask
+# def prepare_for_download(
+#     session,
+#     segments_df,
+#     authorizer,
+#     timespan,
+#     retry_seg_not_found,
+#     retry_url_err,
+#     retry_mseed_err,
+#     retry_client_err,
+#     retry_server_err,
+#     retry_timespan_err,
+#     retry_timespan_warn=False
+# ):
+#     """Drop the segments which are already present on the database and updates
+#     the primary keys for those not present (adding them to the db). Add new
+#     columns to the returned Data frame
+#
+#     :param session: the sql-alchemy session bound to an existing database
+#     :param segments_df: pandas DataFrame resulting from `get_arrivaltimes`
+#     """
+#     opendataonly = authorizer is None
+#     # Fetch already downloaded segments and return the corresponding dataframe.
+#     # which will have also the boolean column SEG.RETRY, which is True for
+#     # suspiciously restricted (SR) segments, i.e. segments whose download code
+#     # MIGHT denote that they are restricted (see `s2scodes.restricted_data`):
+#     db_seg_df = fetch_already_downloaded_segments_df(session, segments_df)
+#     # store now the ids of the SR segments, we will use them later.
+#     # If open data, `db_seg_df` does not have the column SEG.RETRY so set the
+#     # ids to a (empty) DataFrame for consistency:
+#     force_retry_ids = pd.DataFrame() if opendataonly else \
+#         db_seg_df[SEG.ID][db_seg_df[SEG.RETRY]]
+#     # Now update the SEG.RETRY col. (or create it) according to the flags set:
+#     set_segments_to_retry(db_seg_df, opendataonly, retry_seg_not_found,
+#                           retry_url_err, retry_mseed_err, retry_client_err,
+#                           retry_server_err, retry_timespan_err,
+#                           retry_timespan_warn)
+#
+#     # Now merge/update existing dataframe (`segments_df`) with the db values
+#     # (`db_seg_df`). Do it in two steps: 1) set columns and defaults (for int
+#     # types, sets np.nan). Note that if we have something to retry
+#     # (db_seg_df[SEG_RETRY].any()), we add also a column SEG.DWLCODE with
+#     # None/nan as default: checking if that column exists will be the way later
+#     # to know if we need to update rows or only insert new rows.
+#     cols2set = OrderedDict([(SEG.ID, np.nan), (SEG.RETRY, True),
+#                             (SEG.REQSTART, pd.NaT), (SEG.REQEND, pd.NaT)] +
+#                            ([(SEG.DWLCODE, np.nan)]
+#                             if db_seg_df[SEG.RETRY].any() else []))
+#     for colname, default_ in cols2set.items():
+#         segments_df[colname] = default_
+#     # 2) assign/override values of cols2set from db_seg_df to segments_df,
+#     # matching rows via the [SEG_CHID, SEG_EVID] cols:
+#     segments_df = mergeupdate(segments_df, db_seg_df, [SEG.CHAID, SEG.EVID],
+#                               list(cols2set.keys()))
+#     set_requested_timebounds(segments_df, timespan)
+#
+#     oldlen = len(segments_df)
+#     # do a copy to avoid SettingWithCopyWarning. Moreover, copy should
+#     # re-allocate contiguous arrays which might be faster (and less memory
+#     # consuming after unused memory is released)
+#     segments_df = segments_df[segments_df[SEG.RETRY]].copy()
+#     if oldlen != len(segments_df):
+#         reason = "already downloaded, no retry"
+#         logger.info(formatmsg("%d segments discarded", reason),
+#                     oldlen-len(segments_df))
+#
+#     if segments_df.empty:
+#         raise NothingToDownload("Nothing to download: all segments already "
+#                                 "downloaded according to the current "
+#                                 "configuration")
+#
+#     check_suspiciously_duplicated_segment(segments_df)
+#
+#     # Last step: the policy later will be to UPDATE (=overwrite existing
+#     # segments on the database) only segments whose download code changed (see
+#     # comment on line 354)  because yes, it might save a lot of time. E.g.,
+#     # suppose retry_server_error=true and a segment on the db with download
+#     # code=500 => update it only if the server returns some code != 500.
+#     # However, if we are downloading with credentials, we need to force
+#     # updating SR segments which were downloaded with no credentials, by
+#     # definition of SR (suspiciously restricted). Thus, if we have those
+#     # segments (`not force_retry_ids.empty`) and we are performing a download
+#     # on an already existing database (`SEG.DWLCODE in segments_df.columns`),
+#     # for those SR segments we will set the value of the column `SEG.DWLCODE` to
+#     # None/nan: as we will never get any response code = None from the server,
+#     # those SR segments will always be updated
+#     if not force_retry_ids.empty and SEG.DWLCODE in segments_df.columns:
+#         segments_df.loc[segments_df[SEG.ID].isin(force_retry_ids),
+#                         SEG.DWLCODE] = np.nan
+#
+#     segments_df.drop([SEG.RETRY], axis=1, inplace=True)
+#     # sort values in order to 1. download first most recent events and 2: shuffle
+#     # datacenters to try diversify the requests to different URLs
+#     segments_df.sort_values(by=SEG.REQSTART, ascending=False, inplace=True)
+#
+#     return segments_df
+#
+#
+# def fetch_already_downloaded_segments_df(session, segments_df):
+#     """Return a Dataframe with potentially already downloaded segments, using
+#     the existing `segments_df` dataframe of currently to-download segments.
+#     If `is_opendataonly` is False, the returned dataframe will also have a
+#     column named SEG.RETRY with boolean denoting segments that should be
+#     re-downloaded regardless of the user-defined classes (e.g. 204, 404)
+#     """
+#     restricted_segs = segments_df[WebService.url].str.endswith('/queryauth')
+#
+#     # set the list of columns to query
+#     columns2query = [
+#         Segment.id, Segment.channel_id, Segment.download_code, Segment.event_id
+#     ]
+#
+#     has_restricted = restricted_segs.any()
+#
+#     # everything that is != 200, 204 has to be downloaded again
+#     # query relevant data into data frame (speeds up calculations:
+#     seg_df_tmp = segments_df[~restricted_segs]
+#     chids = pd.unique(seg_df_tmp[SEG.CHAID]).tolist()
+#     evids = pd.unique(seg_df_tmp[SEG.EVID]).tolist()
+#     df1 = db2df(
+#         session.query(*columns2query).filter(
+#             Segment.channel_id.in_(chids) &
+#             Segment.event_id.in_(evids) &
+#             ((Segment.download_code < 200) | (Segment.download_code > 299))
+#         )
+#     )
+#
+#     if has_restricted:
+#         seg_df_tmp = segments_df[restricted_segs]
+#         chids = pd.unique(seg_df_tmp[SEG.CHAID]).tolist()
+#         evids = pd.unique(seg_df_tmp[SEG.EVID]).tolist()
+#         df2 = db2df(
+#             session.query(*columns2query).filter(
+#                 Segment.channel_id.in_(chids) &
+#                 Segment.event_id.in_(evids) &
+#                 (Segment.download_code != 204)
+#             )
+#         )
+#         if not df2.empty:
+#             df1 = pd.concat([df1, df2], axis=0)
+#
+#     return df1
+#
+#     # codes = s2scodes
+#     # # if downloading with authorization, add a boolean last column representing
+#     # # when retry has to be forced. This happens when all the following two
+#     # # conditions are met:
+#     # # 1. segment was downloaded with no credentials
+#     # # 2. segment download code suggests unauthorized access
+#     # #    (codes.restricted_data = 404, 204, 401, 403)
+#     # # (segments already downloaded with credentials and with code 404, 401,
+#     # # 403 will be retried if the flag 'retry_client_err' is True, as usual)
+#     # if not is_opendataonly:
+#     #     columns2query += [(Segment.download_code.isnot(None) &
+#     #                        Segment.download_code.in_(codes.restricted_data) &
+#     #                        Segment.queryauth.isnot(True)).label(SEG.RETRY)]
+#     # # Note above: we need isnot(None) because in_(codes.restricted_data) might
+#     # # return None for segment with NULL download status code (we want either
+#     # # True or False, not None)
+#     #
+#     # # query relevant data into data frame (speeds up calculations:
+#     # chids = pd.unique(segments_df[SEG.CHAID]).tolist()
+#     # evids = pd.unique(segments_df[SEG.EVID]).tolist()
+#     # return dbquery2df(session.query(*columns2query).
+#     #                   filter(Segment.channel_id.in_(chids) &  # noqa
+#     #                          Segment.event_id.in_(evids)  # noqa
+#     #                          )
+#     #                   )
+#
+#
+# def set_segments_to_retry(db_seg_df, is_opendataonly, retry_seg_not_found,
+#                           retry_url_err, retry_mseed_err, retry_client_err,
+#                           retry_server_err, retry_timespan_err,
+#                           retry_timespan_warn):
+#     """Set the segments to retry by appending a boolean column SEG.RETRY. Such
+#     a column might already exist if we are downloading restricted data.
+#     `db_seg_df` is modified in place
+#     """
+#     codes = s2scodes
+#     # set the boolean array telling whether we need to retry db_seg_df elements
+#     # (those already downloaded)
+#     mask = False
+#     if retry_seg_not_found:
+#         mask |= pd.isnull(db_seg_df[SEG.DWLCODE])
+#     if retry_url_err:
+#         mask |= db_seg_df[SEG.DWLCODE] == codes.url_err
+#     if retry_mseed_err:
+#         mask |= db_seg_df[SEG.DWLCODE] == codes.mseed_err
+#     if retry_client_err:
+#         mask |= (db_seg_df[SEG.DWLCODE] >= 400) & (db_seg_df[SEG.DWLCODE] < 500)
+#     if retry_server_err:
+#         mask |= (db_seg_df[SEG.DWLCODE] >= 500) & (db_seg_df[SEG.DWLCODE] < 600)
+#     if retry_timespan_err:
+#         mask |= db_seg_df[SEG.DWLCODE] == codes.timespan_err
+#     if retry_timespan_warn:
+#         mask |= db_seg_df[SEG.DWLCODE] == codes.timespan_warn
+#
+#     if is_opendataonly:
+#         # SEG_RETRY is not in db_seg_df, assing:
+#         db_seg_df[SEG.RETRY] = mask
+#     elif mask is not False:  # just to avoid useless operations
+#         # SEG_RETRY is in db_seg_df, merge:
+#         db_seg_df[SEG.RETRY] |= mask
 
 
 def set_requested_timebounds(segments_df, timespan):
