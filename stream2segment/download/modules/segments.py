@@ -64,7 +64,9 @@ def prepare_for_download(
         NoDataSegment.event_id,
         NoDataSegment.channel_id,
         NoDataSegment.download_code
-    ]).order_by(NoDataSegment.id.asc()).limit(50000))
+    ]).order_by(NoDataSegment.id.asc()).limit(50000)).where(
+        ~NoDataSegment.download_code.between(200, 299)
+    )
     stmt = base_stmt
     uc_cols = [NoDataSegment.event_id.key, NoDataSegment.channel_id.key]
     set_cols = [NoDataSegment.id.key, NoDataSegment.download_code.key]
@@ -80,6 +82,13 @@ def prepare_for_download(
         for c in set_cols:
             dfr[c] = dfr[c + suffix].combine_first(dfr[c])
         segments = segments.drop(columns=[c + suffix for c in set_cols])
+        if not restricted_download:
+            # segments with 2xx code are not retried (only with restricted data)
+            flt = (
+                (segments[NoDataSegment.download_code.key] < 200) |
+                (segments[NoDataSegment.download_code.key] >= 300)
+            )
+            segments = segments[flt]
 
         # segments = segments[segments[Segment.id.key + '_'].na()].copy()
 
