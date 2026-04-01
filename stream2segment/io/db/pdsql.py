@@ -283,6 +283,7 @@ def sync_pkey(
     pkey_col:str,
     uc_cols: list[str],
     select_where=None,
+    assign_new_ids=True,
     chunksize=50000
 ):
     """
@@ -337,12 +338,13 @@ def sync_pkey(
             # FIXME REMOVE:
             # stmt = stmt_base.where(columns.id > db_df[pkey_col].max())
 
-    nans = pd.isna(dfr[pkey_col])
-    nan_count = nans.sum()
-    if nan_count > 0:
-        dfr.loc[nans, pkey_col] = range(pkey_max + 1, pkey_max + nan_count + 1, 1)
+    if assign_new_ids:
+        nans = pd.isna(dfr[pkey_col])
+        nan_count = nans.sum()
+        if nan_count > 0:
+            dfr.loc[nans, pkey_col] = range(pkey_max + 1, pkey_max + nan_count + 1, 1)
+        dfr[pkey_col] = dfr[pkey_col].astype(int)  # from Int64 back to natural int (faster)
 
-    dfr[pkey_col] = dfr[pkey_col].astype(int)  # from Int64 back to natural int (faster)
     dfr.attrs[f'{pkey_col}_max'] = pkey_max
 
     return dfr

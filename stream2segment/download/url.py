@@ -6,7 +6,7 @@ Http requests with multi-threading
 .. moduleauthor:: <rizac@gfz-potsdam.de>
 """
 from collections import defaultdict, deque
-from itertools import chain
+from dataclasses import dataclass
 from threading import Condition, current_thread, main_thread, Lock, Event
 import signal
 import socket
@@ -14,6 +14,7 @@ import os
 import ssl
 from enum import IntEnum
 from multiprocessing.pool import ThreadPool
+from typing import Any
 
 from urllib.parse import urlparse  # , urlencode
 from urllib.error import HTTPError, URLError
@@ -92,29 +93,34 @@ responses[CustomResponseCode.SSL_ERROR] = \
     "SSL/TLS handshake failure (bad certificate, hostname mismatch, expired cert)"
 
 
+@dataclass(slots=True, frozen=False)
 class Response:
     """
     Lightweight data class representing a Response object with two arguments:
 
-    - data (`bytes` or `str` or `Exception`) is the response content or error,
-      depending on whether the data read was decoded into `str`. If an exception was
-      raised, data is the exception object with __traceback__, __context__ and __cause__
-      all set to None for performance reason
+    - data (`bytes` or `str` or `Exception`) is the response content, usually bytes or,
+      if data read was decoded, `str`. If an exception was raised, data is the
+      exception object (with __traceback__, __context__ and __cause__
+      all set to None for performance reason). `data` can also be manually set to
+      any type (e.g. to `dict` via `json.loads(response.data)`)
     - status_code (int) is the response HTTP status code (extended), including
       normal http_codes (if exception is an HTTPError) and custom codes that
       generally denote network-related errors (usually integers > 1000, see
       the module enum class `CustomResponseCode` for details)
+    - request: The request (URL string or Request object) generating the Response.
+      It can be int in case one wants to manually attach an ID to it
     """
-    __slots__ = ('data', 'status_code', 'request')
 
-    def __init__(self, data, status_code: int, request: str | Request):
-        self.data = data
-        self.status_code = status_code
-        self.request = request
+    data: str | bytes | Exception | Any
+    status_code: int
+    request: str | Request | int
 
     @property
     def is_ok(self):
         return 200 <= self.status_code <= 299
+
+    def has_no_data(self):
+        return self.status_code == 204
 
 
 def urlread(

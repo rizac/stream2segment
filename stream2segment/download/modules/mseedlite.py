@@ -3,8 +3,13 @@
 .. moduleauthor:: Andres Heinloo <andres@gfz-potsdam.de>, GEOFON, GFZ Potsdam
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
+
+from __future__ import annotations
+
 import datetime
 import struct
+from collections.abc import Iterable
+from dataclasses import dataclass
 from math import log
 from io import BytesIO
 
@@ -114,7 +119,10 @@ class Record:
         self.cha = cha.strip()
 
         try:
-            self.record_id = _get_id(net, sta, loc, cha)
+            # self.record_id = _get_id(net, sta, loc, cha)
+            self.record_id = (
+                b"%s.%s.%s.%s" % (net.strip(), sta.strip(), loc.strip(), cha.strip())
+            ).decode('utf8')
         except UnicodeDecodeError as exc:
             # raise MSeedError so it will be caught
             raise MSeedError(str(exc))
@@ -446,156 +454,79 @@ class Record:
 
         fd.write(buf)
 
+# FIXME REMOVE
+# def _get_id(net, sta, loc, cha):
+#     """Return the id in the format ```net.sta.loc.cha```: all arguments should
+#     be bytes. The four arguments are network, station, location and channel
+#     code as read from the miniSEED bytes.
+#
+#     :return: a string (unicode in python2)
+#
+#     :raise: UnicodeDecodeError if any character cannot be decoded
+#     """
+#     return (b"%s.%s.%s.%s" %
+#             (net.strip(), sta.strip(), loc.strip(), cha.strip())).decode('utf8')
 
-class Input:
-    """Iterate over the available Mini-SEED records. Keeps track of record ids
-    in case of errors on a single mseed
+
+def unpack(data: bytes | BytesIO) -> Iterable[MiniSeedInfo]:
     """
+    Unpack data into its "traces" (time series). Returns an iterable of MiniSeedInfo
+    """
+    stream = data
+    close_stream = False
+    if not isinstance(stream, BytesIO):
+        stream = BytesIO(data)
+        close_stream = True
 
-    def __init__(self, fd):
-        """Create the iterable from the file handle passed as parameter.
-
-        :param fd: either a bytes sequence or a BytesIO object. The bytes
-            sequence must represent downloaded data **related to the same time
-            span** (e.g. issued from a query with any network, station,
-            location, channel but the same 'start' and 'end' parameters)
-        """
-        # Avoid creating a BytesIO in each Record otherwise we will infinitely
-        # read the first chunk each time. This is not DRY (don't repeat
-        # yourself) but avoids modifying the original code:
-        if not hasattr(fd, "read"):
-            fd = BytesIO(fd)
-        self.__fd = fd
-
-    def __iter__(self):
-        """Define the iterator. Yields the tuple (Record, is_exc). Record is
-        the record  read (if is_exc is False) or the MiniseedError raised
-        (is_exc = True). In any  case, the Record object has the attribute
-        ```record_id = "[network].[station].[location].[channel]" != None```
-        This method raises for any kind of non-MiniseedError exception, or for
-        MiniseedError occurred during header reading, i.e. for which the
-        exception attribute "record_id" would be None.
-        """
+    mseeds = {}
+    mseeds_errors = {}
+    try:
         while True:
-            rec = Record(self.__fd)
+            rec = Record(stream)
             if rec.EOF:
-                self.__fd.close()
                 break
-            yield rec
 
+            seed_id = rec.record_id
 
-def _get_id(net, sta, loc, cha):
-    """Return the id in the format ```net.sta.loc.cha```: all arguments should
-    be bytes. The four arguments are network, station, location and channel
-    code as read from the miniSEED bytes.
+            if seed_id in mseeds_errors:
+                continue
+            elif rec.error:
+                mseeds_errors[seed_id] = MiniSeedInfo(seed_id, MSeedError(rec.error))
+                continue
 
-    :return: a string (unicode in python2)
+            mseeds.setdefault(seed_id, []).append(rec)
 
-    :raise: UnicodeDecodeError if any character cannot be decoded
-    """
-    return (b"%s.%s.%s.%s" %
-            (net.strip(), sta.strip(), loc.strip(), cha.strip())).decode('utf8')
+            # # check time bounds, and discard if chunk COMPLETELY out-of bound:
+            # if (starttime is not None and starttime > rec.end_time) or \
+            #         (endtime is not None and endtime < rec.begin_time):
+            #     chunks_out_of_bounds.add(seed_id)
+            #     continue
 
+    finally:
+        if close_stream:
+            stream.close()
 
-def unpack(data, starttime=None, endtime=None):
-    """Unpack data into its "traces" (time series). Returns a dict where keys
-    are the seed id as strings:
-    "network.station.location.channel"
-    mapped to a tuple
-    ```
-    (is_err, bytes_or_exc, s_rate, max_gap_overlap_ratio, start_time, end_time,
-        out_of_bounds_chunks_found)
-    ```
-    where:
-    exc is the exception raised while reading the miniseed (or None)
-    data is the bytes data of the miniSEED (if exc is None) or None (if exc is
-    not None) s_rate* is the sample rate (float)
-    max_gap_overlap_ratio* is a float indicating the maximum gap (positive) or
-        overlap (negative) found between all miniseed records. If zero, no
-        gaps/ overlaps where found
-    start_time*: (datetime) the miniseed start time (time of the first sample)
-    end_time*: (datetime) the miniseed end_time (time of the last sample)
-    out_of_bounds_chunks_found*: boolean, if either `starttime` or `endtime`
-        are provided, reutrns True if some records of `data` where
-        out-of-bounds and thus where discarded (not returned in `bytes`)
+    for miniseed_info in mseeds_errors.values():
+        yield miniseed_info
 
-    * rely on these values only if `exc=None`. Otherwise, these values are None:
-      so basically the user should check first and handle the error, and
-      otherwise handle `data` and all other elements
+    for seed_id, records in mseeds.items():
 
-    When no error occurs (exc=None) this method assures that:
-    ```
-    Stream(obspy.read(BytesIO(data)))
-    ```
-    and
-    ```
-    Stream([obspy.read(BytesIO(d[0]))[0] for d in unpack(data).values()])
-    ```
-    return the same object
-    :param data: the bytes (or str in python2) representing waveform data as,
-        e.g., returned from a query response
-    :param starttime: the *expected* starttime (`datetime` object) or None (do
-        not check for time bounds): if not None, all records completely before
-        this value will not be returned.
-    :param endtime: the *expected* endtime (`datetime` object) or None (do not
-        check for time bounds): if not None, all records completely after this
-        value will not be returned
-    :return: a dictionary of keys tuples `(network, station location, channel)`
-        mapped to the tuple representing the record read
-    :raise MiniseedError if some error is raised, that is 'not' recoverable
-        (e.g., header error, or bad file length for some record causing all
-        subsequent records to be mis-aligned)
-    """
-    mseeds_to_read = {}
-
-    # values of preocessed_mseed below are:
-    #     exc (Exception or Npne)
-    #     data (list of Records) or Exception (if is_exc is True)
-    #     sample_rate (float),
-    #     max_gap_overlap_ratio (float),
-    #     starttime (datetime),
-    #     endtime (datetime),
-    #     out_of_time_chunks_found (boolean)
-    # Example: [None, b'...', None, None, None, None, False]
-    processed_mseeds = {}
-    chunks_out_of_bounds = set()
-    for rec in Input(data):
-        id_ = rec.record_id
-
-        if id_ in processed_mseeds:
-            continue
-        elif rec.error:
-            processed_mseeds[id_] = \
-                (MSeedError(rec.error), None, None, None, None, None, False)
-            mseeds_to_read.pop(id_, None)
-            continue
-
-        if id_ not in mseeds_to_read:
-            mseeds_to_read[id_] = []
-
-        # check time bounds, and discard if chunk COMPLETELY out-of bound:
-        if (starttime is not None and starttime > rec.end_time) or \
-                (endtime is not None and endtime < rec.begin_time):
-            chunks_out_of_bounds.add(id_)
-            continue
-
-        mseeds_to_read[id_].append(rec)
-
-    for id_, records in mseeds_to_read.items():
-        if not records:
-            processed_mseeds[id_] = \
-                (None, b'', None, None, None, None, id_ in chunks_out_of_bounds)
-            continue
-        # get records and sort ascending by time
-        records.sort(key=lambda elm: elm.begin_time)
-        fsamp = records[0].fsamp
-        max_gap_overlap_ratio = 0
-        bytesio = BytesIO()
         try:
+
+            if not records:  # for safety
+                raise MSeedError('No data')
+
+            # get records and sort ascending by time
+            records.sort(key=lambda elm: elm.begin_time)
+            fsamp = records[0].fsamp
+            max_gap_overlap_ratio = 0
+            bytesio = BytesIO()
+
             for i, record in enumerate(records):
 
                 if record.fsamp != fsamp:
                     raise MSeedError("records sample rate mismatch")
+
                 record.write(bytesio, int(log(record.size) / log(2)))
 
                 if i == 0:
@@ -615,16 +546,31 @@ def unpack(data, starttime=None, endtime=None):
                 if abs(curr_max_gap_ratio) > abs(max_gap_overlap_ratio):
                     max_gap_overlap_ratio = curr_max_gap_ratio
 
-            processed_mseeds[id_] = (None,
-                                     bytesio.getvalue(),
-                                     fsamp,
-                                     max_gap_overlap_ratio,
-                                     records[0].begin_time,
-                                     records[-1].end_time,
-                                     id_ in chunks_out_of_bounds)
+            yield MiniSeedInfo(
+                seed_id,
+                bytesio.getvalue(),
+                fsamp,
+                records[0].begin_time,
+                records[-1].end_time,
+                max_gap_overlap_ratio
+            )
+
             bytesio.close()
 
         except MSeedError as mserr:
-            processed_mseeds[id_] = (mserr, None, None, None, None, None, False)
+            yield MiniSeedInfo(seed_id, mserr)
 
-    return processed_mseeds
+
+
+@dataclass(slots=True, frozen=True)
+class MiniSeedInfo:
+    seed_id: str | int
+    data: bytes | Exception
+    fsamp: float | None = None
+    start: datetime.datetime | None = None
+    end: datetime.datetime | None = None
+    maxgap_overlap_ratio: float | None = None
+
+    @property
+    def is_ok(self):
+        return not isinstance(self.data, Exception)
