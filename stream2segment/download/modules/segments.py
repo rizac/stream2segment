@@ -16,7 +16,7 @@ from sqlalchemy import select
 
 from stream2segment.io import Fdsnws
 from stream2segment.io.cli import get_progressbar
-from stream2segment.io.db.pdsql import DbManager, sync_pkey, get_max, db2df
+from stream2segment.io.db.pdsql import DbManager, sync_pkey, get_max, db2dfs
 from stream2segment.io.db.models import (
     WebService, Segment, Channel, MiniSeed, NoDataSegment
 )
@@ -49,35 +49,46 @@ def prepare_for_download(
         chunksize=min(1000, len(segments))
     )
     max_id = segments_with_pkeys.attrs.pop(f'{Segment.id.key}_max')
-    discarded = segments_with_pkeys[segments_with_pkeys.id.key] <= max_id
-    if discarded:
-        logger.info(f"Discarding {len(discarded):, } already downloaded segments")
-        segments = segments_with_pkeys[~discarded]
+    already_saved = segments_with_pkeys[segments_with_pkeys.id.key] <= max_id
+    if already_saved:
+        logger.info(f"Discarding {len(already_saved):, } already downloaded segments")
+        segments = segments_with_pkeys[~already_saved]
         segments.pop(Segment.id.key)
-
-    if restricted_download:
-        return segments.copy()
+    segments = segments.rename(columns={Segment.id.key: 'segment.id'})
 
     # Let's remove also 2xx 3xx errors (e.g., no data), and retry only errors
-    base_stmt = (select([
+    stmt = select([
         NoDataSegment.id,
         NoDataSegment.event_id,
         NoDataSegment.channel_id,
         NoDataSegment.download_code
-    ]).order_by(NoDataSegment.id.asc()).limit(50000)).where(
-        ~NoDataSegment.download_code.between(200, 299)
-    )
-    stmt = base_stmt
+    ])
     uc_cols = [NoDataSegment.event_id.key, NoDataSegment.channel_id.key]
     set_cols = [NoDataSegment.id.key, NoDataSegment.download_code.key]
+    where_clause = None
+    if not restricted_download:
+        where_clause = (
+            (NoDataSegment.download_code < 200) &
+            (NoDataSegment.download_code >= 300)
+        )
+    segments_with_pkeys = sync_pkey(
+        segments,
+        NoDataSegment,
+        engine,
+        NoDataSegment.id.key,
+        [NoDataSegment.event_id.key, NoDataSegment.channel_id.key],
+        where_clause,
+        chunksize=min(1000, len(segments))
+    )
+
+
     for col in set_cols:
         segments[col] = pd.Series(pd.NA, index=segments.index, dtype="Int64")
     suffix = '_'
-    while True:
-        dfr = db2df(stmt, engine)
+    for dfr in db2dfs(stmt, engine):
         if dfr.empty:
-            break
-        stmt = base_stmt.where(NoDataSegment.id > int(dfr[NoDataSegment.id.key].max()))
+            continue
+        # stmt = base_stmt.where(NoDataSegment.id > int(dfr[NoDataSegment.id.key].max()))
         segments = segments.merge(dfr, how='left', on=uc_cols, suffixes=('', suffix))
         for c in set_cols:
             dfr[c] = dfr[c + suffix].combine_first(dfr[c])
@@ -91,7 +102,9 @@ def prepare_for_download(
             segments = segments[flt]
 
         # segments = segments[segments[Segment.id.key + '_'].na()].copy()
-
+    segments["_.new._"] = True
+    segments.loc[NoDataSegment.id.key.notna(), "_.new._"] = False
+    segments.drop(columns=set_cols, inplace=True)
     return segments
 
 # def prepare_for_download(

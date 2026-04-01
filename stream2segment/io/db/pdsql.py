@@ -282,6 +282,7 @@ def sync_pkey(
     engine,
     pkey_col:str,
     uc_cols: list[str],
+    select_where=None,
     chunksize=50000
 ):
     """
@@ -305,6 +306,8 @@ def sync_pkey(
     columns = table_model.__table__.c  # columns collection
     col_names = [pkey_col] + list(uc_cols)
     stmt = select(*(columns[c] for c in col_names))
+    if select_where is not None:
+        stmt = stmt.where(select_where)
     # set column nullable int type (for now):
     dfr[pkey_col] = pd.Series(pd.NA, index = dfr.index, dtype="Int64")
     pkey_max = get_max(engine, columns[pkey_col])
@@ -317,19 +320,22 @@ def sync_pkey(
         suffix = '_'
         while pkey_col + suffix in dfr.columns:
             suffix += '_'
-        stmt_base = stmt.order_by(columns.id.asc()).limit(chunksize)
-        stmt = stmt_base
-        while True:
-            db_df = db2df(stmt, engine)
+        # FIXME REMOVE COMMENTED LINES BELOW:
+        # stmt_base = stmt.order_by(columns.id.asc()).limit(chunksize)
+        # stmt = stmt_base
+        # while True:
+        for db_df in db2dfs(stmt, engine):
+            # db_df = db2df(stmt, engine)
             if db_df.empty:
-                break
+                continue
             dfr = dfr.merge(db_df, how='left', on=uc_cols, suffixes=('', suffix))
             # we now have id_col and id_col + suffix. The latter might be populated
             # with NA (no match) or integers (match). Replace the latter in id_col:
             dfr[pkey_col] = dfr[pkey_col + suffix].combine_first(dfr[pkey_col])
             # drop new ids (already merged):
             dfr = dfr.drop(columns=[pkey_col + suffix])
-            stmt = stmt_base.where(columns.id > db_df[pkey_col].max())
+            # FIXME REMOVE:
+            # stmt = stmt_base.where(columns.id > db_df[pkey_col].max())
 
     nans = pd.isna(dfr[pkey_col])
     nan_count = nans.sum()
@@ -370,10 +376,21 @@ def get_row_count(engine, table_model):
         return conn.execute(select(func.count()).select_from(table_model)).scalar() or 0
 
 
-def db2df(query: Select, engine) -> pd.DataFrame:
+# def db2df_1(query: Select, engine) -> pd.DataFrame:
+#     columns = [c['name'] for c in query.column_descriptions]
+#     with engine.connect() as conn:
+#         return pd.DataFrame(conn.execute(query).fetchall(), columns=columns)
+
+
+def db2dfs(query: Select, engine, chunksize=20000) -> Iterable[pd.DataFrame]:
     columns = [c['name'] for c in query.column_descriptions]
     with engine.connect() as conn:
-        return pd.DataFrame(conn.execute(query).fetchall(), columns=columns)
+        result = conn.execute(query)
+        while True:
+            rows = result.fetchmany(chunksize)
+            if not rows:
+                break
+            yield pd.DataFrame(rows, columns=columns)
 
 
 class SqlBatchExecutor:
