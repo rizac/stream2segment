@@ -25,13 +25,14 @@ Refs (URL are split in two when too long):
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
+from collections import deque
 from collections.abc import Iterable, Sequence
 from typing import Optional
 
 import numpy as np
 import pandas as pd
-from sqlalchemy import select, UpdateBase, Column, Select
-
+from sqlalchemy import select, UpdateBase, Column, Select, Insert, Update
+from sqlalchemy.engine import Engine
 # Sql-alchemy:
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from sqlalchemy.orm import DeclarativeBase
@@ -311,7 +312,6 @@ def sync_pkey(
         stmt = stmt.where(select_where)
     # set column nullable int type (for now):
     dfr[pkey_col] = pd.Series(pd.NA, index = dfr.index, dtype="Int64")
-    pkey_max = get_max(engine, columns[pkey_col])
 
     if chunksize <= 0:  # fetch at once (db table small to medium size)
         chunksize = get_row_count(engine, table_model)
@@ -338,6 +338,7 @@ def sync_pkey(
             # FIXME REMOVE:
             # stmt = stmt_base.where(columns.id > db_df[pkey_col].max())
 
+    pkey_max = get_max(engine, columns[pkey_col])
     if assign_new_ids:
         nans = pd.isna(dfr[pkey_col])
         nan_count = nans.sum()
@@ -397,46 +398,53 @@ def db2dfs(query: Select, engine, chunksize=20000) -> Iterable[pd.DataFrame]:
 
 class SqlBatchExecutor:
 
-    def __init__(self, engine, table_model, chunksize=5000):
+    def __init__(
+        self,
+        engine,
+        table_model: type[DeclarativeBase],
+        chunksize=5000,
+        max_cache_errors=50
+    ):
         self.engine = engine
         self.table_model = table_model
         self.chunksize = chunksize
         self._buf = []
-        self._failed_indices = np.array([], dtype=int)
+        self._current_length = 0
+        self._failed = deque(maxlen=max_cache_errors)
+        self._stmt = self.create_executable()
 
-    def add(self, dataframe):
-        curr_length = sum(len(_) for _ in self._buf)
-        while curr_length + len(dataframe) >= self.chunksize:
-            self._buf.append(dataframe.iloc[:self.chunksize - curr_length])
-            dataframe = dataframe.iloc[self.chunksize - curr_length:]
-            self.execute()  # resets _buf to 0, so:
-            curr_length = 0
-        if not dataframe.empty:
-            self._buf.append(dataframe)
+    def add(self, data: pd.DataFrame | Sequence[dict]):
+        while self._current_length + len(data) >= self.chunksize:
+            self._buf.append(data[:self.chunksize - self._current_length])
+            data = data[self.chunksize - self._current_length:]
+            self.flush()  # resets _buf and _current_length to 0
+        if len(data):
+            self._buf.append(data)
+            self._current_length += len(data)
 
-
-    def execute(self):
+    def flush(self):
         if self._buf:
-            dfr = pd.concat(self._buf, ignore_index=False)
             with self.engine.begin() as conn:
-                failed_idxs = self._execute(
-                    dfr[shared_colnames(self.table_model, dfr)],
-                    self.table_model,
-                    conn
-                )
-                np.append(self._failed_indices, failed_idxs)
+                for chunk in self._buf:
+                    if isinstance(chunk, pd.DataFrame):
+                        chunk = list(iter_rows(chunk))
+                    self._failed.extend(_execute_sql(chunk, self._stmt, conn))
             self._buf.clear()
+            self._current_length = 0
 
-    def _execute(self, dfr, table_model, conn) -> Sequence[int]:
-        raise NotImplementedError('')
+    def execute(self, chunk: list[dict], conn):
+        return _execute_sql(chunk, self._stmt, conn)
+
+    def create_executable(self) -> UpdateBase:
+        raise NotImplementedError('Not implemented yet')
 
     def close(self):
         """manual close"""
-        self.execute()
+        self.flush()
 
     @property
-    def failed_indices(self):
-        return self._failed_indices
+    def failed(self) -> Iterable[dict]:
+        yield from self._failed
 
     # Context manager methods
     def __enter__(self):
@@ -452,24 +460,22 @@ class Inserter(SqlBatchExecutor):
         """Wrapper for `add` implemented for clarity"""
         self.add(dataframe)
 
-    def _execute(self, dfr, table_model, conn):
-        return insert(dfr, table_model, conn)
+    def create_executable(self) -> Insert:
+        return self.table_model.__table__.insert()
 
 
-def insert(df, table_model, conn):
-    """
-    Efficient bulk insert from DataFrame to SQLAlchemy ORM table.
-    Recursively isolates failing rows on constraint errors.
-    Single flat function, memory-efficient for large DataFrames with BLOBs.
-    `df` index needs to be a RangeIndex (call `df.reset_index(drop=True, inplace=True)`
-    in case of doubts)
-
-    :return: the indices (subset of the dataframe index) of the failed rows (int type)
-    :param conn: the result of `engine.begin()`
-    """
-    # table = table_model.__table__
-    # columns = table.columns.keys()
-    return _execute_sql(df, table_model.__table__.insert(), conn)
+# def insert(data: list[dict], table_model: DeclarativeBase, conn):
+#     """
+#     Efficient bulk insert from DataFrame to SQLAlchemy ORM table.
+#     Recursively isolates failing rows on constraint errors.
+#     Single flat function, memory-efficient for large DataFrames with BLOBs.
+#     `df` index needs to be a RangeIndex (call `df.reset_index(drop=True, inplace=True)`
+#     in case of doubts)
+#
+#     :return: the indices (subset of the dataframe index) of the failed rows (int type)
+#     :param conn: the result of `engine.begin()`
+#     """
+#     return _execute_sql(data, table_model.__table__.insert(), conn)
 
 
 class Updater(SqlBatchExecutor):
@@ -482,49 +488,61 @@ class Updater(SqlBatchExecutor):
         update_cols: list[str],
         chunksize=1000
     ):
-        super().__init__(engine, table_model, chunksize)
         self.where_col = where_col
         self.update_cols = update_cols
+        super().__init__(engine, table_model, chunksize)
 
     def update(self, dataframe):
         """Wrapper for `add` implemented for clarity"""
         self.add(dataframe)
 
-    def _execute(self, dfr, table_model, conn):
-        return update(
-            dfr, table_model, conn, self.where_col, self.update_cols
+    def create_executable(self) -> Update:
+        table = self.table_model.__table__
+        where_col = self.where_col
+        update_cols = self.update_cols
+        columns = table.c
+        return (
+            table.update()
+            .where(columns[where_col] == bindparam(where_col))
+            .values({col: bindparam(col) for col in update_cols})
         )
 
 
-def update(df, table_model, conn, where_col:str, update_cols:list[str]):
-    """
-    Efficient bulk update from DataFrame to SQLAlchemy ORM table.
-    Recursively isolates failing rows on constraint errors.
-    Single flat function, memory-efficient for large DataFrames with BLOBs.
-    `df` index needs to be a RangeIndex (call `df.reset_index(drop=True, inplace=True)`
-    in case of doubts)
+# def update(
+#     data:list[dict],
+#     table_model,
+#     conn,
+#     where_col:str,
+#     update_cols:list[str]
+# ):
+#     """
+#     Bulk update from DataFrame to SQLAlchemy ORM table.
+#     Recursively isolates failing rows on constraint errors.
+#     Single flat function, memory-efficient for large DataFrames with BLOBs.
+#     `df` index needs to be a RangeIndex (call `df.reset_index(drop=True, inplace=True)`
+#     in case of doubts)
+#
+#     :return: the indices (subset of the dataframe index) of the failed rows (int type)
+#     :param conn: the result of `engine.begin()`
+#     """
+#     table = table_model.__table__
+#     columns = table.c
+#     stmt = (
+#         table.update()
+#         .where(columns[where_col] == bindparam(where_col))
+#         .values({col: bindparam(col) for col in update_cols})
+#     )
+#     return _execute_sql(data, stmt, conn)
 
-    :return: the indices (subset of the dataframe index) of the failed rows (int type)
-    :param conn: the result of `engine.begin()`
-    """
-    table = table_model.__table__
-    columns = table.c
-    stmt = (
-        table.update()
-        .where(columns[where_col] == bindparam(where_col))
-        .values({col: bindparam(col) for col in update_cols})
-    )
-    return _execute_sql(df, stmt, conn)
 
-
-def _execute_sql(df: pd.DataFrame, stmt: UpdateBase, conn):
+def _execute_sql(data: list[dict], stmt: UpdateBase, conn):
     # Process DataFrame in chunks
-    failed_rows = []
+    failed_data = []
     # use a stack for recursion. start_index will be set on failure
-    stack = [(df.index, list(iter_rows(df)))]
+    stack = [data]
 
     while stack:
-        pd_index, chunk = stack.pop()
+        chunk = stack.pop()
         if len(chunk) == 0:
             continue
 
@@ -534,14 +552,78 @@ def _execute_sql(df: pd.DataFrame, stmt: UpdateBase, conn):
         except IntegrityError:
             # rollback of this chunk happens automatically
             if len(chunk) == 1:
-                failed_rows.append(pd_index[0])
+                failed_data.append(chunk[0])
             else:
                 mid = len(chunk) // 2
-                stack.append((pd_index[mid:], chunk[mid:]))
-                stack.append((pd_index[:mid], chunk[:mid]))
+                stack.append(chunk[mid:])
+                stack.append(chunk[:mid])
 
-    return np.array(failed_rows, dtype=int)
+    return failed_data
 
+
+def iter_rows(dataframe: pd.DataFrame, columns=None) -> Iterable[dict]:
+    """
+    Yield dataframe rows as `dict`s for insertion into a database. The output is
+    `dataframe.to_dict(orient='records')` but with dict values converted to Python
+    objects, including all pandas NA (Nat, NaN, None) converted to `None`. Supported
+    data types are int, float, datetime, str / object and bool. Data type matching
+    between `dataframe` and the underlying database table are not checked for.
+    """
+
+    if columns is not None:
+        dataframe = dataframe[columns]
+
+    data_list = []
+    columns = []
+    for col, series in dataframe.items():
+        columns.append(str(col))
+        # if series.dtype.kind == "M":  # FIXME REMOVE AFTER TESTING THAT DATETIMES ARE OK IN SQL
+        #     d = series.dt.to_pydatetime()
+        # else:
+        #    d = series.values.astype(object, copy=False)
+        d = series.values.astype(object, copy=False)
+
+        # assert isinstance(d, np.ndarray), type(d)
+
+        mask = pd.isna(d)
+        if mask.any():
+            d[mask] = None
+
+        data_list.append(d)
+
+    # columns = list(map(str, dataframe.columns))
+    for row_values in zip(*data_list):
+        yield dict(zip(columns, row_values))
+
+
+# def _execute_sql_df(df: pd.DataFrame, stmt: UpdateBase, conn):
+#     # Process DataFrame in chunks
+#     df_index = df.index
+#     failed_pos_indices = _execute_sql_dictlist(list(iter_rows(df)), stmt, conn)
+#     return df_index[failed_pos_indices]
+#
+#     failed_rows = []
+#     # use a stack for recursion. start_index will be set on failure
+#     stack = [(df.index, list(iter_rows(df)))]
+#
+#     while stack:
+#         pd_index, chunk = stack.pop()
+#         if len(chunk) == 0:
+#             continue
+#
+#         try:
+#             with conn.begin_nested():  # SAVEPOINT
+#                 conn.execute(stmt, chunk)
+#         except IntegrityError:
+#             # rollback of this chunk happens automatically
+#             if len(chunk) == 1:
+#                 failed_rows.append(pd_index[0])
+#             else:
+#                 mid = len(chunk) // 2
+#                 stack.append((pd_index[mid:], chunk[mid:]))
+#                 stack.append((pd_index[:mid], chunk[:mid]))
+#
+#     return np.array(failed_rows, dtype=int)
 
 
 # def syncdf(dataframe, session, matching_columns, id_col, update=False,
@@ -958,34 +1040,34 @@ class DbManager:
         return self.table, new, ntot - new, upd, utot - upd
 
 
-def cast_column(dataframe, sql_column):
-    """Cast the dataframe column mapped to `sql_column` to the Python type
-    mapped to `sql_column`'s sql type.
-    dataframe[sql_column.key] MUST be a valid column in dataframe, and must
-    have values castable (e.g., non-NAN's in case of int's - the usual case as
-    sql_column is often a primary key).
+# def cast_column(dataframe, sql_column):
+#     """Cast the dataframe column mapped to `sql_column` to the Python type
+#     mapped to `sql_column`'s sql type.
+#     dataframe[sql_column.key] MUST be a valid column in dataframe, and must
+#     have values castable (e.g., non-NAN's in case of int's - the usual case as
+#     sql_column is often a primary key).
+#
+#     :return: dataframe with the column casted
+#     """
+#     col_type = get_dtype(sql_column.type)
+#     pkeyname = sql_column.key
+#     if dataframe[pkeyname].dtype != col_type:
+#         dataframe[pkeyname] = dataframe[pkeyname].astype(col_type, copy=False)
+#     return dataframe
 
-    :return: dataframe with the column casted
-    """
-    col_type = get_dtype(sql_column.type)
-    pkeyname = sql_column.key
-    if dataframe[pkeyname].dtype != col_type:
-        dataframe[pkeyname] = dataframe[pkeyname].astype(col_type, copy=False)
-    return dataframe
 
-
-def _get_shared_colnames(table_model, dataframe, where_col=None):
-    """Return a list of shared column names between table_model and dataframe.
-    If where_col is not None, it will be excluded from the returned list
-    (where_col is assumed to be a column used in the where clause of an update
-    and thus it should not be included in the columns to update)
-    """
-    shared_colnames_gen = shared_colnames(table_model, dataframe)
-    if where_col is not None:
-        wherecolname = where_col.key
-        shared_colnames_gen = (cname for cname in shared_colnames_gen
-                               if cname != wherecolname)
-    return list(shared_colnames_gen)
+# def _get_shared_colnames(table_model, dataframe, where_col=None):
+#     """Return a list of shared column names between table_model and dataframe.
+#     If where_col is not None, it will be excluded from the returned list
+#     (where_col is assumed to be a column used in the where clause of an update
+#     and thus it should not be included in the columns to update)
+#     """
+#     shared_colnames_gen = shared_colnames(table_model, dataframe)
+#     if where_col is not None:
+#         wherecolname = where_col.key
+#         shared_colnames_gen = (cname for cname in shared_colnames_gen
+#                                if cname != wherecolname)
+#     return list(shared_colnames_gen)
 
 
 # def syncdfseq(dataframe, session, seq_col, overwrite=False, pkeycol_maxval=None):
@@ -1220,41 +1302,6 @@ def _get_shared_colnames(table_model, dataframe, where_col=None):
 #     return updated, ret_df
 
 
-def iter_rows(dataframe, columns=None) -> Iterable[dict]:
-    """
-    Yield dataframe rows as `dict`s for insertion into a database. The output is
-    `dataframe.to_dict(orient='records')` but with dict values converted to Python
-    objects, including all pandas NA (Nat, NaN, None) converted to `None`. Supported
-    data types are int, float, datetime, str / object and bool. Data type matching
-    between `dataframe` and the underlying database table are not checked for.
-    """
-
-    if columns is not None:
-        dataframe = dataframe[columns]
-
-    data_list = []
-    columns = []
-    for col, series in dataframe.items():
-        columns.append(str(col))
-        # if series.dtype.kind == "M":  # FIXME REMOVE AFTER TESTING THAT DATETIMES ARE OK IN SQL
-        #     d = series.dt.to_pydatetime()
-        # else:
-        #    d = series.values.astype(object, copy=False)
-        d = series.values.astype(object, copy=False)
-
-        # assert isinstance(d, np.ndarray), type(d)
-
-        mask = pd.isna(d)
-        if mask.any():
-            d[mask] = None
-
-        data_list.append(d)
-
-    # columns = list(map(str, dataframe.columns))
-    for row_values in zip(*data_list):
-        yield dict(zip(columns, row_values))
-
-
 # def syncdfcol(dataframe, session, matching_columns, sync_col):
 #     """Synchronize `dataframe[sync_col.key]` from the underlying database
 #     Table T. Fetches the values from T, identifies matching rows by means of
@@ -1309,118 +1356,118 @@ def iter_rows(dataframe, columns=None) -> Iterable[dict]:
 #                        [sync_col.key], False)
 
 
-def mergeupdate(dataframe, other_df, matching_columns, merge_columns,
-                drop_other_df_duplicates=True):
-    """Merge `other_df` into `dataframe` and returns the latter, by setting
-    `dataframe[merge_columns]` = `other_df[merge_columns]` for those row where
-    `dataframe[matching_columns]` = `other_df[matching_columns]` only.
-
-    Example:
-    `dataframe` and `other_df` have three columns in common: `id` (int),
-    `name` (str) and `time` (datetime).
-
-    `dataframe` has also a column `data` (int):
-    ```
-    >>> dataframe
-        id  name       time  data
-    0   45     a        NaT     4
-    1   45     b 2006-01-01     5
-    ```
-
-    `other_df` has also the columns `count` (int) and `value` (float):
-    ```
-    >>> other_df
-         id name       time  count  value
-    0  45.0    a 2008-01-01      5    NaN
-    1  45.0    c 2006-01-01      5    4.5
-    ```
-
-    If we merge the to dataframes using 'id' and 'name' tuples as row
-    identifiers, and merging only the columns 'time' and 'value', we get:
-    ```
-    >>> mergeupdate(dataframe, other_df, ['id', 'name'], ['time', 'value'])
-       id name       time  data  value
-    0  45    a 2008-01-01     4    NaN
-    1  45    b 2006-01-01     5    NaN
-    ```
-
-    Note:
-    1. The second row of `other_df` is NOT added to `dataframe` as according to
-       `matching_columns` it does not exist on `dataframe`
-    2. `other_df` **should** have unique rows under `matching columns`
-       (see argument drop_other_df_duplicates`)
-
-    :param dataframe: the pandas DataFrame whose values should be replaced
-    :param other_df: the pandas DataFrame which should set the new values to
-        `dataframe`
-    :param matching_columns: list of strings: the columns to be checked for
-        matches. They must be shared between both data frames
-    :param merge_columns: list of strings denoting the column(s) to be merged
-        or set from `other_df` to `dataframe` for those rows matching under
-        `matching_cols`. They must be present in `other_df` columns
-    :param drop_other_df_duplicates: If True (the default) drops ALL duplicates
-        of `other_df` under `matching_columns` before updating `dataframe`. If
-        'first', drops duplicates except for the first occurrence. if 'last'
-        drops duplicates except for the last occurrence.
-    """
-    if drop_other_df_duplicates:
-        keep = False if drop_other_df_duplicates is True else \
-            drop_other_df_duplicates
-        other_df = other_df.drop_duplicates(subset=matching_columns, keep=keep)
-
-    otherdf = other_df[matching_columns + merge_columns]  # only  relevant columns
-    try:
-        # Use dataframe.merge. For any column C in
-        # `matching_columns + merge_columns` which is shared between
-        # `dataframe` and `other_df`, then `merge_df` will have two columns:
-        # C + '_x' (populated with `dataframe` values) and C + '_y'
-        # (with `other_df` values)
-        mergedf = dataframe.merge(otherdf, how='left',
-                                  on=list(matching_columns), indicator=True)
-    except ValueError:
-        # Apparently, pandas 0.23+ raises if the the dtypes of a column does
-        # not match across the two dataframes (in previous pandas versions, the
-        # dtypes where upcasted if needed, e.g.: dataframe[C] = datetime,
-        # other_df[C] = object, mergedf[C] = object). We handle here the only
-        # "false positive" of this new behaviour. i.e. when one of the two
-        # columns has all Nones, we try to cast it to the type of the other
-        # column. Eventually, we call again `merge`: it raises again? then fine
-        retry = False
-        # if there is a mismatch, it is surely for a column in BOTH dataframes:
-        for col in set(dataframe.columns) & set(otherdf.columns):
-            if dataframe[col].dtype == otherdf[col].dtype:
-                continue
-            # the casting below might raise (e.g., ints do not accept nones)
-            # which is fine
-            if pd.isnull(otherdf[col]).all():
-                retry = True
-                otherdf[col] = otherdf[col].astype(dataframe[col].dtype)
-            elif pd.isnull(dataframe[col]).all():
-                retry = True
-                dataframe[col] = dataframe[col].astype(otherdf[col].dtype)
-        if retry:
-            mergedf = dataframe.merge(otherdf, how='left', on=list(matching_columns),
-                                      indicator=True)
-        else:
-            raise  # raise original ValueError
-
-    # Now set the `merge_df` columns back into `dataframe`. The idea is that
-    # for all shared columns, then perform **row-wise** the following: if value
-    # was specified in both `dataframe` and `other_df`, then take `other_df`
-    # value. Otherwise `dataframe` value. Remember that the indicator=True
-    # argument above has created also a '_merge' column in `merge_df`: the
-    # column values are catagorical and can be 'both', 'left_only' (value only
-    # in `dataframe`). We should never have 'right_only because of the
-    # how='left' above (skip this check for the moment)
-    for col in merge_columns:
-        if col not in dataframe:
-            # trivial case: `dataframe` did not have a column, add it
-            ser = mergedf[col].values
-        else:
-            # if value was in both, take `other_df` value (mergedf[col+"_y"]),
-            # otherwise take `dataframe` value (mergedf[col+"_x"])
-            ser = np.where(mergedf['_merge'] == 'both', mergedf[col+"_y"],
-                           mergedf[col+"_x"])
-        dataframe[col] = ser
-
-    return dataframe
+# def mergeupdate(dataframe, other_df, matching_columns, merge_columns,
+#                 drop_other_df_duplicates=True):
+#     """Merge `other_df` into `dataframe` and returns the latter, by setting
+#     `dataframe[merge_columns]` = `other_df[merge_columns]` for those row where
+#     `dataframe[matching_columns]` = `other_df[matching_columns]` only.
+#
+#     Example:
+#     `dataframe` and `other_df` have three columns in common: `id` (int),
+#     `name` (str) and `time` (datetime).
+#
+#     `dataframe` has also a column `data` (int):
+#     ```
+#     >>> dataframe
+#         id  name       time  data
+#     0   45     a        NaT     4
+#     1   45     b 2006-01-01     5
+#     ```
+#
+#     `other_df` has also the columns `count` (int) and `value` (float):
+#     ```
+#     >>> other_df
+#          id name       time  count  value
+#     0  45.0    a 2008-01-01      5    NaN
+#     1  45.0    c 2006-01-01      5    4.5
+#     ```
+#
+#     If we merge the to dataframes using 'id' and 'name' tuples as row
+#     identifiers, and merging only the columns 'time' and 'value', we get:
+#     ```
+#     >>> mergeupdate(dataframe, other_df, ['id', 'name'], ['time', 'value'])
+#        id name       time  data  value
+#     0  45    a 2008-01-01     4    NaN
+#     1  45    b 2006-01-01     5    NaN
+#     ```
+#
+#     Note:
+#     1. The second row of `other_df` is NOT added to `dataframe` as according to
+#        `matching_columns` it does not exist on `dataframe`
+#     2. `other_df` **should** have unique rows under `matching columns`
+#        (see argument drop_other_df_duplicates`)
+#
+#     :param dataframe: the pandas DataFrame whose values should be replaced
+#     :param other_df: the pandas DataFrame which should set the new values to
+#         `dataframe`
+#     :param matching_columns: list of strings: the columns to be checked for
+#         matches. They must be shared between both data frames
+#     :param merge_columns: list of strings denoting the column(s) to be merged
+#         or set from `other_df` to `dataframe` for those rows matching under
+#         `matching_cols`. They must be present in `other_df` columns
+#     :param drop_other_df_duplicates: If True (the default) drops ALL duplicates
+#         of `other_df` under `matching_columns` before updating `dataframe`. If
+#         'first', drops duplicates except for the first occurrence. if 'last'
+#         drops duplicates except for the last occurrence.
+#     """
+#     if drop_other_df_duplicates:
+#         keep = False if drop_other_df_duplicates is True else \
+#             drop_other_df_duplicates
+#         other_df = other_df.drop_duplicates(subset=matching_columns, keep=keep)
+#
+#     otherdf = other_df[matching_columns + merge_columns]  # only  relevant columns
+#     try:
+#         # Use dataframe.merge. For any column C in
+#         # `matching_columns + merge_columns` which is shared between
+#         # `dataframe` and `other_df`, then `merge_df` will have two columns:
+#         # C + '_x' (populated with `dataframe` values) and C + '_y'
+#         # (with `other_df` values)
+#         mergedf = dataframe.merge(otherdf, how='left',
+#                                   on=list(matching_columns), indicator=True)
+#     except ValueError:
+#         # Apparently, pandas 0.23+ raises if the the dtypes of a column does
+#         # not match across the two dataframes (in previous pandas versions, the
+#         # dtypes where upcasted if needed, e.g.: dataframe[C] = datetime,
+#         # other_df[C] = object, mergedf[C] = object). We handle here the only
+#         # "false positive" of this new behaviour. i.e. when one of the two
+#         # columns has all Nones, we try to cast it to the type of the other
+#         # column. Eventually, we call again `merge`: it raises again? then fine
+#         retry = False
+#         # if there is a mismatch, it is surely for a column in BOTH dataframes:
+#         for col in set(dataframe.columns) & set(otherdf.columns):
+#             if dataframe[col].dtype == otherdf[col].dtype:
+#                 continue
+#             # the casting below might raise (e.g., ints do not accept nones)
+#             # which is fine
+#             if pd.isnull(otherdf[col]).all():
+#                 retry = True
+#                 otherdf[col] = otherdf[col].astype(dataframe[col].dtype)
+#             elif pd.isnull(dataframe[col]).all():
+#                 retry = True
+#                 dataframe[col] = dataframe[col].astype(otherdf[col].dtype)
+#         if retry:
+#             mergedf = dataframe.merge(otherdf, how='left', on=list(matching_columns),
+#                                       indicator=True)
+#         else:
+#             raise  # raise original ValueError
+#
+#     # Now set the `merge_df` columns back into `dataframe`. The idea is that
+#     # for all shared columns, then perform **row-wise** the following: if value
+#     # was specified in both `dataframe` and `other_df`, then take `other_df`
+#     # value. Otherwise `dataframe` value. Remember that the indicator=True
+#     # argument above has created also a '_merge' column in `merge_df`: the
+#     # column values are catagorical and can be 'both', 'left_only' (value only
+#     # in `dataframe`). We should never have 'right_only because of the
+#     # how='left' above (skip this check for the moment)
+#     for col in merge_columns:
+#         if col not in dataframe:
+#             # trivial case: `dataframe` did not have a column, add it
+#             ser = mergedf[col].values
+#         else:
+#             # if value was in both, take `other_df` value (mergedf[col+"_y"]),
+#             # otherwise take `dataframe` value (mergedf[col+"_x"])
+#             ser = np.where(mergedf['_merge'] == 'both', mergedf[col+"_y"],
+#                            mergedf[col+"_x"])
+#         dataframe[col] = ser
+#
+#     return dataframe

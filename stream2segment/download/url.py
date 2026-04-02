@@ -93,7 +93,7 @@ responses[CustomResponseCode.SSL_ERROR] = \
     "SSL/TLS handshake failure (bad certificate, hostname mismatch, expired cert)"
 
 
-@dataclass(slots=True, frozen=False)
+@dataclass(slots=True, frozen=True)
 class Response:
     """
     Lightweight data class representing a Response object with two arguments:

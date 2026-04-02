@@ -479,7 +479,7 @@ def unpack(data: bytes | BytesIO) -> Iterable[MiniSeedInfo]:
         close_stream = True
 
     mseeds = {}
-    mseeds_errors = {}
+    mseeds_error_ids = set()
     try:
         while True:
             rec = Record(stream)
@@ -488,10 +488,12 @@ def unpack(data: bytes | BytesIO) -> Iterable[MiniSeedInfo]:
 
             seed_id = rec.record_id
 
-            if seed_id in mseeds_errors:
+            if seed_id in mseeds_error_ids:
                 continue
-            elif rec.error:
-                mseeds_errors[seed_id] = MiniSeedInfo(seed_id, MSeedError(rec.error))
+
+            if rec.error:
+                mseeds_error_ids.add(seed_id)
+                yield MiniSeedInfo(seed_id, MSeedError(rec.error))
                 continue
 
             mseeds.setdefault(seed_id, []).append(rec)
@@ -506,20 +508,19 @@ def unpack(data: bytes | BytesIO) -> Iterable[MiniSeedInfo]:
         if close_stream:
             stream.close()
 
-    for miniseed_info in mseeds_errors.values():
-        yield miniseed_info
+    # for miniseed_info in mseeds_errors.values():
+    #     yield miniseed_info
 
     for seed_id, records in mseeds.items():
 
         try:
-
             if not records:  # for safety
                 raise MSeedError('No data')
 
             # get records and sort ascending by time
             records.sort(key=lambda elm: elm.begin_time)
             fsamp = records[0].fsamp
-            max_gap_overlap_ratio = 0
+            max_gap_overlap_ratios: list[float] = []
             bytesio = BytesIO()
 
             for i, record in enumerate(records):
@@ -527,10 +528,13 @@ def unpack(data: bytes | BytesIO) -> Iterable[MiniSeedInfo]:
                 if record.fsamp != fsamp:
                     raise MSeedError("records sample rate mismatch")
 
-                record.write(bytesio, int(log(record.size) / log(2)))
+                try:
+                    record.write(bytesio, int(log(record.size) / log(2)))
+                except Exception:
+                    raise MSeedError("error packing miniseed records")
 
-                if i == 0:
-                    continue
+                # if i == 0:
+                #     continue
 
                 # curr_max_gap_ratio = distance between end_time of this chunk
                 # and begin_time of next chunk.
@@ -541,10 +545,13 @@ def unpack(data: bytes | BytesIO) -> Iterable[MiniSeedInfo]:
                 # If < 1 possible overlaps.
                 # Subtract 1 as we want 0 for no gaps/overlaps,
                 # >0 for possible gaps, and <0 for possible overlaps:
-                curr_max_gap_ratio = \
-                    (record.begin_time - records[i-1].end_time).total_seconds() * fsamp - 1
-                if abs(curr_max_gap_ratio) > abs(max_gap_overlap_ratio):
-                    max_gap_overlap_ratio = curr_max_gap_ratio
+                go_ratio = (
+                    (record.begin_time - records[i-1].end_time).total_seconds()
+                    * fsamp - 1
+                )
+                max_gap_overlap_ratios.append(go_ratio)
+                # if abs(curr_max_gap_ratio) > abs(max_gap_overlap_ratio):
+                #     max_gap_overlap_ratio = curr_max_gap_ratio
 
             yield MiniSeedInfo(
                 seed_id,
@@ -552,14 +559,13 @@ def unpack(data: bytes | BytesIO) -> Iterable[MiniSeedInfo]:
                 fsamp,
                 records[0].begin_time,
                 records[-1].end_time,
-                max_gap_overlap_ratio
+                max(max_gap_overlap_ratios, key=abs)
             )
 
             bytesio.close()
 
-        except MSeedError as mserr:
-            yield MiniSeedInfo(seed_id, mserr)
-
+        except MSeedError as ms_err:
+            yield MiniSeedInfo(seed_id, ms_err)
 
 
 @dataclass(slots=True, frozen=True)
