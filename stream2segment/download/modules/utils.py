@@ -172,35 +172,35 @@ class DbExcLogger:
                               self.max_row_count)
 
 
-def logwarn_dataframe(dataframe, msg, columns=None, max_row_count=30,
-                      default_cols=(WebService.url.key,)):
-    """Log as warning the current dataframe. Does not check if
-    Dataframe is empty
-
-    :param columns: the columns to print, if None writes all columns
-    """
-    if len(dataframe) > max_row_count:
-        chunks = ['showing first',
-                  'row' if max_row_count == 1 else '%d rows' % max_row_count,
-                  'only']
-        footer = "\n... (%s)" % " ".join(chunks)
-        dataframe = dataframe.iloc[:max_row_count]
-    else:
-        footer = ""
-
-    if columns is not None and len(columns) < len(dataframe.columns):
-        columns = list(columns)
-        # add 'url' column if present:
-        for c in default_cols:
-            if c in dataframe.columns and c not in columns:
-                columns += [c]
-        dataframe = dataframe[columns].copy()
-        dataframe['...'] = pd.Categorical(('...' for _ in
-                                           range(len(dataframe))))
-
-    df_str = dataframe.to_string(na_rep='', index=False)
-    msg = "{}:\n{}{}".format(msg, df_str, footer)
-    logger.warning(msg)
+# def logwarn_dataframe(dataframe, msg, columns=None, max_row_count=30,
+#                       default_cols=(WebService.url.key,)):
+#     """Log as warning the current dataframe. Does not check if
+#     Dataframe is empty
+#
+#     :param columns: the columns to print, if None writes all columns
+#     """
+#     if len(dataframe) > max_row_count:
+#         chunks = ['showing first',
+#                   'row' if max_row_count == 1 else '%d rows' % max_row_count,
+#                   'only']
+#         footer = "\n... (%s)" % " ".join(chunks)
+#         dataframe = dataframe.iloc[:max_row_count]
+#     else:
+#         footer = ""
+#
+#     if columns is not None and len(columns) < len(dataframe.columns):
+#         columns = list(columns)
+#         # add 'url' column if present:
+#         for c in default_cols:
+#             if c in dataframe.columns and c not in columns:
+#                 columns += [c]
+#         dataframe = dataframe[columns].copy()
+#         dataframe['...'] = pd.Categorical(('...' for _ in
+#                                            range(len(dataframe))))
+#
+#     df_str = dataframe.to_string(na_rep='', index=False)
+#     msg = "{}:\n{}{}".format(msg, df_str, footer)
+#     logger.warning(msg)
 
 
 def dblog(table, inserted, not_inserted, updated=0, not_updated=0):

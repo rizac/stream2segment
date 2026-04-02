@@ -410,7 +410,8 @@ class SqlBatchExecutor:
         self.chunksize = chunksize
         self._buf = []
         self._current_length = 0
-        self._failed = deque(maxlen=max_cache_errors)
+        self._failed_cache = deque(maxlen=max_cache_errors)
+        self._failed_ids = []
         self._stmt = self.create_executable()
 
     def add(self, data: pd.DataFrame | Sequence[dict]):
@@ -423,12 +424,16 @@ class SqlBatchExecutor:
             self._current_length += len(data)
 
     def flush(self):
+        pkey_col_name = self.table_model.__table__.primary_key.columns.keys()[0]
         if self._buf:
             with self.engine.begin() as conn:
-                for chunk in self._buf:
-                    if isinstance(chunk, pd.DataFrame):
-                        chunk = list(iter_rows(chunk))
-                    self._failed.extend(_execute_sql(chunk, self._stmt, conn))
+                for rows in self._buf:
+                    if isinstance(rows, pd.DataFrame):
+                        rows = list(iter_rows(rows))
+                    for failed_row in self.execute(rows, conn):
+                        self._failed_ids.append(failed_row[pkey_col_name])
+                        if len(self._failed_cache) < self._failed_cache.maxlen:
+                            self._failed_cache.append(failed_row)
             self._buf.clear()
             self._current_length = 0
 
@@ -443,8 +448,12 @@ class SqlBatchExecutor:
         self.flush()
 
     @property
-    def failed(self) -> Iterable[dict]:
-        yield from self._failed
+    def cached_failed_rows(self) -> Iterable[dict]:
+        yield from self._failed_cache
+
+    @property
+    def failed_ids(self) -> list[int]:
+        return self._failed_ids
 
     # Context manager methods
     def __enter__(self):

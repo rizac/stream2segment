@@ -5,13 +5,14 @@ Core functions and classes for the download routine
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
 import time
-
+from datetime import datetime, UTC
 import os
 import logging
 
 import psutil
 
 from stream2segment.download.log import configlog4download, DbStreamHandler
+from stream2segment.io.db.pdsql import Inserter, get_max
 from stream2segment.io.log import logfilepath, close_logger, elapsed_time
 from stream2segment.io import yaml_safe_dump
 from stream2segment.io.db import secure_dburl, close_session, models
@@ -123,7 +124,7 @@ def download(config, log2file=True, verbose=False, print_config_only=False,
 
         # create download row with unprocessed config (yaml_load function)
         # Note that we call again load_config with parseargs=False:
-        download_id = new_download_run(session, real_yaml_dict)
+        download_id = new_download_run(session.get_bind(), real_yaml_dict)
         if log2file and verbose:  # (=> loghandlers not empty)
             print(f"Log file: '{log2file}'\n"
                   "(if the download ends with no errors, the file will be deleted"
@@ -346,9 +347,10 @@ def _run(session, download_id, events_url, starttime, endtime, data_url,
         d_stats = download_save_segments(
             session,
             segments_df,
+            time_window,
             authorizer,
-            download_id,
-            update_metadata,
+            # download_id,
+            # update_metadata,
             max_thread_workers,
             advanced_settings['w_timeout'],
             download_blocksize,
@@ -412,7 +414,7 @@ def _run(session, download_id, events_url, starttime, endtime, data_url,
                             n_downloaded, n_empty, n_errors)
 
 
-def new_download_run(session, params=None) -> int:
+def new_download_run(engine, params=None) -> int:
     if params is None:
         params = {}
     config = yaml_safe_dump(params)
@@ -420,20 +422,36 @@ def new_download_run(session, params=None) -> int:
         config = config.decode('utf-8')  # legacy py2 code?
     tmp_log = ('N/A: either logger not configured, or an '
                'unexpected error interrupted the process')
-    download_inst = models.DownloadRun()
-    session.add(download_inst)
-    session.commit()
-    download_id = download_inst.id
-      # frees memory?
-    session.add(models.DownloadRunInfo(
-        id=download_id,
-        config=config,
-        log=tmp_log,
-        summary="",
-        s2s_version=version()
-    ))
-    session.close()
+    download_id = get_max(engine, models.DownloadRun.id) + 1
+    with Inserter(engine, models.DownloadRun) as inserter:
+        inserter.insert([
+            dict(
+                id=download_id,
+                time=datetime.now(UTC).replace(tzinfo=None),
+                config=config,
+                log=tmp_log,
+                summary="",
+                s2s_version=version()
+            )
+        ])
+    if len(inserter.failed_ids) != 0:
+        raise FailedDownload('Unable to write to the DB')
     return download_id
+
+    # download_inst = models.DownloadRun()
+    # session.add(download_inst)
+    # session.commit()
+    # download_id = download_inst.id
+    #   # frees memory?
+    # session.add(models.DownloadRunInfo(
+    #     id=download_id,
+    #     config=config,
+    #     log=tmp_log,
+    #     summary="",
+    #     s2s_version=version()
+    # ))
+    # session.close()
+    # return download_id
 
 
 def version():

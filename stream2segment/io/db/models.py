@@ -18,7 +18,10 @@ from sqlalchemy import (
     Float,
     LargeBinary,
     UniqueConstraint,
-    event, TypeDecorator)
+    event,
+    TypeDecorator,
+    Index
+)
 from sqlalchemy.engine import Engine
 from sqlalchemy.ext.hybrid import hybrid_property  # , hybrid_method
 from sqlalchemy.inspection import inspect
@@ -152,19 +155,6 @@ class DownloadRun(Base):  # noqa
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     time = Column(DateTime, server_default=func.now())  # FIXME: needed?
-
-    # info = relationship("DownloadRunInfo", uselist=False)
-
-
-class DownloadRunInfo(Base):
-    """
-    Model representing ting the download run info. Keep separated as it contains
-    relatively big data seldom used in query and never in joins
-    """
-
-    __tablename__ = 'download_run_info'
-
-    id = Column(Integer, ForeignKey(DownloadRun.id), primary_key=True)
     s2s_version = Column(String)
     log = Column(String)
     summary = Column(String)
@@ -343,10 +333,7 @@ class Segment(Base):
         Integer, ForeignKey(WebService.id), nullable=False, index=True
     ))
     channel_id = Column(Integer, ForeignKey(Channel.id), nullable=False, index=True)
-    download_run_id = deferred(Column(
-        Integer, ForeignKey(DownloadRun.id), nullable=False, index=True
-    ))
-    event_distance_deg = Column(Float, nullable=False)
+    event_distance_deg = Column(Float, nullable=False, index=True)
     # download_code = Column(Integer, index=True)
     # start_time = Column(DateTime)
     # arrival_time = Column(DateTime, nullable=False)
@@ -420,7 +407,8 @@ class Segment(Base):
     #                         backref=backref("segments", lazy="dynamic"))
 
     __table_args__ = (
-        UniqueConstraint('channel_id', 'event_id', name='chaid_evtid_uc'),
+        # Index("event_channel_index", "event_id", "channel_id"),
+        UniqueConstraint('event_id', 'channel_id', name='unique_event_channel'),
     )
 
     @property
@@ -506,13 +494,11 @@ class NoDataSegment(Base):
     #     Integer, ForeignKey("WebService.id"), nullable=False, index=True
     # ))
     channel_id = Column(Integer, ForeignKey(Channel.id), nullable=False, index=True)
-    download_run_id = deferred(Column(
-        Integer, ForeignKey(DownloadRun.id), nullable=False, index=True
-    ))
     download_code = Column(Integer, index=True)
 
     __table_args__ = (
-        UniqueConstraint('channel_id', 'event_id', name='chaid_evtid_uc'),
+        # Index("event_channel_index", "event_id", "channel_id"),
+        UniqueConstraint('event_id', 'channel_id', name='unique_event_channel'),
     )
 
 class ClassLabel(Base):

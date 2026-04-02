@@ -17,14 +17,11 @@ from sqlalchemy import select, Engine
 from stream2segment.download import url
 from stream2segment.download.modules.mseedlite import MSeedError, MiniSeedInfo
 from stream2segment.io.cli import get_progressbar
-from stream2segment.io.db.pdsql import sync_pkey, get_max, db2dfs, Inserter
+from stream2segment.io.db.pdsql import sync_pkey, Inserter
 from stream2segment.io.db.models import (
     WebService, Segment, Channel, MiniSeed, NoDataSegment
 )
-from stream2segment.download.modules.utils import (formatmsg,
-                                                   s2scodes, url2str, fdsn_url_qs,
-                                                   IdOnceLogFilter)
-from stream2segment.download.exc import NothingToDownload
+from stream2segment.download.modules.utils import (fdsn_url_qs, IdOnceLogFilter)
 from stream2segment.download.modules import mseedlite
 from stream2segment.download.url import (
     get_host, read_async, adjust_max_concurrent_downloads, Response
@@ -56,17 +53,10 @@ def prepare_for_download(
         segments.pop(Segment.id.key)
     segments = segments.rename(columns={Segment.id.key: 'segment.id'})
 
-    # Let's remove also 2xx 3xx errors (e.g., no data), and retry only errors
-    stmt = select([
-        NoDataSegment.id,
-        NoDataSegment.event_id,
-        NoDataSegment.channel_id,
-        NoDataSegment.download_code
-    ])
-    # uc_cols = [NoDataSegment.event_id.key, NoDataSegment.channel_id.key]
-    # set_cols = [NoDataSegment.id.key, NoDataSegment.download_code.key]
+    # find segments to retry from NoDataSegment table
     where_clause = None
     if not restricted_download:
+        # Let's remove also 2xx 3xx errors (e.g., no data), and retry only errors
         where_clause = (
             (NoDataSegment.download_code < 200) &
             (NoDataSegment.download_code >= 300)
@@ -78,20 +68,22 @@ def prepare_for_download(
         NoDataSegment.id.key,
         [NoDataSegment.event_id.key, NoDataSegment.channel_id.key],
         where_clause,
-        # assign_new_ids=False,
+        assign_new_ids=False,
         chunksize=min(1000, len(segments))
     )
-    segments['_.retry._'] = segments[NoDataSegment.id.key.notna()].astype(bool)
+    segments['_.new._'] = segments[NoDataSegment.id.key.isna()].astype(bool)
     segments.pop(NoDataSegment.id.key)
+    segments.rename(columns={'segment.id': Segment.id.key})
     return segments
 
 
 def download_and_save(
     engine: Engine,
     segments: pd.DataFrame,
+    time_window,
     authorizer,
-    download_id,
-    update_datacenters,
+    # download_id,
+    # update_datacenters,
     max_thread_workers,
     timeout,
     # download_blocksize,
@@ -123,7 +115,12 @@ def download_and_save(
     inserter = SegmentInserter(engine)
     inserter_err = Inserter(engine, NoDataSegment)
 
-    # max_id = get_max(engine, Segment.id) + 1
+    no_data_columns = {
+        NoDataSegment.id.key: int,
+        NoDataSegment.event_id.key: int,
+        NoDataSegment.channel_id.key: int,
+        NoDataSegment.download_code.key: int
+    }
     processed_indices = []
     max_attempts = 3
     curr_attempt = 1
@@ -143,43 +140,30 @@ def download_and_save(
                 ):
                     url_domain = get_host(response.request)
                     processed_indices.append(idx)
-
+                    seg = {}
                     if response.is_ok:
-                        row = {
-                            c: (None if pd.isna(segments.at[idx, c]) else segments.at[
-                                idx, c])
-                            for c in segments.columns
-                        }
-                        mseed_info: MiniSeedInfo = response.data
-                        row[MiniSeed.data.key] = mseed_info.data
-                        row[Segment.noise_window_sec.key] = (
-                            mseed_info.start - row["arrival_time"]
-                        ).total_seconds()
-                        row[Segment.signal_window_sec.key] = (
-                            mseed_info.end - row["arrival_time"]
-                        ).total_seconds()
-                        row[Segment.maxgap_numsamples] = mseed_info.maxgap_overlap_ratio
-
-                        # data[Segment.id.key] = max_id
-                        # max_id += 1
-                        inserter.insert([row])
+                        for c in segments.columns:
+                            val = segments.at[idx, c]
+                            if pd.isna(val):
+                                val = None
+                            seg[c] = val
+                        seg = prepare_segment_to_insert(seg, response.data)
+                        inserter.insert([seg])
                     else:
-                        if row['_.new._']:
-                            inserter_err.insert([{
-                                    c: func(c) for c, func in (
-                                    (NoDataSegment.id.key, int),
-                                    (NoDataSegment.event_id.key, int),
-                                    (NoDataSegment.channel_id.key, int),
-                                    (NoDataSegment.download_code.key, int)
-                                )
-                            }])
+                        if segments.at[idx, '_.new._']:
+                            seg = {
+                                c: to_sql(segments.at[idx, c])
+                                for c, to_sql in no_data_columns.items()
+                            }
+                            inserter_err.insert([seg])
                         if id_once_filter is None:
                             id_once_filter = IdOnceLogFilter()
                             logger.warning('Detailed segment download errors '
-                                           '(showing only first of each type per data '
-                                           'center):')
+                                           '(showing only first of each type per '
+                                           'URL domain):')
                         logger.warning(
-                            f"Error class (code): {response.data} ({response.status_code}), "
+                            f"Error class (code): {response.data} "
+                            f"({response.status_code}), "
                             f"URL: {response.request}",
                             extra={'ID': (url_domain, response.status_code)}
                         )
@@ -190,15 +174,19 @@ def download_and_save(
                 if curr_attempt >= max_attempts:
                     # add segments not processed to the stats
                     counts = segments[WebService.url.key].value_counts()
-                    for url, count in counts.items():
+                    for url_, count in counts.items():
                         stats.increment(
-                            get_host(url),
+                            get_host(url_),
                             CustomResponseCode.NOT_DOWNLOADED,
                             count
                         )
-                    segments = pd.DataFrame()  # will break
+                        pbar.update(count)
+                    # close loop: set empty dataframe (will break the loop)
+                    segments = pd.DataFrame()
                 elif processed_indices:
-                    segments = segments.loc[segments.index.difference(processed_indices)]
+                    segments = segments.loc[
+                        segments.index.difference(processed_indices)
+                    ]
                 curr_attempt += 1
     finally:
         inserter.close()  # flush remaining stuff to insert / update
@@ -242,7 +230,7 @@ def download(
     ]
     dataframes = segments.groupby(grp_cols, sort=False, observed=True)
 
-    request2index: dict[str, dict[str, int | datetime]] = {}
+    requests_cache: dict[str, dict[str, int | datetime]] = {}
     noise_w = timedelta(minutes=time_window[0])
     signal_w = timedelta(minutes=time_window[1])
 
@@ -261,7 +249,7 @@ def download(
             'cha': ",".join(f'{band}{inst}{o}' for o in dfr[Channel.orientation_code.key]),
         }
         _url = fdsn_url_qs(dc_url, **params)
-        request2index[_url] = (
+        requests_cache[_url] = (
             {'start': _start, 'end': _end} | dfr[Channel.orientation_code].to_dict()
         )
         return _url
@@ -275,18 +263,18 @@ def download(
         blocksize=download_blocksize,
         openers=authorizer  # FIXME CORRECT????
     ):
-        orientation2index: dict[str, int | datetime] = request2index.pop(response.request)
-        _start = orientation2index.pop('start')
-        _end = orientation2index.pop('end')
+        req_cache: dict = requests_cache.pop(response.request)
+        _start = req_cache.pop('start')
+        _end = req_cache.pop('end')
 
         if not response.ok or response.has_no_data:
-            for idx in orientation2index.values():
+            for idx in req_cache.values():
                 yield idx, response
             continue
 
         for mini_seed_info in mseedlite.unpack(response.data):
             seed_orientation_code = mini_seed_info.seed_id[-1]
-            idx = orientation2index[seed_orientation_code]  # dataframe index value
+            idx = req_cache[seed_orientation_code]  # dataframe index value
             if not mini_seed_info.is_ok:
                 yield idx, Response(
                     mini_seed_info.data,
@@ -330,6 +318,19 @@ class SegmentInserter(Inserter):
     def flush(self):
         super().flush()
         self._data_inserter.flush()
+
+
+def prepare_segment_to_insert(row:dict, mseed_info: MiniSeedInfo) -> dict:
+    row[MiniSeed.data.key] = mseed_info.data
+    arrival_time = row.pop("arrival_time")
+    row[Segment.noise_window_sec.key] = (
+        mseed_info.start - arrival_time
+    ).total_seconds()
+    row[Segment.signal_window_sec.key] = (
+        mseed_info.end - arrival_time
+    ).total_seconds()
+    row[Segment.maxgap_numsamples] = mseed_info.maxgap_overlap_ratio
+    return row
 
 
 responses = dict(url.responses)
@@ -451,91 +452,86 @@ class DownloadStats:
 #     # return Request(url=datacenter_url, data=post_data.encode('utf8'))
 
 
-def populate_dataframe(resdict, code, dframe, chaid2mseedid):
-    """Write to dframe all necessary values according to `resdict`.
-
-    :param resdict: a dict mapping miniseed_id (string) to the tuple
-        err, data, s_rate, max_gap_ratio, stime, etime, outoftime.
-        Return value of `mseedliste.mseedunpack` function
-    :param dframe: the dataframe of the segments (one segment per row)
-        whose waveform data was requested to the server. `resdict` is the
-        result of `mseedliste.mseedunpack` on that server data
-    """
-    codes = s2scodes
-    col_dscode = SEG.DWLCODE
-    col_data = SEG.DATA
-    # the order of these columns matters! see below
-    columns2set = (
-        col_data,
-        SEG.MGAP,
-        col_dscode,
-        SEG.START,
-        SEG.END
-    )
-
-    # iterate over dframe rows and assign the relative data
-    # Note that we could use iloc which is SLIGHTLY faster than
-    # loc for setting the data, but this would mean using column
-    # indexes and we have column labels. A conversion is possible but
-    # would make the code  hard to understand
-    for idxval, chaid in zip(dframe.index.values, dframe[SEG.CHAID]):
-        mseedid = chaid2mseedid.get(chaid, None)
-        if mseedid is None:
-            continue
-        # get result:
-        res = resdict.get(mseedid, None)
-        if res is None:
-            continue
-        err, data, s_rate, max_gap_ratio, stime, etime, outoftime = res
-        if err is not None:
-            # set only the code field.
-            dframe.at[idxval, col_dscode] = codes.mseed_err
-        else:
-            # DO NOT MODIFY code attributes in loop! Otherwise
-            # next segments might have invalid value(s)! Therefore, set _code:
-            _code = code
-            if outoftime is True:
-                _code = codes.timespan_warn if data else codes.timespan_err
-            # On old pandas versions (<=0.20?), this raised a
-            # UnicodeDecodeError:
-            # dframe.loc[idxval, SEG_COLNAMES] = (data, s_rate,
-            #                                 max_gap_ratio,
-            #                                 mseedid, code)
-            # The problem (bug?) is in pandas.core.indexing.py
-            # on line 517: np.array((data, s_rate, max_gap_ratio,
-            #                                  mseedid, code))
-            # (numpy coerces to unicode if one of the values is unicode,
-            #  and thus fails for the `data` field?)
-            # Anyway, we set first an empty string (which can be
-            # decoded) and then use set_value only for the `data` field
-            # set_value should be relatively fast. Update 2018: set_value
-            # deprecated. We use `at`
-            dframe.loc[idxval, columns2set] = (b'', s_rate, max_gap_ratio,
-                                               mseedid, _code, stime, etime)
-            dframe.at[idxval, col_data] = data
-
-
-def get_counts(dframe, dframe_column, na_key):
-    """Return an iterable yielding the distinct values of
-    `dframe[dframe_column]`. Each yielded element is (val, count), where val is
-    one of the distinct values of `dframe[dframe_column]`. na_key is the value
-    of `val` above to be yielded for na/none/nans'
-    """
-    # first count NA: if the dataframe has all NA, groupby raises
-    # (group by skips NA)
-    dframe_column = dframe[dframe_column]
-    na_count = dframe_column.isna().sum()
-    if na_count < len(dframe):
-        # NOTE: groupby DOES NOT COUNT NA/Nones/NaNs
-        for result in dframe.groupby(dframe_column).size().items():
-            yield result  # result is (code, count)
-    if na_count:
-        yield na_key, na_count
-
-
-
-
-
+# def populate_dataframe(resdict, code, dframe, chaid2mseedid):
+#     """Write to dframe all necessary values according to `resdict`.
+#
+#     :param resdict: a dict mapping miniseed_id (string) to the tuple
+#         err, data, s_rate, max_gap_ratio, stime, etime, outoftime.
+#         Return value of `mseedliste.mseedunpack` function
+#     :param dframe: the dataframe of the segments (one segment per row)
+#         whose waveform data was requested to the server. `resdict` is the
+#         result of `mseedliste.mseedunpack` on that server data
+#     """
+#     codes = s2scodes
+#     col_dscode = SEG.DWLCODE
+#     col_data = SEG.DATA
+#     # the order of these columns matters! see below
+#     columns2set = (
+#         col_data,
+#         SEG.MGAP,
+#         col_dscode,
+#         SEG.START,
+#         SEG.END
+#     )
+#
+#     # iterate over dframe rows and assign the relative data
+#     # Note that we could use iloc which is SLIGHTLY faster than
+#     # loc for setting the data, but this would mean using column
+#     # indexes and we have column labels. A conversion is possible but
+#     # would make the code  hard to understand
+#     for idxval, chaid in zip(dframe.index.values, dframe[SEG.CHAID]):
+#         mseedid = chaid2mseedid.get(chaid, None)
+#         if mseedid is None:
+#             continue
+#         # get result:
+#         res = resdict.get(mseedid, None)
+#         if res is None:
+#             continue
+#         err, data, s_rate, max_gap_ratio, stime, etime, outoftime = res
+#         if err is not None:
+#             # set only the code field.
+#             dframe.at[idxval, col_dscode] = codes.mseed_err
+#         else:
+#             # DO NOT MODIFY code attributes in loop! Otherwise
+#             # next segments might have invalid value(s)! Therefore, set _code:
+#             _code = code
+#             if outoftime is True:
+#                 _code = codes.timespan_warn if data else codes.timespan_err
+#             # On old pandas versions (<=0.20?), this raised a
+#             # UnicodeDecodeError:
+#             # dframe.loc[idxval, SEG_COLNAMES] = (data, s_rate,
+#             #                                 max_gap_ratio,
+#             #                                 mseedid, code)
+#             # The problem (bug?) is in pandas.core.indexing.py
+#             # on line 517: np.array((data, s_rate, max_gap_ratio,
+#             #                                  mseedid, code))
+#             # (numpy coerces to unicode if one of the values is unicode,
+#             #  and thus fails for the `data` field?)
+#             # Anyway, we set first an empty string (which can be
+#             # decoded) and then use set_value only for the `data` field
+#             # set_value should be relatively fast. Update 2018: set_value
+#             # deprecated. We use `at`
+#             dframe.loc[idxval, columns2set] = (b'', s_rate, max_gap_ratio,
+#                                                mseedid, _code, stime, etime)
+#             dframe.at[idxval, col_data] = data
+#
+#
+# def get_counts(dframe, dframe_column, na_key):
+#     """Return an iterable yielding the distinct values of
+#     `dframe[dframe_column]`. Each yielded element is (val, count), where val is
+#     one of the distinct values of `dframe[dframe_column]`. na_key is the value
+#     of `val` above to be yielded for na/none/nans'
+#     """
+#     # first count NA: if the dataframe has all NA, groupby raises
+#     # (group by skips NA)
+#     dframe_column = dframe[dframe_column]
+#     na_count = dframe_column.isna().sum()
+#     if na_count < len(dframe):
+#         # NOTE: groupby DOES NOT COUNT NA/Nones/NaNs
+#         for result in dframe.groupby(dframe_column).size().items():
+#             yield result  # result is (code, count)
+#     if na_count:
+#         yield na_key, na_count
 
 # def get_download_iterator(segments_df):
 #     """Yield dataframes to be downloaded, one request per dataframe, one waveform per

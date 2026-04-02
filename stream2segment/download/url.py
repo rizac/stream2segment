@@ -107,13 +107,12 @@ class Response:
       normal http_codes (if exception is an HTTPError) and custom codes that
       generally denote network-related errors (usually integers > 1000, see
       the module enum class `CustomResponseCode` for details)
-    - request: The request (URL string or Request object) generating the Response.
-      It can be int in case one wants to manually attach an ID to it
+    - request: The request (URL string or Request object) generating the Response
     """
 
     data: str | bytes | Exception | Any
     status_code: int
-    request: str | Request | int
+    request: str | Request
 
     @property
     def is_ok(self):
