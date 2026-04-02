@@ -86,8 +86,8 @@ def download_and_save(
     # update_datacenters,
     max_thread_workers,
     timeout,
-    # download_blocksize,
-    # db_bufsize,
+    download_blocksize,
+    db_bufsize,
     show_progress=False
 ):
     """Download and saves the segments. segments_df MUST not be empty (this is
@@ -125,6 +125,7 @@ def download_and_save(
     max_attempts = 3
     curr_attempt = 1
 
+    max_thread_workers_global = adjust_max_concurrent_downloads()
     try:
         with get_progressbar(len(segments) if show_progress else 0) as pbar:
 
@@ -133,8 +134,8 @@ def download_and_save(
                     segments,
                     time_window,
                     authorizer,
+                    max_thread_workers_global,
                     max_thread_workers,
-                    max_workers_d,
                     timeout,
                     download_blocksize
                 ):

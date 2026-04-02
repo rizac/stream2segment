@@ -10,7 +10,7 @@ from urllib.request import Request
 import pandas as pd
 
 from stream2segment.io.cli import get_progressbar
-from stream2segment.io.db.pdsql import DbManager, db2df
+from stream2segment.io.db.pdsql import DbManager
 from stream2segment.io.db.models import WebService, Segment
 from stream2segment.download.url import read_async, get_host
 from stream2segment.download.modules.utils import (DbExcLogger,

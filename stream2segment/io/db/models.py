@@ -168,7 +168,7 @@ class WebService(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     url = Column(String, nullable=False)
 
-    __table_args__ = (UniqueConstraint('url', name='url_uc'),)
+    __table_args__ = (UniqueConstraint('url', name='unique_url'),)
 
 
 class Event(Base):  # noqa
@@ -176,13 +176,11 @@ class Event(Base):  # noqa
     __tablename__ = 'event'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    webservice_id = Column(
-        Integer, ForeignKey(WebService.id), index=True, nullable=True
-    )
+    webservice_id = Column(Integer, ForeignKey(WebService.id), nullable=False)
     eventid = Column(String, nullable=False)
     time = Column(DateTime, nullable=False, index=True)
-    latitude = Column(Float, nullable=False)
-    longitude = Column(Float, nullable=False)
+    latitude = Column(Float, nullable=False, index=True)
+    longitude = Column(Float, nullable=False, index=True)
     depth_km = Column(Float, nullable=False)
     # author = Column(String)
     catalog = Column(String, nullable=False)
@@ -254,12 +252,8 @@ class Channel(Base):
     __tablename__ = 'channel'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    webservice_id = Column(
-        Integer, ForeignKey(WebService.id), nullable=False, index=True
-    )
-    stationxml_id = Column(
-        Integer, ForeignKey(StationXML.id), nullable=True, index=True
-    )
+    webservice_id = Column(Integer, ForeignKey(WebService.id), nullable=False)
+    stationxml_id = Column(Integer, ForeignKey(StationXML.id), nullable=True)
     network_code = Column(String(8), nullable=False, index=True)
     station_code = Column(String(8), nullable=False, index=True)
     latitude = Column(Float, nullable=False)
@@ -272,14 +266,14 @@ class Channel(Base):
     band_code = Column(String(1), nullable=False, index=True)
     instrument_code = Column(String(1), nullable=False, index=True)
     orientation_code = Column(String(1), nullable=False, index=True)
-    depth = Column(Float, index=True)
+    depth = Column(Float)
     azimuth = Column(Float)
     dip = Column(Float)
     # sensor_description = Column(String)
     scale = Column(Float)
     scale_freq = Column(Float)
     scale_units = Column(String)
-    sample_rate = Column(Float, nullable=False, index=True)
+    sample_rate = Column(Float, nullable=False)
 
     web_service = relationship(WebService)
 
@@ -293,9 +287,18 @@ class Channel(Base):
         ])
         return f"{self.webservice.url}?{params}&level=channel"
 
-    # __table_args__ = (
-    #     UniqueConstraint('webservice_id', 'network_code', 'station_code', name='channel_uc'),
-    # )
+    __table_args__ = (
+        UniqueConstraint(
+            'network_code',
+            'station_code',
+            'location_code',
+            'band_code',
+            'instrument_code',
+            'orientation_code',
+            'start_time',
+            name='unique_channel'
+        ),
+    )
 
     # hybrid properties:
 
@@ -328,11 +331,9 @@ class Segment(Base):
     __tablename__ = 'segment'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    event_id = Column(Integer, ForeignKey(Event.id), nullable=False, index=True)
-    webservice_id = deferred(Column(
-        Integer, ForeignKey(WebService.id), nullable=False, index=True
-    ))
-    channel_id = Column(Integer, ForeignKey(Channel.id), nullable=False, index=True)
+    event_id = Column(Integer, ForeignKey(Event.id), nullable=False)
+    webservice_id = Column(Integer, ForeignKey(WebService.id), nullable=False)
+    channel_id = Column(Integer, ForeignKey(Channel.id), nullable=False)
     event_distance_deg = Column(Float, nullable=False, index=True)
     # download_code = Column(Integer, index=True)
     # start_time = Column(DateTime)
@@ -387,7 +388,7 @@ class Segment(Base):
     #                        secondary="class_labeling",
     #                        backref=backref("segments", lazy="dynamic"))
 
-    download_run = relationship(DownloadRun)
+    # download_run = relationship(DownloadRun)
 
     # relationships (implement here only those shared by download+process):
     # stationxml = relationship(StationXML, backref=backref("segments", lazy="dynamic"))
@@ -489,12 +490,12 @@ class NoDataSegment(Base):
     __tablename__ = 'failed_downloaded_segment'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    event_id = Column(Integer, ForeignKey(Event.id), nullable=False, index=True)
+    event_id = Column(Integer, ForeignKey(Event.id), nullable=False)
     # webservice_id = deferred(Column(
     #     Integer, ForeignKey("WebService.id"), nullable=False, index=True
     # ))
-    channel_id = Column(Integer, ForeignKey(Channel.id), nullable=False, index=True)
-    download_code = Column(Integer, index=True)
+    channel_id = Column(Integer, ForeignKey(Channel.id), nullable=False)
+    download_code = Column(Integer)
 
     __table_args__ = (
         # Index("event_channel_index", "event_id", "channel_id"),

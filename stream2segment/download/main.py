@@ -19,11 +19,10 @@ from stream2segment.io.db import secure_dburl, close_session, models
 from stream2segment.download.inputvalidation import load_config_for_download, pop_param
 from stream2segment.download.exc import NothingToDownload, FailedDownload
 from stream2segment.download.modules.events import get_events
-from stream2segment.download.modules.datacenters import get_stations_urls
 from stream2segment.download.modules.channels import get_channels
 from stream2segment.download.modules.stationsearch import merge_events_stations
 from stream2segment.download.modules.segments import (
-    prepare_for_download, download_save_segments  #, DcDataselectManager  # FIXME REMOVE
+    prepare_for_download, download_and_save  #, DcDataselectManager  # FIXME REMOVE
 )
 from stream2segment.download.modules.stations import \
     (save_stationxml, get_station_df_for_inventory_download)
@@ -129,7 +128,7 @@ def download(config, log2file=True, verbose=False, print_config_only=False,
             print(f"Log file: '{log2file}'\n"
                   "(if the download ends with no errors, the file will be deleted"
                   "and its content written to the db table "
-                  f"'{models.DownloadRunInfo.__tablename__}')")
+                  f"'{models.DownloadRun.__tablename__}')")
 
         stime = time.time()
         _run(download_id=download_id, isterminal=verbose, authorizer=authorizer,
@@ -344,7 +343,7 @@ def _run(session, download_id, events_url, starttime, endtime, data_url,
         session.expunge_all()
         session.close()
 
-        d_stats = download_save_segments(
+        d_stats = download_and_save(
             session,
             segments_df,
             time_window,

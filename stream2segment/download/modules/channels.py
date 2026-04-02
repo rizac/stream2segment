@@ -92,7 +92,14 @@ def get_channels(
     # first drop duplicates (all columns the same):
     # this method does very few things as there might be rounding errors that
     # prevent equal columns to be equal. Anyway, we perform here more sound checks
-    # cha_df = cha_df.drop_duplicates(keep='first')
+    cha_df = cha_df.drop_duplicates(subset=[
+        Channel.network_code.key,
+        Channel.station_code.key,
+        Channel.location_code.key,
+        Channel.channel_code.key,
+        WebService.url.key,
+        Channel.start_time.key,
+    ],keep='first')
 
     engine = session.get_bind()
     orig_cha_df = cha_df
@@ -576,7 +583,7 @@ def drop_conflict_between(
     webs_url_col = WebService.url.key
 
     conflict_between = (
-        channels_df.groupby(grp_cols)[webs_url_col].transform("nunique") > 1
+        channels_df.groupby(grp_cols, sort=False)[webs_url_col].transform("nunique") > 1
     )
     # (channels_df[conflict_between].sort_values(grp1_cols, ascending=True).
     # to_csv(
@@ -620,14 +627,14 @@ def drop_conflict_between(
                 )
                 cha_df = cha_df[~keep]
 
-            if eida_rs_urls is not None and not cha_df.empty:
+            if eida_rs_urls is not None and cha_df.duplicated(grp_cols).any():
                 eida_rs_json = get_eida_rs_response(eida_rs_urls, net=net, sta=sta)
                 keep = _check_conflict_between_via_eida_rs(
                     cha_df, eida_rs_json
                 )
                 cha_df = cha_df[~keep]
 
-            if not cha_df.empty:
+            if cha_df.duplicated(grp_cols).any():
                 # conflict found, unresolvable through already saved data. Get first
                 # if instructed to do so. FIXME add param or do it automatically likle here?
                 real_ws_url = cha_df[
@@ -636,7 +643,7 @@ def drop_conflict_between(
                 keep = cha_df[webs_url_col] == real_ws_url
                 cha_df = cha_df[~keep]
 
-            if not cha_df.empty:
+            if cha_df.duplicated(grp_cols).any():
                 conflict_between_indices.extend(cha_df.index)
 
         if conflict_between_indices:
