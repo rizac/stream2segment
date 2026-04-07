@@ -89,29 +89,14 @@ def get_channels(
     if cha_df.empty:
         raise FailedDownload('No channel to work with after filtering out')
 
-    # first drop duplicates (all columns the same):
-    # this method does very few things as there might be rounding errors that
-    # prevent equal columns to be equal. Anyway, we perform here more sound checks
-    cha_df = cha_df.drop_duplicates(subset=[
-        Channel.network_code.key,
-        Channel.station_code.key,
-        Channel.location_code.key,
-        Channel.channel_code.key,
-        WebService.url.key,
-        Channel.start_time.key,
-    ],keep='first')
-
     engine = session.get_bind()
-    orig_cha_df = cha_df
-    # set ranking based on the order of urls
-    cha_df = drop_conflict_between(engine, cha_df, eida_rs_urls)
-    if not cha_df.empty:
-        cha_df = cha_df.drop(columns='__.rank.__')
-        cha_df = drop_conflict_within(cha_df)
 
+    # set ranking based on the order of urls
+    cha_df = drop_conflicts(engine, cha_df, eida_rs_urls)
     if cha_df.empty:
         raise FailedDownload('No channel to work with after conflicts dropping')
 
+    cha_df = cha_df.drop(columns='__.rank.__')
     cha_df = sync_webservice_ids_with_db(cha_df, engine)
     if cha_df.empty:
         raise FailedDownload(
@@ -515,7 +500,10 @@ def filter_out_channels_df(
     # operators . Thus concatenate expression with OR
     df_filter = None
     sa_cols = (
-        Channel.network_code, Channel.station_code, Channel.location_code, Channel.channel_code
+        Channel.network_code,
+        Channel.station_code,
+        Channel.location_code,
+        Channel.channel_code
     )
 
     for lst, sa_col in zip((net, sta, loc, cha), sa_cols):
@@ -555,22 +543,23 @@ def filter_out_channels_df(
     return ret
 
 
-def drop_conflict_between(
-    engine: Engine, channels_df, eida_rs_urls: list[str] | None = None
+def drop_conflicts(
+    engine: Engine, channels: pd.DataFrame, eida_rs_urls: list[str] | None = None
 ):
     """
     Drop from channels_df conflict between, i.e., network.station codes
     returned by several URLs. Duplicated rows will be resolved against the
     database or, if keep_first is True, by taking the first row
 
-    :param channels_df: pandas DataFrame
-    :param urls: an optional list of source station FDSN urls that where used to build
-        the passed dataframe. Order matters as conflicts will be resolved by taking
+    :param channels: pandas DataFrame
+    :param eida_rs_urls: an optional list of source station FDSN urls that
+        where used to build the passed dataframe. Order matters as conflicts
+        will be resolved by taking
         the first matching url. If None, conflicts will cause all channels
         involved to be dropped
     :return: a new dataframe with duplicated rows removed
     """
-    channels_df.reset_index(drop=True, inplace=True)
+    channels.reset_index(drop=True, inplace=True)
     # conflict between case is when station webservice is not unique, e.g.:
     #   net sta webservice_id
     #   N   S   1
@@ -579,42 +568,69 @@ def drop_conflict_between(
     sta_col = Channel.station_code.key
     loc_col = Channel.location_code.key
     cha_col = Channel.channel_code.key
-    grp_cols = [net_col, sta_col, loc_col, cha_col]
+    # band_col = Channel.band_code.key
+    # inst_col = Channel.band_code.key
+    # orient_col = Channel.orientation_code.key
+    start_col = Channel.start_time.key
+    end_col = Channel.end_time.key
     webs_url_col = WebService.url.key
 
-    conflict_between = (
-        channels_df.groupby(grp_cols, sort=False)[webs_url_col].transform("nunique") > 1
+    channels.reset_index(drop=True, inplace=True)
+
+    # all orientations of the same channel must have the same URL:
+    grp_cols = [net_col, sta_col, loc_col, cha_col, start_col]
+
+    # drop duplicates (against DB unique constraints):
+    channels = channels.drop_duplicates(
+        subset=grp_cols, keep='first'
     )
-    # (channels_df[conflict_between].sort_values(grp1_cols, ascending=True).
-    # to_csv(
-    #     path_or_buf=os.expanduser('~/work/code/stream2segment/conflict_between.csv'),
-    #     index=False
-    # ))
+
+    geoloc_cols = [
+        Channel.latitude.key,
+        Channel.longitude.key,
+        # Channel.elevation.key,
+        # Channel.depth.key,
+        # Channel.azimuth.key,
+        # Channel.dip.key,
+    ]
+    inst_cols = [
+        Channel.scale.key,
+        Channel.scale_freq.key,
+        Channel.scale_units.key,
+        Channel.sample_rate.key
+    ]
+
+    def allclose(col: pd.Series, **kwargs):
+        """np.allclose robust to non-numeric dtypes"""
+        if pd.api.types.is_numeric_dtype(col):
+            return np.allclose(col.iloc[0], col.iloc[1:], **kwargs)
+        return len(pd.unique(col)) == 1
+
+    band_inst_col: pd.Series = channels[cha_col].str[:2]
+    # 1) CHANNELS WITH SAME CODE AND START TIME MUST COME FROM A SINGLE URL:
+    grp_cols = [net_col, sta_col, loc_col, band_inst_col, start_col]
+
+    def webservice_urls(_df):
+        return pd.unique(_df[webs_url_col])
 
     table_empty = get_row_count(engine, Channel) < 1
 
-    # log messages:
-    if conflict_between.any():
-        # create a new dataframe where "webs_url_col" has all URLs separated by ",":
-        log_df = channels_df[conflict_between].groupby(
-            grp_cols + [webs_url_col], as_index=False, sort=True
-        ).agg({ webs_url_col: lambda x: ", ".join(sorted(set(x))) }). rename(
-            columns={ webs_url_col: 'URLs (should be 1)' }
-        )
-        logger.warning(
-            f'Conflict: different URLs returning the same station. Conflicts summary:'
-        )
-        logger.warning(df2str(log_df))
+    conflicting_indices = set()
 
-        conflict_between_indices = []
-        # although we check conflicts by net.sta.loc.cha, we are interested in fixing
-        # the station problem here
+    for (net, sta, loc, band_inst, start), cha_df in (
+        channels.groupby(grp_cols)
+    ):
+        urls = webservice_urls(cha_df)
+        if len(urls) > 1:
 
-        for (net, sta, loc, cha_prefix), cha_df in (
-            channels_df.loc[conflict_between].groupby([
-                net_col, sta_col, loc_col, channels_df[cha_col].str[:2]
-            ], sort=False)
-        ):
+            logger.warning(
+                'Duplicated urls for channel (attempting to resolve conflict): ' +
+                "\n".join(
+                    fdsn_url_qs(u, net=net, sta=sta, loc=loc, cha=band_inst + "?")
+                    for u in urls
+                )
+            )
+
             if not table_empty:
                 keep = _check_conflict_between_via_db(
                     engine,
@@ -622,47 +638,99 @@ def drop_conflict_between(
                     net,
                     sta,
                     loc,
-                    cha_prefix[0],
-                    cha_prefix[1]
+                    *band_inst
                 )
-                cha_df = cha_df[~keep]
+                conflicting_indices.update(cha_df[~keep].index)
+                cha_df = cha_df[keep]
+                urls = webservice_urls(cha_df)
 
-            if eida_rs_urls is not None and cha_df.duplicated(grp_cols).any():
+            if eida_rs_urls is not None and len(urls) > 1:
                 eida_rs_json = get_eida_rs_response(eida_rs_urls, net=net, sta=sta)
                 keep = _check_conflict_between_via_eida_rs(
                     cha_df, eida_rs_json
                 )
-                cha_df = cha_df[~keep]
+                conflicting_indices.update(cha_df[~keep].index)
+                cha_df = cha_df[keep]
+                urls = webservice_urls(cha_df)
 
-            if cha_df.duplicated(grp_cols).any():
+            if len(urls) > 1:
                 # conflict found, unresolvable through already saved data. Get first
                 # if instructed to do so. FIXME add param or do it automatically likle here?
                 real_ws_url = cha_df[
                     cha_df['__.rank.__'] == cha_df['__.rank.__'].min()
                 ].iloc[0][webs_url_col]
                 keep = cha_df[webs_url_col] == real_ws_url
-                cha_df = cha_df[~keep]
+                conflicting_indices.update(cha_df[~keep].index)
+                cha_df = cha_df[keep]
+                urls = webservice_urls(cha_df)
 
-            if cha_df.duplicated(grp_cols).any():
-                conflict_between_indices.extend(cha_df.index)
+            if len(urls) > 1 or cha_df.empty:
+                conflicting_indices.update(cha_df.index)
+                continue
 
-        if conflict_between_indices:
-            drop = channels_df.index.isin(conflict_between_indices)
-            channels_df = channels_df[~drop].copy()
-            log_df = channels_df[drop]
-            logger.warning('Station channels dropped after applying conflict resolver:')
+        url = urls[0]
+
+        # No double webservice url.
+        # First check that geo locations match (otherwise we might have
+        # inconsistencies in arrival times for same channel) by relaxing a bit
+        # equality (use allclose):
+        if not all(allclose(cha_df[c]) for c in geoloc_cols):
             logger.warning(
-                log_df[grp_cols + [webs_url_col]].sort_values(by=webs_url_col).to_string(
-                    na_rep='', index=False
-                )
+                'Non-unique (lat, lon) for channel (conflict not handled, all channels kept): ' +
+                fdsn_url_qs(url, net=net, sta=sta, loc=loc, cha=band_inst + "?")
             )
 
-    return channels_df
+    # 2) CHANNELS WITH SAME CODE AND URL MUST HAVE DIFFERENT TIME RANGES:
+    grp_cols = [net_col, sta_col, loc_col, band_inst_col, webs_url_col]
+
+    for (net, sta, loc, band_inst, url), cha_df in (
+        channels[~channels.index.isin(conflicting_indices)].groupby(grp_cols)
+    ):
+        if len(pd.unique(cha_df[start_col])) > 1:
+
+            logger.warning(
+                'Duplicated start_time for channel (attempting to resolve conflict): ' +
+                fdsn_url_qs(url, net=net, sta=sta, loc=loc, cha=band_inst+"?")
+            )
+            for o_code in pd.unique(cha_df[cha_col].str[2]):
+                cha_df_o = cha_df[cha_df[cha_col].str[2] == o_code]
+                if all(allclose(cha_df_o[c]) for c in inst_cols):
+                    # only time ranges differ, merge all columns into first:
+                    idx = cha_df_o.index[0]
+                    # merge time ranges:
+                    channels.at[idx, start_col] = cha_df_o[start_col].min()
+                    channels.at[idx, end_col] = cha_df_o[end_col].max()
+                    # discard other columns:
+                    conflicting_indices.update(cha_df_o.index[1:])
+                else:
+                    # Only instrument values differ, then it is likely a problem in time
+                    # ranges. Because they all overlap, set end times to not overlap next
+                    # start time (keep all columns):
+                    for i in range(len(cha_df_o) -1):
+                        start_time = cha_df_o.at[cha_df_o.index[i + 1], start_col]
+                        channels.at[cha_df_o.index[i], end_col] = start_time
+
+    if conflicting_indices:
+        drop = channels.index.isin(conflicting_indices)
+        # log_df = channels[drop]
+        channels = channels[~drop]
+        # logger.warning('Station channels dropped after applying conflict resolver:')
+        # logger.warning(
+        #     # groupby url and station code, join all channels together and sort by url:
+        #     df2str(
+        #         log_df.groupby(
+        #             [webs_url_col, net_col, sta_col, loc_col]
+        #         )[Channel.channel_code.key].agg(lambda x: ",".join({_ for _ in x.astype(str)})).
+        #         reset_index().sort_values(by=webs_url_col)
+        #     )
+        # )
+
+    return channels
 
 
 def _check_conflict_between_via_db(
     engine, cha_df, net, sta, loc, band, inst
-) -> Sequence[bool]:
+) -> pd.Series:
 
     keep = np.zeros(len(cha_df), dtype=bool)
     webs_url_col = WebService.url.key
@@ -686,7 +754,7 @@ def _check_conflict_between_via_db(
     return keep
 
 
-def _check_conflict_between_via_eida_rs(cha_df, eida_rs_json) -> Sequence[bool]:
+def _check_conflict_between_via_eida_rs(cha_df, eida_rs_json) -> pd.Series:
     keep = np.zeros(len(cha_df), dtype=bool)
 
     urls = []
@@ -734,145 +802,145 @@ def wild2regex(text: str):
     )
 
 
-def drop_conflict_within(channels_df):
-    """
-    Drop from channels_df conflict within, i.e., same
-    network.station.location.channel.start_time  returned by the same URLs.
-    Duplicated rows will be resolved by taking the item which spans the
-    biggest time range (which is the least bad option)
+# def drop_conflict_within(channels_df):
+#     """
+#     Drop from channels_df conflict within, i.e., same
+#     network.station.location.channel.start_time  returned by the same URLs.
+#     Duplicated rows will be resolved by taking the item which spans the
+#     biggest time range (which is the least bad option)
+#
+#     :return: a new dataframe with duplicated rows removed
+#     """
+#     channels_df.reset_index(drop=True, inplace=True)
+#     webs_url_col = WebService.url.key
+#     start_col = Channel.start_time.key
+#     end_col = Channel.end_time.key
+#     geoloc_cols = [
+#         Channel.latitude.key,
+#         Channel.longitude.key,
+#         Channel.elevation.key,
+#         Channel.depth.key,
+#         Channel.azimuth.key,
+#         Channel.dip.key,
+#     ]
+#     inst_cols = [
+#         Channel.scale.key,
+#         Channel.scale_freq.key,
+#         Channel.scale_units.key,
+#         Channel.sample_rate.key
+#     ]
+#     grp_cols = [
+#         Channel.network_code.key,
+#         Channel.station_code.key,
+#         Channel.location_code.key,
+#         Channel.channel_code.key,
+#         # Channel.start_time.key,
+#         webs_url_col,
+#     ]
+#
+#     def allclose(col: pd.Series, **kwargs):
+#         """np.allclose robust to non-numeric dtypes"""
+#         if pd.api.types.is_numeric_dtype(col):
+#             return np.allclose(col.iloc[0], col.iloc[1:], **kwargs)
+#         return len(pd.unique(col)) == 1
+#
+#     # Just for ref, these rows are not detected by duplicated (apparently, scale differs):
+#     #        network_code station_code location_code channel_code   latitude  longitude  elevation  depth  azimuth  dip          scale  scale_freq scale_units  sample_rate          start_time   end_time                                              url  webservice_id
+#     # 97463            GS        KAN12            01          HNE  37.297383    -97.998      425.5    0.0     90.0  0.0  184349.032785         1.0      m/s**2        200.0 2014-05-08 17:11:06 2015-04-14  https://service.iris.edu/fdsnws/station/1/query             11
+#     # 131397           GS        KAN12            01          HNE  37.297383    -97.998      425.5    0.0     90.0  0.0  184349.032785         1.0      m/s**2        200.0 2014-05-08 17:11:06 2015-04-14  https://service.iris.edu/fdsnws/station/1/query             11
+#     #
+#
+#     conflict_within = (
+#         channels_df.groupby(grp_cols)[geoloc_cols + inst_cols].transform("nunique") > 1
+#     ).any(axis=1)
+#     # (channels_df[conflict_within].sort_values(grp2_cols, ascending=True).
+#     # to_csv(
+#     #     path_or_buf=os.expanduser('~/work/code/stream2segment/conflict_within.csv'),
+#     #     index=False
+#     # ))
+#     conflict_within_indices = []
+#     if conflict_within.any():
+#
+#         log_df = channels_df.loc[conflict_within, grp_cols].groupby(
+#             grp_cols, as_index=False, sort=True
+#         ).size().rename(columns={'size': "channels (should be 1)"})
+#         # (log_df has columns=grp_cols - because as_index=False - and an added col size)
+#         logger.warning(
+#             f'Conflict: the same URL returning a channel multiple times. '
+#             f'Conflicts summary:  '
+#         )
+#         logger.warning(df2str(log_df))
+#
+#         for _, cha_df in channels_df[conflict_within].groupby(
+#             grp_cols, sort=False
+#         ):
+#             if len(cha_df) <= 1:  # for safety
+#                 continue
+#
+#             cha_df = cha_df.copy()
+#             cha_df.loc[pd.isna(cha_df[end_col]), end_col] = pd.Timestamp.now()
+#             cha_df = cha_df.sort_values(by=[start_col, end_col], ascending=True)
+#             overlap_with_next = (
+#                 np.append(
+#                     [cha_df[end_col].values[:-1] > cha_df[start_col].values[1:]],
+#                     False
+#                 ).astype(bool)
+#             )
+#
+#             if not overlap_with_next.any():  # no time range overlaps -> ok
+#                 continue
+#
+#             if not overlap_with_next[:-1].all():
+#                 # not all time ranges overlap ->  discard
+#                 conflict_within_indices.extend(cha_df.index)
+#                 continue
+#
+#             # First check that geo locations match (otherwise we might have
+#             # inconsistencies in arrival times for same channel) by relaxing a bit
+#             # equality (use allclose):
+#             if not all(allclose(cha_df[c]) for c in geoloc_cols):
+#                 # geo position mismatch: discard all
+#                 conflict_within_indices.extend(cha_df.index)
+#                 continue
+#
+#             if all(allclose(cha_df[c]) for c in inst_cols):
+#                 # only time ranges differ, merge all columns into first:
+#                 idx = cha_df.index[0]
+#                 # merge time ranges:
+#                 channels_df.at[idx, start_col] = cha_df[start_col].min()
+#                 channels_df.at[idx, end_col] = cha_df[end_col].max()
+#                 # discard other columns:
+#                 conflict_within_indices.extend(cha_df.index[1:])
+#             else:
+#                 # Only instrument values differ, then it is likely a problem in time
+#                 # ranges. Because they all overlap, set end times to not overlap next
+#                 # start time (keep all columns):
+#                 for i in range(len(cha_df) -1):
+#                     start_time = cha_df.at[cha_df.index[i + 1], start_col]
+#                     channels_df.at[cha_df.index[i], end_col] = start_time
+#
+#         if conflict_within_indices:
+#             drop = channels_df.index.isin(conflict_within_indices)
+#             channels_df = channels_df[~drop].copy()
+#             log_df = channels_df[drop]
+#             logger.warning('Station channels dropped after applying conflict resolver:')
+#             logger.warning(
+#                 log_df[grp_cols].sort_values(
+#                     by=webs_url_col).to_string(
+#                     na_rep='', index=False
+#                 )
+#             )
+#
+#     return channels_df
 
-    :return: a new dataframe with duplicated rows removed
-    """
-    channels_df.reset_index(drop=True, inplace=True)
-    webs_url_col = WebService.url.key
-    start_col = Channel.start_time.key
-    end_col = Channel.end_time.key
-    geoloc_cols = [
-        Channel.latitude.key,
-        Channel.longitude.key,
-        Channel.elevation.key,
-        Channel.depth.key,
-        Channel.azimuth.key,
-        Channel.dip.key,
-    ]
-    inst_cols = [
-        Channel.scale.key,
-        Channel.scale_freq.key,
-        Channel.scale_units.key,
-        Channel.sample_rate.key
-    ]
-    grp_cols = [
-        Channel.network_code.key,
-        Channel.station_code.key,
-        Channel.location_code.key,
-        Channel.channel_code.key,
-        # Channel.start_time.key,
-        webs_url_col,
-    ]
 
-    def allclose(col: pd.Series, **kwargs):
-        """np.allclose robust to non-numeric dtypes"""
-        if pd.api.types.is_numeric_dtype(col):
-            return np.allclose(col.iloc[0], col.iloc[1:], **kwargs)
-        return len(pd.unique(col)) == 1
-
-    # Just for ref, these rows are not detected by duplicated (apparently, scale differs):
-    #        network_code station_code location_code channel_code   latitude  longitude  elevation  depth  azimuth  dip          scale  scale_freq scale_units  sample_rate          start_time   end_time                                              url  webservice_id
-    # 97463            GS        KAN12            01          HNE  37.297383    -97.998      425.5    0.0     90.0  0.0  184349.032785         1.0      m/s**2        200.0 2014-05-08 17:11:06 2015-04-14  https://service.iris.edu/fdsnws/station/1/query             11
-    # 131397           GS        KAN12            01          HNE  37.297383    -97.998      425.5    0.0     90.0  0.0  184349.032785         1.0      m/s**2        200.0 2014-05-08 17:11:06 2015-04-14  https://service.iris.edu/fdsnws/station/1/query             11
-    #
-
-    conflict_within = (
-        channels_df.groupby(grp_cols)[geoloc_cols + inst_cols].transform("nunique") > 1
-    ).any(axis=1)
-    # (channels_df[conflict_within].sort_values(grp2_cols, ascending=True).
-    # to_csv(
-    #     path_or_buf=os.expanduser('~/work/code/stream2segment/conflict_within.csv'),
-    #     index=False
-    # ))
-    conflict_within_indices = []
-    if conflict_within.any():
-
-        log_df = channels_df.loc[conflict_within, grp_cols].groupby(
-            grp_cols, as_index=False, sort=True
-        ).size().rename(columns={'size': "channels (should be 1)"})
-        # (log_df has columns=grp_cols - because as_index=False - and an added col size)
-        logger.warning(
-            f'Conflict: the same URL returning a channel multiple times. '
-            f'Conflicts summary:  '
-        )
-        logger.warning(df2str(log_df))
-
-        for _, cha_df in channels_df[conflict_within].groupby(
-            grp_cols, sort=False
-        ):
-            if len(cha_df) <= 1:  # for safety
-                continue
-
-            cha_df = cha_df.copy()
-            cha_df.loc[pd.isna(cha_df[end_col]), end_col] = pd.Timestamp.now()
-            cha_df = cha_df.sort_values(by=[start_col, end_col], ascending=True)
-            overlap_with_next = (
-                np.append(
-                    [cha_df[end_col].values[:-1] > cha_df[start_col].values[1:]],
-                    False
-                ).astype(bool)
-            )
-
-            if not overlap_with_next.any():  # no time range overlaps -> ok
-                continue
-
-            if not overlap_with_next[:-1].all():
-                # not all time ranges overlap ->  discard
-                conflict_within_indices.extend(cha_df.index)
-                continue
-
-            # First check that geo locations match (otherwise we might have
-            # inconsistencies in arrival times for same channel) by relaxing a bit
-            # equality (use allclose):
-            if not all(allclose(cha_df[c]) for c in geoloc_cols):
-                # geo position mismatch: discard all
-                conflict_within_indices.extend(cha_df.index)
-                continue
-
-            if all(allclose(cha_df[c]) for c in inst_cols):
-                # only time ranges differ, merge all columns into first:
-                idx = cha_df.index[0]
-                # merge time ranges:
-                channels_df.at[idx, start_col] = cha_df[start_col].min()
-                channels_df.at[idx, end_col] = cha_df[end_col].max()
-                # discard other columns:
-                conflict_within_indices.extend(cha_df.index[1:])
-            else:
-                # Only instrument values differ, then it is likely a problem in time
-                # ranges. Because they all overlap, set end times to not overlap next
-                # start time (keep all columns):
-                for i in range(len(cha_df) -1):
-                    start_time = cha_df.at[cha_df.index[i + 1], start_col]
-                    channels_df.at[cha_df.index[i], end_col] = start_time
-
-        if conflict_within_indices:
-            drop = channels_df.index.isin(conflict_within_indices)
-            channels_df = channels_df[~drop].copy()
-            log_df = channels_df[drop]
-            logger.warning('Station channels dropped after applying conflict resolver:')
-            logger.warning(
-                log_df[grp_cols].sort_values(
-                    by=webs_url_col).to_string(
-                    na_rep='', index=False
-                )
-            )
-
-    return channels_df
-
-
-def save_channels(engine: Engine, channels_df: pd.DataFrame, update: bool):
+def save_channels(engine: Engine, channels: pd.DataFrame, update: bool):
     """Saves to db channels (and their stations) and returns a dataframe with
     only channels saved. The returned Dataframe will have the column 'id'
     (`Station.id`) renamed to 'station_id' (`Channel.station_id`) and a new
     'id' column referring to the Channel id (`Channel.id`)
 
-    :param channels_df: pandas DataFrame
+    :param channels: pandas DataFrame
     """
     # if update is True, don't update inventories HERE (handled later)
     update_cols = []
@@ -928,6 +996,12 @@ def save_channels(engine: Engine, channels_df: pd.DataFrame, update: bool):
     #     conflict_null_sta_id = channels_df[null_sta_id]
     #     channels_df = channels_df[~null_sta_id]
 
+    channels[[
+        Channel.band_code.key,
+        Channel.instrument_code.key,
+        Channel.orientation_code.key
+    ]] = channels[Channel.channel_code.key].str.extract(r'(.)(.)(.)').astype('category')
+
     # Add channels to db. First set columns defining channel identity (db
     # unique constraint):
     # cols = [Channel.station_id, Channel.location, Channel.channel]
@@ -940,15 +1014,10 @@ def save_channels(engine: Engine, channels_df: pd.DataFrame, update: bool):
         Channel.orientation_code.key,
         Channel.start_time.key,
     ]
-    channels_df[[
-        Channel.band_code.key,
-        Channel.instrument_code.key,
-        Channel.orientation_code.key
-    ]] = channels_df['channel_code'].str.extract(r'(.)(.)(.)').astype('category')
-    channels_df, i_err, u_failed = df2db(
-        channels_df, Channel, engine, Channel.id.key, uc_cols, update_cols
+    channels, i_err, u_failed = df2db(
+        channels, Channel, engine, Channel.id.key, uc_cols, update_cols
     )
-    logger.info(f'{len(channels_df):,} of {(len(channels_df) + len(i_err)):,} '
+    logger.info(f'{len(channels):,} of {(len(channels) + len(i_err)):,} '
                 f'seismic channel(s) saved')
     if len(i_err):
         logger.warning(f"Unable to save {len(i_err)} seismic channel(s):")
@@ -967,8 +1036,12 @@ def save_channels(engine: Engine, channels_df: pd.DataFrame, update: bool):
     # )
 
     # log_unsaved_channels(conflict_between, conflict_within)
-
-    return channels_df
+    channels = channels.drop(columns=[
+        Channel.band_code.key,
+        Channel.instrument_code.key,
+        Channel.orientation_code.key
+    ])
+    return channels
 
 
 def sync_webservice_ids_with_db(cha_df, engine, urls_col=WebService.url.key):

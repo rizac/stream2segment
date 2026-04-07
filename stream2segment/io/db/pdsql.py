@@ -259,17 +259,19 @@ def df2db(
     if to_insert.any():
         with Inserter(engine, table_model, chunksize) as inserter:
             inserter.insert(dfr_with_pkeys.loc[to_insert, :])
-        if len(inserter.failed_indices):
-            failed_i = dfr_with_pkeys.loc[inserter.failed_indices, :].copy()
-            dfr_with_pkeys = dfr_with_pkeys.loc[~inserter.failed_indices, :].copy()
+        if len(inserter.failed_ids):
+            mask = dfr_with_pkeys[id_col].isin(set(inserter.failed_ids))
+            failed_i = dfr_with_pkeys[mask]
+            dfr_with_pkeys = dfr_with_pkeys.loc[~mask]
 
     if update_cols:
         to_update = ~to_insert
         if to_update.any():
             with Updater(engine, table_model, id_col, update_cols, chunksize) as updater:
                 updater.update(dfr_with_pkeys.loc[to_update, :])
-            if len(updater.failed_indices):
-                failed_u = dfr_with_pkeys.loc[updater.failed_indices, :].copy()
+            if len(updater.failed_ids):
+                mask = dfr_with_pkeys[id_col].isin(set(inserter.failed_ids))
+                failed_u = dfr_with_pkeys.loc[mask]
 
     if not pd.api.types.is_integer_dtype(dfr_with_pkeys[id_col]):  # for safety
         dfr_with_pkeys[id_col] = dfr_with_pkeys[id_col].astype(int)
