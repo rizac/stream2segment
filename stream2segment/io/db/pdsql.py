@@ -323,22 +323,15 @@ def sync_pkey(
         suffix = '_'
         while pkey_col + suffix in dfr.columns:
             suffix += '_'
-        # FIXME REMOVE COMMENTED LINES BELOW:
-        # stmt_base = stmt.order_by(columns.id.asc()).limit(chunksize)
-        # stmt = stmt_base
-        # while True:
-        for db_df in db2dfs(stmt, engine):
-            # db_df = db2df(stmt, engine)
+        for db_df in db2dfs(stmt, engine, chunksize=chunksize):
             if db_df.empty:
                 continue
             dfr = dfr.merge(db_df, how='left', on=uc_cols, suffixes=('', suffix))
-            # we now have id_col and id_col + suffix. The latter might be populated
-            # with NA (no match) or integers (match). Replace the latter in id_col:
+            # For each row, if dfr[pkey_col + suffix] is not null (row exists on db),
+            # set it on dfr[pkey_col]. Otherwise, keep dfr[pkey_col]:
             dfr[pkey_col] = dfr[pkey_col + suffix].combine_first(dfr[pkey_col])
             # drop new ids (already merged):
             dfr = dfr.drop(columns=[pkey_col + suffix])
-            # FIXME REMOVE:
-            # stmt = stmt_base.where(columns.id > db_df[pkey_col].max())
 
     pkey_max = get_max(engine, columns[pkey_col])
     if assign_new_ids:
