@@ -249,12 +249,19 @@ def df2db(
         integrity error discards all subsequent operations regardless if they
         would raise as well or not)
     """
-    dfr_with_pkeys = sync_pkey(dfr, table_model, engine, id_col, uc_cols, chunksize)
+    dfr_with_pkeys = sync_pkey(
+        dfr,
+        table_model,
+        engine,
+        id_col,
+        uc_cols,
+        chunksize=chunksize
+    )
     failed_i = pd.DataFrame(columns=dfr_with_pkeys.columns, data=[])
     failed_u = pd.DataFrame(columns=dfr_with_pkeys.columns, data=[])
 
     id_max = dfr_with_pkeys.attrs[f'{id_col}_max']
-    to_insert: pd.Series = dfr.index > id_max
+    to_insert: pd.Series = dfr_with_pkeys[id_col] > id_max
 
     if to_insert.any():
         with Inserter(engine, table_model, chunksize) as inserter:
@@ -553,7 +560,7 @@ def _execute_sql(data: list[dict], stmt: UpdateBase, conn):
         try:
             with conn.begin_nested():  # SAVEPOINT
                 conn.execute(stmt, chunk)
-        except IntegrityError:
+        except IntegrityError as e:
             # rollback of this chunk happens automatically
             if len(chunk) == 1:
                 failed_data.append(chunk[0])

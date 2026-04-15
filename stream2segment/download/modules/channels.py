@@ -137,7 +137,7 @@ def get_channels(
     logger.info(
         f'Working with {len(cha_df):,} station channels '
         f'(downloaded {num_downloaded_channels:,}, '
-        f'discarded: {len(cha_df)-num_downloaded_channels:,})'
+        f'discarded: {num_downloaded_channels - len(cha_df):,})'
     )
 
     # convert to categorical type (for safety):
@@ -151,17 +151,21 @@ def get_channels(
         if not is_categorical_dtype(cha_df[c]):
             cha_df[c] = cha_df[c].astype('str').astype('category')
 
+    cha_df.rename(columns={Channel.id.key: Segment.channel_id.key}, inplace=True)
     # return a copy of relevant columns only:
     return cha_df[[
-        Channel.id.key,
-        Channel.latitude.key,
-        Channel.longitude.key,
+        Segment.channel_id.key,
         Channel.network_code.key,
         Channel.station_code.key,
         Channel.location_code.key,
         Channel.channel_code.key,
+        Channel.latitude.key,
+        Channel.longitude.key,
+        Channel.start_time.key,
+        Channel.end_time.key,
         # ws_id_col,
-        ws_url_col
+        ws_url_col,
+        Channel.webservice_id.key
     ]].copy()
 
 

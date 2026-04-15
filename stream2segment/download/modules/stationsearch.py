@@ -23,7 +23,11 @@ logger = logging.getLogger(__name__)
 
 
 def merge_events_stations(
-    events_df, channels_df, search_radius, tttable, show_progress=False
+    events: pd.DataFrame,
+    channels: pd.DataFrame,
+    search_radius,
+    tttable,
+    show_progress=False
 ):
     """Merge `events_df` and `channels_df` by returning a new dataframe
     representing all channels within a specific search radius. *Each row of the
@@ -35,30 +39,31 @@ def merge_events_stations(
     'time' (representing the *event* time) and 'depth_km' (representing the
     event depth in km)
 
-    :param channels_df: pandas DataFrame resulting from `get_channels_df`
-    :param events_df: pandas DataFrame resulting from `get_events_df`
+    :param channels: pandas DataFrame resulting from `get_channels_df`
+    :param events: pandas DataFrame resulting from `get_events_df`
     """
     # For convenience and readability, define once the mapped column names
     # representing the dataframe columns that we need:
-    ev_id_col = Event.id.key
-    ev_mag_col = Event.magnitude.key
-    ev_lat_col = Event.latitude.key
-    ev_lon_col = Event.longitude.key
+    # ev_id_col = Event.id.key
+    # ev_mag_col = Event.magnitude.key
+    # ev_lat_col = Event.latitude.key
+    # ev_lon_col = Event.longitude.key
     ev_time_col = Event.time.key
     ev_depth_col = Event.depth_km.key
-    ch_lat_col = Channel.latitude.key
-    ch_lon_col = Channel.longitude.key
-    ch_start_col = Channel.start_time.key
-    ch_end_col = Channel.end_time.key
-    seg_evid_col = Segment.event_id.key
-    seg_evdist_col = Segment.event_distance_deg.key
+    # ch_lat_col = Channel.latitude.key
+    # ch_lon_col = Channel.longitude.key
+    # ch_start_col = Channel.start_time.key
+    # ch_end_col = Channel.end_time.key
+    # seg_evid_col = Segment.event_id.key
+    seg_ev_dist_col = Segment.event_distance_deg.key
 
     ret = []
 
-    with get_progressbar(len(events_df) if show_progress else 0) as pbar:
+    with get_progressbar(len(events) if show_progress else 0) as pbar:
 
-        min_radia, max_radia = get_search_radia(search_radius,
-                                                events_df[ev_mag_col].values)
+        min_radia, max_radia = get_search_radia(
+            search_radius, events[Event.magnitude.key].values
+        )
 
         oneday = timedelta(days=1)
         # for min_radius, max_radius, (ev_id, ev_lat, ev_lon, ev_time, ev_depth) \
@@ -66,24 +71,27 @@ def merge_events_stations(
         for min_radius, max_radius, ev_id, ev_lat, ev_lon, ev_time, ev_depth in zip(
             min_radia,
             max_radia,
-            events_df[ev_id_col],
-            events_df[ev_lat_col],
-            events_df[ev_lon_col],
-            events_df[ev_time_col],
-            events_df[ev_depth_col]
+            events[Event.id.key],
+            events[Event.latitude.key],
+            events[Event.longitude.key],
+            events[ev_time_col],
+            events[ev_depth_col]
         ):
 
             l2d = locations2degrees(
-                channels_df[ch_lat_col], channels_df[ch_lon_col], ev_lat, ev_lon
+                channels[Channel.latitude.key],
+                channels[Channel.longitude.key],
+                ev_lat,
+                ev_lon
             )
             # set condition incrementally. First, distance must be finite:
             condition = pd.notna(l2d) & (np.abs(l2d) != np.inf)
             # channel start time matches event time:
-            condition &= (channels_df[ch_start_col] <= ev_time)
+            condition &= (channels[Channel.start_time.key] <= ev_time)
             # channel end time None or matches event time:
             condition &= (
-                channels_df[ch_end_col].isna() |
-                (channels_df[ch_end_col] >= ev_time + oneday)
+                channels[Channel.end_time.key].isna() |
+                (channels[Channel.end_time.key] >= ev_time + oneday)
             )
             # add conditions based on matching radia:
             if min_radius:  # not None (legacy code) or 0:
@@ -96,14 +104,14 @@ def merge_events_stations(
             matching_items = condition.sum()
             if matching_items == 0:
                 continue
-            if matching_items < len(channels_df):
-                channels_df = channels_df[condition]
+            if matching_items < len(channels):
+                channels = channels[condition]
                 l2d = l2d[condition]
 
-            cha_df = channels_df.copy()
-            cha_df[seg_evdist_col] = l2d
+            cha_df = channels.copy()
+            cha_df[seg_ev_dist_col] = l2d
             # add scalar broadcasted to all elements:
-            cha_df[seg_evid_col] = ev_id
+            cha_df[Segment.event_id.key] = ev_id
             cha_df[ev_depth_col] = [ev_depth] * len(cha_df)
             cha_df[ev_time_col] = [ev_time] * len(cha_df)
             ret.append(cha_df)
@@ -158,7 +166,7 @@ def merge_events_stations(
 
     # compute travel times. Doing it on a single array is much faster
     source_depths = ret.pop(ev_depth_col).values
-    distances = ret[seg_evdist_col].values
+    distances = ret[seg_ev_dist_col].values
     traveltimes = tttable(source_depths, 0, distances)
     # event_times = np.array(event_times, dtype='datetime64[us]')  # or "M8[us]"
     event_times = ret.pop(ev_time_col)
