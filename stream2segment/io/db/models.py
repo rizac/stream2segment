@@ -16,6 +16,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     Float,
+    SmallInteger,
     LargeBinary,
     UniqueConstraint,
     event,
@@ -341,8 +342,8 @@ class Segment(Base):
     # end_time = Column(DateTime)
     # arrival_time_numsamples = Column(Integer, nullable=False)
     # sample_rate = Column(Float)
-    noise_window_sec = Column(Float)  # duration (in s) of saved data until arrival_time
-    signal_window_sec = Column(Float)  # duration (in s) of saved data from arrival_time
+    noise_window_sec = Column(SmallInteger)  # duration (in s) of saved data until arrival_time
+    signal_window_sec = Column(SmallInteger)  # duration (in s) of saved data from arrival_time
     maxgap_numsamples = Column(Float)
     # request_start = deferred(Column(DateTime, nullable=False))
     # request_end = deferred(Column(DateTime, nullable=False))

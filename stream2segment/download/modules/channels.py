@@ -166,7 +166,7 @@ def get_channels(
         # ws_id_col,
         ws_url_col,
         Channel.webservice_id.key
-    ]].copy()
+    ]]
 
 
 def get_channel_urls(
@@ -474,7 +474,12 @@ def download_channels(
 
 
 def filter_out_channels_df(
-    channels_df, net: list[str], sta: list[str], loc, cha: list[str], min_sample_rate
+    channels: pd.DataFrame,
+    net: list[str],
+    sta: list[str],
+    loc: list[str],
+    cha: list[str],
+    min_sample_rate
 ):
     """Filter out `channels_df` according to the given parameters. Raise
     `FailedDownload` if the returned filtered data frame woul be empty
@@ -520,7 +525,7 @@ def filter_out_channels_df(
         # condition = ("^%s$" if len(lst) == 1 else "^(?:%s)$") % \
         #     "|".join(strconvert.wild2re(x[1:]) for x in lst)
         condition = "|".join(f"^(?:{wild2regex(x[1:])})$" for x in lst)
-        flt = channels_df[sa_col.key].str.match(re.compile(condition))
+        flt = channels[sa_col.key].str.match(re.compile(condition))
         if df_filter is None:
             df_filter = flt
         else:
@@ -528,17 +533,17 @@ def filter_out_channels_df(
 
     if min_sample_rate is not None and min_sample_rate > 0:
         # None should evaluate to False, thus negate the predicate below:
-        flt = channels_df[Channel.sample_rate.key] < min_sample_rate
+        flt = channels[Channel.sample_rate.key] < min_sample_rate
         if df_filter is None:
             df_filter = flt
         else:
             df_filter |= flt
 
-    ret = channels_df
+    ret = channels
     if df_filter is not None:
-        ret = channels_df[~df_filter].copy()
+        ret = channels[~df_filter].copy()
 
-    discarded_sr = len(channels_df) - len(ret)
+    discarded_sr = len(channels) - len(ret)
     if discarded_sr:
         logger.warning(f"{discarded_sr:,} channel(s) discarded according to "
                        f"current configuration filters (network, channel, sample rate, "

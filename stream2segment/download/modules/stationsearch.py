@@ -12,7 +12,7 @@ import logging
 import numpy as np
 import pandas as pd
 
-from stream2segment.io.db.models import Channel, Event, Segment
+from stream2segment.io.db.models import Channel, Event, Segment, WebService
 from stream2segment.download.modules.utils import formatmsg
 from stream2segment.download.exc import FailedDownload
 from stream2segment.io.cli import get_progressbar
@@ -48,14 +48,16 @@ def merge_events_stations(
     # ev_mag_col = Event.magnitude.key
     # ev_lat_col = Event.latitude.key
     # ev_lon_col = Event.longitude.key
-    ev_time_col = Event.time.key
-    ev_depth_col = Event.depth_km.key
+    # ev_time_col = Event.time.key
+    # ev_depth_col = Event.depth_km.key
     # ch_lat_col = Channel.latitude.key
     # ch_lon_col = Channel.longitude.key
     # ch_start_col = Channel.start_time.key
     # ch_end_col = Channel.end_time.key
     # seg_evid_col = Segment.event_id.key
+
     seg_ev_dist_col = Segment.event_distance_deg.key
+
 
     ret = []
 
@@ -74,8 +76,8 @@ def merge_events_stations(
             events[Event.id.key],
             events[Event.latitude.key],
             events[Event.longitude.key],
-            events[ev_time_col],
-            events[ev_depth_col]
+            events[Event.time.key],
+            events[Event.depth_km.key]
         ):
 
             l2d = locations2degrees(
@@ -112,8 +114,8 @@ def merge_events_stations(
             cha_df[seg_ev_dist_col] = l2d
             # add scalar broadcasted to all elements:
             cha_df[Segment.event_id.key] = ev_id
-            cha_df[ev_depth_col] = [ev_depth] * len(cha_df)
-            cha_df[ev_time_col] = [ev_time] * len(cha_df)
+            cha_df["_.event_depth._"] = [ev_depth] * len(cha_df)
+            cha_df["_.event_time._"] = [ev_time] * len(cha_df)
             ret.append(cha_df)
 
             # FIXME remove?
@@ -159,17 +161,18 @@ def merge_events_stations(
         Channel.network_code.key,
         Channel.station_code.key,
         Channel.location_code.key,
-        Channel.channel_code.key
+        Channel.channel_code.key,
+        WebService.url.key
     ]:
         if not pd.api.types.is_categorical_dtype(ret[c]):
             ret[c] = ret[c].astype('category')
 
     # compute travel times. Doing it on a single array is much faster
-    source_depths = ret.pop(ev_depth_col).values
+    source_depths = ret.pop("_.event_depth._").values
     distances = ret[seg_ev_dist_col].values
     traveltimes = tttable(source_depths, 0, distances)
     # event_times = np.array(event_times, dtype='datetime64[us]')  # or "M8[us]"
-    event_times = ret.pop(ev_time_col)
+    event_times = ret.pop("_.event_time._")
     if not pd.api.types.is_datetime64_any_dtype:  # safety check? FIXME: needed?
         event_times = pd.to_datetime(event_times)
     # now to compute arrival times: event_times + traveltimes does not work
@@ -179,19 +182,29 @@ def merge_events_stations(
     # 8bytes timedelta with microsecond resolution (10^-6). Side note: all
     # numpy timedelta constructors (as well as "astype") round to int argument,
     # at least in numpy13.
-    seg_arrtime_col = Segment.arrival_time.key
-    ret[seg_arrtime_col] = event_times.values + (traveltimes*1000000).astype("m8[us]")
+    ret["arrival_time"] = event_times.values + (traveltimes*1000000).astype("m8[us]")
     # drop nat values
     old_len = len(ret)
     # another safety check (arrival times NaT):
-    ret.dropna(subset=[seg_arrtime_col], inplace=True)
+    ret.dropna(subset=["arrival_time"], inplace=True)
     if old_len > len(ret):
         logger.info(formatmsg("%d of %d segments discarded", "Travel times NaN"),
                     old_len-len(ret), old_len)
         if ret.empty:
             raise FailedDownload(formatmsg("No segments to process",
                                            "All travel times NaN"))
-    return ret
+    return ret[[
+        WebService.url.key,
+        Channel.network_code.key,
+        Channel.station_code.key,
+        Channel.location_code.key,
+        Channel.channel_code.key,
+        "arrival_time",
+        seg_ev_dist_col,
+        Segment.webservice_id.key,
+        Segment.channel_id.key,
+        Segment.event_id.key
+    ]]
 
 
 def locations2degrees(lat1, lon1, lat2, lon2):
