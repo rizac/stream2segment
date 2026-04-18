@@ -19,7 +19,7 @@ from stream2segment.download.modules.mseedlite import MSeedError, MiniSeedInfo
 from stream2segment.io.cli import get_progressbar
 from stream2segment.io.db.pdsql import sync_pkey, Inserter
 from stream2segment.io.db.models import (
-    WebService, Segment, Channel, MiniSeed, NoDataSegment
+    WebService, Segment, Channel, MiniSeed, SkippedSegment
 )
 from stream2segment.download.modules.utils import (fdsn_url_qs, IdOnceLogFilter)
 from stream2segment.download.modules import mseedlite
@@ -31,10 +31,10 @@ from stream2segment.download.url import (
 logger = logging.getLogger(__name__)
 
 def prepare_for_download(
-    engine,
+    engine: Engine,
     segments: pd.DataFrame,
     restricted_download: bool,
-    timespan
+    timespan=None  # FIXME REMOVE?
 ):
     # remove already downloaded segments (with data):
     segments_with_pkeys = sync_pkey(
@@ -46,11 +46,13 @@ def prepare_for_download(
         chunksize=min(1000, len(segments))
     )
     max_id = segments_with_pkeys.attrs.pop(f'{Segment.id.key}_max')
-    already_saved = segments_with_pkeys[segments_with_pkeys.id.key] <= max_id
+    already_saved = segments_with_pkeys.id <= max_id
     if already_saved:
-        logger.info(f"Discarding {len(already_saved):, } already downloaded segments")
+        logger.info(f"Discarding {already_saved.sum():, } already downloaded segments")
         segments = segments_with_pkeys[~already_saved]
         segments.pop(Segment.id.key)
+
+    # Put ids for segments to be saved in a tmp column:
     segments = segments.rename(columns={Segment.id.key: 'segment.id'})
 
     # find segments to retry from NoDataSegment table
@@ -58,22 +60,22 @@ def prepare_for_download(
     if not restricted_download:
         # Let's remove also 2xx 3xx errors (e.g., no data), and retry only errors
         where_clause = (
-            (NoDataSegment.download_code < 200) &
-            (NoDataSegment.download_code >= 300)
+            (SkippedSegment.download_code < 200) &
+            (SkippedSegment.download_code >= 300)
         )
     segments = sync_pkey(
         segments,
-        NoDataSegment,
+        SkippedSegment,
         engine,
-        NoDataSegment.id.key,
-        [NoDataSegment.event_id.key, NoDataSegment.channel_id.key],
+        SkippedSegment.id.key,
+        [SkippedSegment.event_id.key, SkippedSegment.channel_id.key],
         where_clause,
-        assign_new_ids=False,
+        # assign_new_ids=False,
         chunksize=min(1000, len(segments))
     )
-    segments['_.new._'] = segments[NoDataSegment.id.key.isna()].astype(bool)
-    segments.pop(NoDataSegment.id.key)
-    segments.rename(columns={'segment.id': Segment.id.key})
+    # segments['_.new._'] = segments[NoDataSegment.id.key.isna()].astype(bool)
+    # segments.pop(NoDataSegment.id.key)
+    segments = segments.rename(columns={SkippedSegment.id.key: "skipped_segment.id"})
     return segments
 
 
@@ -113,17 +115,24 @@ def download_and_save(
     # report seg. errors only once per error type and data center:
     id_once_filter: IdOnceLogFilter | None = None
     inserter = SegmentInserter(engine)
-    inserter_err = Inserter(engine, NoDataSegment)
+    inserter_err = Inserter(engine, SkippedSegment)
 
-    no_data_columns = {
-        NoDataSegment.id.key: int,
-        NoDataSegment.event_id.key: int,
-        NoDataSegment.channel_id.key: int,
-        NoDataSegment.download_code.key: int
+    skipped_segment_columns = {
+        SkippedSegment.id.key: int,
+        SkippedSegment.event_id.key: int,
+        SkippedSegment.channel_id.key: int,
+        SkippedSegment.download_code.key: int
     }
     processed_indices = []
     max_attempts = 3
     curr_attempt = 1
+
+    # this is the maximum id (primary key) of NoDataSegments.
+    # On download error (no data), it will be used to get if we need to save the segment
+    # download info:
+    max_no_seg_id = segments.attrs.pop(f'{SkippedSegment.id.key}_max')
+    def is_segment_new(id_pkey):
+        return id_pkey > max_no_seg_id
 
     max_thread_workers_global = adjust_max_concurrent_downloads()
     try:
@@ -141,8 +150,9 @@ def download_and_save(
                 ):
                     url_domain = get_host(response.request)
                     processed_indices.append(idx)
+                    do_log = False
                     seg = {}
-                    if response.is_ok:
+                    if response.is_ok:  # status code in [200, 300[
                         for c in segments.columns:
                             val = segments.at[idx, c]
                             if pd.isna(val):
@@ -150,11 +160,12 @@ def download_and_save(
                             seg[c] = val
                         seg = prepare_segment_to_insert(seg, response.data)
                         inserter.insert([seg])
+
                     else:
-                        if segments.at[idx, '_.new._']:
+                        if is_segment_new(segments.at[idx, "skipped_segment.id"]):
                             seg = {
                                 c: to_sql(segments.at[idx, c])
-                                for c, to_sql in no_data_columns.items()
+                                for c, to_sql in skipped_segment_columns.items()
                             }
                             inserter_err.insert([seg])
                         if id_once_filter is None:
@@ -268,9 +279,18 @@ def download(
         _start = req_cache.pop('start')
         _end = req_cache.pop('end')
 
-        if not response.ok or response.has_no_data:
+        if not response.is_ok or response.has_no_data:
             for idx in req_cache.values():
                 yield idx, response
+            continue
+
+        if response.status_code == 204:
+            for idx in req_cache.values():
+                yield idx, Response(
+                    mini_seed_info.data,
+                    CustomResponseCode.BAD_DATA,
+                    response.request
+                )
             continue
 
         for mini_seed_info in mseedlite.unpack(response.data):
@@ -324,13 +344,16 @@ class SegmentInserter(Inserter):
 def prepare_segment_to_insert(row:dict, mseed_info: MiniSeedInfo) -> dict:
     row[MiniSeed.data.key] = mseed_info.data
     arrival_time = row.pop("arrival_time")
-    row[Segment.noise_window_sec.key] = (
+    row[Segment.noise_window_sec.key] = int((
         mseed_info.start - arrival_time
-    ).total_seconds()
-    row[Segment.signal_window_sec.key] = (
+    ).total_seconds() - 0.5)
+    row[Segment.signal_window_sec.key] = int((
         mseed_info.end - arrival_time
-    ).total_seconds()
-    row[Segment.maxgap_numsamples] = mseed_info.maxgap_overlap_ratio
+    ).total_seconds() + 0.5)
+    row[Segment.maxgap_numsamples] = int(min(
+        100 * mseed_info.maxgap_ratio,
+        10000  # stored as smallint. Also, high values provide no relevant info
+    ))
     return row
 
 

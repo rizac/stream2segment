@@ -212,15 +212,11 @@ def _run(session, download_id, events_url, starttime, endtime, data_url,
     tt_table = advanced_settings['traveltimes_model']
 
     process = psutil.Process(os.getpid()) if isterminal else None
+
     # FIXME REMOVE COMMENTS BELOW
     # calculate steps (note that booleans work, e.g: 8 - True == 7):
     # __steps = 6 + inventory + (True if authorizer.token else False)
     __steps = 6 + inventory
-
-    steps = [
-
-    ]
-
     stepiter = iter(range(1, __steps+1))
 
     # custom function for logging.info different steps:
@@ -233,7 +229,10 @@ def _run(session, download_id, events_url, starttime, endtime, data_url,
             logger.warning("(%.1f%% memory used)", percent)
 
     try:
+        engine = session.get_bind()
+
         stepinfo("Fetching events")
+
         events = get_events(
             session,
             events_url,
@@ -251,7 +250,7 @@ def _run(session, download_id, events_url, starttime, endtime, data_url,
         stepinfo("Fetching channels urls")
 
         channels = get_channels(
-            session,
+            engine,
             data_url,
             network,
             station,
@@ -300,7 +299,7 @@ def _run(session, download_id, events_url, starttime, endtime, data_url,
         stepinfo(f"Selecting station channels ({len(channels):,}) "
                  f"within search area around each event ({len(events):,})")
         # merge vents and stations (might raise FailedDownload):
-        segments_df = merge_events_stations(events, channels,
+        segments = merge_events_stations(events, channels,
                                             search_radius, tt_table,
                                             isterminal)
         # help gc by deleting the (only) refs to unused dataframes
@@ -317,11 +316,12 @@ def _run(session, download_id, events_url, starttime, endtime, data_url,
         #                                             authorizer, isterminal)
 
         stepinfo("%d segments found. Checking already downloaded segments",
-                 len(segments_df))
+                 len(segments))
         # raises NothingToDownload
-        segments_df = prepare_for_download(
-            session,
-            segments_df,
+        segments = prepare_for_download(
+            engine,
+            segments,
+            authorizer is not None,
             # authorizer,
             # time_window,
             # retry_seg_not_found,
@@ -334,18 +334,13 @@ def _run(session, download_id, events_url, starttime, endtime, data_url,
         )
 
         # prepare_for_download raises a NothingToDownload if there is no
-        # data, so if we are here segments_df is not empty
-        stepinfo("Downloading %d segments %sand saving to db", len(segments_df),
+        # data, so if we are here segments is not empty
+        stepinfo("Downloading %d segments %sand saving to db", len(segments),
                  '(open data only) ' if authorizer is not None else '')
-        # frees memory. Although maybe unnecessary, let's do our best to
-        # free stuff cause the next one is memory consuming:
-        # https://stackoverflow.com/a/30022294/3526777
-        session.expunge_all()
-        session.close()
 
         d_stats = download_and_save(
-            session,
-            segments_df,
+            engine,
+            segments,
             time_window,
             authorizer,
             # download_id,
@@ -356,8 +351,7 @@ def _run(session, download_id, events_url, starttime, endtime, data_url,
             dbbufsize,
             isterminal
         )
-        del segments_df  # help gc?
-        session.close()  # frees memory?
+        del segments  # help gc?
         logger.info("")
         logger.info(("** Segments download summary **\n"
                      "Number of segments per data center url (row) and response "
@@ -401,7 +395,7 @@ def _run(session, download_id, events_url, starttime, endtime, data_url,
             else:
                 stepinfo("Downloading %d station inventories", len(sta_df))
                 n_downloaded, n_empty, n_errors = \
-                    save_stationxml(session, sta_df,
+                    save_stationxml(engine, sta_df,
                                     max_thread_workers,
                                     advanced_settings['i_timeout'],
                                     download_blocksize,

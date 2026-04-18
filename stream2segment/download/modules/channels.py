@@ -32,7 +32,7 @@ from stream2segment.download.modules.utils import (fdsn_channel_response_text_to
 logger = logging.getLogger(__name__)
 
 def get_channels(
-    session,
+    engine : Engine,
     datacenter_urls,
     network: list[str],
     station: list[str],
@@ -88,8 +88,6 @@ def get_channels(
     )
     if cha_df.empty:
         raise FailedDownload('No channel to work with after filtering out')
-
-    engine = session.get_bind()
 
     # set ranking based on the order of urls
     cha_df = drop_conflicts(engine, cha_df, eida_rs_urls)

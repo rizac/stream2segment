@@ -118,9 +118,6 @@ class Response:
     def is_ok(self):
         return 200 <= self.status_code <= 299
 
-    def has_no_data(self):
-        return self.status_code == 204
-
 
 def urlread(
     url, blocksize=-1, decode=None, timeout=None, opener=None, **kwargs
@@ -187,10 +184,9 @@ def urlread(
         u_err.__traceback__ = u_err.__context__ = u_err.__cause__ = None  # free mem.
         return Response(u_err, code, url)
     except HTTPException as h_exc:
-        # (socket.error is the superclass of all socket exc)
         h_exc.__traceback__ = h_exc.__context__ = h_exc.__cause__ = None  # free mem.
         return Response(h_exc, CustomResponseCode.HTTP_EXC_ERROR, url)
-    except TimeoutError as t_exc:
+    except (socket.timeout, TimeoutError) as t_exc:
         t_exc.__traceback__ = t_exc.__context__ = t_exc.__cause__ = None  # free mem.
         return Response(t_exc, CustomResponseCode.TIMEOUT_ERROR, url)
     except ConnectionError as c_exc:

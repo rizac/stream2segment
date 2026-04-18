@@ -520,7 +520,7 @@ def unpack(data: bytes | BytesIO) -> Iterable[MiniSeedInfo]:
             # get records and sort ascending by time
             records.sort(key=lambda elm: elm.begin_time)
             fsamp = records[0].fsamp
-            max_gap_overlap_ratios: list[float] = []
+            max_gap_ratios: list[float] = []
             bytesio = BytesIO()
 
             for i, record in enumerate(records):
@@ -545,11 +545,12 @@ def unpack(data: bytes | BytesIO) -> Iterable[MiniSeedInfo]:
                 # If < 1 possible overlaps.
                 # Subtract 1 as we want 0 for no gaps/overlaps,
                 # >0 for possible gaps, and <0 for possible overlaps:
-                go_ratio = (
-                    (record.begin_time - records[i-1].end_time).total_seconds()
-                    * fsamp - 1
-                )
-                max_gap_overlap_ratios.append(go_ratio)
+                if i > 0:
+                    go_ratio = (
+                        (record.begin_time - records[i-1].end_time).total_seconds()
+                        * fsamp - 1
+                    )
+                    max_gap_ratios.append(go_ratio)
                 # if abs(curr_max_gap_ratio) > abs(max_gap_overlap_ratio):
                 #     max_gap_overlap_ratio = curr_max_gap_ratio
 
@@ -559,7 +560,7 @@ def unpack(data: bytes | BytesIO) -> Iterable[MiniSeedInfo]:
                 fsamp,
                 records[0].begin_time,
                 records[-1].end_time,
-                max(max_gap_overlap_ratios, key=abs)
+                max(max_gap_ratios)
             )
 
             bytesio.close()
@@ -575,7 +576,7 @@ class MiniSeedInfo:
     fsamp: float | None = None
     start: datetime.datetime | None = None
     end: datetime.datetime | None = None
-    maxgap_overlap_ratio: float | None = None
+    maxgap_ratio: float | None = None
 
     @property
     def is_ok(self):

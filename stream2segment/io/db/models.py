@@ -344,7 +344,8 @@ class Segment(Base):
     # sample_rate = Column(Float)
     noise_window_sec = Column(SmallInteger)  # duration (in s) of saved data until arrival_time
     signal_window_sec = Column(SmallInteger)  # duration (in s) of saved data from arrival_time
-    maxgap_numsamples = Column(Float)
+    gap_score_percent = Column(SmallInteger)
+    # maxgap_numsamples = Column(Float)
     # request_start = deferred(Column(DateTime, nullable=False))
     # request_end = deferred(Column(DateTime, nullable=False))
     # queryauth = deferred(Column(Boolean, nullable=False, server_default="0"))
@@ -438,7 +439,6 @@ class Segment(Base):
         )
 
 
-
     @hybrid_property
     def event_distance_km(self):
         return self.event_distance_deg * (2.0 * 6371 * pi / 360.0)
@@ -483,12 +483,12 @@ class MiniSeed(Base):
     data = Column(LargeBinary, nullable=False)
 
 
-class NoDataSegment(Base):
+class SkippedSegment(Base):
     """
     Model representing a segment with no data (204 Http response,
     server / client error, miniSEED data error, timeout)
     """
-    __tablename__ = 'failed_downloaded_segment'
+    __tablename__ = 'skipped_segment'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     event_id = Column(Integer, ForeignKey(Event.id), nullable=False)
