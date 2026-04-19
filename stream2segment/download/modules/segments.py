@@ -5,19 +5,22 @@ Segments download functions
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
+from __future__ import annotations
 from collections.abc import Iterable
 from datetime import timedelta, datetime
 import logging
 from enum import IntEnum
+from io import BytesIO
+from math import log
+import time
 
 import pandas as pd
-from pandas.core.groupby import DataFrameGroupBy
 from sqlalchemy import select, Engine
 
 from stream2segment.download import url
-from stream2segment.download.modules.mseedlite import MSeedError, MiniSeedInfo
+from stream2segment.download.modules.mseedlite import MSeedError, Input
 from stream2segment.io.cli import get_progressbar
-from stream2segment.io.db.pdsql import sync_pkey, Inserter
+from stream2segment.io.db.pdsql import sync_pkey, Inserter, get_row_count, get_max
 from stream2segment.io.db.models import (
     WebService, Segment, Channel, MiniSeed, SkippedSegment
 )
@@ -36,46 +39,49 @@ def prepare_for_download(
     restricted_download: bool,
     timespan=None  # FIXME REMOVE?
 ):
-    # remove already downloaded segments (with data):
-    segments_with_pkeys = sync_pkey(
-        segments,
-        Segment,
-        engine,
-        Segment.id.key,
-    [Segment.event_id.key, Segment.channel_id.key],
-        chunksize=min(1000, len(segments))
-    )
-    max_id = segments_with_pkeys.attrs.pop(f'{Segment.id.key}_max')
-    already_saved = segments_with_pkeys.id <= max_id
-    if already_saved:
-        logger.info(f"Discarding {already_saved.sum():, } already downloaded segments")
-        segments = segments_with_pkeys[~already_saved]
-        segments.pop(Segment.id.key)
-
-    # Put ids for segments to be saved in a tmp column:
-    segments = segments.rename(columns={Segment.id.key: 'segment.id'})
-
-    # find segments to retry from NoDataSegment table
-    where_clause = None
-    if not restricted_download:
-        # Let's remove also 2xx 3xx errors (e.g., no data), and retry only errors
-        where_clause = (
-            (SkippedSegment.download_code < 200) &
-            (SkippedSegment.download_code >= 300)
+    if get_row_count(engine, Segment) > 0:
+        # remove already downloaded segments (with data):
+        segments = sync_pkey(
+            segments,
+            Segment,
+            engine,
+            Segment.id.key,
+        [Segment.event_id.key, Segment.channel_id.key],
+            assign_new_ids=False,
+            chunksize=min(1000, len(segments))
         )
-    segments = sync_pkey(
-        segments,
-        SkippedSegment,
-        engine,
-        SkippedSegment.id.key,
-        [SkippedSegment.event_id.key, SkippedSegment.channel_id.key],
-        where_clause,
-        # assign_new_ids=False,
-        chunksize=min(1000, len(segments))
-    )
+        # max_id = segments_with_pkeys.attrs.pop(f'{Segment.id.key}_max')
+        already_saved = segments[Segment.id.key].motna()
+        if already_saved.any():
+            logger.info(
+                f"Discarding {already_saved.sum():, } already downloaded segments"
+            )
+            segments = segments[~already_saved]
+            segments.pop(Segment.id.key)
+
+    if get_row_count(engine, SkippedSegment) > 0:
+        # Put ids for segments to be saved in a tmp column:
+        # segments = segments.rename(columns={Segment.id.key: 'segment.id'})
+
+        # find segments to retry from NoDataSegment table
+        where_clause = (SkippedSegment.download_code != 204)
+        if not restricted_download:
+            where_clause = None
+        segments = sync_pkey(
+            segments,
+            SkippedSegment,
+            engine,
+            SkippedSegment.id.key,
+            [SkippedSegment.event_id.key, SkippedSegment.channel_id.key],
+            where_clause,
+            assign_new_ids=False,
+            chunksize=min(1000, len(segments))
+        )
+        segments["_.already_skipped._"] =  segments[SkippedSegment.id.key].motna()
+        segments.pop(SkippedSegment.id.key)
     # segments['_.new._'] = segments[NoDataSegment.id.key.isna()].astype(bool)
     # segments.pop(NoDataSegment.id.key)
-    segments = segments.rename(columns={SkippedSegment.id.key: "skipped_segment.id"})
+    # segments = segments.rename(columns={SkippedSegment.id.key: "skipped_segment.id"})
     return segments
 
 
@@ -111,30 +117,36 @@ def download_and_save(
     if max_thread_workers is None:
         # set max thread workers here cause we might want to retry the download
         max_thread_workers = adjust_max_concurrent_downloads()
+        url_domain_max_thread_workers = min(
+            8, max_thread_workers // len(segments[WebService.url.key].cat.categories)
+        )
+    else:
+        url_domain_max_thread_workers = min(2, max_thread_workers)  # FIXME DECIDE strategy
 
     # report seg. errors only once per error type and data center:
     id_once_filter: IdOnceLogFilter | None = None
     inserter = SegmentInserter(engine)
     inserter_err = Inserter(engine, SkippedSegment)
 
-    skipped_segment_columns = {
-        SkippedSegment.id.key: int,
-        SkippedSegment.event_id.key: int,
-        SkippedSegment.channel_id.key: int,
-        SkippedSegment.download_code.key: int
-    }
     processed_indices = []
-    max_attempts = 3
-    curr_attempt = 1
 
     # this is the maximum id (primary key) of NoDataSegments.
     # On download error (no data), it will be used to get if we need to save the segment
     # download info:
-    max_no_seg_id = segments.attrs.pop(f'{SkippedSegment.id.key}_max')
-    def is_segment_new(id_pkey):
-        return id_pkey > max_no_seg_id
 
-    max_thread_workers_global = adjust_max_concurrent_downloads()
+
+    already_skipped_col = "_.already_skipped._"
+    if already_skipped_col not in segments.columns:
+        def not_already_skipped(*a, **kw):
+            return True
+    else:
+        def not_already_skipped(idx, segs):
+            return not segs.at[idx, already_skipped_col]
+
+    skipped_segment_codes = set(MiniSeedErrorCode) | {204}
+
+    segments_current_id = get_max(engine, Segment.id) + 1
+
     try:
         with get_progressbar(len(segments) if show_progress else 0) as pbar:
 
@@ -143,36 +155,39 @@ def download_and_save(
                     segments,
                     time_window,
                     authorizer,
-                    max_thread_workers_global,
                     max_thread_workers,
+                    url_domain_max_thread_workers,
                     timeout,
                     download_blocksize
                 ):
                     url_domain = get_host(response.request)
                     processed_indices.append(idx)
-                    do_log = False
-                    seg = {}
-                    if response.is_ok:  # status code in [200, 300[
-                        for c in segments.columns:
-                            val = segments.at[idx, c]
-                            if pd.isna(val):
-                                val = None
-                            seg[c] = val
-                        seg = prepare_segment_to_insert(seg, response.data)
-                        inserter.insert([seg])
+
+                    if response.status_code in skipped_segment_codes:
+                        if not_already_skipped(idx, segments):
+                            inserter_err.insert([
+                                prepare_skipped_segment_to_insert(
+                                    segments,
+                                    idx,
+                                    MiniSeedErrorCode(response.status_code)
+                                )
+                            ])
+
+                    elif response.is_ok:  # status code in [200, 300[
+
+                        inserter.insert(prepare_segment_to_insert(
+                            segments_current_id, segments, idx, *response.data  # noqa
+                        ))
+                        segments_current_id += 1
 
                     else:
-                        if is_segment_new(segments.at[idx, "skipped_segment.id"]):
-                            seg = {
-                                c: to_sql(segments.at[idx, c])
-                                for c, to_sql in skipped_segment_columns.items()
-                            }
-                            inserter_err.insert([seg])
                         if id_once_filter is None:
-                            id_once_filter = IdOnceLogFilter()
                             logger.warning('Detailed segment download errors '
                                            '(showing only first of each type per '
                                            'URL domain):')
+                            id_once_filter = IdOnceLogFilter()
+                            logger.addFilter(id_once_filter)
+
                         logger.warning(
                             f"Error class (code): {response.data} "
                             f"({response.status_code}), "
@@ -183,23 +198,27 @@ def download_and_save(
                     stats.increment(url_domain, response.status_code)
                     pbar.update(1)
 
-                if curr_attempt >= max_attempts:
+                if url_domain_max_thread_workers <= 1:
                     # add segments not processed to the stats
                     counts = segments[WebService.url.key].value_counts()
                     for url_, count in counts.items():
-                        stats.increment(
-                            get_host(url_),
-                            CustomResponseCode.NOT_DOWNLOADED,
-                            count
-                        )
+                        stats.increment(get_host(url_),None, count)
                         pbar.update(count)
                     # close loop: set empty dataframe (will break the loop)
                     segments = pd.DataFrame()
-                elif processed_indices:
-                    segments = segments.loc[
-                        segments.index.difference(processed_indices)
-                    ]
-                curr_attempt += 1
+                    logger.info(
+                        f'Download aborted for {counts.sum():,} segments '
+                        f'due to consistently repeated failures from their '
+                        f'URL domain'
+                    )  # FIXME BETTER (consistently?)
+                else:
+                    if processed_indices:
+                        segments = segments.loc[
+                            segments.index.difference(processed_indices)
+                        ]
+                    url_domain_max_thread_workers = url_domain_max_thread_workers // 2
+                    # stop for a while to avoid stressing URL domains
+                    time.sleep(30)
     finally:
         inserter.close()  # flush remaining stuff to insert / update
         inserter_err.close()
@@ -248,22 +267,23 @@ def download(
 
     def get_request(ev_id, net, sta, loc, band, inst, dfr:pd.DataFrame) -> str:
         dc_url = dfr[WebService.utl.key].iloc[0]
-        _arr_time = dfr[Segment.arrival_time.key].iloc[0].to_pydatetime()
+        a_time = dfr[Segment.arrival_time.key].iloc[0].to_pydatetime()
         # start and end (round down and round up to nearest second):
-        _start = (_arr_time + noise_w).replace(microsecond=0),
-        _end = (_arr_time + signal_w + timedelta(seconds=1)).replace(microsecond=0),
+        req_start = (a_time + noise_w).replace(microsecond=0),
+        req_end = (a_time + signal_w + timedelta(seconds=1)).replace(microsecond=0),
         params = {
-            'start': start,
-            'end': end,
+            'start': req_start,
+            'end': req_end,
             'net': net or None,
             'sta': sta or None,
             'loc': loc or None,
             'cha': ",".join(f'{band}{inst}{o}' for o in dfr[Channel.orientation_code.key]),
         }
         _url = fdsn_url_qs(dc_url, **params)
-        requests_cache[_url] = (
-            {'start': _start, 'end': _end} | dfr[Channel.orientation_code].to_dict()
-        )
+        requests_cache[_url] = {
+            f'{net}.{sta}.{loc}.{band}{inst}{o}': i
+            for i, o in zip(dfr.index, dfr[Channel.orientation_code])
+        } | {'request_start': req_start, 'request_end': req_end}
         return _url
 
     for response in read_async(
@@ -276,48 +296,160 @@ def download(
         openers=authorizer  # FIXME CORRECT????
     ):
         req_cache: dict = requests_cache.pop(response.request)
-        _start = req_cache.pop('start')
-        _end = req_cache.pop('end')
+        req_start = req_cache.pop('start')
+        req_end = req_cache.pop('end')
 
-        if not response.is_ok or response.has_no_data:
+        if not response.is_ok or response.status_code == 204:
             for idx in req_cache.values():
                 yield idx, response
             continue
 
-        if response.status_code == 204:
-            for idx in req_cache.values():
-                yield idx, Response(
-                    mini_seed_info.data,
-                    CustomResponseCode.BAD_DATA,
-                    response.request
-                )
-            continue
+        for seed_id, data in unpack_miniseed(response.data, set(req_cache.keys())):
+            idx = req_cache[seed_id]  # dataframe index value
 
-        for mini_seed_info in mseedlite.unpack(response.data):
-            seed_orientation_code = mini_seed_info.seed_id[-1]
-            idx = req_cache[seed_orientation_code]  # dataframe index value
-            if not mini_seed_info.is_ok:
+            if data is None:
                 yield idx, Response(
-                    mini_seed_info.data,
-                    CustomResponseCode.BAD_DATA,
+                    None,
+                    SkippedSegment.BAD_DATA,
                     response.request
                 )
                 continue
 
+            (mseed_data, fsamp, start, end, maxgap) = data
+
             # check time bounds:
-            start = mini_seed_info.start.replace(microsecond=0)
-            end = (mini_seed_info.end + timedelta(seconds=1)).replace(microsecond=0)
+            # start = start.replace(microsecond=0)
+            # end = (end + timedelta(seconds=1)).replace(microsecond=0)
+
             # we want at least something before and after the arrival time:
-            if start >= _end or end <= _start:
+            if start >= req_end or end <= req_start:
                 yield idx, Response(
-                    MSeedError('out of time bounds'),
-                    CustomResponseCode.OUT_OF_TIME_BOUNDS,
+                    None,
+                    SkippedSegment.OUT_OF_TIME_BOUNDS,
                     response.request
                 )
-            else:
-                yield idx, Response(
-                    mini_seed_info, response.status_code, response.request
+                continue
+
+            yield idx, Response(
+                data, response.status_code, response.request
+            )
+
+
+def unpack_miniseed(
+    data: bytes, expected_seed_ids: set[str]
+) -> Iterable[tuple[str, tuple | None]]:
+    """
+    Unpack data into its "traces" (time series). Returns an iterable of MiniSeedInfo
+    """
+    unpacked_records = {_:[] for _ in expected_seed_ids}
+    stream = BytesIO(data)
+    try:
+        for rec in Input(stream):
+            try:
+                seed_id = (
+                    b"%s.%s.%s.%s" %
+                    (rec.net.strip(), rec.sta.strip(), rec.loc.strip(), rec.cha.strip())
+                ).decode('utf8')
+                if seed_id in unpacked_records:
+                    unpacked_records[seed_id].append(rec)
+            except UnicodeDecodeError as exc:
+                # invalidate all miniseed. though harsh, it allows us to track problems
+                unpacked_records = {_:[] for _ in expected_seed_ids}
+                break
+    finally:
+        stream.close()
+
+
+    for seed_id, records in unpacked_records.items():
+        bytesio = BytesIO()
+
+        try:
+            if not len(records):
+                raise MSeedError()
+
+            # get records and sort ascending by time
+            records.sort(key=lambda elm: elm.begin_time)
+            fsamp = records[0].fsamp
+            max_gap_ratios: list[float] = []
+
+            for i, record in enumerate(records):
+
+                if record.fsamp != fsamp:
+                    raise MSeedError()
+
+                try:
+                    record.write(bytesio, int(log(record.size) / log(2)))
+                except Exception:
+                    raise MSeedError()
+
+                if i > 0:
+                    gap_ratio = (
+                        (record.begin_time - records[i-1].end_time).total_seconds()
+                        * fsamp - 1
+                    )
+                    max_gap_ratios.append(gap_ratio)
+                # if abs(curr_max_gap_ratio) > abs(max_gap_overlap_ratio):
+                #     max_gap_overlap_ratio = curr_max_gap_ratio
+
+            yield (
+                seed_id, (
+                    bytesio.getvalue(),
+                    fsamp,
+                    records[0].begin_time,
+                    records[-1].end_time,
+                    max(max_gap_ratios)
                 )
+            )
+
+        except MSeedError as _:
+            yield seed_id, None
+
+        finally:
+            bytesio.close()
+
+
+def prepare_skipped_segment_to_insert(
+    segments: pd.DataFrame, idx: int, code: MiniSeedErrorCode
+) -> dict:
+    return {
+        SkippedSegment.id.key: int(
+            segments.at[idx, SkippedSegment.id.key]
+        ),
+        SkippedSegment.channel_id.key: int(
+            segments.at[idx, SkippedSegment.channelid.key]
+        ),
+        SkippedSegment.event_id.key: int(
+            segments.at[idx, SkippedSegment.event_id.key]
+        ),
+        SkippedSegment.download_code.key: int(code.value)
+    }
+
+
+def prepare_segment_to_insert(
+    db_id: int, segments: pd.DataFrame, idx: int, mseed_data, fsamp, start, end, maxgap
+) -> dict:
+
+    arrival_time = segments.at[idx, "arrival_time"]
+    return{
+        Segment.id.key: db_id,
+        Segment.event_distance_deg.key: float(
+            segments.at[idx, Segment.event_distance_deg]
+        ),
+        Segment.webservice_id.key: int(segments.at[idx, Segment.webservice_id.key]),
+        Segment.event_id.key: int(segments.at[idx, Segment.event_id.key]),
+        Segment.channel_id.key: int(segments.at[idx, Segment.channel_id.key]),
+        Segment.noise_window_sec.key: int(
+            (start - arrival_time).total_seconds() - 0.5
+        ),
+        Segment.signal_window_sec.key: int(
+            (end - arrival_time).total_seconds() + 0.5
+        ),
+        Segment.gap_score_percent.key: int(min(
+            100 * maxgap, 10000
+            # 100000 because we want smallint. Also, high values provide no relevant info
+        )),
+        MiniSeed.data.key: mseed_data,
+    }
 
 
 class SegmentInserter(Inserter):
@@ -341,49 +473,43 @@ class SegmentInserter(Inserter):
         self._data_inserter.flush()
 
 
-def prepare_segment_to_insert(row:dict, mseed_info: MiniSeedInfo) -> dict:
-    row[MiniSeed.data.key] = mseed_info.data
-    arrival_time = row.pop("arrival_time")
-    row[Segment.noise_window_sec.key] = int((
-        mseed_info.start - arrival_time
-    ).total_seconds() - 0.5)
-    row[Segment.signal_window_sec.key] = int((
-        mseed_info.end - arrival_time
-    ).total_seconds() + 0.5)
-    row[Segment.maxgap_numsamples] = int(min(
-        100 * mseed_info.maxgap_ratio,
-        10000  # stored as smallint. Also, high values provide no relevant info
-    ))
-    return row
-
-
-responses = dict(url.responses)
-
-class CustomResponseCode(IntEnum):
+class MiniSeedErrorCode(IntEnum):
     BAD_DATA = -201
     OUT_OF_TIME_BOUNDS = -202
-    NOT_DOWNLOADED = min(e.value for e in url.CustomResponseCode)-1
 
-responses[CustomResponseCode.BAD_DATA] = \
-    "MiniSeed data is corrupted"
-responses[CustomResponseCode.OUT_OF_TIME_BOUNDS] = \
-    "MiniSeed time window is outside the requested time window"
-responses[200] += '. Data successfully downloaded'
-responses[CustomResponseCode.NOT_DOWNLOADED] = \
-    ('Data not downloaded (e.g., download suspended after '
-     'repeated failures from the same domain)')
+# responses[CustomResponseCode.BAD_DATA] = \
+#     "MiniSeed data is corrupted"
+# responses[CustomResponseCode.OUT_OF_TIME_BOUNDS] = \
+#     "MiniSeed time window is outside the requested time window"
+# responses[200] += '. Data successfully downloaded'
+# responses[CustomResponseCode.NOT_DOWNLOADED] = \
+#     ('Data not downloaded (e.g., download suspended after '
+#      'repeated failures from the same domain)')
 
 
 class DownloadStats:
 
     def __init__(self, url_domains: Iterable[str]):
         self._stats = {}
+        self._codes = {_.value: url.responses[_] for _ in url.responses}
+        self._unknown_code = max(self._codes) + 1
+        self._codes[self._unknown_code] = 'Unknown'
+        self._codes[MiniSeedErrorCode.BAD_DATA.value] = 'Corrupted MiniSeed'
+        self._codes[
+            MiniSeedErrorCode.OUT_OF_TIME_BOUNDS.value
+        ] = 'MiniSeed time range mismatch'
+
         for u in url_domains:
             self._stats[u] = {}
 
     def increment(self, url_domain, status_code, count=1):
         try:
-            code = int(status_code)
+            if status_code is None:
+                code = self._unknown_code
+            else:
+                code = int(status_code)
+                if code not in self._codes:
+                    return
         except ValueError:
             return
 
@@ -408,19 +534,18 @@ class DownloadStats:
         df = pd.DataFrame.from_dict(self._stats, orient="index")
         df = df.reindex(
             index=sorted(self._stats.keys()),
-            columns=self.all_codes,
+            columns=[self._codes[c] for c in self.all_codes],
             fill_value=0
         ).astype(int)
         df["Total"] = df.sum(axis=1)
         df.loc["Total"] = df.sum(axis=0)
         df.loc["Total", "Total"] = df.iloc[:-1, :-1].values.sum()
         df.index.name='URL:'
-        df.columns.name='Code:'
+        df.columns.name='Download message:'
         return df
 
     def to_dict(self):
         """"""
-        # hacky way, but we delegate pandas to fill missing values with zero
         return self.to_dataframe().to_dict(orient='index')
 
     def __str__(self):
@@ -428,20 +553,20 @@ class DownloadStats:
         Return the empty string if this object is empty
         """
         df = self.to_dataframe()
-        ret = df.to_string(
+        return df.to_string(
             index=True,
             header=True,
             na_rep="",
             formatters={col: "{:,}".format for col in df.columns}
         )
-        default_doc = (
-            "Data status unknown (e.g., download automatically "
-            "aborted after previous failure"
-        )
-        return "\n".join(
-            [ret, "Codes explanation:", "-------------"] +
-            [responses.get(code, default_doc) for code in self.all_codes]
-        )
+        # default_doc = (
+        #     "Data status unknown (e.g., download automatically "
+        #     "aborted after previous failure"
+        # )
+        # return "\n".join(
+        #     [ret, "Codes explanation:", "-------------"] +
+        #     [responses.get(code, default_doc) for code in self.all_codes]
+        # )
 
 
 # def get_seg_request(segments_df):

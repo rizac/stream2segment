@@ -79,18 +79,12 @@ class CustomResponseCode(IntEnum):
 
 responses = dict(builtin_responses)
 
-responses[CustomResponseCode.URL_ERROR] = \
-    "Catch-all network error not matching any known error"
-responses[CustomResponseCode.TIMEOUT_ERROR] = \
-    "Server takes too long to respond (connection or read timeout)"
-responses[CustomResponseCode.GET_ADDR_INFO_ERROR] = \
-    "Hostname/address resolution failure (e.g., DNS)"
-responses[CustomResponseCode.CONNECTION_ERROR] = \
-    "Server connection error (e.g., port closed, server down)"
-responses[CustomResponseCode.HTTP_EXC_ERROR] = \
-    "HTTP response malformed or incomplete (bad headers, truncated data)"
-responses[CustomResponseCode.SSL_ERROR] = \
-    "SSL/TLS handshake failure (bad certificate, hostname mismatch, expired cert)"
+responses[CustomResponseCode.URL_ERROR] = "Network error"
+responses[CustomResponseCode.TIMEOUT_ERROR] = "Server takes too long"
+responses[CustomResponseCode.GET_ADDR_INFO_ERROR] = "Address resolution failure"
+responses[CustomResponseCode.CONNECTION_ERROR] = "Server connection error"
+responses[CustomResponseCode.HTTP_EXC_ERROR] = "HTTP response malformed"
+responses[CustomResponseCode.SSL_ERROR] = "SSL/TLS handshake failure"
 
 
 @dataclass(slots=True, frozen=True)
