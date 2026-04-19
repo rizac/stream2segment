@@ -335,7 +335,8 @@ class Segment(Base):
     event_id = Column(Integer, ForeignKey(Event.id), nullable=False)
     webservice_id = Column(Integer, ForeignKey(WebService.id), nullable=False)
     channel_id = Column(Integer, ForeignKey(Channel.id), nullable=False)
-    event_distance_deg = Column(Float, nullable=False, index=True)
+    # event_distance_deg = Column(Float, nullable=False, index=True)
+    event_distance_km = Column(SmallInteger, nullable=False, index=True)
     # download_code = Column(Integer, index=True)
     # start_time = Column(DateTime)
     # arrival_time = Column(DateTime, nullable=False)
@@ -439,24 +440,24 @@ class Segment(Base):
         )
 
 
-    @hybrid_property
-    def event_distance_km(self):
-        return self.event_distance_deg * (2.0 * 6371 * pi / 360.0)
-
-    @event_distance_km.expression
-    def event_distance_km(cls):  # pylint:disable=no-self-argument
-        return deg2km(cls.event_distance_deg)
-
-    @hybrid_property
-    def duration_sec(self):
-        try:
-            return (self.end_time - self.start_time).total_seconds()
-        except TypeError:  # some None(s)
-            return None
-
-    @duration_sec.expression
-    def duration_sec(cls):  # pylint:disable=no-self-argument
-        return duration_sec(cls.start_time, cls.end_time)
+    # @hybrid_property
+    # def event_distance_km(self):
+    #     return self.event_distance_deg * (2.0 * 6371 * pi / 360.0)
+    #
+    # @event_distance_km.expression
+    # def event_distance_km(cls):  # pylint:disable=no-self-argument
+    #     return deg2km(cls.event_distance_deg)
+    #
+    # @hybrid_property
+    # def duration_sec(self):
+    #     try:
+    #         return (self.end_time - self.start_time).total_seconds()
+    #     except TypeError:  # some None(s)
+    #         return None
+    #
+    # @duration_sec.expression
+    # def duration_sec(cls):  # pylint:disable=no-self-argument
+    #     return duration_sec(cls.start_time, cls.end_time)
 
     @hybrid_property
     def classlabels_count(self):

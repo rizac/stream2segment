@@ -56,7 +56,7 @@ def merge_events_stations(
     # ch_end_col = Channel.end_time.key
     # seg_evid_col = Segment.event_id.key
 
-    seg_ev_dist_col = Segment.event_distance_deg.key
+    # seg_ev_dist_col = Segment.event_distance_deg.key
 
 
     ret = []
@@ -111,7 +111,7 @@ def merge_events_stations(
                 l2d = l2d[condition]
 
             cha_df = channels.copy()
-            cha_df[seg_ev_dist_col] = l2d
+            cha_df["event_distance_deg"] = l2d
             # add scalar broadcasted to all elements:
             cha_df[Segment.event_id.key] = ev_id
             cha_df["_.event_depth._"] = [ev_depth] * len(cha_df)
@@ -169,7 +169,7 @@ def merge_events_stations(
 
     # compute travel times. Doing it on a single array is much faster
     source_depths = ret.pop("_.event_depth._").values
-    distances = ret[seg_ev_dist_col].values
+    distances = ret["event_distance_deg"].values
     traveltimes = tttable(source_depths, 0, distances)
     # event_times = np.array(event_times, dtype='datetime64[us]')  # or "M8[us]"
     event_times = ret.pop("_.event_time._")
@@ -193,6 +193,18 @@ def merge_events_stations(
         if ret.empty:
             raise FailedDownload(formatmsg("No segments to process",
                                            "All travel times NaN"))
+
+    # convert to event_distance_km:
+    degrees = ret.pop('event_distance_deg')
+    _overflow = degrees > 180
+    if _overflow.any():
+        degrees[_overflow] =  360 - degrees[_overflow]
+    radius = 6371.0
+    event_distance_km =  np.around(
+        degrees * 2.0 * radius * np.pi / 360.0, 0
+    ).astype(np.int16)
+    ret[Segment.event_distance_km.key] = event_distance_km
+
     return ret[[
         WebService.url.key,
         Channel.network_code.key,
@@ -200,7 +212,7 @@ def merge_events_stations(
         Channel.location_code.key,
         Channel.channel_code.key,
         "arrival_time",
-        seg_ev_dist_col,
+        Segment.event_distance_km.key,
         Segment.webservice_id.key,
         Segment.channel_id.key,
         Segment.event_id.key

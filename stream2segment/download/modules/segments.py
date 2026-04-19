@@ -207,7 +207,7 @@ def download_and_save(
                     # close loop: set empty dataframe (will break the loop)
                     segments = pd.DataFrame()
                     logger.info(
-                        f'Download aborted for {counts.sum():,} segments '
+                        f'Download not performed for {counts.sum():,} segments '
                         f'due to consistently repeated failures from their '
                         f'URL domain'
                     )  # FIXME BETTER (consistently?)
@@ -287,7 +287,7 @@ def download(
         return _url
 
     for response in read_async(
-        (get_request(*params, dfr) for (params, dfr) in dataframes),
+        (get_request(*params, dfr) for (params, dfr) in dataframes),  # noqa
         max_workers=max_thread_workers,
         max_workers_d=max_workers_d,
         max_concurrency_d=max_workers_d,
@@ -432,8 +432,8 @@ def prepare_segment_to_insert(
     arrival_time = segments.at[idx, "arrival_time"]
     return{
         Segment.id.key: db_id,
-        Segment.event_distance_deg.key: float(
-            segments.at[idx, Segment.event_distance_deg]
+        Segment.event_distance_km.key: int(
+            segments.at[idx, Segment.event_distance_km.key]
         ),
         Segment.webservice_id.key: int(segments.at[idx, Segment.webservice_id.key]),
         Segment.event_id.key: int(segments.at[idx, Segment.event_id.key]),
@@ -493,7 +493,7 @@ class DownloadStats:
         self._stats = {}
         self._codes = {_.value: url.responses[_] for _ in url.responses}
         self._unknown_code = max(self._codes) + 1
-        self._codes[self._unknown_code] = 'Unknown'
+        self._codes[self._unknown_code] = 'Download not performed'
         self._codes[MiniSeedErrorCode.BAD_DATA.value] = 'Corrupted MiniSeed'
         self._codes[
             MiniSeedErrorCode.OUT_OF_TIME_BOUNDS.value
