@@ -1,43 +1,18 @@
 """
-Utilities for interaction between pandas DataFrames and sqlalchemy tables objects
-(according to `models.py`). As of 2016, some of these functions are modified from
-`pandas.io.sql.SqlTable` in most cases for performance improvements
-(http://docs.sqlalchemy.org/en/latest/faq/performance.html)
-
-Refs (URL are split in two when too long):
-----
-
-- Underlying mechanism of SqlAlchemy:
-  http://docs.sqlalchemy.org/en/latest/glossary.html#term-descriptor
-- Key attribute in SqlAlchemy columns:
-  http://docs.sqlalchemy.org/en/latest/core/metadata.html
-    #sqlalchemy.schema.Column.params.key
-- Name attribute in SqlAlchemy columns:
-  http://docs.sqlalchemy.org/en/latest/core/metadata.html
-    #sqlalchemy.schema.Column.params.name
-- Mapper SqlAlchemy object (for inspecting a table):
-  http://docs.sqlalchemy.org/en/latest/orm/mapping_api.html
-    #sqlalchemy.orm.mapper.Mapper
-  http://docs.sqlalchemy.org/en/latest/orm/mapping_api.html
-    #sqlalchemy.orm.mapper.Mapper.columns
-
-:date: Jul 17, 2016
-
-.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
+Utilities for interaction between pandas DataFrames, optimized for our workflow
 """
-from collections import deque
 from collections.abc import Iterable, Sequence
 from typing import Optional
 
 import numpy as np
 import pandas as pd
+
 from sqlalchemy import select, UpdateBase, Column, Select, Insert, Update
 from sqlalchemy.engine import Engine
-# Sql-alchemy:
-from sqlalchemy.exc import SQLAlchemyError, IntegrityError
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.sql.expression import func, bindparam
-from sqlalchemy.types import Integer, Float, Boolean, DateTime, Date  # , TIMESTAMP
+from sqlalchemy.types import Integer, Float, Boolean, DateTime
 
 from stream2segment.io.db.inspection import colnames
 
@@ -93,26 +68,6 @@ def shared_colnames(table, dataframe, pkey=None, fkey=None, nullable=None):
     for colname in colnames(table, pkey=pkey, fkey=fkey, nullable=nullable):
         if colname in dfcols:
             yield colname
-
-
-# FIXME REMOVE
-# def dropnulls(table, dataframe):
-#     """Drop rows of dataframe which contain invalid NA/None, i.e. whose table
-#     column is not nullable. Consider calling `harmonize_columns` first to make sure
-#     that all Nulls (pandas NA) are properly set. Note that if some column
-#     is dropped, then int and boolean columns might be casted again after dropping
-#     """
-#     non_nullable_cols = list(shared_colnames(table, dataframe, nullable=False))
-#     if non_nullable_cols:
-#         oldlen = len(dataframe)
-#         dataframe = dataframe.dropna(subset=non_nullable_cols, axis=0, inplace=False)
-#         if oldlen > len(dataframe):
-#             # Cast bools and ints as they might have been object:
-#             for col in non_nullable_cols:
-#                 dtype = get_dtype(getattr(table, col).type)
-#                 if dtype in (np.int64, np.bool_):
-#                     dataframe[col] = dataframe[col].astype(dtype, copy=False)
-#     return dataframe
 
 
 def apply_table_dtypes(
@@ -205,7 +160,7 @@ def df2db(
     id_col: str,
     uc_cols: list[str],
     update_cols: Optional[list[str]]=None,
-    chunksize=10
+    chunksize=1000
 ):
     """
     Write the given dataframe to the relative table. Return the tuple
@@ -221,9 +176,7 @@ def df2db(
             updated for some db error. NOTE: contrarily to `failed_insert`,
             these rows are still included in the returned dataframe
 
-    :param dfr: a pandas dataframe. IMPORTANT: the index should be a
-        RangeIndex (call `reset_index(drop=True)` if unsure) to easily identify
-        each row via `.loc`, and must not have id_col set
+    :param dfr: a pandas dataframe
     :param engine: a sql-alchemy engine
     :param uc_cols: a list of ORM columns for comparing `dataframe`
         rows and T rows: when two rows are found that are equal (according to
@@ -235,15 +188,10 @@ def df2db(
         `dataframe`. The returned `dataframe` will have in any case this column
         set with non-NA values and the proper python type (corresponding to
         the column  SQL type)
-    :param update: boolean or list of strings. Whether to update or not:
-        - If True, all shared columns between dataframes and table model will
-          be updated (except id_col): the shared columns are calculated only
-          the first time a dataframe is added to this object.
-        - If list of STRINGS, then the columns which matching names are updated
-          only (the string name of id_col should not be in the list)
-        - If False (or, in general falsy, so empty list or None is the same):
-          do not update
-    :param buf_size: integer, defaults to 10. The buffer size before committing.
+    :param update: optional list of strings. I provided, then the columns which
+        matching names are updated only (the string name of id_col should not be
+        in the list)
+    :param chunksize: integer, defaults to 10. The buffer size before committing.
         Increase this number for better performances (speed) at the cost of some
         "false negative" (committing a series of operations where one raise an
         integrity error discards all subsequent operations regardless if they
@@ -264,20 +212,32 @@ def df2db(
     to_insert: pd.Series = dfr_with_pkeys[id_col] > id_max
 
     if to_insert.any():
-        with Inserter(engine, table_model, chunksize) as inserter:
-            inserter.insert(dfr_with_pkeys.loc[to_insert, :])
-        if len(inserter.failed_ids):
-            mask = dfr_with_pkeys[id_col].isin(set(inserter.failed_ids))
-            failed_i = dfr_with_pkeys[mask]
-            dfr_with_pkeys = dfr_with_pkeys.loc[~mask]
+        stmt = [create_insert_statement(table_model)]
+        start = 0
+        ids = set()
+        dfr_tmp = dfr_with_pkeys.loc[to_insert]
+        while start < len(dfr_tmp):
+            rows = list(iter_rows(dfr_tmp[start: start+chunksize]))
+            ids.update(r[id_col] for r in execute_sql(engine, stmt, rows))  # set update, not sql!
+            start += chunksize
+        if len(ids) < len(dfr_tmp):
+            mask = (~to_insert) | dfr_with_pkeys[id_col].isin(ids)
+            failed_i = dfr_with_pkeys.loc[~mask]
+            dfr_with_pkeys = dfr_with_pkeys.loc[mask]
 
     if update_cols:
         to_update = ~to_insert
         if to_update.any():
-            with Updater(engine, table_model, id_col, update_cols, chunksize) as updater:
-                updater.update(dfr_with_pkeys.loc[to_update, :])
-            if len(updater.failed_ids):
-                mask = dfr_with_pkeys[id_col].isin(set(inserter.failed_ids))
+            stmt = [create_update_statement(table_model, id_col, update_cols)]
+            start = 0
+            ids = set()
+            dfr_tmp = dfr_with_pkeys.loc[to_update]
+            while start < len(dfr_tmp):
+                rows = list(iter_rows(dfr_tmp[start: start + chunksize]))
+                ids.update(r[id_col] for r in execute_sql(engine, stmt, rows))  # set update, not sql!
+                start += chunksize
+            if len(ids) < len(dfr_tmp):
+                mask = to_update & (~dfr_with_pkeys[id_col].isin(ids))
                 failed_u = dfr_with_pkeys.loc[mask]
 
     if not pd.api.types.is_integer_dtype(dfr_with_pkeys[id_col]):  # for safety
@@ -381,12 +341,6 @@ def get_row_count(engine, table_model):
         return conn.execute(select(func.count()).select_from(table_model)).scalar() or 0
 
 
-# def db2df_1(query: Select, engine) -> pd.DataFrame:
-#     columns = [c['name'] for c in query.column_descriptions]
-#     with engine.connect() as conn:
-#         return pd.DataFrame(conn.execute(query).fetchall(), columns=columns)
-
-
 def db2dfs(query: Select, engine, chunksize=20000) -> Iterable[pd.DataFrame]:
     columns = [c['name'] for c in query.column_descriptions]
     with engine.connect() as conn:
@@ -398,157 +352,32 @@ def db2dfs(query: Select, engine, chunksize=20000) -> Iterable[pd.DataFrame]:
             yield pd.DataFrame(rows, columns=columns)
 
 
-class SqlBatchExecutor:
-
-    def __init__(
-        self,
-        engine,
-        table_model: type[DeclarativeBase],
-        chunksize=5000,
-        max_cache_errors=50
-    ):
-        self.engine = engine
-        self.table_model = table_model
-        self.chunksize = chunksize
-        self._buf = []
-        self._current_length = 0
-        self._failed_cache = deque(maxlen=max_cache_errors)
-        self._failed_ids = []
-        self._stmt = self.create_executable()
-
-    def add(self, data: pd.DataFrame | Sequence[dict]):
-        while self._current_length + len(data) >= self.chunksize:
-            self._buf.append(data[:self.chunksize - self._current_length])
-            data = data[self.chunksize - self._current_length:]
-            self.flush()  # resets _buf and _current_length to 0
-        if len(data):
-            self._buf.append(data)
-            self._current_length += len(data)
-
-    def flush(self):
-        pkey_col_name = self.table_model.__table__.primary_key.columns.keys()[0]
-        if self._buf:
-            with self.engine.begin() as conn:
-                for rows in self._buf:
-                    if isinstance(rows, pd.DataFrame):
-                        rows = list(iter_rows(rows))
-                    for failed_row in self.execute(rows, conn):
-                        self._failed_ids.append(failed_row[pkey_col_name])
-                        if len(self._failed_cache) < self._failed_cache.maxlen:
-                            self._failed_cache.append(failed_row)
-            self._buf.clear()
-            self._current_length = 0
-
-    def execute(self, chunk: list[dict], conn):
-        return _execute_sql(chunk, self._stmt, conn)
-
-    def create_executable(self) -> UpdateBase:
-        raise NotImplementedError('Not implemented yet')
-
-    def close(self):
-        """manual close"""
-        self.flush()
-
-    @property
-    def cached_failed_rows(self) -> Iterable[dict]:
-        yield from self._failed_cache
-
-    @property
-    def failed_ids(self) -> list[int]:
-        return self._failed_ids
-
-    # Context manager methods
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.close()
+def create_insert_statement(table_model) -> Insert:
+    return table_model.__table__.insert()
 
 
-class Inserter(SqlBatchExecutor):
-
-    def insert(self, dataframe):
-        """Wrapper for `add` implemented for clarity"""
-        self.add(dataframe)
-
-    def create_executable(self) -> Insert:
-        return self.table_model.__table__.insert()
-
-
-# def insert(data: list[dict], table_model: DeclarativeBase, conn):
-#     """
-#     Efficient bulk insert from DataFrame to SQLAlchemy ORM table.
-#     Recursively isolates failing rows on constraint errors.
-#     Single flat function, memory-efficient for large DataFrames with BLOBs.
-#     `df` index needs to be a RangeIndex (call `df.reset_index(drop=True, inplace=True)`
-#     in case of doubts)
-#
-#     :return: the indices (subset of the dataframe index) of the failed rows (int type)
-#     :param conn: the result of `engine.begin()`
-#     """
-#     return _execute_sql(data, table_model.__table__.insert(), conn)
+def create_update_statement(
+    table_model, where_col: str, update_cols: list[str]
+) -> Update:
+    table = table_model.__table__
+    columns = table.c
+    return (
+        table.update()
+        .where(columns[where_col] == bindparam(where_col))
+        .values({col: bindparam(col) for col in update_cols})
+    )
 
 
-class Updater(SqlBatchExecutor):
-
-    def __init__(
-        self,
-        engine,
-        table_model,
-        where_col:str,
-        update_cols: list[str],
-        chunksize=1000
-    ):
-        self.where_col = where_col
-        self.update_cols = update_cols
-        super().__init__(engine, table_model, chunksize)
-
-    def update(self, dataframe):
-        """Wrapper for `add` implemented for clarity"""
-        self.add(dataframe)
-
-    def create_executable(self) -> Update:
-        table = self.table_model.__table__
-        where_col = self.where_col
-        update_cols = self.update_cols
-        columns = table.c
-        return (
-            table.update()
-            .where(columns[where_col] == bindparam(where_col))
-            .values({col: bindparam(col) for col in update_cols})
-        )
+def execute_sql(
+    engine: Engine, statement: Sequence[UpdateBase], data: Sequence[dict]
+) -> Iterable[dict]:
+    with engine.begin() as conn:  # noqa
+        yield from _execute_sql(conn, statement, data)
 
 
-# def update(
-#     data:list[dict],
-#     table_model,
-#     conn,
-#     where_col:str,
-#     update_cols:list[str]
-# ):
-#     """
-#     Bulk update from DataFrame to SQLAlchemy ORM table.
-#     Recursively isolates failing rows on constraint errors.
-#     Single flat function, memory-efficient for large DataFrames with BLOBs.
-#     `df` index needs to be a RangeIndex (call `df.reset_index(drop=True, inplace=True)`
-#     in case of doubts)
-#
-#     :return: the indices (subset of the dataframe index) of the failed rows (int type)
-#     :param conn: the result of `engine.begin()`
-#     """
-#     table = table_model.__table__
-#     columns = table.c
-#     stmt = (
-#         table.update()
-#         .where(columns[where_col] == bindparam(where_col))
-#         .values({col: bindparam(col) for col in update_cols})
-#     )
-#     return _execute_sql(data, stmt, conn)
-
-
-def _execute_sql(data: list[dict], stmt: UpdateBase, conn):
-    # Process DataFrame in chunks
-    failed_data = []
+def _execute_sql(
+    conn, statement: Sequence[UpdateBase], data: Sequence[dict]
+) -> Iterable[dict]:
     # use a stack for recursion. start_index will be set on failure
     stack = [data]
 
@@ -559,17 +388,15 @@ def _execute_sql(data: list[dict], stmt: UpdateBase, conn):
 
         try:
             with conn.begin_nested():  # SAVEPOINT
-                conn.execute(stmt, chunk)
+                for stmt in statement:
+                    conn.execute(stmt, chunk)
+            yield from chunk
         except IntegrityError as e:
             # rollback of this chunk happens automatically
-            if len(chunk) == 1:
-                failed_data.append(chunk[0])
-            else:
+            if len(chunk) > 1:
                 mid = len(chunk) // 2
                 stack.append(chunk[mid:])
                 stack.append(chunk[:mid])
-
-    return failed_data
 
 
 def iter_rows(dataframe: pd.DataFrame, columns=None) -> Iterable[dict]:
@@ -607,34 +434,6 @@ def iter_rows(dataframe: pd.DataFrame, columns=None) -> Iterable[dict]:
         yield dict(zip(columns, row_values))
 
 
-# def _execute_sql_df(df: pd.DataFrame, stmt: UpdateBase, conn):
-#     # Process DataFrame in chunks
-#     df_index = df.index
-#     failed_pos_indices = _execute_sql_dictlist(list(iter_rows(df)), stmt, conn)
-#     return df_index[failed_pos_indices]
-#
-#     failed_rows = []
-#     # use a stack for recursion. start_index will be set on failure
-#     stack = [(df.index, list(iter_rows(df)))]
-#
-#     while stack:
-#         pd_index, chunk = stack.pop()
-#         if len(chunk) == 0:
-#             continue
-#
-#         try:
-#             with conn.begin_nested():  # SAVEPOINT
-#                 conn.execute(stmt, chunk)
-#         except IntegrityError:
-#             # rollback of this chunk happens automatically
-#             if len(chunk) == 1:
-#                 failed_rows.append(pd_index[0])
-#             else:
-#                 mid = len(chunk) // 2
-#                 stack.append((pd_index[mid:], chunk[mid:]))
-#                 stack.append((pd_index[:mid], chunk[:mid]))
-#
-#     return np.array(failed_rows, dtype=int)
 
 
 # def syncdf(dataframe, session, matching_columns, id_col, update=False,

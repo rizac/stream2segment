@@ -12,7 +12,7 @@ import logging
 import psutil
 
 from stream2segment.download.log import configlog4download, DbStreamHandler
-from stream2segment.io.db.pdsql import Inserter, get_max
+from stream2segment.io.db.pdsql import get_max, execute_sql, create_insert_statement
 from stream2segment.io.log import logfilepath, close_logger, elapsed_time
 from stream2segment.io import yaml_safe_dump
 from stream2segment.io.db import secure_dburl, close_session, models
@@ -416,18 +416,21 @@ def new_download_run(engine, params=None) -> int:
     tmp_log = ('N/A: either logger not configured, or an '
                'unexpected error interrupted the process')
     download_id = get_max(engine, models.DownloadRun.id) + 1
-    with Inserter(engine, models.DownloadRun) as inserter:
-        inserter.insert([
-            dict(
+    rows = list(
+        execute_sql(
+            engine,
+            [create_insert_statement(models.DownloadRun)],
+            [dict(
                 id=download_id,
                 time=datetime.now(UTC).replace(tzinfo=None),
                 config=config,
                 log=tmp_log,
                 summary="",
                 s2s_version=version()
-            )
-        ])
-    if len(inserter.failed_ids) != 0:
+            )]
+        )
+    )
+    if len(rows) != 1:
         raise FailedDownload('Unable to write to the DB')
     return download_id
 

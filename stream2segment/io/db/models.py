@@ -26,13 +26,12 @@ from sqlalchemy import (
 from sqlalchemy.engine import Engine
 from sqlalchemy.ext.hybrid import hybrid_property  # , hybrid_method
 from sqlalchemy.inspection import inspect
-from sqlalchemy.orm import relationship, backref, deferred, aliased, load_only, \
-    selectinload
-from sqlalchemy.sql.expression import text, case, select, func  # or_ , and_
+from sqlalchemy.orm import relationship, backref, deferred, load_only
+from sqlalchemy.sql.expression import literal, case, select, func  # or_ , and_
 
 # from stream2segment.io import Fdsnws
 from stream2segment.io.db import sqlalchemy_version
-from stream2segment.io.db.sqlconstructs import concat, deg2km, duration_sec
+# from stream2segment.io.db.sqlconstructs import concat, deg2km, duration_sec
 
 try:
     from sqlalchemy.orm import declarative_base  # v1.4+
@@ -218,28 +217,6 @@ class QuakeML(Base):
     data = Column(CompressedBinary, nullable=False)
 
 
-
-# def check_datacenter_urls_fdsn(target):  # FIXME REMOVE
-#     """Check for datacenter URLs. To be used as argument for sqlalchemy.listen or
-#     listen_to (see implementation in this program), e.g.
-#     ```
-#     @event.listens_for(DataCenter, 'before_insert', check_datacenter_urls_fdsn)
-#     @event.listens_for(DataCenter, 'before_update', check_datacenter_urls_fdsn)
-#     ```
-#     or
-#     `event.listens_for(DataCenter, 'before_insert')(check_datacenter_urls_fdsn)`
-#     For info on validation see:
-#     https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf
-#     """
-#     # Note: we thought about using validators, but we ended up with infinite
-#     # recursion loops
-#     fdsn = Fdsnws(target.station_url if target.dataselect_url is None
-#                   else target.dataselect_url)
-#     target.station_url = fdsn.url(Fdsnws.STATION)
-#     target.dataselect_url = fdsn.url(Fdsnws.DATASEL)
-
-
-
 class StationXML(Base):
     """Model representing a StationXML data"""
     __tablename__ = 'stationxml'
@@ -305,33 +282,37 @@ class Channel(Base):
 
     @hybrid_property
     def network_station_code(self):
-        return f"{self.network}.{self.station}"
+        return f"{self.network_code}.{self.station_code}"
 
     @network_station_code.expression
-    def network_station_code(cls):  # noqa
-        """Return the station code, i.e. self.network + '.' + self.station"""
-        return concat(cls.network_code, text("'.'"), cls.station_code). \
-            label('network_station_code')
+    def network_station_code(cls):
+        return func.concat(cls.network_code, literal("."), cls.station_code)
 
     @hybrid_property
     def channel_code(self):
-        return f'{self.band_code}{self.instrument_code}{self.orientation_code}'
+        return f"{self.band_code}{self.instrument_code}{self.orientation_code}"
 
     @channel_code.expression
-    def channel_code(cls):  # noqa
-        """Return the channel code"""
-        return concat(cls.band_code, cls.instrument_code, cls.orientation_code).\
-            label('channel_code')
+    def channel_code(cls):
+        return func.concat(cls.band_code, cls.instrument_code, cls.orientation_code)
 
 
 # MINISEED_READ_ERROR_CODE = -2  FIXME check where used and remove
+
+
+class MiniSeed(Base):
+    """Model representing a Waveform segment"""
+    __tablename__ = 'miniseed'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    data = Column(LargeBinary, nullable=False)
 
 
 class Segment(Base):
     """Model representing a Downloaded segment"""
     __tablename__ = 'segment'
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = Column(Integer, ForeignKey(MiniSeed.id), primary_key=True)
     event_id = Column(Integer, ForeignKey(Event.id), nullable=False)
     webservice_id = Column(Integer, ForeignKey(WebService.id), nullable=False)
     channel_id = Column(Integer, ForeignKey(Channel.id), nullable=False)
@@ -343,9 +324,9 @@ class Segment(Base):
     # end_time = Column(DateTime)
     # arrival_time_numsamples = Column(Integer, nullable=False)
     # sample_rate = Column(Float)
-    noise_window_sec = Column(SmallInteger)  # duration (in s) of saved data until arrival_time
-    signal_window_sec = Column(SmallInteger)  # duration (in s) of saved data from arrival_time
-    gap_score_percent = Column(SmallInteger)
+    noise_window_s = Column(SmallInteger, nullable=False)  # duration (in s) of start time relative to arrival_time (often < 0)
+    signal_window_s = Column(SmallInteger, nullable=False)  # duration (in s) of end time relative to arrival_time (often > 0)
+    gap_score_percent = Column(SmallInteger, nullable=False)
     # maxgap_numsamples = Column(Float)
     # request_start = deferred(Column(DateTime, nullable=False))
     # request_end = deferred(Column(DateTime, nullable=False))
@@ -415,49 +396,45 @@ class Segment(Base):
         UniqueConstraint('event_id', 'channel_id', name='unique_event_channel'),
     )
 
-    @property
-    def siblings(self):
-        # Get the SQLAlchemy session managing this instance
-        session = self.dbsession
-
-        # If no session is attached, or channel is not set (we need its attributes),
-        # return an empty query that matches nothing (safe fallback).
-        if not session or not self.channel or self.channel.orientation_code not in {'N', 'Z', 'E', '1', '2', '3'}:
-            return session.query(Segment).filter(False)  # noqa
-
-        return (
-            session.query(Segment)
-            .options(selectinload(Segment.miniseed))
-            .join(Channel)
-            .filter(
-                Segment.id != self.id,                         # exclude self  # noqa
-                Segment.channel_id == self.channel_id,         # noqa
-                Segment.event_id == self.event_id,
-                Channel.location_code == self.channel.location_code,
-                Channel.band_code == self.channel.band_code,
-                Channel.instrument_code == self.channel.instrument_code
-            )
-        )
-
-
-    # @hybrid_property
-    # def event_distance_km(self):
-    #     return self.event_distance_deg * (2.0 * 6371 * pi / 360.0)
+    # @property
+    # def siblings(self):
+    #     # Get the SQLAlchemy session managing this instance
+    #     session = self.dbsession
     #
-    # @event_distance_km.expression
-    # def event_distance_km(cls):  # pylint:disable=no-self-argument
-    #     return deg2km(cls.event_distance_deg)
+    #     # If no session is attached, or channel is not set (we need its attributes),
+    #     # return an empty query that matches nothing (safe fallback).
+    #     if not session or not self.channel or self.channel.orientation_code not in {'N', 'Z', 'E', '1', '2', '3'}:
+    #         return session.query(Segment).filter(False)  # noqa
     #
-    # @hybrid_property
-    # def duration_sec(self):
-    #     try:
-    #         return (self.end_time - self.start_time).total_seconds()
-    #     except TypeError:  # some None(s)
-    #         return None
-    #
-    # @duration_sec.expression
-    # def duration_sec(cls):  # pylint:disable=no-self-argument
-    #     return duration_sec(cls.start_time, cls.end_time)
+    #     return (
+    #         session.query(Segment)
+    #         .options(selectinload(Segment.miniseed))
+    #         .join(Channel)
+    #         .filter(
+    #             Segment.id != self.id,                         # exclude self  # noqa
+    #             Segment.channel_id == self.channel_id,         # noqa
+    #             Segment.event_id == self.event_id,
+    #             Channel.location_code == self.channel.location_code,
+    #             Channel.band_code == self.channel.band_code,
+    #             Channel.instrument_code == self.channel.instrument_code
+    #         )
+    #     )
+
+    @hybrid_property
+    def event_distance_deg(self):
+        return self.event_distance_km / (2.0 * 6371 * pi / 360.0)
+
+    @event_distance_deg.expression
+    def event_distance_deg(cls):
+        return cls.event_distance_km / (2.0 * 6371 * pi / 360.0)
+
+    @hybrid_property
+    def duration_s(self):
+        return self.signal_window_s - self.noise_window_s
+
+    @duration_s.expression
+    def duration_s(cls):
+        return cls.signal_window_s - cls.noise_window_s
 
     @hybrid_property
     def classlabels_count(self):
@@ -476,28 +453,17 @@ class Segment(Base):
         return sorted(_.label for _ in self.classes.options(load_only(ClassLabel.label)))
 
 
-class MiniSeed(Base):
-    """Model representing a Waveform segment"""
-    __tablename__ = 'mini_seed'
-
-    id = Column(Integer, ForeignKey(Segment.id), primary_key=True)
-    data = Column(LargeBinary, nullable=False)
-
-
 class SkippedSegment(Base):
     """
     Model representing a segment with no data (204 Http response,
-    server / client error, miniSEED data error, timeout)
+    miniSEED data error, time out of range)
     """
     __tablename__ = 'skipped_segment'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     event_id = Column(Integer, ForeignKey(Event.id), nullable=False)
-    # webservice_id = deferred(Column(
-    #     Integer, ForeignKey("WebService.id"), nullable=False, index=True
-    # ))
     channel_id = Column(Integer, ForeignKey(Channel.id), nullable=False)
-    download_code = Column(Integer)
+    download_code = Column(SmallInteger)
 
     __table_args__ = (
         # Index("event_channel_index", "event_id", "channel_id"),

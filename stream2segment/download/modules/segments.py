@@ -6,6 +6,8 @@ Segments download functions
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
 from __future__ import annotations
+
+from collections import deque
 from collections.abc import Iterable
 from datetime import timedelta, datetime
 import logging
@@ -20,12 +22,12 @@ from sqlalchemy import select, Engine
 from stream2segment.download import url
 from stream2segment.download.modules.mseedlite import MSeedError, Input
 from stream2segment.io.cli import get_progressbar
-from stream2segment.io.db.pdsql import sync_pkey, Inserter, get_row_count, get_max
+from stream2segment.io.db.pdsql import sync_pkey, get_row_count, get_max, \
+    create_insert_statement, execute_sql
 from stream2segment.io.db.models import (
     WebService, Segment, Channel, MiniSeed, SkippedSegment
 )
 from stream2segment.download.modules.utils import (fdsn_url_qs, IdOnceLogFilter)
-from stream2segment.download.modules import mseedlite
 from stream2segment.download.url import (
     get_host, read_async, adjust_max_concurrent_downloads, Response
 )
@@ -125,11 +127,9 @@ def download_and_save(
 
     # report seg. errors only once per error type and data center:
     id_once_filter: IdOnceLogFilter | None = None
-    inserter = SegmentInserter(engine)
-    inserter_err = Inserter(engine, SkippedSegment)
+
 
     processed_indices = []
-
     # this is the maximum id (primary key) of NoDataSegments.
     # On download error (no data), it will be used to get if we need to save the segment
     # download info:
@@ -145,7 +145,18 @@ def download_and_save(
 
     skipped_segment_codes = set(MiniSeedErrorCode) | {204}
 
-    segments_current_id = get_max(engine, Segment.id) + 1
+    segments_current_id = get_max(engine, MiniSeed.id)
+
+    sql_insert_ok = [
+        create_insert_statement(MiniSeed),
+        create_insert_statement(Segment)
+    ]
+    rows_ok = []
+    sql_insert_skip = [create_insert_statement(SkippedSegment)]
+    rows_skip = []
+
+    written_ok = 0
+    written_skipped = 0
 
     try:
         with get_progressbar(len(segments) if show_progress else 0) as pbar:
@@ -165,20 +176,33 @@ def download_and_save(
 
                     if response.status_code in skipped_segment_codes:
                         if not_already_skipped(idx, segments):
-                            inserter_err.insert([
+                            rows_skip.append(
                                 prepare_skipped_segment_to_insert(
                                     segments,
                                     idx,
                                     MiniSeedErrorCode(response.status_code)
                                 )
-                            ])
+                            )
+                            if len(rows_skip) >= db_bufsize:
+                                written_skipped += sum(
+                                    1 for _ in execute_sql(engine, sql_insert_skip, rows_skip)
+                                )
+                                rows_skip.clear()
 
-                    elif response.is_ok:  # status code in [200, 300[
+                    elif response.is_ok:  # status code in [200, 300[, not 204
 
-                        inserter.insert(prepare_segment_to_insert(
-                            segments_current_id, segments, idx, *response.data  # noqa
-                        ))
                         segments_current_id += 1
+                        rows_ok.append(
+                            prepare_segment_to_insert(
+                                segments_current_id, segments, idx, *response.data  # noqa
+                            )
+                        )
+                        if len(rows_ok) >= db_bufsize:
+                            written_ok += sum(
+                                1 for _ in execute_sql(engine, sql_insert_ok, rows_ok)
+                            )
+                            rows_ok.clear()
+
 
                     else:
                         if id_once_filter is None:
@@ -220,8 +244,14 @@ def download_and_save(
                     # stop for a while to avoid stressing URL domains
                     time.sleep(30)
     finally:
-        inserter.close()  # flush remaining stuff to insert / update
-        inserter_err.close()
+        if len(rows_ok):
+            written_ok += sum(
+                1 for _ in execute_sql(engine, sql_insert_ok, rows_ok)
+            )
+        if len(rows_skip):
+            written_skipped += sum(
+                1 for _ in execute_sql(engine, sql_insert_skip, rows_skip)
+            )
 
     if id_once_filter is not None:
         logger.removeFilter(id_once_filter)
@@ -450,27 +480,6 @@ def prepare_segment_to_insert(
         )),
         MiniSeed.data.key: mseed_data,
     }
-
-
-class SegmentInserter(Inserter):
-
-    def __init__(self, engine, chunksize=5000, max_cache_errors=50):
-        super().__init__(
-            engine, Segment, chunksize=chunksize, max_cache_errors=max_cache_errors
-        )
-        self._data_inserter = Inserter(
-            engine, MiniSeed, chunksize=chunksize, max_cache_errors=max_cache_errors
-        )
-
-    def execute(self, chunk: list[dict], conn):
-        failed = super().execute(chunk, conn)
-        no_ids = set(f[Segment.id.key] for f in failed)
-        self._data_inserter.insert([c for c in chunk if c[Segment.id.key] in no_ids])
-        return failed
-
-    def flush(self):
-        super().flush()
-        self._data_inserter.flush()
 
 
 class MiniSeedErrorCode(IntEnum):
