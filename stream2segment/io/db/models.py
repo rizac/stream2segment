@@ -54,7 +54,7 @@ if sqlalchemy_version < 2:  # https://stackoverflow.com/a/75634238
 
 
 class _Base:
-    """Abstract base class for a Stream2segment ORM Model"""
+    """Abstract base class for a Stream2segment ORM Model"""  # FIXME REMOVE!
 
     def __str__(self):
         """Return a meaningful string representation (with info on loaded
@@ -192,18 +192,6 @@ class Event(Base):  # noqa
     # event_location_name = Column(String)
     # event_type = Column(String)
 
-    quakeml = relationship("QuakeML", uselist=False)  # One-to-one
-
-    @property
-    def quakeml_data(self):
-        return None if self.quakeml is None else self.quakeml.data
-
-    web_service = relationship(WebService)
-
-    @property
-    def url(self):
-        return f'{self.web_service.url}?eventid={str(self.eventid)}'
-
     __table_args__ = (
         UniqueConstraint('catalog', 'eventid', name='ws_eventid_uc'),
     )  # <- tuple
@@ -253,19 +241,15 @@ class Channel(Base):
     scale_units = Column(String)
     sample_rate = Column(Float, nullable=False)
 
-    web_service = relationship(WebService)
-
-    @property
-    def url(self):
-        params = "&".join([
-            f"net={self.network_code}",
-            f"sta={self.station_code}",
-            f"loc={self.location_code}",
-            f"cha={self.channel_code}"
-        ])
-        return f"{self.webservice.url}?{params}&level=channel"
-
     __table_args__ = (
+        Index(
+            'channel_without_orientation__index',
+            'network_code',
+            'station_code',
+            'location_code',
+            'instrument_code',
+            'band_code'
+        ),
         UniqueConstraint(
             'network_code',
             'station_code',
@@ -316,109 +300,15 @@ class Segment(Base):
     event_id = Column(Integer, ForeignKey(Event.id), nullable=False)
     webservice_id = Column(Integer, ForeignKey(WebService.id), nullable=False)
     channel_id = Column(Integer, ForeignKey(Channel.id), nullable=False)
-    # event_distance_deg = Column(Float, nullable=False, index=True)
     event_distance_km = Column(SmallInteger, nullable=False, index=True)
-    # download_code = Column(Integer, index=True)
-    # start_time = Column(DateTime)
-    # arrival_time = Column(DateTime, nullable=False)
-    # end_time = Column(DateTime)
-    # arrival_time_numsamples = Column(Integer, nullable=False)
-    # sample_rate = Column(Float)
     noise_window_s = Column(SmallInteger, nullable=False)  # duration (in s) of start time relative to arrival_time (often < 0)
     signal_window_s = Column(SmallInteger, nullable=False)  # duration (in s) of end time relative to arrival_time (often > 0)
     gap_score_percent = Column(SmallInteger, nullable=False)
-    # maxgap_numsamples = Column(Float)
-    # request_start = deferred(Column(DateTime, nullable=False))
-    # request_end = deferred(Column(DateTime, nullable=False))
-    # queryauth = deferred(Column(Boolean, nullable=False, server_default="0"))
-    # has_data = Column(Boolean, nullable=False, server_default="0", index=True)
-
-    miniseed = relationship("MiniSeed", uselist=False)  # One-to-one
-
-    @property
-    def miniseed_data(self):
-        return None if self.miniseed is None else self.miniseed.data
-
-    webservice = relationship(WebService)
-    channel = relationship(Channel, backref=backref("segments", lazy="dynamic"))
-
-    @property
-    def url(self):
-        """Return the full URL that can be used to (re)download the Segment
-        waveform data in miniSEED format (For details, see GET request here:
-        https://www.fdsn.org/webservices/fdsnws-dataselect-1.1.pdf)
-        """
-        net, sta = self.channel.network_code, self.channel.station_code
-        loc, cha = self.channel.location_code, self.channel.channel_code
-        start = self.start_time.isoformat('T')
-        end = self.end_time.isoformat('T')
-        return (f"{self.webservice.url}?"
-                f"net={net}&sta={sta}&loc={loc}&cha={cha}&start={start}&end={end}")
-
-    @property
-    def stationxml_url(self):
-        params = "&".join([
-            f"net={self.channel.network_code}",
-            f"sta={self.channel.station_code}"
-        ])
-        return f"{self.channel.webservice.url}?{params}&level=response"
-
-    event = relationship(Event, backref=backref("segments", lazy="dynamic"))
-
-    # `classes` below is kind-of private, because exposing it in selection expression is
-    # complex (it is the only many-to-many relationship) and also in most case redundant,
-    # as users is generally interested to have the labels only (see `self.classlabels`):
-    # classes = relationship("ClassLabel",  lazy='dynamic',  # viewonly=True,
-    #                        secondary="class_labeling",
-    #                        backref=backref("segments", lazy="dynamic"))
-
-    # download_run = relationship(DownloadRun)
-
-    # relationships (implement here only those shared by download+process):
-    # stationxml = relationship(StationXML, backref=backref("segments", lazy="dynamic"))
-
-    # Relationship spanning 3 tables (https://stackoverflow.com/a/17583437)
-    # stationxml = relationship(StationXML,
-    #                         # `secondary` must be table name in metadata:
-    #                         secondary=Channel,
-    #                         primaryjoin="Segment.channel_id == Channel.id",
-    #                         secondaryjoin="StationXML.id == Channel.stationxml_id",
-    #                         uselist=False,
-    #                         # the following two params are set in order to make this
-    #                         # relationship work in v 1 and 2, but no idea why due to
-    #                         # the lack of clarity in sqlalchemy docs
-    #                         viewonly=True,
-    #                         sync_backref=False,
-    #                         backref=backref("segments", lazy="dynamic"))
 
     __table_args__ = (
-        # Index("event_channel_index", "event_id", "channel_id"),
+        Index("okseg_event_channel_index", "event_id", "channel_id"),
         UniqueConstraint('event_id', 'channel_id', name='unique_event_channel'),
     )
-
-    # @property
-    # def siblings(self):
-    #     # Get the SQLAlchemy session managing this instance
-    #     session = self.dbsession
-    #
-    #     # If no session is attached, or channel is not set (we need its attributes),
-    #     # return an empty query that matches nothing (safe fallback).
-    #     if not session or not self.channel or self.channel.orientation_code not in {'N', 'Z', 'E', '1', '2', '3'}:
-    #         return session.query(Segment).filter(False)  # noqa
-    #
-    #     return (
-    #         session.query(Segment)
-    #         .options(selectinload(Segment.miniseed))
-    #         .join(Channel)
-    #         .filter(
-    #             Segment.id != self.id,                         # exclude self  # noqa
-    #             Segment.channel_id == self.channel_id,         # noqa
-    #             Segment.event_id == self.event_id,
-    #             Channel.location_code == self.channel.location_code,
-    #             Channel.band_code == self.channel.band_code,
-    #             Channel.instrument_code == self.channel.instrument_code
-    #         )
-    #     )
 
     @hybrid_property
     def event_distance_deg(self):
@@ -436,21 +326,6 @@ class Segment(Base):
     def duration_s(cls):
         return cls.signal_window_s - cls.noise_window_s
 
-    @hybrid_property
-    def classlabels_count(self):
-        return self.classes.count()  # len(self.classes) > 0
-
-    @classlabels_count.expression
-    def classlabels_count(cls):  # noqa
-        return select(func.count(ClassLabeling.id)).\
-            where(ClassLabeling.segment_id == cls.id).\
-            label('classlabels_count')
-
-    @property
-    def classlabels(self):
-        """Return a sorted list of strings denoting the class labels assigned to this
-        segment"""
-        return sorted(_.label for _ in self.classes.options(load_only(ClassLabel.label)))
 
 
 class SkippedSegment(Base):
@@ -466,7 +341,7 @@ class SkippedSegment(Base):
     download_code = Column(SmallInteger)
 
     __table_args__ = (
-        # Index("event_channel_index", "event_id", "channel_id"),
+        Index("skipseg_event_channel_index", "event_id", "channel_id"),
         UniqueConstraint('event_id', 'channel_id', name='unique_event_channel'),
     )
 
@@ -479,7 +354,7 @@ class ClassLabel(Base):
     description = deferred(Column(String))
 
     __table_args__ = (  # noqa
-        UniqueConstraint('label', name='class_label_name_uc'),
+        UniqueConstraint('label', name='unique_label'),
     )
 
 
@@ -495,5 +370,7 @@ class ClassLabeling(Base):
     annotator = Column(String)
 
     __table_args__ = (
-        UniqueConstraint('segment_id', 'class_label_id', name='seg_class_uc'),
+        UniqueConstraint(
+            'segment_id', 'class_label_id', name='unique_segment_label'
+        ),
     )
