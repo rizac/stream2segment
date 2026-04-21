@@ -1,16 +1,13 @@
 """
 s2s database ORM
-
-:date: Jul 15, 2016
-
-.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
+# :date: Jul 15, 2016
 import gzip
 import sqlite3
 from math import pi
 from sqlalchemy import (
     Column,
-    ForeignKey as SqlAlchemyForeignKey,  # we override it (see below)
+    ForeignKey,
     Integer,
     String,
     Boolean,
@@ -24,14 +21,9 @@ from sqlalchemy import (
     Index
 )
 from sqlalchemy.engine import Engine
-from sqlalchemy.ext.hybrid import hybrid_property  # , hybrid_method
-from sqlalchemy.inspection import inspect
-from sqlalchemy.orm import relationship, backref, deferred, load_only
+from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.sql.expression import literal, case, select, func  # or_ , and_
-
-# from stream2segment.io import Fdsnws
 from stream2segment.io.db import sqlalchemy_version
-# from stream2segment.io.db.sqlconstructs import concat, deg2km, duration_sec
 
 try:
     from sqlalchemy.orm import declarative_base  # v1.4+
@@ -53,56 +45,7 @@ if sqlalchemy_version < 2:  # https://stackoverflow.com/a/75634238
         return __sa_case__(list(entities), **kw)  # noqa
 
 
-class _Base:
-    """Abstract base class for a Stream2segment ORM Model"""  # FIXME REMOVE!
-
-    def __str__(self):
-        """Return a meaningful string representation (with info on loaded
-        columns and related objects)"""
-        cls = self.__class__
-        ret = [str(cls.__name__)]
-        # provide a meaningful str representation, but show only loaded
-        # attributes (https://stackoverflow.com/a/261191)
-        mapper = inspect(cls)
-        me_dict = self.__dict__
-        loaded_cols, unloaded_cols = 0, 0
-        idx = 1
-        maxchar = 10
-        ret.append('')
-        for c in mapper.columns.keys():
-            if c in me_dict:
-                val = me_dict[c]
-                cut_str = ''
-                if hasattr(val, "__len__") and len(val) > maxchar:
-                    elm = 'characters' if isinstance(val, str) else 'elements'
-                    cut_str = ', %d %s, showing first %d only' % \
-                              (len(val), elm, maxchar)
-                    val = val[:maxchar]
-                ret.append("  %s: %s (%s%s)" % (
-                    c, str(val), str(val.__class__.__name__), cut_str))
-                loaded_cols += 1
-            else:
-                ret.append("  %s" % c)
-                unloaded_cols += 1
-        ret[idx] = ' attributes (%d of %d loaded):' % (
-            loaded_cols, loaded_cols + unloaded_cols)
-        idx = len(ret)
-        ret.append('')
-        loaded_rels, unloaded_rels = 0, 0
-        for r in mapper.relationships.keys():
-            if r in me_dict:
-                ret.append("  %s: `%s` object" %
-                           (r, str(me_dict[r].__class__.__name__)))
-                loaded_rels += 1
-            else:
-                ret.append("  %s" % r)
-                unloaded_rels += 1
-        ret[idx] = ' related_objects (%d of %d loaded):' % \
-                   (loaded_rels, loaded_rels + unloaded_rels)
-        return "\n".join(ret)
-
-
-Base = declarative_base(cls=_Base)
+Base = declarative_base()
 
 
 class CompressedBinary(TypeDecorator):
@@ -133,21 +76,10 @@ def set_sqlite_pragma(dbapi_connection, connection_record):
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()
 
-
-def ForeignKey(*pos, **kwa):
-    """Override the ForeignKey defined in SqlAlchemy by providing default
-    `onupdate='CASCADE'` and `ondelete='CASCADE'` if the two keyword argument
-    are missing in `kwa`. If this behavior needs to be modified for some column
-    in the future, just provide the arguments in the constructor as one would
-    do with sqlalchemy ForeignKey class E.g.:
-    col = Column(..., ForeignKey(..., onupdate='SET NULL',...), nullable=False)
-    """
-    if 'onupdate' not in kwa:
-        kwa['onupdate'] = 'CASCADE'
-    if 'ondelete' not in kwa:
-        kwa['ondelete'] = 'CASCADE'
-    return SqlAlchemyForeignKey(*pos, **kwa)
-
+on_del_upd_cascade = {
+    'onupdate': 'CASCADE',
+    'ondelete': 'CASCADE'
+}
 
 class DownloadRun(Base):  # noqa
     """Model representing the executed downloads"""
@@ -201,7 +133,12 @@ class QuakeML(Base):
     """Model representing a Waveform segment"""
     __tablename__ = 'quakeml'
 
-    id = Column(Integer, ForeignKey(Event.id), primary_key=True)
+    id = Column(
+        Integer,
+        ForeignKey(Event.id, **on_del_upd_cascade),
+        primary_key=True,
+        nullable=False
+    )
     data = Column(CompressedBinary, nullable=False)
 
 
@@ -219,7 +156,11 @@ class Channel(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     webservice_id = Column(Integer, ForeignKey(WebService.id), nullable=False)
-    stationxml_id = Column(Integer, ForeignKey(StationXML.id), nullable=True)
+    stationxml_id = Column(
+        Integer,
+        ForeignKey(StationXML.id, ondelete="SET NULL", onupdate="CASCADE"),
+        nullable=True
+    )
     network_code = Column(String(8), nullable=False, index=True)
     station_code = Column(String(8), nullable=False, index=True)
     latitude = Column(Float, nullable=False)
@@ -281,28 +222,22 @@ class Channel(Base):
         return func.concat(cls.band_code, cls.instrument_code, cls.orientation_code)
 
 
-# MINISEED_READ_ERROR_CODE = -2  FIXME check where used and remove
-
-
-class MiniSeed(Base):
-    """Model representing a Waveform segment"""
-    __tablename__ = 'miniseed'
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    data = Column(LargeBinary, nullable=False)
-
-
 class Segment(Base):
     """Model representing a Downloaded segment"""
     __tablename__ = 'segment'
 
-    id = Column(Integer, ForeignKey(MiniSeed.id), primary_key=True)
-    event_id = Column(Integer, ForeignKey(Event.id), nullable=False)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    event_id = Column(
+        Integer, ForeignKey(Event.id, **on_del_upd_cascade), nullable=False
+    )
+    channel_id = Column(
+        Integer, ForeignKey(Channel.id, **on_del_upd_cascade), nullable=False
+    )
     webservice_id = Column(Integer, ForeignKey(WebService.id), nullable=False)
-    channel_id = Column(Integer, ForeignKey(Channel.id), nullable=False)
+
     event_distance_km = Column(SmallInteger, nullable=False, index=True)
-    noise_window_s = Column(SmallInteger, nullable=False)  # duration (in s) of start time relative to arrival_time (often < 0)
-    signal_window_s = Column(SmallInteger, nullable=False)  # duration (in s) of end time relative to arrival_time (often > 0)
+    noise_window_s = Column(SmallInteger, nullable=False)  # duration (in s) of start time relative to arrival_time (often < 0)  # noqa
+    signal_window_s = Column(SmallInteger, nullable=False)  # duration (in s) of end time relative to arrival_time (often > 0)  # noqa
     gap_score_percent = Column(SmallInteger, nullable=False)
 
     __table_args__ = (
@@ -327,6 +262,18 @@ class Segment(Base):
         return cls.signal_window_s - cls.noise_window_s
 
 
+class MiniSeed(Base):
+    """Model representing a Waveform segment"""
+    __tablename__ = 'miniseed'
+
+    id = Column(
+        Integer,
+        ForeignKey(Segment.id, **on_del_upd_cascade),
+        primary_key=True,
+        nullable=False
+    )
+    data = Column(LargeBinary, nullable=False)
+
 
 class SkippedSegment(Base):
     """
@@ -336,8 +283,12 @@ class SkippedSegment(Base):
     __tablename__ = 'skipped_segment'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    event_id = Column(Integer, ForeignKey(Event.id), nullable=False)
-    channel_id = Column(Integer, ForeignKey(Channel.id), nullable=False)
+    event_id = Column(
+        Integer, ForeignKey(Event.id, **on_del_upd_cascade), nullable=False
+    )
+    channel_id = Column(
+        Integer, ForeignKey(Channel.id, **on_del_upd_cascade), nullable=False
+    )
     download_code = Column(SmallInteger)
 
     __table_args__ = (
@@ -350,8 +301,8 @@ class ClassLabel(Base):
     __tablename__ = 'class_label'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    label = Column(String)
-    description = deferred(Column(String))
+    label = Column(String, nullable=False)
+    description = Column(String)
 
     __table_args__ = (  # noqa
         UniqueConstraint('label', name='unique_label'),
@@ -364,8 +315,14 @@ class ClassLabeling(Base):
     __tablename__ = 'class_labeling'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    segment_id = Column(Integer, ForeignKey(Segment.id), nullable=False)
-    class_label_id = Column(Integer, ForeignKey(ClassLabel.id), nullable=False)
+    segment_id = Column(
+        Integer, ForeignKey(Segment.id, **on_del_upd_cascade), nullable=False
+    )
+    class_label_id = Column(
+        Integer,
+        ForeignKey(ClassLabel.id, ondelete="RESTRICT", onupdate="CASCADE"),
+        nullable=False
+    )
     is_hand_labelled = Column(Boolean, server_default="1")
     annotator = Column(String)
 

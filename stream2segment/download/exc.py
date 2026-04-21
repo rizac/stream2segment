@@ -25,7 +25,7 @@ class QuitDownload(Exception):
 class NothingToDownload(QuitDownload):
     """Exception that should be raised whenever the download process has no
     segments to download according to the user's settings. Currently,
-    stream2segments catches these Exceptions logging their message as level
+    stream2segment catches these Exceptions logging their message as level
     INFO and returning a 0 (=successful) status code
 
     This class and :class:`FailedDownload` both inherit from

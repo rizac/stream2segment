@@ -1,127 +1,117 @@
 """
-Stations (inventory) download
+StationsXML download
 """
-from datetime import datetime
 import logging
-from datetime import timedelta
 from typing import Optional
-from urllib.request import Request
 
-import pandas as pd
+from sqlalchemy import select, Engine
 
 from stream2segment.io.cli import get_progressbar
-from stream2segment.io.db.pdsql import DbManager
-from stream2segment.io.db.models import WebService, Segment
-from stream2segment.download.url import read_async, get_host
-from stream2segment.download.modules.utils import (DbExcLogger,
-                                                   IdOnceLogFilter,
-                                                   fdsn_url_qs, err2str)
+from stream2segment.io.db.pdsql import (
+    create_update_statement, create_insert_statement, execute_sql, get_max
+)
+from stream2segment.io.db.models import WebService, Segment, Channel, StationXML
+from stream2segment.download.url import read_async, get_host, responses
+from stream2segment.download.modules.utils import (IdOnceLogFilter, fdsn_url_qs)
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__)
 
 
-def get_station_df_for_inventory_download(session, update_metadata):
-    """
-    Return a Pandas DataFrame with all station information required to download
-    the necessary StationXML from the data stored in the DB mapped by the
-    given session object. See `save_inventories`
-
-    :param session: an SQLAlchemy session object
-    :param update_metadata: boolean, if True an element E of the returned list is
-        a tuple representing any station which has at least one segment with
-        data. If False, each E represents a station which has at least one
-        segment with data, AND does not have an inventory saved yet
-    :return:  a DataFrame that can be used to download inventories needed by the DB
-        underlying the given session, with columns:
-         (Station.id, `Station.network`, `Station.station`, WebService.url,
-        Station.start_time, Station.end_time)
-    """
-    sta_df = db2df(_query4inventorydownload(session, update_metadata))
-    sta_df[WebService.url.key] = sta_df[WebService.url.key].astype('category')  # save space
-    # sort values in order to 1. download first most recent events and 2: shuffle
-    # datacenters and try to diversify the requests to different URLs:
-    sta_df.sort_values(by=Station.start_time.key, ascending=False, inplace=True)
-    return sta_df
-
-
-def _query4inventorydownload(session, force_update):
-    """Return a Sql-alchemy Query yielding the stations for downloading their
-    inventory xml. Each station is returned as tuple (denoting the station requested
-    values).
-    See `get_station_df_for_inventory_download` for details
-    """
-    qry = session.query(Station.id, Station.network, Station.station,
-                        WebService.url).join(Station.webservice)
-
-    if force_update:
-        qry = qry.filter(Station.segments.any(Segment.has_data))  # noqa
-    else:
-        qry = qry.filter((~Station.has_inventory) &  # noqa
-                         (Station.segments.any(Segment.has_data)))  # @noqa
-
-    return qry
-
-
-def save_stationxml(session, stations_df, max_thread_workers, timeout,
-                    download_blocksize, db_bufsize, show_progress=False):
+def save_stationxml(
+    engine: Engine,
+    max_thread_workers,
+    timeout,
+    download_blocksize,
+    show_progress=False
+):
     """Save StationXML data. stations_df must not be empty (not checked here)"""
 
-    log_once_filter: Optional[IdOnceLogFilter] = None  # lazily created if needed
-    downloaded, errors, empty = 0, 0, 0
-    id_col = Station.id.key
-    net_col = Channel.network_code.key
-    sta_col = Station.station.key
-    xml_col = Station.stationxml.key
-    db_exc_logger = DbExcLogger([id_col, net_col, sta_col])
-    dbmanager = DbManager(session, Station.id, update=[xml_col], buf_size=db_bufsize,
-                          oninsert_err_callback=db_exc_logger.failed_insert,
-                          onupdate_err_callback=db_exc_logger.failed_update)
-
-    with get_progressbar(len(stations_df) if show_progress else 0) as pbar:
-
-        iterable = zip(
-            stations_df[id_col],
-            stations_df[WebService.url.key],
-            stations_df[net_col],
-            stations_df[sta_col]
+    stmt = (
+        select(
+            Channel.network_code,
+            Channel.station_code,
+            Channel.webservice_id,
+            WebService.url
         )
+        .join(WebService, Channel.webservice_id == WebService.id)
+        .join(Segment, Segment.channel_id == Channel.id)
+        .where(Channel.stationxml_id.is_(None))
+        .distinct()
+    )
 
-        def url_builder(row):
+    log_once_filter: Optional[IdOnceLogFilter] = None  # lazily created if needed
+    downloaded, saved, errors = 0, 0, 0
+
+    with engine.connect() as conn:
+        rows = conn.execute(stmt).fetchall()
+
+    insert_stmt = [create_insert_statement(StationXML)]
+    stationxml_id = get_max(engine, StationXML.id)
+    cache: dict[str, tuple[str, str, int]] = {}
+
+    if len(rows) > 0:
+
+        downloaded = len(rows)
+
+        def url_builder(net, sta, ws_id, ws_url):
             """build url (str) from each item yielded by the previous iterable"""
-            return fdsn_url_qs(row[1], net=row[2], sta=row[3], level='response')
+            url = fdsn_url_qs(ws_url, net=net, sta=sta, level='response')
+            cache.setdefault(url, (net, sta, ws_id))
+            return url
 
-        reader = read_async(iterable, url_callback=url_builder, timeout=timeout,
-                            max_workers=max_thread_workers, blocksize=download_blocksize)
+        with get_progressbar(len(rows) if show_progress else 0) as pbar:
 
-        for obj, data, exc, status_code in reader:
-            pbar.update(1)
-            sta_id = obj[0]
-            if exc or not data:
-                if log_once_filter is None:  # create lazily
-                    log_once_filter = IdOnceLogFilter()
-                    logger.addFilter(log_once_filter)
-                    logger.warning(
-                        "StationXML download errors\n"
-                        "(shown once per (URL domain, error type) combination)"
-                    )
-                url_ = url_builder(obj)
-                if exc:
-                    msg = err2str(exc)
+            reader = read_async(
+                (url_builder(*row) for row in rows),
+                timeout=timeout,
+                max_workers=max_thread_workers,
+                blocksize=download_blocksize
+            )
+
+            for response in reader:
+                pbar.update(1)
+                url = response.request
+                if not response.is_ok or response.status == 204:
+                    if log_once_filter is None:  # create lazily
+                        log_once_filter = IdOnceLogFilter()
+                        logger.addFilter(log_once_filter)
+                        logger.warning(
+                            "StationXML download errors\n"
+                            "(shown once per (URL domain, error type) combination)"
+                        )
+                    msg = responses.get(response.status, "Unknown error")
                     errors += 1
+                    logger.warning(
+                        url,msg, extra={'ID': (get_host(url), msg)}
+                    )
                 else:
-                    msg = "empty response"
-                    empty += 1
-                logger.warning(
-                    url_,msg, extra={'ID': (get_host(url_), exc.__class__)}
-                )
-            else:
-                downloaded += 1
-                dfr = pd.DataFrame({id_col: [sta_id], xml_col: [compress(data)]})
-                dbmanager.add(dfr)
+                    try:
+                        (net, sta, ws_id) = cache.pop(url)
+                        update_stmt = create_update_statement(
+                            Channel,
+                            (
+                                (Channel.network_code==net) &
+                                (Channel.station_code==sta) &
+                                (Channel.webservice_id==ws_id)
+                            ),
+                            Channel.stationxml_id
+                        )
+                        stationxml_id += 1
+                        execute_sql(
+                            engine,
+                            [insert_stmt, update_stmt],
+                            {
+                                'data': response.data,
+                                'id': stationxml_id,
+                                'stationxml_id': stationxml_id
+                            }
+                        )
+                        saved += 1
+                    except Exception:
+                        pass
 
-    dbmanager.close()
-    if log_once_filter is not None:
-        logger.removeFilter(log_once_filter)
+        if log_once_filter is not None:
+            logger.removeFilter(log_once_filter)
 
-    return downloaded, empty, errors
+    return downloaded, saved, errors

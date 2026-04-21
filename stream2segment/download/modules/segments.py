@@ -145,11 +145,11 @@ def download_and_save(
 
     skipped_segment_codes = set(MiniSeedErrorCode) | {204}
 
-    segments_current_id = get_max(engine, MiniSeed.id)
+    segments_current_id = get_max(engine, Segment.id)
 
     sql_insert_ok = [
-        create_insert_statement(MiniSeed),
-        create_insert_statement(Segment)
+        create_insert_statement(Segment),
+        create_insert_statement(MiniSeed)
     ]
     rows_ok = []
     sql_insert_skip = [create_insert_statement(SkippedSegment)]

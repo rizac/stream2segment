@@ -10,6 +10,7 @@ import os
 import logging
 
 import psutil
+from sqlalchemy import Engine
 
 from stream2segment.download.log import configlog4download, DbStreamHandler
 from stream2segment.io.db.pdsql import get_max, execute_sql, create_insert_statement
@@ -18,14 +19,13 @@ from stream2segment.io import yaml_safe_dump
 from stream2segment.io.db import secure_dburl, close_session, models
 from stream2segment.download.inputvalidation import load_config_for_download, pop_param
 from stream2segment.download.exc import NothingToDownload, FailedDownload
-from stream2segment.download.modules.events import get_events
+from stream2segment.download.modules.events import get_events, save_quakeml
 from stream2segment.download.modules.channels import get_channels
 from stream2segment.download.modules.stationsearch import merge_events_stations
 from stream2segment.download.modules.segments import (
-    prepare_for_download, download_and_save  #, DcDataselectManager  # FIXME REMOVE
+    prepare_for_download, download_and_save
 )
-from stream2segment.download.modules.stations import \
-    (save_stationxml, get_station_df_for_inventory_download)
+from stream2segment.download.modules.stations import save_stationxml
 
 
 # make the logger refer to the parent of this package (`rfind` below. For info:
@@ -132,7 +132,7 @@ def download(config, log2file=True, verbose=False, print_config_only=False,
 
         stime = time.time()
         _run(download_id=download_id, isterminal=verbose, authorizer=authorizer,
-             session=session, **d_kwargs)
+             engine=session.get_bind(), **d_kwargs)
         logger.info("Completed in %s", str(elapsed_time(stime)))
         if db_streamer is not None:
             errs, warns = db_streamer.errors, db_streamer.warnings
@@ -187,7 +187,7 @@ def _pretty_printed_str(yaml_dict):
     ]).strip()
 
 
-def _run(session, download_id, events_url, starttime, endtime, data_url,
+def _run(engine: Engine, download_id, events_url, starttime, endtime, data_url,
          events_extra_params, network, station, location, channel, min_sample_rate,
          search_radius, update_metadata, inventory, time_window,
          retry_seg_not_found, retry_url_err, retry_mseed_err, retry_client_err,
@@ -229,12 +229,10 @@ def _run(session, download_id, events_url, starttime, endtime, data_url,
             logger.warning("(%.1f%% memory used)", percent)
 
     try:
-        engine = session.get_bind()
-
         stepinfo("Fetching events")
 
         events = get_events(
-            session,
+            engine,
             events_url,
             events_extra_params,
             starttime,
@@ -384,27 +382,31 @@ def _run(session, download_id, events_url, starttime, endtime, data_url,
             session.expunge_all()
             session.close()
 
-            # query station id, network station, datacenter_url
-            # for those stations with empty stationxml
-            # AND at least one segment non-empty/null
-            # Download inventories for those stations only
-            sta_df = get_station_df_for_inventory_download(session, update_metadata)
-
-            if sta_df.empty:
-                stepinfo("Skipping: No station inventory to download")
-            else:
-                stepinfo("Downloading %d station inventories", len(sta_df))
-                n_downloaded, n_empty, n_errors = \
-                    save_stationxml(engine, sta_df,
-                                    max_thread_workers,
-                                    advanced_settings['i_timeout'],
-                                    download_blocksize,
-                                    dbbufsize, isterminal)
-                logger.info(("** Station inventories download summary **\n"
-                             "- downloaded     %7d \n"
-                             "- discarded      %7d (empty response)\n"
-                             "- not downloaded %7d (client/server errors)"),
-                            n_downloaded, n_empty, n_errors)
+            stepinfo("Downloading Stations (StationXML)")
+            n_downloaded, n_saved, n_errors = \
+                save_stationxml(engine,
+                                max_thread_workers,
+                                advanced_settings['i_timeout'],
+                                download_blocksize,
+                                isterminal)
+            logger.info(("** Stations StationXML download summary **\n"
+                         "- downloaded     %7d \n"
+                         "- saved          %7d (empty response)\n"
+                         "- not downloaded %7d (client/server errors)"),
+                        n_downloaded, n_saved, n_errors)
+        if quakeml:
+            stepinfo("Downloading Events (QuakeML)")
+            n_downloaded, n_saved, n_errors = \
+                save_quakeml(engine,
+                             max_thread_workers,
+                             advanced_settings['i_timeout'],
+                             download_blocksize,
+                             isterminal)
+            logger.info(("** Events QuakeML download summary **\n"
+                         "- downloaded     %7d \n"
+                         "- saved          %7d (empty response)\n"
+                         "- not downloaded %7d (client/server errors)"),
+                        n_downloaded, n_saved, n_errors)
 
 
 def new_download_run(engine, params=None) -> int:

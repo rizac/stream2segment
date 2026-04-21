@@ -114,7 +114,7 @@ def test_real_run_old_buggy_network_filter( # mock_get_post_data,  # FIXME REMOV
 
     # mock download save segments: raise NothingToDownload to speed up things:
     def func_(*a, **kw):
-        raise NothingToDownload()
+        raise NothingToDownload("custom message")
     mock_download_save_segments.side_effect = func_
 
     cfg_file = data.path("download-network-filter.yaml")

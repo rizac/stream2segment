@@ -215,7 +215,7 @@ def _attnames(model, filter_func=None):
     """Return a sorted list of (queriable) attributes defined on the model with optional
     filter function `func(att_name): -> bool`
     """
-    # return non foreign key columns or queryable attributes only:
+    # return non-foreign key columns or queryable attributes only:
     att_itr = attnames(model, fkey=False, qatt=True, rel=False)
     return sorted(_ for _ in att_itr if filter_func is None or filter_func(_))
 

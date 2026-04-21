@@ -8,16 +8,17 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
-from sqlalchemy import func
+from sqlalchemy import func, Engine, select
 
 from stream2segment.io.cli import get_progressbar
-from stream2segment.io.db.pdsql import DbManager, df2db
+from stream2segment.io.db.pdsql import df2db, create_insert_statement, execute_sql
 from stream2segment.download.exc import FailedDownload, NothingToDownload
-from stream2segment.io.db.models import Event, WebService
-from stream2segment.download.url import urlread, socket, HTTPError, read_async, get_host
+from stream2segment.io.db.models import Event, WebService, Segment, QuakeML
+from stream2segment.download.url import urlread, socket, HTTPError, read_async, \
+    get_host, responses
 from stream2segment.download.modules.utils import (
     fdsn_event_response_text_to_df, formatmsg,
-    EVENTWS_MAPPING, strptime, fdsn_url_qs, DbExcLogger, IdOnceLogFilter, err2str
+    EVENTWS_MAPPING, strptime, fdsn_url_qs, IdOnceLogFilter
 )
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
@@ -25,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 def get_events(
-    session,
+    engine: Engine,
     url,
     evt_query_args,
     start,
@@ -37,15 +38,15 @@ def get_events(
     """Return the event data frame from the given url or local file"""
     local_file = is_local_file(url)
 
-    eventws_id = configure_ws_fk(
+    event_ws_id = configure_ws_fk(
         f"file:///.../{os.path.basename(url)}" if local_file else url,
-        session
+        engine
     )
 
     pd_df_list = events_df_list(url, evt_query_args, start, end, 120, show_progress)
     # pd_df_list surely not empty (otherwise we raised FailedDownload)
     events_df = pd.concat(pd_df_list, axis=0, ignore_index=True, copy=False)
-    events_df[Event.webservice_id.key] = eventws_id
+    events_df[Event.webservice_id.key] = event_ws_id
 
     if local_file:
         check_events_df_from_local_file(events_df, session, show_progress)
@@ -53,52 +54,41 @@ def get_events(
     events_df, failed_i, _ = df2db(
         events_df,
         Event,
-        session.get_bind(),
+        engine,
         'id',
         [Event.eventid.key, Event.catalog.key],
         # chunksize=db_bufsize,
     )
-    # FIXME: log failed?
-
-    # FIXME REMOVE
-    # dbsyncdf(events_df, session,
-    #                  [Event.eventid, Event.webservice_id], Event.id,
-    #                  buf_size=db_bufsize,
-    #                  cols_to_print_on_err=[Event.eventid.key, Event.magnitude.key,
-    #                                        Event.time.key],
-    #                  keep_duplicates='first'))
 
     # try to release memory for unused columns (FIXME: NEEDS TO BE TESTED)
     return events_df[[Event.id.key, Event.magnitude.key, Event.latitude.key,
                       Event.longitude.key, Event.depth_km.key, Event.time.key]].copy()
 
 
-def configure_ws_fk(eventws_url, session):
+def configure_ws_fk(event_ws_url, engine: Engine):
     """Configure the web service foreign key creating such a db row if it does
     not exist and returning its id"""
-    ws_name = ''
-    if eventws_url in EVENTWS_MAPPING:
-        eventws_url = EVENTWS_MAPPING[eventws_url]
+    if event_ws_url in EVENTWS_MAPPING:
+        event_ws_url = EVENTWS_MAPPING[event_ws_url]
 
-    eventws_id = session.query(WebService.id). \
-        filter(WebService.url == eventws_url).scalar()
+    with engine.begin() as conn:  # noqa
+        event_ws_id = conn.execute(
+            select(WebService.id).where(WebService.url == event_ws_url)
+        ).scalar_one_or_none()
 
-    if eventws_id is None:  # write url to table
-        dfr = pd.DataFrame((eventws_url,), columns=[WebService.url.key])
+    if event_ws_id is None:  # write url to table
+        dfr = pd.DataFrame((event_ws_url,), columns=[WebService.url.key])
 
         dfr, i_err, _ = df2db(
             dfr,
             WebService,
-            session.get_bind(),
+            engine,
             'id',
             [WebService.url.key],
         )
+        event_ws_id = dfr.iloc[0][WebService.id.key]
 
-        # dfr = dbsyncdf(dfr, session, [WebService.url], WebService.id,
-        #                buf_size=db_bufsize)
-        eventws_id = dfr.iloc[0][WebService.id.key]
-
-    return eventws_id
+    return event_ws_id
 
 
 # error string (constants, used in test so we can change them with no problem, hopefully)
@@ -173,27 +163,6 @@ def normalize_url(base_url, evt_query_args, start, end):
     return fdsn_url_qs(_url, **_query_args)
 
 
-# def events_data_from_file(file_path):
-#     """Yield the tuple (filepath, events_data) from a file, which must exist
-#     on the local computer.
-#     The only supported format is txt.
-#     """
-#     with open(file_path, encoding='utf-8') as opn:
-#         data = opn.read()
-#         if not data:
-#             raise ValueError('Empty file')
-#         return tofileuri(file_path), data
-
-
-# def tofileuri(file_path):
-#     """return a file URI form the given file,
-#     basically file_path:///+basename(file_path)
-#     """
-#     # https://en.wikipedia.org/wiki/File_URI_scheme#Format
-#     # return 'file:///' + os.path.abspath(os.path.normpath(file_path))
-#     return 'file:///' + os.path.basename(file_path)
-
-
 def is_local_file(url):
     """Return whether url denotes a local file path, existing on the computer
     machine
@@ -226,7 +195,7 @@ def events_iter_from_url(base_url, evt_query_args, start, end, timeout,
 
         # the tricky part below is actually the progressbar part. It must:
         # 1 not be linear, thus advance "more" at lower magnitudes (where
-        #   events are more dense)
+        #   events are denser)
         # 2 consider that, when the maximum magnitude depth is reached, we split
         #   by time and in this case only the last sub-request should advance the
         #   progress bar
@@ -380,68 +349,6 @@ def _get_freq_mag_distrib(evt_query_args):
     return minmag, step, ret
 
 
-def save_quakeml(session, events_df, max_thread_workers, timeout,
-                 download_blocksize, db_bufsize, show_progress=False):
-    """Save event's quakeML data. events_df must not be empty"""
-
-    log_once_filter: Optional[IdOnceLogFilter] = None  # lazily created if needed
-    downloaded, errors, empty = 0, 0, 0
-    db_exc_logger = DbExcLogger([Event.id.key])
-    dbmanager = DbManager(session, Event.id,
-                          update=[Event.quakeml.key],
-                          buf_size=db_bufsize,
-                          oninsert_err_callback=db_exc_logger.failed_insert,
-                          onupdate_err_callback=db_exc_logger.failed_update)
-
-    with get_progressbar(len(events_df) if show_progress else 0) as pbar:
-
-        iterable = zip(events_df[Event.id.key],
-                       events_df[WebService.url],
-                       events_df[Event.event_id.key])
-
-        def url_builder(row):
-            """build url (str) from each item yielded by the previous iterable"""
-            return fdsn_url_qs(obj[1], eventid=obj[2])
-
-        reader = read_async(iterable,
-                            url_callback=url_builder,
-                            max_workers=max_thread_workers,
-                            blocksize=download_blocksize, timeout=timeout)
-
-        for obj, data, exc, status_code in reader:
-            pbar.update(1)
-            evt_id = obj[0]
-            if exc or not data:
-                if log_once_filter is None:
-                    logger.warning(
-                        "QuakeML download errors\n"
-                        "(shown once per (URL domain, error type) combination)"
-                    )
-                    log_filter = IdOnceLogFilter()
-                    logger.addFilter(log_filter)
-                url_ = url_builder(obj)
-                if exc:
-                    msg = err2str(exc)
-                    errors += 1
-                else:
-                    msg = "empty response"
-                    empty += 1
-                logger.warning(
-                    url_, msg, extra={'ID': (get_host(url_), exc.__class__)}
-                )
-            else:
-                downloaded += 1
-                dfr = pd.DataFrame({Event.id.key: [evt_id],
-                                    Event.quakeml.key: [data]})
-                dbmanager.add(dfr)
-
-    dbmanager.close()
-    if log_once_filter is not None:
-        logger.removeFilter(log_once_filter)
-
-    return downloaded, empty, errors
-
-
 def check_events_df_from_local_file(events_df: pd.DataFrame, session,
                                     show_progress=False):
     suffix_msg = "Check events file"
@@ -492,3 +399,84 @@ def check_events_df_from_local_file(events_df: pd.DataFrame, session,
             raise FailedDownload(f'Event eventid={ev_id} is already stored in the '
                                  f'database with different magnitude or coordinates. '
                                  f'{suffix_msg}')
+
+
+def save_quakeml(engine: Engine, max_thread_workers, timeout,
+                 download_blocksize, show_progress=False):
+    """Save QuakeML data. stations_df must not be empty (not checked here)"""
+
+    stmt = (
+        select(
+            Event.id,
+            Event.eventid,
+            WebService.url
+        )
+        .join(WebService, Event.webservice_id == WebService.id)
+        .join(Segment, Segment.event_id == Event.id)
+        #.where(Channel.stationxml_id.is_(None))
+        .distinct()
+    )
+
+    log_once_filter: Optional[IdOnceLogFilter] = None  # lazily created if needed
+    downloaded, saved, errors = 0, 0, 0
+
+    with engine.connect() as conn:
+        rows = conn.execute(stmt).fetchall()
+
+    insert_stmt = create_insert_statement(QuakeML)
+    cache: dict[str, int] = {}
+
+    if len(rows) > 0:
+
+        downloaded = len(rows)
+
+        def url_builder(db_ev_id, cat_ev_id, ws_url):
+            """build url (str) from each item yielded by the previous iterable"""
+            url = fdsn_url_qs(ws_url, eventid=cat_ev_id, format='xml')
+            cache.setdefault(url, db_ev_id)
+            return url
+
+        with get_progressbar(len(rows) if show_progress else 0) as pbar:
+
+            reader = read_async(
+                (url_builder(*row) for row in rows),
+                timeout=timeout,
+                max_workers=max_thread_workers,
+                blocksize=download_blocksize
+            )
+
+            for response in reader:
+                pbar.update(1)
+                url = response.request
+                if not response.is_ok or response.status == 204:
+                    if log_once_filter is None:  # create lazily
+                        log_once_filter = IdOnceLogFilter()
+                        logger.addFilter(log_once_filter)
+                        logger.warning(
+                            "QuakeML download errors\n"
+                            "(shown once per (URL domain, error type) combination)"
+                        )
+                    msg = responses.get(response.status, "Unknown error")
+                    errors += 1
+                    logger.warning(
+                        url,msg, extra={'ID': (get_host(url), msg)}
+                    )
+                else:
+                    try:
+                        db_ev_id = cache.pop(url)
+                        execute_sql(
+                            engine,
+                            [insert_stmt],
+                            {
+                                'id': db_ev_id,
+                                'data': response.data
+                            }
+                        )
+                        saved += 1
+                    except Exception:
+                        pass
+
+        if log_once_filter is not None:
+            logger.removeFilter(log_once_filter)
+
+    return downloaded, saved, errors
