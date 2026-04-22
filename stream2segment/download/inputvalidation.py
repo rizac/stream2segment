@@ -69,7 +69,7 @@ def load_config_for_download(config, validate, **param_overrides):
     new_config[pname] = validate_param(pname, pval, int)
 
     # parameters whose validation changes completely their type and should
-    # returned separately from the new confg dict:
+    # return separately from the new confg dict:
 
     pname, pval = pop_param(old_config, 'restricted_data')
     validated_params.add(pname)
@@ -112,7 +112,7 @@ def load_config_for_download(config, validate, **param_overrides):
     pname, pval = pop_param(old_config, pnames, default=[])
     new_config[pnames[0]] = validate_param(pname, pval, valid_nslc)
 
-    pnames = ('time_window', 'timespan')
+    pnames = ('time_window', 'timespan', 'segment_window')
     validated_params.update(pnames)
     pname, pval = pop_param(old_config, pnames, default=None)
     bounds = validate_param(pname, pval, lambda _: [float(_[0]), float(_[1])])
@@ -120,6 +120,11 @@ def load_config_for_download(config, validate, **param_overrides):
         # a positive timespan[0] is now the same as a negative time_window[0]:
         bounds[0] = -bounds[0]
     new_config[pnames[0]] = bounds
+
+    pnames = ('stationxml', 'inventory')
+    validated_params.update(pnames)
+    pname, pval = pop_param(old_config, pnames, default=None)
+    new_config[pnames[0]] = validate_param(pname, pval, bool)
 
     # validate advanced_settings:
     pname = 'advanced_settings'

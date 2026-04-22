@@ -1,36 +1,18 @@
 """
-Utilities for the download package.
-
-Module implementing all functions not involving IO operations
-(logging, url read, db IO operations) in order to cleanup a bit the main module
-
-:date: Nov 25, 2016
-
-.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
+Utilities for the download routine
 """
+# date Nov 25, 2016
 import os
 import sys
 import re
 from io import StringIO
 from datetime import datetime, date, timezone
-from itertools import chain
-from collections import OrderedDict
-from functools import cmp_to_key
 import logging
-# from io import BytesIO
-# import gzip
-# import zipfile
-# import zlib
-# import bz2
 from urllib.parse import urlencode, unquote, urlparse, urlunparse
 from urllib.request import Request
 
 import pandas as pd
 
-# from stream2segment.io.db.models import MINISEED_READ_ERROR_CODE
-from stream2segment.io.db.pdsql import apply_table_dtypes
-from stream2segment.io.db.models import Event, Channel, WebService
-# from stream2segment.download.exc import FailedDownload
 from stream2segment.download.url import responses, get_host, urlread
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
@@ -165,81 +147,6 @@ def fdsn_response_text_to_df(response: str):
         ]
     )
 
-def fdsn_event_response_text_to_df(response: str):
-    """
-    Convert a response content obtained from a FDSN event webservice with format=text
-    into a pandas DataFrame with proper dtypes associated to the SQL mapped class
-    """
-    dframe = fdsn_response_text_to_df(response)
-    # EventID|Time|Latitude|Longitude|Depth/km|Author|Catalog|Contributor|
-    # ContributorID|MagType|Magnitude|MagAuthor|EventLocationName|EventType
-    columns = {
-        dframe.columns[0]: Event.event_id.key,
-        dframe.columns[1]: Event.time.key,
-        dframe.columns[2]: Event.latitude.key,
-        dframe.columns[3]: Event.longitude.key,
-        dframe.columns[4]: Event.depth_km.key,
-        # skip Author (Rarely used, memory-intensive text field)
-        dframe.columns[6]: Event.catalog.key,
-        # skip Contributor (Rarely used, memory-intensive text field)
-        # skip ContributorID (Rarely used, memory-intensive text field)
-        dframe.columns[9]: Event.mag_type.key,
-        dframe.columns[10]: Event.magnitude.key
-        # skip MagAuthor (Rarely used, memory-intensive text field)
-        # skip EventLocationName (Rarely used, memory-intensive text field)
-        # skip EventType (Rarely used, memory-intensive text field)
-    }
-    if not dframe.empty:
-        # rename and set order:
-        dframe = dframe.rename(columns=columns)[list(columns.values())]
-        dframe = apply_table_dtypes(Event, dframe, drop_non_nullable=True)
-
-    if dframe.empty:
-        raise ValueError("Malformed data (e.g., no data, type mismatch, NaN)")
-    return dframe
-
-
-def fdsn_channel_response_text_to_df(response: str):
-    """
-    Convert a response content obtained from a FDSN station webservice with
-    level=channel and  format=text into a pandas DataFrame
-    with proper dtypes associated to the SQL mapped class
-    """
-    dframe = fdsn_response_text_to_df(response)
-    # EventID|Time|Latitude|Longitude|Depth/km|Author|Catalog|Contributor|
-    # ContributorID|MagType|Magnitude|MagAuthor|EventLocationName|EventType
-    # Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|
-    # Azimuth|Dip|SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|
-    # StartTime|EndTime`
-    columns = {
-        dframe.columns[0]: Channel.network_code.key,
-        dframe.columns[1]: Channel.station_code.key,
-        dframe.columns[2]: Channel.location_code.key,
-        dframe.columns[3]: "channel_code",
-        dframe.columns[4]: Channel.latitude.key,
-        dframe.columns[5]: Channel.longitude.key,
-        dframe.columns[6]: Channel.elevation.key,
-        dframe.columns[7]: Channel.depth.key,
-        dframe.columns[8]: Channel.azimuth.key,
-        dframe.columns[9]: Channel.dip.key,
-        # skip sensor_description (Rarely used, memory-intensive text field)
-        dframe.columns[11]: Channel.scale.key,
-        dframe.columns[12]: Channel.scale_freq.key,
-        dframe.columns[13]: Channel.scale_units.key,
-        dframe.columns[14]: Channel.sample_rate.key,
-        dframe.columns[15]: Channel.start_time.key,
-        dframe.columns[16]: Channel.end_time.key
-    }
-
-    if not dframe.empty:
-        # rename and set order:
-        dframe = dframe.rename(columns=columns)[list(columns.values())]
-        dframe = apply_table_dtypes(Channel, dframe, drop_non_nullable=True)
-
-    if dframe.empty:
-        raise ValueError("Malformed data (e.g., no data, type mismatch, NaN)")
-    return dframe
-
 
 EVENTWS_MAPPING = {
     'emsc':  'http://www.seismicportal.eu/fdsnws/event/1/query',
@@ -357,8 +264,7 @@ def strptime(obj):
         if isinstance(dtime, date):  # note: check here (a datetime is also a date!)
             dtime = datetime(year=dtime.year, month=dtime.month, day=dtime.day)
         else:
-            raise TypeError('string or datetime required, found %s' %
-                            str(type(obj)))
+            raise TypeError(f'string or datetime required, found {type(obj)}')
 
     if dtime.tzinfo is not None:
         # if a time zone is specified, convert to utc and remove the timezone
@@ -389,7 +295,7 @@ def fdsn_url(
 ):
     """Check that the given url is a valid FDSN URL and return it (with new service and
     method substrings, if given). Raise ValueError if the url is invalid. The URL query
-    string, if given, will not be checked
+    string, if present, will not be checked and returned as it is
 
     :param url: a valid FDSN url, with or without query string or schema
     :param new_service: the new service. None will leave the service of `url`. Must be
@@ -487,17 +393,13 @@ def fdsn_url_qs(base_url: str, **query_args):
             if isinstance(v, date):
                 v = datetime(v.year, v.month, v.day)
             v = v.isoformat('T')
-            for c in '-:':
-                if c in v:
-                    safe_chars.add(c)
+            safe_chars.update(set('-:') & set(v))  # don't encode ":-" if in v
         else:
             v = str(v)
             if k in c_params:
-                for c  in ',?*':
-                    if c in v:
-                        safe_chars.add(c)
+                safe_chars.update(set(',?*') & set(v))  # don't encode ',?*' if in v
             elif k in n_params:
-                if '.' in v:
-                    safe_chars.add('.')
+                safe_chars.update(set('.') & set(v))  # don't encode '.' if in v
+
         qs[k] = v
     return f'{base_url}?{urlencode(qs, safe="".join(safe_chars))}'

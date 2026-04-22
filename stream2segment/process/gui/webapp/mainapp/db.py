@@ -10,8 +10,7 @@ from sqlalchemy import func
 from datetime import datetime
 
 from stream2segment.io.db import secure_dburl, sqlalchemy_version
-from stream2segment.io.db.inspection import attnames, get_related_models
-from stream2segment.process.db.models import (Segment, Station, ClassLabelling, get_classlabels)
+from stream2segment.io.db.models import (Channel, ClassLabeling, get_classlabels)
 from stream2segment.process.db.sqlevalexpr import exprquery, get_pytype, get_sqltype
 
 # import atexit
@@ -155,6 +154,8 @@ def get_metadata(segment_id=None):
     (str, datetime,...), in the latter, it is the value of `segment` for that
     column
     """
+
+    # FIXME: replace everything here with simple attr lists and mapping defined elsewhere
     segment = None
     if segment_id is not None:
         segment = get_segment(segment_id)
@@ -215,8 +216,8 @@ def _attnames(model, filter_func=None):
     """Return a sorted list of (queriable) attributes defined on the model with optional
     filter function `func(att_name): -> bool`
     """
-    # return non-foreign key columns or queryable attributes only:
-    att_itr = attnames(model, fkey=False, qatt=True, rel=False)
+    # att_itr = attnames(model, fkey=False, qatt=True, rel=False)  # legacy code
+    att_itr = [c.name for c in model.__table__.c] # FIXME improve
     return sorted(_ for _ in att_itr if filter_func is None or filter_func(_))
 
 

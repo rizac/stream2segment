@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Core functions and classes for the download routine
-
-.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
+Core download routine
 """
 import time
 from datetime import datetime, UTC
@@ -19,13 +17,13 @@ from stream2segment.io import yaml_safe_dump
 from stream2segment.io.db import secure_dburl, close_session, models
 from stream2segment.download.inputvalidation import load_config_for_download, pop_param
 from stream2segment.download.exc import NothingToDownload, FailedDownload
-from stream2segment.download.modules.events import get_events, save_quakeml
+from stream2segment.download.modules.events import get_events
 from stream2segment.download.modules.channels import get_channels
 from stream2segment.download.modules.stationsearch import merge_events_stations
 from stream2segment.download.modules.segments import (
     prepare_for_download, download_and_save
 )
-from stream2segment.download.modules.stations import save_stationxml
+from stream2segment.download.modules.xml import save_stationxml, save_quakeml
 
 
 # make the logger refer to the parent of this package (`rfind` below. For info:
@@ -139,14 +137,16 @@ def download(config, log2file=True, verbose=False, print_config_only=False,
             logger.info("%d error%s, %d warning%s", errs,
                         '' if errs == 1 else 's', warns,
                         '' if warns == 1 else 's')
-    except FailedDownload as fdwnld:
-        # we logged the exception in `run_download`, just set ret=1:
+    except NothingToDownload as nothing_to_download_exc:
+        logger.info(nothing_to_download_exc)
+    except FailedDownload as failed_download_exc:
+        logger.error(failed_download_exc)
         ret = 1
     except KeyboardInterrupt:
         # https://stackoverflow.com/q/5191830
         logger.critical("Aborted by user")
         raise
-    except:  # @IgnorePep8 pylint: disable=broad-except
+    except:  # noqa
         # log the (last) exception traceback and raise
         noexc_occurred = False
         # https://stackoverflow.com/q/5191830
@@ -189,23 +189,12 @@ def _pretty_printed_str(yaml_dict):
 
 def _run(engine: Engine, download_id, events_url, starttime, endtime, data_url,
          events_extra_params, network, station, location, channel, min_sample_rate,
-         search_radius, update_metadata, inventory, time_window,
-         retry_seg_not_found, retry_url_err, retry_mseed_err, retry_client_err,
-         retry_server_err, retry_timespan_err, advanced_settings,
-         authorizer, isterminal=False):
+         search_radius, update_metadata, stationxml, quakeml, time_window,
+         advanced_settings, authorizer, isterminal=False):
     """Download waveforms related to events to a specific path.
 
     :raise: :class:`FailedDownload` exceptions
     """
-    # NOTE: Any function here EXPECTS THEIR DATAFRAME INPUT TO BE NON-EMPTY.
-    # Thus, any function returning a dataframe is responsible to return well
-    # formed (non empty) data frames: if it would not be the case, the function
-    # should raise either:
-    # 1) a NothingToDownload to stop the routine silently (log to info) and
-    #    proceed to the inventories (if set),
-    # 2) a FailedDownload to stop the download immediately and raise the
-    #    exception
-
     dbbufsize = advanced_settings['db_buf_size']
     max_thread_workers = advanced_settings['max_concurrent_downloads']
     download_blocksize = advanced_settings['download_blocksize']
@@ -213,200 +202,121 @@ def _run(engine: Engine, download_id, events_url, starttime, endtime, data_url,
 
     process = psutil.Process(os.getpid()) if isterminal else None
 
-    # FIXME REMOVE COMMENTS BELOW
-    # calculate steps (note that booleans work, e.g: 8 - True == 7):
-    # __steps = 6 + inventory + (True if authorizer.token else False)
-    __steps = 6 + inventory
-    stepiter = iter(range(1, __steps+1))
+    max_steps = 5 + quakeml + stationxml
 
     # custom function for logging.info different steps:
-    def stepinfo(text, *args, **kwargs):
-        step = next(stepiter)
-        logger.info("\nSTEP %d of %d: {}".format(text), step, __steps, *args,
-                    **kwargs)
+    def log_step_header(text, step_num:int):
+        logger.info(f"\nSTEP {step_num} of {max_steps}: {text}")
         if process is not None:
             percent = process.memory_percent()
             logger.warning("(%.1f%% memory used)", percent)
 
-    try:
-        stepinfo("Fetching events")
+    log_step_header("Fetching events", 1)
 
-        events = get_events(
-            engine,
-            events_url,
-            events_extra_params,
-            starttime,
-            endtime,
-            True
-            # dbbufsize,
-            # advanced_settings['e_timeout'],
-            # isterminal
-        )
+    events = get_events(
+        engine,
+        events_url,
+        events_extra_params,
+        starttime,
+        endtime,
+        True
+        # dbbufsize,
+        # advanced_settings['e_timeout'],
+        # isterminal
+    )
 
-        # Get datacenters, store them in the db, returns the dc instances
-        # (db rows) correctly added
-        stepinfo("Fetching channels urls")
+    # Get datacenters, store them in the db, returns the dc instances
+    # (db rows) correctly added
+    log_step_header("Fetching channels urls", 2)
 
-        channels = get_channels(
-            engine,
-            data_url,
-            network,
-            station,
-            location,
-            channel,
-            starttime,
-            endtime,
-            min_sample_rate,
-            update_metadata,
-            advanced_settings['routing_service_url'],
-            authorizer is not None,
-            True
-        )
+    channels = get_channels(
+        engine,
+        data_url,
+        network,
+        station,
+        location,
+        channel,
+        starttime,
+        endtime,
+        min_sample_rate,
+        update_metadata,
+        advanced_settings['routing_service_url'],
+        authorizer is not None,
+        True
+    )
 
-        # # get datacenters (might raise FailedDownload):
-        # station_urls = get_stations_urls(
-        #     data_url,
-        #     advanced_settings['routing_service_url'],
-        #     [n for n in network if not n.startswith('!')],
-        #     [s for s in station if not s.startswith('!')],
-        #     [l for l in location if not l.startswith('!')],
-        #     [c for c in channel if not c.startswith('!')],
-        #     starttime,
-        #     endtime,
-        #     dbbufsize
-        # )
-        #
-        # channels_df = get_channels_df(
-        #     session.get_bind(), station_urls,
-        #     [n for n in network if n.startswith('!')],
-        #     [s for s in station if s.startswith('!')],
-        #     [l for l in location if l.startswith('!')],
-        #     [c for c in channel if c.startswith('!')],
-        #     # network, station, location, channel, starttime, endtime,
-        #     min_sample_rate, update_metadata,
-        #     advanced_settings['routing_service_url'],
-        #     max_thread_workers, advanced_settings['s_timeout'],
-        #     download_blocksize, dbbufsize, isterminal
-        # )
-        # stepinfo(f"{len(channels_df)} channels fetched")
+    log_step_header(
+        f"Selecting nearby station channels "
+        f"for each event via input search parameters",
+        3
+    )
+    # merge vents and stations (might raise FailedDownload):
+    segments = merge_events_stations(
+        events, channels, search_radius, tt_table, isterminal
+    )
+    # help gc by deleting the (only) refs to unused dataframes
+    del events
+    del channels
 
-        # stepinfo("Preparing URLs to download segments from "
-        #          f"({'with credentials' if authorizer else 'open data only'})")
-        # channels_df = setup_dataselect_urls(channels_df, authorizer)
+    log_step_header(
+        f"{len(segments):,} segments found. Checking already downloaded segments", 4
+    )
+    # raises NothingToDownload
+    segments = prepare_for_download(engine, segments, authorizer is not None)
 
-        stepinfo(f"Selecting station channels ({len(channels):,}) "
-                 f"within search area around each event ({len(events):,})")
-        # merge vents and stations (might raise FailedDownload):
-        segments = merge_events_stations(events, channels,
-                                            search_radius, tt_table,
-                                            isterminal)
-        # help gc by deleting the (only) refs to unused dataframes
-        del events
-        del channels
+    # prepare_for_download raises a NothingToDownload if there is no
+    # data, so if we are here segments is not empty
+    log_step_header(
+        f"Downloading {len(segments):,} segments and saving to db" +
+        ' (no credentials, open data only)' if authorizer is not None else '', 5
+    )
 
-        # if authorizer.token:  # FIXME REMOVE
-        #     stepinfo("Acquiring credentials from token in order to "
-        #              "download restricted data")
-        # seg_datacenters_df = datacenters_df[
-        #     datacenters_df[models.WebService.url.key].str.contains("/dataselect/")
-        # ]
-        # dc_dataselect_manager = DcDataselectManager(seg_datacenters_df,
-        #                                             authorizer, isterminal)
+    d_stats = download_and_save(
+        engine,
+        segments,
+        time_window,
+        authorizer,
+        # download_id,
+        # update_metadata,
+        max_thread_workers,
+        advanced_settings['w_timeout'],
+        download_blocksize,
+        dbbufsize,
+        isterminal
+    )
+    del segments  # help gc?
+    logger.info("")
+    logger.info(("** Segments download summary **\n"
+                 "Number of segments per data center url (row) and response "
+                 "type (column):\n%s") %
+                str(d_stats) or "Nothing to show")
 
-        stepinfo("%d segments found. Checking already downloaded segments",
-                 len(segments))
-        # raises NothingToDownload
-        segments = prepare_for_download(
-            engine,
-            segments,
-            authorizer is not None,
-            # authorizer,
-            # time_window,
-            # retry_seg_not_found,
-            # retry_url_err,
-            # retry_mseed_err,
-            # retry_client_err,
-            # retry_server_err,
-            # retry_timespan_err,
-            # retry_timespan_warn=False
-        )
-
-        # prepare_for_download raises a NothingToDownload if there is no
-        # data, so if we are here segments is not empty
-        stepinfo("Downloading %d segments %sand saving to db", len(segments),
-                 '(open data only) ' if authorizer is not None else '')
-
-        d_stats = download_and_save(
-            engine,
-            segments,
-            time_window,
-            authorizer,
-            # download_id,
-            # update_metadata,
-            max_thread_workers,
-            advanced_settings['w_timeout'],
-            download_blocksize,
-            dbbufsize,
-            isterminal
-        )
-        del segments  # help gc?
-        logger.info("")
-        logger.info(("** Segments download summary **\n"
-                     "Number of segments per data center url (row) and response "
-                     "type (column):\n%s") %
-                    str(d_stats) or "Nothing to show")
-
-    except NothingToDownload as ntdexc:
-        # we are here if some function raised a NothingToDownload (e.g., in
-        # prepare_for_download there is nothing according to current config).
-        # Print message as info, not that inventory might be downloaded (see
-        # finally clause below)
-        logger.info(str(ntdexc))
-        # comment out: DO NOT RAISE:
-        # raise
-    except FailedDownload as dexc:
-        # We are here if we raised a FailedDownload. Same behaviour as
-        # NothingToDownload, except we log an error message, and we prevent
-        # downloading inventories by forcing the flag to be false
-        inventory = False
-        logger.error(dexc)
-        raise
-    except:  # noqa
-        inventory = False
-        raise
-    finally:
-        if inventory:
-            # frees memory. Although maybe unnecessary, let's do our best to
-            # free stuff cause the next one might be memory consuming:
-            # https://stackoverflow.com/a/30022294/3526777
-            session.expunge_all()
-            session.close()
-
-            stepinfo("Downloading Stations (StationXML)")
-            n_downloaded, n_saved, n_errors = \
-                save_stationxml(engine,
-                                max_thread_workers,
-                                advanced_settings['i_timeout'],
-                                download_blocksize,
-                                isterminal)
-            logger.info(("** Stations StationXML download summary **\n"
-                         "- downloaded     %7d \n"
-                         "- saved          %7d (empty response)\n"
-                         "- not downloaded %7d (client/server errors)"),
-                        n_downloaded, n_saved, n_errors)
-        if quakeml:
-            stepinfo("Downloading Events (QuakeML)")
-            n_downloaded, n_saved, n_errors = \
-                save_quakeml(engine,
-                             max_thread_workers,
-                             advanced_settings['i_timeout'],
-                             download_blocksize,
-                             isterminal)
-            logger.info(("** Events QuakeML download summary **\n"
-                         "- downloaded     %7d \n"
-                         "- saved          %7d (empty response)\n"
-                         "- not downloaded %7d (client/server errors)"),
-                        n_downloaded, n_saved, n_errors)
+    if stationxml:
+        log_step_header("Downloading Stations (StationXML)", 6)
+        n_downloaded, n_saved, n_errors = \
+            save_stationxml(engine,
+                            max_thread_workers,
+                            advanced_settings['i_timeout'],
+                            download_blocksize,
+                            isterminal)
+        logger.info(("** Stations StationXML download summary **\n"
+                     "- downloaded     %7d \n"
+                     "- saved          %7d (empty response)\n"
+                     "- not downloaded %7d (client/server errors)"),
+                    n_downloaded, n_saved, n_errors)
+    if quakeml:
+        log_step_header("Downloading Events (QuakeML)", 7)
+        n_downloaded, n_saved, n_errors = \
+            save_quakeml(engine,
+                         max_thread_workers,
+                         advanced_settings['i_timeout'],
+                         download_blocksize,
+                         isterminal)
+        logger.info(("** Events QuakeML download summary **\n"
+                     "- downloaded     %7d \n"
+                     "- saved          %7d (empty response)\n"
+                     "- not downloaded %7d (client/server errors)"),
+                    n_downloaded, n_saved, n_errors)
 
 
 def new_download_run(engine, params=None) -> int:
@@ -435,21 +345,6 @@ def new_download_run(engine, params=None) -> int:
     if len(rows) != 1:
         raise FailedDownload('Unable to write to the DB')
     return download_id
-
-    # download_inst = models.DownloadRun()
-    # session.add(download_inst)
-    # session.commit()
-    # download_id = download_inst.id
-    #   # frees memory?
-    # session.add(models.DownloadRunInfo(
-    #     id=download_id,
-    #     config=config,
-    #     log=tmp_log,
-    #     summary="",
-    #     s2s_version=version()
-    # ))
-    # session.close()
-    # return download_id
 
 
 def version():

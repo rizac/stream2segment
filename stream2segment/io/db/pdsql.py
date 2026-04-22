@@ -6,6 +6,7 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
+from pandas.core.dtypes.common import is_datetime64_dtype
 
 from sqlalchemy import select, UpdateBase, Column, Select, Insert, Update
 from sqlalchemy.engine import Engine
@@ -13,8 +14,6 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.sql.expression import func, bindparam
 from sqlalchemy.types import Integer, Float, Boolean, DateTime
-
-from stream2segment.io.db.inspection import colnames
 
 pandas_version = float('.'.join(pd.__version__.split('.')[:2]))
 
@@ -58,7 +57,8 @@ def apply_table_dtypes(
     :param drop_non_nullable: if True (the deault), drop rows that have NaN / NULL
         values for columns that are non-nullable
     """
-    for col_name in colnames(table):
+    for col in table.__table__.c:  # noqa
+        col_name = col.name
         sql_col = getattr(table, col_name)
         col_type = get_dtype(sql_col.type)
         try:
@@ -232,7 +232,7 @@ def sync_pkey(
     dfr,
     table_model,
     engine,
-    pkey_col:str,
+    pkey_col: str,
     uc_cols: list[str],
     select_where=None,
     assign_new_ids=True,
@@ -397,13 +397,10 @@ def iter_rows(dataframe: pd.DataFrame, columns=None) -> Iterable[dict]:
     columns = []
     for col, series in dataframe.items():
         columns.append(str(col))
-        # if series.dtype.kind == "M":  # FIXME REMOVE AFTER TESTING THAT DATETIMES ARE OK IN SQL
-        #     d = series.dt.to_pydatetime()
-        # else:
-        #    d = series.values.astype(object, copy=False)
-        d = series.values.astype(object, copy=False)
-
-        # assert isinstance(d, np.ndarray), type(d)
+        if is_datetime64_dtype(series):
+            d = series.dt.to_pydatetime()
+        else:
+           d = series.values.astype(object, copy=False)
 
         mask = pd.isna(d)
         if mask.any():

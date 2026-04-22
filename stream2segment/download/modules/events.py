@@ -4,21 +4,18 @@ Events download
 import os
 from datetime import timedelta
 import logging
-from typing import Optional
 
 import numpy as np
 import pandas as pd
 from sqlalchemy import func, Engine, select
 
 from stream2segment.io.cli import get_progressbar
-from stream2segment.io.db.pdsql import df2db, create_insert_statement, execute_sql
+from stream2segment.io.db.pdsql import df2db, apply_table_dtypes
 from stream2segment.download.exc import FailedDownload, NothingToDownload
-from stream2segment.io.db.models import Event, WebService, Segment, QuakeML
-from stream2segment.download.url import urlread, socket, HTTPError, read_async, \
-    get_host, responses
+from stream2segment.io.db.models import Event, WebService
+from stream2segment.download.url import urlread, socket, HTTPError
 from stream2segment.download.modules.utils import (
-    fdsn_event_response_text_to_df, formatmsg,
-    EVENTWS_MAPPING, strptime, fdsn_url_qs, IdOnceLogFilter
+    formatmsg, EVENTWS_MAPPING, strptime, fdsn_url_qs, fdsn_response_text_to_df
 )
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
@@ -49,7 +46,7 @@ def get_events(
     events_df[Event.webservice_id.key] = event_ws_id
 
     if local_file:
-        check_events_df_from_local_file(events_df, session, show_progress)
+        check_events_df_from_local_file(events_df, engine, show_progress)
 
     events_df, failed_i, _ = df2db(
         events_df,
@@ -149,6 +146,40 @@ def events_df_list(url, evt_query_args, start, end, timeout=120, show_progress=F
                                        normalize_url(url, evt_query_args, start, end)))
 
     return pd_df_list
+
+
+def fdsn_event_response_text_to_df(response: str):
+    """
+    Convert a response content obtained from a FDSN event webservice with format=text
+    into a pandas DataFrame with proper dtypes associated to the SQL mapped class
+    """
+    dframe = fdsn_response_text_to_df(response)
+    # EventID|Time|Latitude|Longitude|Depth/km|Author|Catalog|Contributor|
+    # ContributorID|MagType|Magnitude|MagAuthor|EventLocationName|EventType
+    columns = {
+        dframe.columns[0]: Event.event_id.key,
+        dframe.columns[1]: Event.time.key,
+        dframe.columns[2]: Event.latitude.key,
+        dframe.columns[3]: Event.longitude.key,
+        dframe.columns[4]: Event.depth_km.key,
+        # skip Author (Rarely used, memory-intensive text field)
+        dframe.columns[6]: Event.catalog.key,
+        # skip Contributor (Rarely used, memory-intensive text field)
+        # skip ContributorID (Rarely used, memory-intensive text field)
+        dframe.columns[9]: Event.mag_type.key,
+        dframe.columns[10]: Event.magnitude.key
+        # skip MagAuthor (Rarely used, memory-intensive text field)
+        # skip EventLocationName (Rarely used, memory-intensive text field)
+        # skip EventType (Rarely used, memory-intensive text field)
+    }
+    if not dframe.empty:
+        # rename and set order:
+        dframe = dframe.rename(columns=columns)[list(columns.values())]
+        dframe = apply_table_dtypes(Event, dframe, drop_non_nullable=True)
+
+    if dframe.empty:
+        raise ValueError("Malformed data (e.g., no data, type mismatch, NaN)")
+    return dframe
 
 
 def normalize_url(base_url, evt_query_args, start, end):
@@ -349,10 +380,11 @@ def _get_freq_mag_distrib(evt_query_args):
     return minmag, step, ret
 
 
-def check_events_df_from_local_file(events_df: pd.DataFrame, session,
-                                    show_progress=False):
+def check_events_df_from_local_file(
+    events: pd.DataFrame, engine: Engine, show_progress=False
+):
     suffix_msg = "Check events file"
-    dupes = events_df[[Event.eventid.key]].duplicated().sum()
+    dupes = events[[Event.eventid.key]].duplicated().sum()
     if dupes:
         raise FailedDownload(f'Events file contains {dupes:,} events with same '
                              f'`eventid` (1st column). {suffix_msg}')
@@ -360,9 +392,9 @@ def check_events_df_from_local_file(events_df: pd.DataFrame, session,
     mag, time, lat, lon = Event.magnitude, Event.time, Event.latitude, Event.longitude  # noqa
     tmp_df = pd.DataFrame({
         # mag: events_df[mag.key],
-        time: events_df[time.key].dt.round('s'),
-        lat: events_df[lat.key].round(3),
-        lon: events_df[lon.key].round(3)
+        time: events[time.key].dt.round('s'),
+        lat: events[lat.key].round(3),
+        lon: events[lon.key].round(3)
     })
     dupes = tmp_df.duplicated().sum()
     if dupes:
@@ -381,14 +413,14 @@ def check_events_df_from_local_file(events_df: pd.DataFrame, session,
         return
 
     logger.info("Checking events in local file vs. db")
-    with get_progressbar(len(events_df) if show_progress else 0) as pbar:
+    with get_progressbar(len(events) if show_progress else 0) as pbar:
 
         for ev_id, m_, t_, la_, lo_ in zip(
-                events_df[Event.eventid.key],
-                events_df[mag.key],
-                events_df[time.key],
-                events_df[lat.key],
-                events_df[lon.key]
+                events[Event.eventid.key],
+                events[mag.key],
+                events[time.key],
+                events[lat.key],
+                events[lon.key]
         ):
             pbar.update(1)
             db_val = session.query(mag, time, lat, lon).filter(
@@ -399,84 +431,3 @@ def check_events_df_from_local_file(events_df: pd.DataFrame, session,
             raise FailedDownload(f'Event eventid={ev_id} is already stored in the '
                                  f'database with different magnitude or coordinates. '
                                  f'{suffix_msg}')
-
-
-def save_quakeml(engine: Engine, max_thread_workers, timeout,
-                 download_blocksize, show_progress=False):
-    """Save QuakeML data. stations_df must not be empty (not checked here)"""
-
-    stmt = (
-        select(
-            Event.id,
-            Event.eventid,
-            WebService.url
-        )
-        .join(WebService, Event.webservice_id == WebService.id)
-        .join(Segment, Segment.event_id == Event.id)
-        #.where(Channel.stationxml_id.is_(None))
-        .distinct()
-    )
-
-    log_once_filter: Optional[IdOnceLogFilter] = None  # lazily created if needed
-    downloaded, saved, errors = 0, 0, 0
-
-    with engine.connect() as conn:
-        rows = conn.execute(stmt).fetchall()
-
-    insert_stmt = create_insert_statement(QuakeML)
-    cache: dict[str, int] = {}
-
-    if len(rows) > 0:
-
-        downloaded = len(rows)
-
-        def url_builder(db_ev_id, cat_ev_id, ws_url):
-            """build url (str) from each item yielded by the previous iterable"""
-            url = fdsn_url_qs(ws_url, eventid=cat_ev_id, format='xml')
-            cache.setdefault(url, db_ev_id)
-            return url
-
-        with get_progressbar(len(rows) if show_progress else 0) as pbar:
-
-            reader = read_async(
-                (url_builder(*row) for row in rows),
-                timeout=timeout,
-                max_workers=max_thread_workers,
-                blocksize=download_blocksize
-            )
-
-            for response in reader:
-                pbar.update(1)
-                url = response.request
-                if not response.is_ok or response.status == 204:
-                    if log_once_filter is None:  # create lazily
-                        log_once_filter = IdOnceLogFilter()
-                        logger.addFilter(log_once_filter)
-                        logger.warning(
-                            "QuakeML download errors\n"
-                            "(shown once per (URL domain, error type) combination)"
-                        )
-                    msg = responses.get(response.status, "Unknown error")
-                    errors += 1
-                    logger.warning(
-                        url,msg, extra={'ID': (get_host(url), msg)}
-                    )
-                else:
-                    try:
-                        db_ev_id = cache.pop(url)
-                        execute_sql(
-                            engine,
-                            [insert_stmt],
-                            {
-                                'id': db_ev_id,
-                                'data': response.data
-                            }
-                        )
-                        saved += 1
-                    except Exception:
-                        pass
-
-        if log_once_filter is not None:
-            logger.removeFilter(log_once_filter)
-
-    return downloaded, saved, errors

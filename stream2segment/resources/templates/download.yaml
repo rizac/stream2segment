@@ -1,6 +1,6 @@
-# ====================================================
-# Stream2segment configuration file / download routine
-# ====================================================
+# ==========================================
+# Stream2segment download configuration file
+# ==========================================
 
 # This file is written in YAML syntax. For info see: http://docs.ansible.com/ansible/latest/YAMLSyntax.html
 
@@ -67,12 +67,17 @@ maxmagnitude: null
 # refined searches and can be provided as YAML Mapping of indented "param: value" pairs.
 # For info see https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=14
 # Note that parameters with support 'Optional' at the link above are not guaranteed to
-# work. The 'format' parameter will be ignored as it is automatically set by the program.
+# work. The 'format' parameter will be ignored as it is automatically set by the program
 events_extra_params:
   # lat: 47.0
   # lon: 4.0
   # minradius: 17.0
   # maxradius: 21.0
+
+# Download QuakeML for each event. Set to false unless if you absolutely need accurate
+# event information in your processing routine (e.g. phase arrivals,  moment tensor or
+# focal mechanism information, multiple origins and magnitudes)
+quakeml: false
 
 
 # ====================
@@ -116,16 +121,12 @@ location: '*'
 # Set to 0 or negative number to ignore the sampling rate
 min_sample_rate: 60
 
-# Update segments metadata, i.e., overwrite the data of already saved stations and
-# channels, such as e.g., the channels sample rate, or the station inventories (see also
-# ‘inventory’ parameter)
-update_metadata: false
 
-# Download station inventories (xml format). Already saved inventories will be
-# overwritten according to ‘update_metadata’
-# Implementation details: inventories will in any case be downloaded and saved on the
-# database only for stations that have saved segments with waveform data
-inventory: true
+# Download stationxml. Set to false only if you simply need raw waveform segments (e.g.,
+# no conversion from digital samples into meaningful physical units, no bandpass
+# filtering needed)
+stationxml: true
+
 
 # search radius: defines the criteria for selecting stations around events. It is a dict
 # which can have either:
@@ -169,11 +170,9 @@ data_url:
   # - 'iris'
 
 # The segment's time window to download: specify two floats denoting the start and end
-# time, in minutes relative to the calculated arrival time (negative numbers are usually
-# input for start). Note that 3.5 means 3 minutes 30 seconds, and each segment window
+# time, in minutes relative to the calculated arrival time (as such, start time is
+# usually negative). Note that 3.5 means 3 minutes 30 seconds, and each segment window
 # will be eventually rounded to the nearest second.
-# Implementation detail: segments already on the database whose window does not match
-# the requested window will be re-downloaded and overwritten
 time_window:
  - -1.0
  - 3.0
@@ -192,32 +191,6 @@ time_window:
 # (thus, with no waveform data) will be always re-downloaded ignoring all 'retry'
 # settings
 restricted_data: ""
-
-# Retry already downloaded segments if the database reports that the previous attempt was
-# unsuccessful because no data could be found. This typically happens when a single
-# request of several waveform segments to a server gets in response only some of them,
-# with no clue about the missing ones, which are then "marked" as "not found"
-retry_seg_not_found: true
-
-# Retry already downloaded segments if the database reports that the previous attempt was
-# unsuccessful because of a general URL error (e.g., no internet connection, timeout, ...)
-retry_url_err: true
-
-# Retry already downloaded segments if the database reports that the previous attempt was
-# unsuccessful because the waveform data was malformed, i.e. is not readable as MiniSeed
-retry_mseed_err: false
-
-# Retry already downloaded segments if the database reports that the previous attempt was
-# unsuccessful because of a client (i.e., stream2segment) request error
-retry_client_err: true
-
-# Retry already downloaded segments if the database reports that the previous attempt was
-# unsuccessful because of a server (see `data_url`) response error
-retry_server_err: true
-
-# Retry already downloaded segments if the database reports that the previous attempt was
-# unsuccessful because the received data was completely outside the requested time window
-retry_timespan_err: true
 
 
 # =====================================

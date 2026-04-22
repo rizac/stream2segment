@@ -214,7 +214,6 @@ def get_segment_help(format='html', maxwidth=79, **print_kwargs):
     import inspect
     import textwrap
     from itertools import chain
-    from stream2segment.io.db.inspection import attnames
 
     # ==================================================================================
     # Set Segment attributes documentation as list of `[attname, description]` items.
@@ -374,7 +373,7 @@ def get_segment_help(format='html', maxwidth=79, **print_kwargs):
     # below will simply be shown next):
     _MAIN_ATTS = ('stream', 'inventory', 'url', 'sds_path', 'dbsession', 'classlabels')
     # Before looping through the Segment class, define what to skip:
-    skip_attrs = set(attnames(Segment)) | {'metadata'}  # <- reserved att names
+    skip_attrs =  {'metadata'}  # <- reserved att names
     signatures = {}
     # Now loop:
     for aname in chain(_MAIN_ATTS, dir(Segment)):
