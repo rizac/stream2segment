@@ -57,79 +57,67 @@ def apply_table_dtypes(
     :param drop_non_nullable: if True (the deault), drop rows that have NaN / NULL
         values for columns that are non-nullable
     """
-    for col in table.__table__.c:  # noqa
+    table_cols = [c for c in table.__table__.c if c.name in dataframe.columns]  # noqa
+    keep = None
+    non_nullable_cols = set()
+    if drop_non_nullable:
+        non_nullable_cols = set(c.name for c in table_cols if not c.nullable)  # noqa
+        if non_nullable_cols:
+            keep = pd.Series(True, index=dataframe.index)
+
+    for col in table_cols:  # noqa
         col_name = col.name
         sql_col = getattr(table, col_name)
         col_type = get_dtype(sql_col.type)
-        try:
-            df_col = dataframe[col_name]
-            # the type the dataframe column should have
-            if col_type == np.datetime64:
-                if issubclass(df_col.dtype.type, np.number):
-                    format_ = 's' if issubclass(df_col.dtype.type, np.number)
-                elif pandas_version >= 2:
-                    format_ = 'ISO8601'
-                else:
-                    format_ = None
-                # let's assume utc and then remove tz info so comparison to "standard"
-                # Python date-times (i.e., with no tzinfo) is possible
-                dataframe[col_name] = pd.to_datetime(
-                    df_col, errors='coerce', format=format_, utc=True
-                ).dt.tz_localize(None)
-            elif col_type == np.float64:
-                try:
-                    dataframe[col_name] = df_col.astype(col_type, copy=False)
-                except (TypeError, ValueError):
-                    dataframe[col_name] = pd.to_numeric(df_col, errors='coerce')
-            elif col_type  == np.bool_:
-                # bool does not raise, but converts None to False, everything "truthy"
-                # to True. So first store nulls, if any:
-                invalid = pd.isna(df_col)
+        df_col = dataframe[col_name]
+        # the type the dataframe column should have
+        if col_type == np.datetime64:
+            if issubclass(df_col.dtype.type, np.number):
+                format_ = 's'
+            elif pandas_version >= 2:
+                format_ = 'ISO8601'
+            else:
+                format_ = None
+            # let's assume utc and then remove tz info so comparison to "standard"
+            # Python date-times (i.e., with no tzinfo) is possible
+            dataframe[col_name] = pd.to_datetime(
+                df_col, errors='coerce', format=format_, utc=True
+            ).dt.tz_localize(None)
+        elif col_type == np.float64:
+            try:
                 dataframe[col_name] = df_col.astype(col_type, copy=False)
-                if invalid.any():
-                    # convert to object otherwise the next operation upcasts the column
-                    # datat type to float:
-                    dataframe[col_name] = dataframe[col_name].astype(object)
-                    # Reset back `None`s:
-                    dataframe.loc[invalid, col_name] = None
-            elif col_type == np.int64:
-                # int is stricter than bool, and does not coerce invaldi values, So:
-                try:
-                    dataframe[col_name] = df_col.astype(col_type, copy=False)
-                except (TypeError, ValueError):
-                    # Force coercion to numeric (set NaN):
-                    dataframe[col_name] = pd.to_numeric(df_col, errors='coerce')
-                    # now keep track of the NaNs indices:
-                    invalid = pd.isna(dataframe[col_name])
-                    # Temporarily set as 0 the NaNs, so casting later is feasible:
-                    dataframe.loc[invalid, col_name] = 0
-                    # Cast to our type and then to object to avoid upcasting to float
-                    # when we set None later
-                    dataframe[col_name] = (
-                        dataframe[col_name].astype(col_type).astype(object)
-                    )
-                    # Reset back `None`s in place:
-                    dataframe.loc[invalid, col_name] = None
-        except KeyError:
-            pass  # this column not in results
+            except (TypeError, ValueError):
+                dataframe[col_name] = pd.to_numeric(df_col, errors='coerce')
+        elif col_type  == np.bool_:
+            # bool does not raise, but converts None to False, everything "truthy"
+            # to True. So first store nulls, if any:
+            invalid = pd.isna(df_col)
+            dataframe[col_name] = df_col.astype(col_type, copy=False)
+            if invalid.any():
+                # convert to object otherwise the next operation upcasts the column
+                # datat type to float:
+                dataframe[col_name] = dataframe[col_name].astype(
+                    pd.CategoricalDtype([True, False])
+                )
+                # Reset back `None`s:
+                dataframe.loc[invalid, col_name] = None
+        elif col_type == np.int64:
+            # int is stricter than bool, and does not coerce invalid values, So:
+            try:
+                dataframe[col_name] = df_col.astype(col_type, copy=False)
+            except (TypeError, ValueError):
+                # support for NaNs:
+                dataframe[col_name] = df_col.astype("Int64", copy=False)
 
-    if drop_non_nullable:
-        non_nullable_cols = dataframe.columns.intersection(
-            set(c.name for c in table.__table__.c if not c.nullable)  # noqa
-        )
-    else:
-        non_nullable_cols = []  # simply skip if below
+        if col_name in non_nullable_cols:
+            keep &= dataframe[col_name].notna()
 
-    if non_nullable_cols:
+    if keep is not None and (~keep.all()):
         pre_len = len(dataframe)
-        dataframe = dataframe.dropna(subset=non_nullable_cols, axis=0, inplace=False)
+        dataframe = dataframe[keep]
         discarded = pre_len - len(dataframe)
         if discarded:
             # Cast bools and ints as they might have been object:
-            for col in non_nullable_cols:
-                dtype = get_dtype(getattr(table, col).type)
-                if dtype in (np.int64, np.bool_):
-                    dataframe[col] = dataframe[col].astype(dtype, copy=False)
             dataframe.attrs['discarded'] = discarded
 
     return dataframe

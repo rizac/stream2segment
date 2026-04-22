@@ -16,7 +16,7 @@ import pandas as pd
 import pytest
 
 from stream2segment.cli import cli
-from stream2segment.download.log import configlog4download
+from stream2segment.download.main import configure_logging
 from stream2segment.io.db.models import WebService
 from stream2segment.download.url import urlread
 # from stream2segment.download.modules.channels import get_post_data as origi_get_post_data
@@ -38,10 +38,10 @@ class patches:
     # will mek easier debug when refactoring/move functions
     # urlopen = 'stream2segment.download.url.urlopen'
     get_session = 'stream2segment.download.inputvalidation.get_session'
-    close_session = 'stream2segment.download.main.close_session'
+    # close_session = 'stream2segment.download.main.close_session'
     # yaml_load = 'stream2segment.download.inputvalidation.yaml_load'
     # ThreadPool = 'stream2segment.download.url.ThreadPool'
-    configlog4download = 'stream2segment.download.main.configlog4download'
+    configlog4download = 'stream2segment.download.main.configure_logging'
     download_save_segments = 'stream2segment.download.main.download_and_save'
     get_events_df = 'stream2segment.download.main.get_events'
     get_post_data = 'stream2segment.download.modules.channels.get_post_data'
@@ -53,7 +53,7 @@ class patches:
 @pytest.mark.skipif(sys.version_info < (3,7),
                     reason="requires python3.7+")
 @patch(patches.get_session)
-@patch(patches.close_session)
+#@patch(patches.close_session)
 @patch(patches.configlog4download)
 @patch(patches.download_save_segments)
 @patch(patches.get_events_df)
@@ -62,12 +62,13 @@ def test_real_run_old_buggy_network_filter( # mock_get_post_data,  # FIXME REMOV
                                            mock_get_events_df,
                                            mock_download_save_segments,
                                            mock_config4download,
-                                           mock_close_session, mock_get_session,
+                                           # mock_close_session,
+                                           mock_get_session,
                                            # fixtures:
                                            db, clirunner, pytestdir, data):
     """This tess a REAL download run with an OLD bug when providing filtering on network
     and stations with negations only. We just test that the correct 'NothingToDownload'
-    messages are issued. The download of segments and inventories (the time consuming
+    messages are issued. The download of segments and inventories (the time-consuming
     part) is mocked and raises NothingToDownload (we just want to test stations and
     network)
     """
@@ -101,8 +102,9 @@ def test_real_run_old_buggy_network_filter( # mock_get_post_data,  # FIXME REMOV
         # config logger as usual, but redirects to a temp file
         # that will be deleted by pytest, instead of polluting the program
         # package:
-        ret = configlog4download(logger, logfilepath, verbose)
-        return ret
+        # ret = configlog4download(logger, logfilepath, verbose)
+        # return ret
+        pass
 
     mock_config4download.side_effect = c4d
 
@@ -132,12 +134,13 @@ def test_real_run_old_buggy_network_filter( # mock_get_post_data,  # FIXME REMOV
 @pytest.mark.skipif(sys.version_info < (3,7),
                     reason="requires python3.7+")
 @patch(patches.get_session)
-@patch(patches.close_session)
+# @patch(patches.close_session)
 @patch(patches.configlog4download)
 @patch(patches.mock_merge_event_stations)
 @patch(patches.get_events_df)
 def test_real_run(mock_get_events_df, mock_merge_event_stations, mock_config4download,
-                  mock_close_session, mock_get_session,
+                  # mock_close_session,
+                  mock_get_session,
                   # fixtures:
                   db, clirunner, pytestdir, data):
     """This tess a REAL download run providing filtering on network and stations

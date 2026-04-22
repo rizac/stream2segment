@@ -180,8 +180,12 @@ def load_config_for_download(config, validate, **param_overrides):
     orig_config = yaml_load(get_templates_fpath("download.yaml"))
 
     unknown_keys = set(old_config) - set(orig_config)
-    if unknown_keys:
-        raise BadParam(BadParam.P_UNKNOWN, unknown_keys)
+    legacy_keys = {
+        'retry_client_err', 'retry_mseed_err', 'retry_seg_not_found',
+        'retry_server_err', 'retry_timespan_err', 'retry_url_err', 'update_metadata'
+    }
+    if unknown_keys - legacy_keys:
+        raise BadParam(BadParam.P_UNKNOWN, unknown_keys - legacy_keys)
 
     # Now check for params supplied here NOT in the default config, and supplied
     # here but with different type in the original config
