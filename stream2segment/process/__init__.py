@@ -138,9 +138,11 @@ def terminal_environment(progressbar_total_length=0,
         ... execute your code ...
     ```
     """
-    with _create_processing_env(length=progressbar_total_length,
-                                redirect_stderr=capture_external_stderr_printout,
-                                warnings_filter=warnings_filter) as pbar:
+    with _create_processing_env(
+        length=progressbar_total_length,
+        redirect_stderr=capture_external_stderr_printout,
+        warnings_filter=warnings_filter
+    ) as pbar:
         yield _TerminalEnv(pbar)
 
 

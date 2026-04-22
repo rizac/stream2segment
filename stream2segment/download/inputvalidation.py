@@ -3,13 +3,16 @@ Input validation for the download routine
 """
 
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
+from os.path import isabs, abspath, join, dirname
 
-from stream2segment.download.modules.utils import (EVENTWS_SAFE_PARAMS, Authorizer,
-                                                   strptime, EVENTWS_MAPPING, fdsn_url)
-from stream2segment.io import yaml_load, absrelpath
-from stream2segment.io.inputvalidation import (validate_param, pop_param,
-                                               get_param, BadParam, valid_between)
+from stream2segment.download.modules.utils import (
+    EVENTWS_SAFE_PARAMS, Authorizer, strptime, EVENTWS_MAPPING, fdsn_url
+)
+from stream2segment.io import yaml_load
+from stream2segment.io.inputvalidation import (
+    validate_param, pop_param, get_param, BadParam, valid_between
+)
 from stream2segment.download.db import get_session
 from stream2segment.resources import get_templates_fpath, get_ttable_fpath
 from stream2segment.traveltimes.ttloader import TTTable
@@ -57,8 +60,9 @@ def load_config_for_download(config, validate, **param_overrides):
     pnames = ('events_url', 'eventws')
     validated_params.update(pnames)
     pname, pval = pop_param(old_config, pnames)
-    new_config[pnames[0]] = validate_param(pname, pval, valid_fdsn,
-                                       is_eventws=True, configfile=configfile)
+    new_config[pnames[0]] = validate_param(
+        pname, pval, valid_fdsn, is_eventws=True, configfile=configfile
+    )
 
     pname, pval = pop_param(old_config, 'search_radius')
     validated_params.add(pname)
@@ -281,10 +285,14 @@ def _validate_download_advanced_settings(config, adv_settings_key):
     adv_settings_dict[pname] = pval if pval > 0 else -1
 
     pname = 'db_buf_size'
-    adv_settings_dict[pname] = validate_param(prefix + pname,
-                                              pop_param(config, prefix + pname)[1],
-                                              valid_between, 1, None,
-                                              pass_if_none=False)
+    adv_settings_dict[pname] = validate_param(
+        prefix + pname,
+        pop_param(config, prefix + pname)[1],
+        valid_between,
+        1,
+        None,
+        pass_if_none=False
+    )
 
     pname = 'routing_service_url'
     if not isinstance(adv_settings_dict[pname], (list, tuple)):
@@ -402,7 +410,8 @@ def valid_authorizer(restricted_data, dataws, configfile=None):
                          'a single URL in `dataws`')
 
     if isinstance(restricted_data, str) and configfile is not None:
-        restricted_data = absrelpath(restricted_data, configfile)
+        if not isabs(restricted_data):
+            restricted_data = abspath(join(dirname(configfile), restricted_data))
     ret = Authorizer(restricted_data)
 
     # check dataws is single element list:
@@ -442,8 +451,9 @@ def valid_date(obj):
         try:
             days = int(obj)
             if days <= 0:
-                now = datetime.utcnow().replace(hour=0, minute=0, second=0,
-                                                microsecond=0)
+                now = datetime.now(UTC).replace(
+                    hour=0, minute=0, second=0, microsecond=0
+                )
                 return now + timedelta(days=days)
         except Exception:
             pass
@@ -467,7 +477,10 @@ def valid_fdsn(url, is_eventws, configfile=None):
         return url.lower()
 
     if is_eventws:
-        fpath = url if configfile is None else absrelpath(url, configfile)
+        if configfile is None:
+            fpath = url
+        else:
+            fpath = abspath(join(dirname(configfile), url))
         if os.path.isfile(fpath):
             return fpath
         else:

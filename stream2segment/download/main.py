@@ -1,20 +1,24 @@
-# -*- coding: utf-8 -*-
 """
 Core download routine
 """
+import sys
+import json
 import time
-from datetime import datetime, UTC
+from datetime import datetime, UTC, timedelta
 import os
 import logging
 
 import psutil
 from sqlalchemy import Engine
 
-from stream2segment.download.log import configlog4download, DbStreamHandler
-from stream2segment.io.db.pdsql import get_max, execute_sql, create_insert_statement
-from stream2segment.io.log import logfilepath, close_logger, elapsed_time
+from stream2segment.io.log import LevelFilter
+from stream2segment.io.db.models import DownloadRun
+from stream2segment.io.db.pdsql import (
+    get_max, execute_sql, create_insert_statement, create_update_statement
+)
+from stream2segment.io.log import close_logger
 from stream2segment.io import yaml_safe_dump
-from stream2segment.io.db import secure_dburl, close_session, models
+from stream2segment.io.db import secure_dburl, models
 from stream2segment.download.inputvalidation import load_config_for_download, pop_param
 from stream2segment.download.exc import NothingToDownload, FailedDownload
 from stream2segment.download.modules.events import get_events
@@ -24,12 +28,11 @@ from stream2segment.download.modules.segments import (
     prepare_for_download, download_and_save
 )
 from stream2segment.download.modules.xml import save_stationxml, save_quakeml
+from stream2segment.resources import get_resource_abspath
 
 
 # make the logger refer to the parent of this package (`rfind` below. For info:
 # https://docs.python.org/3/howto/logging.html#advanced-logging-tutorial):
-from stream2segment.resources import get_resource_abspath
-
 logger = logging.getLogger(__name__[:__name__.rfind('.')])
 
 
@@ -67,13 +70,6 @@ def download(config, log2file=True, verbose=False, print_config_only=False,
         `param_overrides` is `a={'c': 2, 'd': 2}`, the result is
         {'a': {'b': 1, 'c': 2, 'd': 2}}
     """
-    # Implementation details: this function can:
-    # - raise, in case of an error usually a user/code error (e.g., bad input
-    #   param)
-    # - return 1 in case of FailedDownload, e.g. an error independent from the
-    #   user (no internet connection, bad data received)
-    # - return 0 otherwise (meaning: success). This includes the case where,
-    #   acording to our config, there are not segments to download
 
     # short check (this should just raise, so execute this before configuring loggers):
     isfile = isinstance(config, str) and os.path.isfile(config)
@@ -84,13 +80,21 @@ def download(config, log2file=True, verbose=False, print_config_only=False,
     # Validate params converting them in dict of args for the download function. Also in
     # this case do it before configuring loggers, we simply need to raise `BadParam`s in
     # case of problems:
-    d_kwargs, session, authorizer = load_config_for_download(config, True,
-                                                             **param_overrides)
+    d_kwargs, session, authorizer = load_config_for_download(
+        config, True, **param_overrides
+    )
 
+    engine = session.get_bind()  # FIXME remove session!
     ret = 0
-    noexc_occurred = True
-    db_streamer = None  # handler logging to db upon successful completion
     download_id = None
+
+    # configure logger and handlers:
+    if log2file is True:
+        _now = datetime.now(UTC).replace(microsecond=0).isoformat('T')
+        log_file_path = f'{config}.{_now}.log'
+    else:
+        log_file_path = log2file or ''  # assure we have a string
+
     try:
         # Download a YAML dict for printing to the screen and saving to the db (No need
         # to validate parameters again)
@@ -108,35 +112,25 @@ def download(config, log2file=True, verbose=False, print_config_only=False,
         if print_config_only:
             return ret
 
-        # configure logger and handlers:
-        if log2file is True:
-            log2file = logfilepath(config)  # auto create log file
-        else:
-            log2file = log2file or ''  # assure we have a string
-        configlog4download(logger, log2file, verbose)
+        configure_logging(log_file_path, verbose)
+        download_id = new_download_run(engine, real_yaml_dict)
 
-        if logger.handlers and logger.handlers[0] and \
-                isinstance(logger.handlers[0], DbStreamHandler):
-            db_streamer = logger.handlers[0]
-
-        # create download row with unprocessed config (yaml_load function)
-        # Note that we call again load_config with parseargs=False:
-        download_id = new_download_run(session.get_bind(), real_yaml_dict)
-        if log2file and verbose:  # (=> loghandlers not empty)
-            print(f"Log file: '{log2file}'\n"
+        if log_file_path and verbose:
+            print(f"Log file: '{log_file_path}'\n"
                   "(if the download ends with no errors, the file will be deleted"
                   "and its content written to the db table "
                   f"'{models.DownloadRun.__tablename__}')")
 
         stime = time.time()
-        _run(download_id=download_id, isterminal=verbose, authorizer=authorizer,
-             engine=session.get_bind(), **d_kwargs)
-        logger.info("Completed in %s", str(elapsed_time(stime)))
-        if db_streamer is not None:
-            errs, warns = db_streamer.errors, db_streamer.warnings
-            logger.info("%d error%s, %d warning%s", errs,
-                        '' if errs == 1 else 's', warns,
-                        '' if warns == 1 else 's')
+        d_stats = _download(
+            isterminal=verbose,
+            authorizer=authorizer,
+            engine=engine,
+            **d_kwargs
+        )
+        logger.info(f"Completed in {timedelta(seconds=round((time.time()) - stime))}")
+        _write_download_summary(engine, download_id, d_stats)
+
     except NothingToDownload as nothing_to_download_exc:
         logger.info(nothing_to_download_exc)
     except FailedDownload as failed_download_exc:
@@ -147,21 +141,12 @@ def download(config, log2file=True, verbose=False, print_config_only=False,
         logger.critical("Aborted by user")
         raise
     except:  # noqa
-        # log the (last) exception traceback and raise
-        noexc_occurred = False
         # https://stackoverflow.com/q/5191830
         logger.critical("Download aborted", exc_info=True)
         raise
     finally:
-        if session is not None:
-            close_session(session, False)  # help gc (note: no engine disposal)
-            # write log to db if default handlers are provided:
-            if db_streamer is not None and download_id is not None:
-                # remove file if no exceptions occurred (close the handler, too):
-                db_streamer.finalize(session, download_id, removefile=noexc_occurred)
-            close_session(session)
         close_logger(logger)
-
+        _write_download_log(engine, download_id, log_file_path, rm_file=True)
     return ret
 
 
@@ -187,7 +172,68 @@ def _pretty_printed_str(yaml_dict):
     ]).strip()
 
 
-def _run(engine: Engine, download_id, events_url, starttime, endtime, data_url,
+def configure_logging(logfile_path='', verbose=False):
+    """
+    Configure the logger for download
+    """
+    # https://docs.python.org/2/howto/logging.html#optimization:  # FIXME really needed?
+    logging._srcfile = None  # noqa
+    logging.logThreads = 0
+    logging.logProcesses = 0
+
+    logger.setLevel(logging.INFO)  # necessary to forward to handlers
+
+    if logfile_path:
+        db_streamer = logging.FileHandler(logfile_path, mode='w+')
+        db_streamer.setLevel(logging.INFO)  # do not print debug, print others
+        db_streamer.setFormatter(logging.Formatter('[%(levelname).1s]  %(message)s'))
+        logger.addHandler(db_streamer)
+
+    if verbose:
+        sysout_streamer = logging.StreamHandler(sys.stdout)
+        sysout_streamer.setFormatter(logging.Formatter('%(message)s'))
+        # configure the levels we want to print (20: info, 40: error, 50: critical)
+        l_filter = LevelFilter((logging.INFO, logging.ERROR, logging.CRITICAL))
+        sysout_streamer.addFilter(l_filter)
+        # set minimum level (for safety):
+        sysout_streamer.setLevel(min(l_filter.levels))
+        logger.addHandler(sysout_streamer)
+
+
+def new_download_run(engine, params=None) -> int:
+    if params is None:
+        params = {}
+    config = yaml_safe_dump(params)
+    if isinstance(config, bytes):
+        config = config.decode('utf-8')  # legacy py2 code?
+    tmp_log = ('N/A: either logger not configured, or an '
+               'unexpected error interrupted the process')
+    download_id = get_max(engine, models.DownloadRun.id) + 1
+    rows = list(
+        execute_sql(
+            engine,
+            [create_insert_statement(models.DownloadRun)],
+            [dict(
+                id=download_id,
+                time=datetime.now(UTC).replace(tzinfo=None),
+                config=config,
+                log=tmp_log,
+                summary="",
+                s2s_version=version()
+            )]
+        )
+    )
+    if len(rows) != 1:
+        raise FailedDownload('Unable to write to the DB')
+    return download_id
+
+
+def version():
+    with open(get_resource_abspath('program_version')) as _:
+        return _.read().strip()
+
+
+def _download(engine: Engine, events_url, starttime, endtime, data_url,
          events_extra_params, network, station, location, channel, min_sample_rate,
          search_radius, update_metadata, stationxml, quakeml, time_window,
          advanced_settings, authorizer, isterminal=False):
@@ -299,11 +345,12 @@ def _run(engine: Engine, download_id, events_url, starttime, endtime, data_url,
                             advanced_settings['i_timeout'],
                             download_blocksize,
                             isterminal)
-        logger.info(("** Stations StationXML download summary **\n"
-                     "- downloaded     %7d \n"
-                     "- saved          %7d (empty response)\n"
-                     "- not downloaded %7d (client/server errors)"),
-                    n_downloaded, n_saved, n_errors)
+        logger.info(
+            f"** Stations StationXML download summary **\n"
+            f"- downloaded     {n_downloaded:,} \n"
+            f"- saved          {n_saved:,}\n"
+            f"- not downloaded {n_errors:,} (empty data, download error)"
+        )
     if quakeml:
         log_step_header("Downloading Events (QuakeML)", 7)
         n_downloaded, n_saved, n_errors = \
@@ -312,41 +359,60 @@ def _run(engine: Engine, download_id, events_url, starttime, endtime, data_url,
                          advanced_settings['i_timeout'],
                          download_blocksize,
                          isterminal)
-        logger.info(("** Events QuakeML download summary **\n"
-                     "- downloaded     %7d \n"
-                     "- saved          %7d (empty response)\n"
-                     "- not downloaded %7d (client/server errors)"),
-                    n_downloaded, n_saved, n_errors)
-
-
-def new_download_run(engine, params=None) -> int:
-    if params is None:
-        params = {}
-    config = yaml_safe_dump(params)
-    if isinstance(config, bytes):
-        config = config.decode('utf-8')  # legacy py2 code?
-    tmp_log = ('N/A: either logger not configured, or an '
-               'unexpected error interrupted the process')
-    download_id = get_max(engine, models.DownloadRun.id) + 1
-    rows = list(
-        execute_sql(
-            engine,
-            [create_insert_statement(models.DownloadRun)],
-            [dict(
-                id=download_id,
-                time=datetime.now(UTC).replace(tzinfo=None),
-                config=config,
-                log=tmp_log,
-                summary="",
-                s2s_version=version()
-            )]
+        logger.info(
+            f"** Events QuakeML download summary **\n"
+            f"- downloaded     {n_downloaded:,} \n"
+            f"- saved          {n_saved:,}\n"
+            f"- not downloaded {n_errors:,} (empty data, download error)"
         )
+    return d_stats
+
+
+def _write_download_summary(engine: Engine, download_id: int | None, stats: dict):
+
+    if download_id is None:
+        return
+
+    execute_sql(
+        engine,
+        [
+            create_update_statement(
+                DownloadRun,
+                DownloadRun.id.key,
+                [DownloadRun.summary.key]
+            )
+        ],
+        {
+            DownloadRun.id.key: download_id,
+            DownloadRun.summary.key: json.dumps(stats)
+        }
     )
-    if len(rows) != 1:
-        raise FailedDownload('Unable to write to the DB')
-    return download_id
 
 
-def version():
-    with open(get_resource_abspath('program_version')) as _:
-        return _.read().strip()
+def _write_download_log(
+    engine: Engine, download_id: int | None, log_file_path: str, rm_file: bool
+):
+    is_file = log_file_path and os.path.isfile(log_file_path)
+    if download_id and is_file:
+
+        with open(log_file_path, 'r') as f:
+            execute_sql(
+                engine,
+                [
+                    create_update_statement(
+                        DownloadRun,
+                        DownloadRun.id.key,
+                        [DownloadRun.log.key]
+                    )
+                ],
+                {
+                    DownloadRun.id.key: download_id,
+                    DownloadRun.log.key: f.read()
+                }
+            )
+
+    if is_file and rm_file:
+        try:
+            os.remove(log_file_path)
+        except Exception:  # noqa
+            pass

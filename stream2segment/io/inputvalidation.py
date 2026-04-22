@@ -1,12 +1,8 @@
 """
 Input validation module
-
-:date: Feb 27, 2018
-
-.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
 
-
+# :date: Feb 27, 2018
 class BadParam(Exception):
     """Exception describing a bad input parameter. The purpose of this class is twofold:
     provide clear exception messages to the user with info on the input parameter to fix,
@@ -101,11 +97,12 @@ def validate_param(param_name_or_names, value, validation_func, *v_args, **v_kwa
         if isinstance(exc, TypeError):  # change type. FIXME: replace?
             preamble = preamble.replace('Invalid value', 'Invalid type')
         # raise from None in order to simply say that `exc` was handled and is no longer
-        # of interest. Otherwise if you raise an exception inside an except block and it
-        # isn't handled, tracebacks for both exceptions will be shown separated by the
+        # of interest. Otherwise, if you raise an exception inside an except block, and
+        # it isn't handled, tracebacks for both exceptions will be shown separated by the
         # message "During handling of the above exception, another exception occurred"
-        raise BadParam(preamble, param_name_or_names, message=exc, param_sep=" / ") \
-            from None
+        raise BadParam(
+            preamble, param_name_or_names, message=str(exc), param_sep=" / "
+        ) from None
 
 
 # to make None a passable argument to the next function

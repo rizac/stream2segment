@@ -10,6 +10,7 @@ import time
 import sys
 import logging
 from contextlib import contextmanager
+from datetime import timedelta, datetime, UTC
 import warnings
 from multiprocessing import Pool, cpu_count
 import signal
@@ -19,14 +20,14 @@ import inspect
 import numpy as np
 
 from stream2segment.io import yaml_load
+from stream2segment.io.log import LevelFilter
 from stream2segment.io.db import secure_dburl, close_session
 from stream2segment.process.db.sqlevalexpr import exprquery
-from stream2segment.io.log import logfilepath, close_logger, elapsed_time
+from stream2segment.io.log import close_logger
 from stream2segment.io.cli import get_progressbar, ascii_decorate
 from stream2segment.io.inputvalidation import validate_param
 from stream2segment.process.db import get_session
 from stream2segment.process.db.models import Segment, Station, SkipSegment
-from stream2segment.process.log import configlog4processing
 from stream2segment.process.writers import get_writer
 
 
@@ -134,7 +135,11 @@ def process(pyfunc, dburl, segments_selection=None, config=None, outfile=None,
     pyfile = getattr(pyfunc, "__name__", str(pyfunc))
 
     if logfile is True:
-        logfile = '' if not outfile else logfilepath(outfile)  # auto create log file
+        if not outfile:
+            logfile = ''
+        else:
+            _now = datetime.now(UTC).replace(microsecond=0).isoformat()
+            logfile = f'{outfile}.{_now}.log'
 
     with _setup_logging(logfile, verbose):
         abp = os.path.abspath
@@ -250,10 +255,10 @@ def imap(pyfunc, dburl, segments_selection=None, config=None,
 def _setup_logging(logfile, verbose):
     """Contextmanager handling log stuff and closing session at the end"""
     try:
-        configlog4processing(logger, logfile, verbose)
+        configure_logger(logfile, verbose)
         stime = time.time()
         yield
-        logger.info("Completed in %s", str(elapsed_time(stime)))
+        logger.info(f"Completed in {timedelta(seconds=round((time.time()) - stime))}")
     except KeyboardInterrupt:
         logger.critical("Aborted by user")  # see comment above
         raise
@@ -262,6 +267,34 @@ def _setup_logging(logfile, verbose):
         raise
     finally:
         close_logger(logger)
+
+
+def configure_logger(logfile_path='', verbose=False):
+    """
+    Configure the logger for processing
+    """
+    # https://docs.python.org/2/howto/logging.html#optimization:
+    logging._srcfile = None  # pylint: disable=protected-access
+    logging.logThreads = 0
+    logging.logProcesses = 0
+
+    logger.setLevel(logging.INFO)  # necessary to forward to handlers
+    handlers = []
+    if logfile_path:
+        logger.addHandler(logging.FileHandler(logfile_path, mode='w'))
+    if verbose:
+        # handlers.append(SysOutStreamHandler(sys.stdout))
+        sysout_streamer = logging.StreamHandler(sys.stdout)
+        sysout_streamer.setFormatter(logging.Formatter('%(message)s'))
+        # configure the levels we want to print (20: info, 40: error, 50: critical)
+        l_filter = LevelFilter((20, 40, 50))
+        sysout_streamer.addFilter(l_filter)
+        # set minimum level (for safety):
+        sysout_streamer.setLevel(min(l_filter.levels))
+        logger.addHandler(sysout_streamer)
+
+    for hand in handlers:
+        logger.addHandler(hand)
 
 
 def run_and_yield(dburl, seg_ids, pyfunc, config, show_progress=False,
@@ -292,7 +325,7 @@ def run_and_yield(dburl, seg_ids, pyfunc, config, show_progress=False,
     """
     # check params:
     if isinstance(config, str):
-        config = validate_param("config", config or {}, yaml_load)
+        config = validate_param("config", config, yaml_load)
     elif not config:
         config = {}
 
@@ -442,8 +475,7 @@ def fetch_segments_ids(dburl, segments_selection, writer=None):
 def get_default_segments_selection():
     """Return a dict with a default segments selection for processing"""
     return {
-        'has_valid_data': 'true',
-        'maxgap_numsamples': '(-0.5, 0.5)'
+        'gap_score_percent': '<=50'
     }
 
 

@@ -16,7 +16,8 @@ from webbrowser import open as open_in_browser
 from jinja2 import Environment, FileSystemLoader
 from sqlalchemy import func, or_
 
-from stream2segment.io import yaml_load, Fdsnws
+from stream2segment.download.url import get_host
+from stream2segment.io import yaml_load
 from stream2segment.io.cli import ascii_decorate
 from stream2segment.io.db import close_session
 from stream2segment.io.db.sqlconstructs import concat
@@ -507,7 +508,7 @@ def get_datacenters(sess, dc_ids=None):
     ret = {}
     for (datacenter_id, dataselect_url) in query:
         try:
-            url = Fdsnws(dataselect_url).site
+            url = get_host(dataselect_url)
         except:  # @IgnorePep8
             url = dataselect_url
         ret[datacenter_id] = url

@@ -37,7 +37,7 @@ class clickutils:  # noqa
             try:
                 return yaml_dict[param_name]
             except KeyError:
-                raise ValueError('%d not found in YAML file %s' % (param_name, value))
+                raise ValueError(f'{param_name} not found in YAML file {value}')
         return value
 
     # shorthand string for event-related download params:
@@ -54,8 +54,9 @@ class clickutils:  # noqa
         required=True
     )
     # custom type for Options accepting an existing File:
-    ExistingPath = click.Path(exists=True, file_okay=True, dir_okay=False,
-                              writable=False, readable=True)
+    ExistingPath = click.Path(
+        exists=True, file_okay=True, dir_okay=False, writable=False, readable=True
+    )
 
     @classmethod
     def fill_missing_help_from_yaml_download_file(cls, command, *args, **kwargs):
@@ -444,15 +445,8 @@ def copy_example_files(outpath, prompt=True, *filenames):
 @click.option('-k', '--channel', '--channels', '--cha', 'channel')
 @click.option('-msr', '--min-sample-rate', type=float)
 @click.option('-ds', '--data_url', '--dataselect', '--dataws', multiple=True)
-@click.option('-t', '--time-window', nargs=2, type=float)
-@click.option('-u', '--update-metadata', is_flag=True, default=None)
-@click.option('-r1', '--retry-url-err', is_flag=True, default=None)
-@click.option('-r2', '--retry-mseed-err', is_flag=True, default=None)
-@click.option('-r3', '--retry-seg-not-found', is_flag=True, default=None)
-@click.option('-r4', '--retry-client-err', is_flag=True, default=None)
-@click.option('-r5', '--retry-server-err', is_flag=True, default=None)
-@click.option('-r6', '--retry-timespan-err', is_flag=True, default=None)
-@click.option('-i', '--inventory', is_flag=True, default=None)
+@click.option('-t', '--time-window', '--segment_window', nargs=2, type=float)
+@click.option('-i', '--stationxml', is_flag=True, default=None)
 @click.option('-minlat', '--minlatitude', type=float,
               help=clickutils.EQA + " Limit to events with a latitude larger "
                                     "than or equal to the specified minimum")
@@ -483,10 +477,7 @@ def copy_example_files(outpath, prompt=True, *filenames):
                    "(default False when missing)")
 def download(config, dburl, events_url, starttime, endtime, network,  # noqa
              station, location, channel, min_sample_rate,  # noqa
-             data_url, time_window,  # noqa
-             update_metadata, retry_url_err, retry_mseed_err,  # noqa
-             retry_seg_not_found, retry_client_err,  # noqa
-             retry_server_err, retry_timespan_err, inventory,  # noqa
+             data_url, time_window,  stationxml,  # noqa
              minlatitude, maxlatitude, minlongitude,  # noqa
              maxlongitude, mindepth, maxdepth, minmagnitude,  # noqa
              maxmagnitude, print_config_only):  # noqa
