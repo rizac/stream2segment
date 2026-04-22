@@ -111,13 +111,6 @@ def url2str(obj, maxlen=None):
     return url
 
 
-def df2str(df, **kwargs):  # FIXME REMOVE
-    kwargs.setdefault('max_rows', 30)  # FIXME call this func throughout the code?
-    kwargs.setdefault('index', True)
-    kwargs.setdefault('na_rep', '')
-    return df.set_index(pd.RangeIndex(start=1, stop=len(df)+1)).to_string(**kwargs)
-
-
 class IdOnceLogFilter(logging.Filter):
     """
     logging Filter that expects an 'ID' attribute on each record
@@ -127,9 +120,9 @@ class IdOnceLogFilter(logging.Filter):
 
     log_filter = IdOnceLogFilter()
     logger.addFilter(log_filter)
-    logger.warn('message', extra={'ID': (1, 'x')})  # logged
-    logger.warn('another message', extra={'ID': (1, 'x')})  # not logged
-    # eventually, you can optionally remove the filter (freeing memeory):
+    logger.warn('message', extra={'ID': (1, 'geofon.gfz.de')})  # logged
+    logger.warn('another message', extra={'ID': (1, 'geofon.gfz.de')})  # not logged
+    # eventually, you can optionally remove the filter (freeing memory):
     logger.removeFilter(log_filter)
     """
 
@@ -391,7 +384,9 @@ else:
         return datetime.fromisoformat(string)
 
 
-def fdsn_url(url: str, new_service: str = None, new_method: str = None, check_scheme=True):  # noqa
+def fdsn_url(
+    url: str, new_service: str = None, new_method: str = None, check_scheme=True
+):
     """Check that the given url is a valid FDSN URL and return it (with new service and
     method substrings, if given). Raise ValueError if the url is invalid. The URL query
     string, if given, will not be checked

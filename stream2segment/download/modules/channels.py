@@ -26,7 +26,7 @@ from stream2segment.download.exc import FailedDownload
 from stream2segment.download.url import urlread, get_host
 from stream2segment.download.modules.utils import (fdsn_channel_response_text_to_df,
                                                    formatmsg, fdsn_url,
-                                                   fdsn_url_qs, df2str)
+                                                   fdsn_url_qs)
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__)
@@ -1028,7 +1028,9 @@ def save_channels(engine: Engine, channels: pd.DataFrame, update: bool):
                 f'seismic channel(s) saved')
     if len(i_err):
         logger.warning(f"Unable to save {len(i_err)} seismic channel(s):")
-        logger.warning(df2str(i_err))
+        logger.warning(
+            i_err.to_string(max_rows=30, index=False, na_rep='', show_dimensions=True)
+        )
 
     # # Then add (sync actually, already existing channels are not inserted):
     # channels_df = dbsyncdf(
@@ -1072,7 +1074,11 @@ def sync_webservice_ids_with_db(cha_df, engine, urls_col=WebService.url.key):
         logger.warning(f"Unable to store {wsurl_na:,} url(s) "
                        f"for a total of {wsid_na.sum()} channel(s) "
                        f"discarded:")
-        logger.warning(df2str(cha_df[wsid_na]))
+        logger.warning(
+            cha_df[wsid_na].to_string(
+                max_rows=30, index=False, na_rep='', show_dimensions=True
+            )
+        )
         cha_df = cha_df[~wsid_na].copy()
     return cha_df
 
