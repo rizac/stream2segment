@@ -193,7 +193,7 @@ def urlread(
 
 def read_async(
     iterable,
-    url_callback=None,
+    *,
     max_concurrency=None,
     suspend_trigger=25,
     max_concurrency_d=4,
@@ -212,13 +212,7 @@ def read_async(
     For each item `obj` of iterable, this function yields the tuple
     `(obj: [Any], response [Response])`
 
-    :param iterable: an iterable of objects representing the urls addresses to be read:
-        if its elements are neither strings nor `Request` objects, the `url_callback`
-        argument must be specified to map each element to a valid url string or Request
-    :param url_callback: function or None. When None (the default), all elements of
-        `iterable` must be url strings or Request objects. If callable, it will be
-        called with each element of `iterable` as argument, and must return the mapped
-        url address or Request.
+    :param iterable: an iterable strings (URLs) or `Request` objects
     :param max_concurrency: integer or None (the default) denoting the max parallel
         downloads. This corresponds to the maximum worker (sub) threads used. When None,
         the threads allocated are relative to the machine CPU (should be around 16-32)
@@ -252,17 +246,6 @@ def read_async(
         (user, password)
     :param kwargs: optional arguments to be passed to the underlying python `urlopen`
         function. These arguments are ignored if a custom `openers` function is provided
-
-    Implementation details:
-
-    FIXME REMOVE:
-    ThreadPool vs ThreadPoolExecutor: this function changed from using
-    `concurrent.futures.ThreadPoolExecutor` into the "old"
-    `multiprocessing.pool.ThreadPool`: the latter consumes in most cases less memory
-    (about 30% less), especially if `iterable` is not a list in memory but a python
-    iterable (`concurrent.futures.ThreadPoolExecutor` builds a `set` of `Future`s object
-    from `iterable`, whereas `multiprocessing.pool.ThreadPool` seems just to execute each
-    element in iterable)
 
     killing threads / handling exceptions: this function handles any kind of unexpected
     exception (particularly relevant in case of e.g., `KeyboardInterrupt`) by canceling
@@ -311,15 +294,11 @@ def read_async(
         aborted_download_domains = set()
         limiters: dict[str, DynamicLimiter] = {}
 
-        def url_wrapper(obj):
+        def url_wrapper(url):
             if stop_event is not None and stop_event.is_set():
                 return None
-            # get the url:
-            url = obj
-            if url_callback is not None:
-                url = url_callback(obj)
             # get the opener (restricted data):
-            domain = get_host(url)
+            domain = get_host(url)  # noqa
             with per_domain_lock(domain):
                 if domain in aborted_download_domains:
                     return None
@@ -338,7 +317,7 @@ def read_async(
                 finally:
                     hostname_limiter.release()
 
-                return domain, obj, resp
+                return domain, resp
 
         last_n_errors = {}
 
@@ -348,7 +327,7 @@ def read_async(
                 continue
             if resp_tuple is None:
                 continue
-            domain, obj, response = resp_tuple
+            domain, response = resp_tuple
 
             if 200 <= response.status_code < 300:
                 yield resp_tuple
@@ -360,7 +339,7 @@ def read_async(
 
             # error response. Append to queue:
             resp_queue = last_n_errors.setdefault(domain, deque(maxlen=suspend_trigger))
-            resp_queue.appendleft((obj, response))
+            resp_queue.appendleft(resp_tuple)
 
             if len(resp_queue) < suspend_trigger_d:
                 # threshold not yet reached, go on:

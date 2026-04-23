@@ -7,10 +7,11 @@ import logging
 
 import numpy as np
 import pandas as pd
+from obspy.geodetics import degrees2kilometers, kilometers2degrees
 from sqlalchemy import func, Engine, select
 
 from stream2segment.io.cli import get_progressbar
-from stream2segment.io.db.pdsql import df2db, apply_table_dtypes
+from stream2segment.io.db.pdsql import df2db, apply_table_dtypes, get_row_count, db2dfs
 from stream2segment.download.exc import FailedDownload, NothingToDownload
 from stream2segment.io.db.models import Event, WebService
 from stream2segment.download.url import urlread, socket, HTTPError
@@ -35,14 +36,19 @@ def get_events(
     """Return the event data frame from the given url or local file"""
     local_file = is_local_file(url)
 
-    event_ws_id = configure_ws_fk(
-        f"file:///.../{os.path.basename(url)}" if local_file else url,
-        engine
-    )
+    event_ws_id = None
+
+    if not local_file:
+        event_ws_id = configure_ws_fk(url, engine)
 
     pd_df_list = events_df_list(url, evt_query_args, start, end, 120, show_progress)
     # pd_df_list surely not empty (otherwise we raised FailedDownload)
     events_df = pd.concat(pd_df_list, axis=0, ignore_index=True, copy=False)
+    if local_file:
+        # support for Nones:
+        events_df[Event.webservice_id.key] = (
+            events_df[Event.webservice_id.key].astype('Int64')
+        )
     events_df[Event.webservice_id.key] = event_ws_id
 
     if local_file:
@@ -378,6 +384,121 @@ def _get_freq_mag_distrib(evt_query_args):
             ret = ret[index_of_minmag:]
 
     return minmag, step, ret
+
+
+def check_duplicates(
+    events: pd.DataFrame,
+    engine: Engine,
+    lon_tol_km=10,
+    lat_tol_km=10,
+    depth_tol_km=5,
+    time_tol_sec=30,
+    preferred_mag_types: list | None = None,
+    show_progress=False
+):
+    events.reset_index(drop=True, inplace=True)
+
+    lat_col = Event.latitude.key
+    lon_col = Event.longitude.key
+    depth_col = Event.depth.key
+    time_col = Event.time.key
+
+    _suf = ".-"
+    # first check equal events in the current dataframe:
+    events[lat_col + _suf] = (
+        (events[lat_col] / kilometers2degrees(lat_tol_km)).round().astype(int)
+    )
+    events[lon_col + _suf] = (
+        (events[lon_col] / kilometers2degrees(lon_tol_km)).round().astype(int)
+    )
+    events[depth_col + _suf] = (events[depth_col] / depth_tol_km).round().astype(int)
+    events[time_col + _suf] = (
+        (events[time_col].dt.timestamp / time_tol_sec).round().astype(int)
+    )
+    cmp_cols = [lat_col, lon_col, depth_col, time_col]
+    cmp_cols_round = [_ + _suf for _ in cmp_cols]
+    uid_cols = [Event.eventid.key, Event.catalog.key]
+
+    conflict_ids = []
+    drop_ids = []
+
+    for _, ev_df in events[events.duplicated(cmp_cols_round)].groupby([
+        Event.latitude.key + _suf,
+        Event.longitude.key + _suf,
+        Event.depth_km.key + _suf,
+        Event.latitude.key + _suf
+    ]):
+        # same (eventid, catalog)? If yes, go on, otherwise conflicts
+        dupes = ev_df.duplicated(uid_cols, keep=False)
+        if not dupes.all():
+            conflict_ids.extend(ev_df.index)
+            continue
+
+        # different mag_types? If preferred_mag_types provided check, otherwise conflicts
+        aval_mag_types = pd.unique(ev_df[Event.mag_type.key])
+        if len(aval_mag_types) > 1:
+            preferred_mag_type = None
+            if preferred_mag_types is not None:
+                for ma_type in preferred_mag_types:
+                    if ma_type in aval_mag_types:
+                        preferred_mag_type = ma_type
+                        break
+            if preferred_mag_type is None:
+                conflict_ids.extend(ev_df.index)
+                continue
+            else:
+                # take first mag type (if we have more than once):
+                keep_idx = (
+                    ev_df[ev_df[Event.mag_type.key] == preferred_mag_type].index[0]
+                )
+                drop_ids.extend(ev_df[ev_df.index != keep_idx].index)
+        else:
+            # same mag type, take first index that has max mag:
+            drop_ids.extend(
+                ev_df.index.difference([ev_df[Event.magnitude.key].idxmax()])
+            )
+
+    if conflict_ids:
+        logger.warning(events.loc[conflict_ids].to_string(index=False, na_rep=''))
+        raise FailedDownload(
+            f'{len(conflict_ids)} spatio-temporal conflict(s) in events, see log for details'
+        )
+
+    if drop_ids:
+        logger.warning(f"Dropping {len(drop_ids)} duplicated events")
+        events = events[~events.index.isin(drop_ids)]
+
+
+    duplicated = events.duplicated(uid_cols, keep=False)
+    if duplicated.any():
+        logger.warning(events.loc[duplicated].to_string(index=False, na_rep=''))
+        raise FailedDownload(
+            f'{len(conflict_ids)} '
+            f'(eventid, catalog) conflict(s) in events, '
+            f'see log for details'
+        )
+
+
+    cols = [
+        Event.latitude,
+        Event.longitude,
+        Event.depth_km,
+        Event.time,
+        Event.magnitude,
+        Event.eventid,
+        Event.catalog
+    ]
+    if preferred_mag_types is not None:
+        cols += [Event.mag_type]
+
+    if get_row_count(engine, Event) > 0:
+        uc_cols = [Event.eventid.key, Event.catalog.key]
+        for saved_events in pd.concat(db2dfs(select(cols), engine)):
+            events = events.merge(
+                saved_events, how='left', on=uc_cols, suffixes=('', _suf)
+            )
+            events.merge(saved_events, on=[Event.eventid.key, Event.catalog.key])
+
 
 
 def check_events_df_from_local_file(
