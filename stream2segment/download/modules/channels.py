@@ -18,10 +18,12 @@ from pandas.core.dtypes.common import is_categorical_dtype
 from sqlalchemy import select, Engine
 
 from stream2segment.io.cli import get_progressbar
-from stream2segment.io.db.pdsql import df2db, get_row_count, apply_table_dtypes
+from stream2segment.io.db.pdsql import (
+    sync_pkey, insert_df, get_row_count, apply_table_dtypes
+)
 from stream2segment.io.db.models import Channel, WebService, Segment
 from stream2segment.download.exc import FailedDownload
-from stream2segment.download.url import urlread, get_host
+from stream2segment.download.url import urlread
 from stream2segment.download.modules.utils import (
     formatmsg, fdsn_url, fdsn_url_qs, fdsn_response_text_to_df
 )
@@ -832,25 +834,39 @@ def save_channels(engine: Engine, channels: pd.DataFrame, update: bool):
 
 def sync_webservice_ids_with_db(cha_df, engine, urls_col=WebService.url.key):
 
-    ws_df, i_err, _ = df2db(
-        pd.DataFrame([{urls_col: u} for u in cha_df[urls_col].cat.categories]),
+    ws_df = pd.DataFrame([{urls_col: u} for u in cha_df[urls_col].cat.categories])
+
+    id_col: str = WebService.id.key
+    sync_pkey(
+        ws_df,
         WebService,
         engine,
-        'id',
+        id_col,
         [urls_col]
     )
+    mask = ws_df['id'].isna()
+
+    if mask.any():
+        inserted, failed = insert_df(ws_df[mask], engine, WebService)
+        if (~mask).any():
+            ws_df = pd.concat([inserted, ws_df[~mask]], ignore_index=True)
+        else:
+            ws_df = inserted
+        if failed:
+            logger.warning(f"Failed to insert {len(failed):,} url(s) to DB, discarding")
+
     # now assign:
     cha_df = cha_df.merge(
-        ws_df.rename(columns={"id": Channel.webservice_id.key}),
+        ws_df.rename(columns={id_col: Channel.webservice_id.key}),
         on=urls_col,
         how="left"
     )
+
     wsid_na = pd.isna(cha_df[Channel.webservice_id.key])
-    wsurl_na = pd.unique(cha_df[wsid_na][urls_col])
     if wsid_na.any():
-        logger.warning(f"Unable to store {wsurl_na:,} url(s) "
-                       f"for a total of {wsid_na.sum()} channel(s) "
-                       f"discarded:")
+        logger.warning(
+            f"Discarding {wsid_na.sum()} channel(s) (associated URL not saved to DB)"
+        )
         logger.warning(
             cha_df[wsid_na].to_string(
                 max_rows=30, index=False, na_rep='', show_dimensions=True

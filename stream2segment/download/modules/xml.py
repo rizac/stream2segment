@@ -8,7 +8,7 @@ from sqlalchemy import select, Engine
 
 from stream2segment.io.cli import get_progressbar
 from stream2segment.io.db.pdsql import (
-    create_update_statement, create_insert_statement, execute_sql, get_max
+    create_update_statement, create_insert_statement, execute_sql, get_col_max
 )
 from stream2segment.io.db.models import (
     WebService, Segment, Channel, StationXML, Event, QuakeML
@@ -49,7 +49,7 @@ def save_stationxml(
         rows = conn.execute(stmt).fetchall()
 
     insert_stmt = [create_insert_statement(StationXML)]
-    stationxml_id = get_max(engine, StationXML.id)
+    stationxml_id = get_col_max(engine, StationXML.id)
     cache: dict[str, tuple[str, str, int]] = {}
 
     if len(rows) > 0:

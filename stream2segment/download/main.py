@@ -14,7 +14,7 @@ from sqlalchemy import Engine
 from stream2segment.io.log import LevelFilter
 from stream2segment.io.db.models import DownloadRun
 from stream2segment.io.db.pdsql import (
-    get_max, execute_sql, create_insert_statement, create_update_statement
+    get_col_max, execute_sql, create_insert_statement, create_update_statement
 )
 from stream2segment.io.log import close_logger
 from stream2segment.io import yaml_safe_dump
@@ -208,7 +208,7 @@ def new_download_run(engine, params=None) -> int:
         config = config.decode('utf-8')  # legacy py2 code?
     tmp_log = ('N/A: either logger not configured, or an '
                'unexpected error interrupted the process')
-    download_id = get_max(engine, models.DownloadRun.id) + 1
+    download_id = get_col_max(engine, models.DownloadRun.id) + 1
     rows = list(
         execute_sql(
             engine,

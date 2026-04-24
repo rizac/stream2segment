@@ -7,11 +7,14 @@ import logging
 
 import numpy as np
 import pandas as pd
-from obspy.geodetics import degrees2kilometers, kilometers2degrees
-from sqlalchemy import func, Engine, select
+from obspy.geodetics import kilometers2degrees
+from sqlalchemy import Engine, select
 
 from stream2segment.io.cli import get_progressbar
-from stream2segment.io.db.pdsql import df2db, apply_table_dtypes, get_row_count, db2dfs
+from stream2segment.io.db.pdsql import (
+    apply_table_dtypes, get_col_max, execute_sql, create_insert_statement,
+    select_df, insert_df
+)
 from stream2segment.download.exc import FailedDownload, NothingToDownload
 from stream2segment.io.db.models import Event, WebService
 from stream2segment.download.url import urlread, socket, HTTPError
@@ -51,21 +54,10 @@ def get_events(
         )
     events_df[Event.webservice_id.key] = event_ws_id
 
-    if local_file:
-        check_events_df_from_local_file(events_df, engine, show_progress)
+    events_df = save_events(events_df, engine)
 
-    events_df, failed_i, _ = df2db(
-        events_df,
-        Event,
-        engine,
-        'id',
-        [Event.eventid.key, Event.catalog.key],
-        # chunksize=db_bufsize,
-    )
-
-    # try to release memory for unused columns (FIXME: NEEDS TO BE TESTED)
     return events_df[[Event.id.key, Event.magnitude.key, Event.latitude.key,
-                      Event.longitude.key, Event.depth_km.key, Event.time.key]].copy()
+                      Event.longitude.key, Event.depth_km.key, Event.time.key]]
 
 
 def configure_ws_fk(event_ws_url, engine: Engine):
@@ -80,16 +72,14 @@ def configure_ws_fk(event_ws_url, engine: Engine):
         ).scalar_one_or_none()
 
     if event_ws_id is None:  # write url to table
-        dfr = pd.DataFrame((event_ws_url,), columns=[WebService.url.key])
-
-        dfr, i_err, _ = df2db(
-            dfr,
-            WebService,
+        event_ws_id = get_col_max(engine, WebService.id) + 1
+        oks = list(execute_sql(
             engine,
-            'id',
-            [WebService.url.key],
-        )
-        event_ws_id = dfr.iloc[0][WebService.id.key]
+            [create_insert_statement(WebService)],
+            [{WebService.id.key: event_ws_id, WebService.url.key: event_ws_url}]
+        ))
+        if not oks:
+            raise FailedDownload(f'Cannot update DB entry {event_ws_url}')
 
     return event_ws_id
 
@@ -386,11 +376,11 @@ def _get_freq_mag_distrib(evt_query_args):
     return minmag, step, ret
 
 
-def check_duplicates(
+def save_events(
     events: pd.DataFrame,
     engine: Engine,
-    lon_tol_km=10,
-    lat_tol_km=10,
+    lon_tol_km=5,
+    lat_tol_km=5,
     depth_tol_km=5,
     time_tol_sec=30,
     preferred_mag_types: list | None = None,
@@ -404,17 +394,16 @@ def check_duplicates(
     time_col = Event.time.key
 
     _suf = ".-"
+
+    def round(series, abs_tol):
+        return (series / abs_tol).round().astype(int)
+
     # first check equal events in the current dataframe:
-    events[lat_col + _suf] = (
-        (events[lat_col] / kilometers2degrees(lat_tol_km)).round().astype(int)
-    )
-    events[lon_col + _suf] = (
-        (events[lon_col] / kilometers2degrees(lon_tol_km)).round().astype(int)
-    )
-    events[depth_col + _suf] = (events[depth_col] / depth_tol_km).round().astype(int)
-    events[time_col + _suf] = (
-        (events[time_col].dt.timestamp / time_tol_sec).round().astype(int)
-    )
+    events[lat_col + _suf] = round(events[lat_col], kilometers2degrees(lat_tol_km))
+    events[lon_col + _suf] = round(events[lon_col], kilometers2degrees(lon_tol_km))
+    events[depth_col + _suf] = round(events[depth_col], depth_tol_km)
+    events[time_col + _suf] = round(events[time_col].dt.timestamp, time_tol_sec)
+
     cmp_cols = [lat_col, lon_col, depth_col, time_col]
     cmp_cols_round = [_ + _suf for _ in cmp_cols]
     uid_cols = [Event.eventid.key, Event.catalog.key]
@@ -478,77 +467,78 @@ def check_duplicates(
             f'see log for details'
         )
 
+    cols = events.columns
+    conflicts = 0
+    new_events = []
+    uc_cols = [Event.eventid.key, Event.catalog.key]
 
-    cols = [
-        Event.latitude,
-        Event.longitude,
-        Event.depth_km,
-        Event.time,
-        Event.magnitude,
-        Event.eventid,
-        Event.catalog
-    ]
-    if preferred_mag_types is not None:
-        cols += [Event.mag_type]
+    where_stmt = (
+        (Event.latitude >= events[Event.latitude.key].min()) &
+        (Event.latitude <= events[Event.latitude.key].max()) &
+        (Event.longitude >= events[Event.longitude.key].min()) &
+        (Event.longitude <= events[Event.longitude.key].max()) &
+        (Event.time >= events[Event.time.key].min()) &
+        (Event.time <= events[Event.time.key].max()) &
+        (Event.depth_km >= events[Event.depth_km.key].min()) &
+        (Event.depth_km <= events[Event.depth_km.key].max()) &
+        (Event.magnitude >= events[Event.magnitude.key].min()) &
+        (Event.magnitude <= events[Event.magnitude.key].max())
+    )
+    select_stmt = select(Event).where(where_stmt)
+    for saved_events in select_df(engine, select_stmt):
+        saved_events[lat_col + _suf] = round(
+            saved_events[lat_col], kilometers2degrees(lat_tol_km)
+        )
+        saved_events[lon_col + _suf] = round(
+            saved_events[lon_col], kilometers2degrees(lon_tol_km)
+        )
+        saved_events[depth_col + _suf] = round(
+            saved_events[depth_col], depth_tol_km
+        )
+        saved_events[time_col + _suf] = round(
+            saved_events[time_col].dt.timestamp, time_tol_sec
+        )
 
-    if get_row_count(engine, Event) > 0:
-        uc_cols = [Event.eventid.key, Event.catalog.key]
-        for saved_events in pd.concat(db2dfs(select(cols), engine)):
-            events = events.merge(
-                saved_events, how='left', on=uc_cols, suffixes=('', _suf)
+        merged = events.merge(
+            saved_events,
+            how='left',
+            on=cmp_cols_round,
+            suffixes=('_a', '_b'),
+            indicator = True
+        )
+        matched = merged[merged["_merge"] == "both"]
+        conflicts += (
+            (matched[uc_cols[0] + '_x'] != matched[uc_cols[0] + '_y']) |
+            (matched[uc_cols[1] + '_x'] != matched[uc_cols[1] + '_y'])
+        ).sum()
+        matched.rename(columns={c + '_y': c for c  in cols}, inplace=True)
+        new_events.append(matched[cols] + [Event.id.key])
+
+        events = merged[merged["_merge"] == "left_only"].drop(columns=["_merge"])
+        events = events.rename(columns={c + '_x': c for c  in cols})
+
+        if not events.empty:  # it might be if we entered the for loop
+            db_start_id = get_col_max(engine, Event.id) + 1
+            events[Event.id.key] = (
+                np.arange(db_start_id, db_start_id + len(events)).astype(int)
             )
-            events.merge(saved_events, on=[Event.eventid.key, Event.catalog.key])
+            events, failed = insert_df(events, engine, Event)
+            if not failed.empty:
+                logger.warning(f"Unable to insert {len(failed)} event(s)")
+                logger.warning(failed.to_string(
+                    max_rows=30, index=False, na_rep='', show_dimensions=True
+                ))
 
+        if new_events:
+            if not events.empty:
+                new_events.append(events)
+            events = pd.concat(new_events, ignore_index=True)
+            if not pd.api.types.is_integer_dtype(events[Event.id.key]):
+                events[Event.id.key] = events[Event.id.key].astype(int)
 
-
-def check_events_df_from_local_file(
-    events: pd.DataFrame, engine: Engine, show_progress=False
-):
-    suffix_msg = "Check events file"
-    dupes = events[[Event.eventid.key]].duplicated().sum()
-    if dupes:
-        raise FailedDownload(f'Events file contains {dupes:,} events with same '
-                             f'`eventid` (1st column). {suffix_msg}')
-    # check duplicated
-    mag, time, lat, lon = Event.magnitude, Event.time, Event.latitude, Event.longitude  # noqa
-    tmp_df = pd.DataFrame({
-        # mag: events_df[mag.key],
-        time: events[time.key].dt.round('s'),
-        lat: events[lat.key].round(3),
-        lon: events[lon.key].round(3)
-    })
-    dupes = tmp_df.duplicated().sum()
-    if dupes:
-        raise FailedDownload(f'Events file contains {dupes:,} events with similar '
-                             f'spatio-temporal coordinates. {suffix_msg}')
-    events_from_file = 0
-    ws_ids = {
-        row[0] for row in
-        session.query(WebService).filter(WebService.url.like("file:/%"))
-    }
-    if ws_ids:
-        events_from_file = session.query(func.count()).select_from(Event).\
-            filter(Event.webservice_id.in_(ws_ids)).scalar()
-
-    if not events_from_file:
-        return
-
-    logger.info("Checking events in local file vs. db")
-    with get_progressbar(len(events) if show_progress else 0) as pbar:
-
-        for ev_id, m_, t_, la_, lo_ in zip(
-                events[Event.eventid.key],
-                events[mag.key],
-                events[time.key],
-                events[lat.key],
-                events[lon.key]
-        ):
-            pbar.update(1)
-            db_val = session.query(mag, time, lat, lon).filter(
-                Event.webservice_id.in_(ws_ids) & (Event.eventid == ev_id)
-            ).first()
-            if db_val is None or tuple(db_val) == (m_, t_, la_, lo_):
-                continue
-            raise FailedDownload(f'Event eventid={ev_id} is already stored in the '
-                                 f'database with different magnitude or coordinates. '
-                                 f'{suffix_msg}')
+        if conflicts > 0:
+            logger.info(
+                f'Found {conflicts} conflict(s) with saved DB events, '
+                f'using the latter instead of downloaded/supplied events'
+            )
+    return events

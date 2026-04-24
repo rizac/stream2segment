@@ -22,8 +22,9 @@ from sqlalchemy import select, Engine
 from stream2segment.download import url
 from stream2segment.download.modules.mseedlite import MSeedError, Input
 from stream2segment.io.cli import get_progressbar
-from stream2segment.io.db.pdsql import sync_pkey, get_row_count, get_max, \
-    create_insert_statement, execute_sql
+from stream2segment.io.db.pdsql import (
+    sync_pkey, get_row_count, get_col_max, create_insert_statement, execute_sql
+)
 from stream2segment.io.db.models import (
     WebService, Segment, Channel, MiniSeed, SkippedSegment
 )
@@ -49,7 +50,6 @@ def prepare_for_download(
             engine,
             Segment.id.key,
         [Segment.event_id.key, Segment.channel_id.key],
-            assign_new_ids=False,
             chunksize=min(1000, len(segments))
         )
         # max_id = segments_with_pkeys.attrs.pop(f'{Segment.id.key}_max')
@@ -76,7 +76,6 @@ def prepare_for_download(
             SkippedSegment.id.key,
             [SkippedSegment.event_id.key, SkippedSegment.channel_id.key],
             where_clause,
-            assign_new_ids=False,
             chunksize=min(1000, len(segments))
         )
         segments["_.already_skipped._"] =  segments[SkippedSegment.id.key].motna()
@@ -145,7 +144,7 @@ def download_and_save(
 
     skipped_segment_codes = set(MiniSeedErrorCode) | {204}
 
-    segments_current_id = get_max(engine, Segment.id)
+    segments_current_id = get_col_max(engine, Segment.id)
 
     sql_insert_ok = [
         create_insert_statement(Segment),
