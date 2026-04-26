@@ -368,18 +368,28 @@ def sync_pkey(
 
 
 def insert_df(
-    dfr: pd.DataFrame, engine:Engine, table_model: type[DeclarativeBase], chunksize=5000
+    dfr: pd.DataFrame,
+    engine:Engine,
+    table_model: type[DeclarativeBase],
+    chunksize=5000,
+    on_missing_pkey_col='auto-increment'
 ):
     """
-    Insert dfr to the given table model. Primary key of the latter must be present
+    Insert dfr to the given table model. Primary key of the latter are supposed to be
+    int. NaN values (if using pandas Int64) are must be present
     in dfr columns. Otherwise, see `sync_pkey` for more information
     """
     stmt = [create_insert_statement(table_model)]
     start = 0
     index_inserted = set()
     failed = pd.DataFrame(columns=dfr.columns, data=[])
+
     id_col = [col.name for col in table_model.__table__.primary_key.columns][0]
-    assert id_col in dfr.columns, f"Missing {id_col} column"
+    if id_col not in dfr.columns:
+        if on_missing_pkey_col != 'auto-increment':
+            raise ValueError(f'Missing {id_col}')
+        id_max = get_col_max(engine, table_model.__table__.c[id_col]) + 1
+        dfr[id_col] = np.arange(id_max, id_max + len(dfr), dtype=int)
 
     while start < len(dfr):
         rows = list(iter_rows(dfr[start: start + chunksize]))

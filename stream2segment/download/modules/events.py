@@ -2,7 +2,7 @@
 Events download
 """
 import os
-from datetime import timedelta
+from datetime import timedelta, datetime, UTC
 import logging
 
 import numpy as np
@@ -28,12 +28,10 @@ logger = logging.getLogger(__name__)
 
 def get_events(
     engine: Engine,
-    url,
-    evt_query_args,
-    start,
-    end,
-    # db_bufsize=30,
-    # timeout=15,
+    url: str,
+    evt_query_args: dict,
+    start: datetime,
+    end: datetime,
     show_progress=True
 ) -> pd.DataFrame:
     """Return the event data frame from the given url or local file"""
@@ -150,25 +148,27 @@ def fdsn_event_response_text_to_df(response: str):
     into a pandas DataFrame with proper dtypes associated to the SQL mapped class
     """
     dframe = fdsn_response_text_to_df(response)
-    # EventID|Time|Latitude|Longitude|Depth/km|Author|Catalog|Contributor|
-    # ContributorID|MagType|Magnitude|MagAuthor|EventLocationName|EventType
-    columns = {
-        dframe.columns[0]: Event.event_id.key,
-        dframe.columns[1]: Event.time.key,
-        dframe.columns[2]: Event.latitude.key,
-        dframe.columns[3]: Event.longitude.key,
-        dframe.columns[4]: Event.depth_km.key,
-        # skip Author (Rarely used, memory-intensive text field)
-        dframe.columns[6]: Event.catalog.key,
-        # skip Contributor (Rarely used, memory-intensive text field)
-        # skip ContributorID (Rarely used, memory-intensive text field)
-        dframe.columns[9]: Event.mag_type.key,
-        dframe.columns[10]: Event.magnitude.key
-        # skip MagAuthor (Rarely used, memory-intensive text field)
-        # skip EventLocationName (Rarely used, memory-intensive text field)
-        # skip EventType (Rarely used, memory-intensive text field)
-    }
+
     if not dframe.empty:
+        # EventID|Time|Latitude|Longitude|Depth/km|Author|Catalog|Contributor|
+        # ContributorID|MagType|Magnitude|MagAuthor|EventLocationName|EventType
+        columns = {
+            dframe.columns[0]: Event.event_id.key,
+            dframe.columns[1]: Event.time.key,
+            dframe.columns[2]: Event.latitude.key,
+            dframe.columns[3]: Event.longitude.key,
+            dframe.columns[4]: Event.depth_km.key,
+            # skip Author (Rarely used, memory-intensive text field)
+            dframe.columns[6]: Event.catalog.key,
+            # skip Contributor (Rarely used, memory-intensive text field)
+            # skip ContributorID (Rarely used, memory-intensive text field)
+            dframe.columns[9]: Event.mag_type.key,
+            dframe.columns[10]: Event.magnitude.key
+            # skip MagAuthor (Rarely used, memory-intensive text field)
+            # skip EventLocationName (Rarely used, memory-intensive text field)
+            # skip EventType (Rarely used, memory-intensive text field)
+        }
+
         # rename and set order:
         dframe = dframe.rename(columns=columns)[list(columns.values())]
         dframe = apply_table_dtypes(Event, dframe, drop_non_nullable=True)
@@ -518,10 +518,6 @@ def save_events(
         events = events.rename(columns={c + '_x': c for c  in cols})
 
         if not events.empty:  # it might be if we entered the for loop
-            db_start_id = get_col_max(engine, Event.id) + 1
-            events[Event.id.key] = (
-                np.arange(db_start_id, db_start_id + len(events)).astype(int)
-            )
             events, failed = insert_df(events, engine, Event)
             if not failed.empty:
                 logger.warning(f"Unable to insert {len(failed)} event(s)")

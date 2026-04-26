@@ -196,8 +196,10 @@ search_radius:
 # if non-empty (otherwise the download process will stop with an error message). The EIDA
 # routing service is configurable in `advanced_settings`
 dataws:
-  - 'eida'
+  # - 'eida'
   # - 'iris'
+  - 'https://geofon.gfz.de/fdsnws/station/1/query'
+  - 'https://service.iris.edu/fdsnws/station/1/query'
 
 # The model to asses the travel time of a wave from the event location to a station
 # location, which will be used to get the segment arrival time (travel time +

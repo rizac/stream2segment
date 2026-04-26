@@ -167,19 +167,19 @@ class Channel(Base):
     longitude = Column(Float, nullable=False)
     elevation = Column(Float)
     # site_name = Column(String)
-    start_time = Column(DateTime, nullable=False)  # = channel start time
-    end_time = Column(DateTime)  # = channel end time
-    location_code = Column(String(8), nullable=False, index=True)
-    band_code = Column(String(1), nullable=False, index=True)
-    instrument_code = Column(String(1), nullable=False, index=True)
-    orientation_code = Column(String(1), nullable=False, index=True)
+    # start_time = Column(DateTime, nullable=False)  # = channel start time
+    # end_time = Column(DateTime)  # = channel end time
+    location_code = Column(String(8), nullable=False)
+    band_code = Column(String(1), nullable=False)
+    instrument_code = Column(String(1), nullable=False)
+    orientation_code = Column(String(1), nullable=False)
     depth = Column(Float)
     azimuth = Column(Float)
     dip = Column(Float)
     # sensor_description = Column(String)
-    scale = Column(Float)
-    scale_freq = Column(Float)
-    scale_units = Column(String)
+    # scale = Column(Float)
+    # scale_freq = Column(Float)
+    # scale_units = Column(String)
     sample_rate = Column(Float, nullable=False)
 
     __table_args__ = (
@@ -198,7 +198,7 @@ class Channel(Base):
             'band_code',
             'instrument_code',
             'orientation_code',
-            'start_time',
+            'webservice_id',
             name='unique_channel'
         ),
     )

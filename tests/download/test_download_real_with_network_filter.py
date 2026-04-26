@@ -98,7 +98,7 @@ def test_real_run_old_buggy_network_filter( # mock_get_post_data,  # FIXME REMOV
     # (close_session is ignored, as we will close the session with the db ficture)
     # Now define the mock for the config4download option
     logfilepath = pytestdir.newfile('.log')
-    def c4d(logger, logfilebasepath, verbose):
+    def c4d(*a, **kw):
         # config logger as usual, but redirects to a temp file
         # that will be deleted by pytest, instead of polluting the program
         # package:

@@ -36,8 +36,9 @@ from stream2segment.resources import get_resource_abspath
 logger = logging.getLogger(__name__[:__name__.rfind('.')])
 
 
-def download(config, log2file=True, verbose=False, print_config_only=False,
-             **param_overrides):
+def download(
+    config, log2file=True, verbose=False, print_config_only=False, **param_overrides
+):
     """Start an event-based download routine, fetching segment data and
     metadata from FDSN web services and saving it in an SQL database
 
@@ -235,7 +236,7 @@ def version():
 
 def _download(engine: Engine, events_url, starttime, endtime, data_url,
          events_extra_params, network, station, location, channel, min_sample_rate,
-         search_radius, update_metadata, stationxml, quakeml, time_window,
+         search_radius, stationxml, quakeml, time_window,
          advanced_settings, authorizer, isterminal=False):
     """Download waveforms related to events to a specific path.
 
@@ -266,9 +267,6 @@ def _download(engine: Engine, events_url, starttime, endtime, data_url,
         starttime,
         endtime,
         True
-        # dbbufsize,
-        # advanced_settings['e_timeout'],
-        # isterminal
     )
 
     # Get datacenters, store them in the db, returns the dc instances
@@ -285,7 +283,6 @@ def _download(engine: Engine, events_url, starttime, endtime, data_url,
         starttime,
         endtime,
         min_sample_rate,
-        update_metadata,
         advanced_settings['routing_service_url'],
         authorizer is not None,
         True

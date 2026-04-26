@@ -130,6 +130,11 @@ def load_config_for_download(config, validate, **param_overrides):
     pname, pval = pop_param(old_config, pnames, default=None)
     new_config[pnames[0]] = validate_param(pname, pval, bool)
 
+    pnames = ('quakeml',)
+    validated_params.update(pnames)
+    pname, pval = pop_param(old_config, pnames, default=False)
+    new_config[pnames[0]] = validate_param(pname, pval, bool)
+
     # validate advanced_settings:
     pname = 'advanced_settings'
     # old configs had traveltimes_model as top-level param (now in advanced_settings):
@@ -188,17 +193,17 @@ def load_config_for_download(config, validate, **param_overrides):
         raise BadParam(BadParam.P_UNKNOWN, unknown_keys - legacy_keys)
 
     # Now check for params supplied here NOT in the default config, and supplied
-    # here but with different type in the original config
-    validated_params.update(old_config)
-    for pname in list(old_config.keys()):
-        pval = old_config.pop(pname)
-        new_config[pname] = validate_param(pname, pval,
-                                           valid_type, orig_config[pname])
-
-    # And finally, check for params in the default config not supplied here:
-    missing_keys = set(orig_config) - validated_params - set(EVENTWS_SAFE_PARAMS)
-    if missing_keys:
-        raise BadParam(BadParam.P_MISSING, missing_keys)
+    # here but with different type in the original config  # FIXME REMOVE WHY THESE CHECKS???
+    # validated_params.update(old_config)
+    # for pname in list(old_config.keys()):
+    #     pval = old_config.pop(pname)
+    #     new_config[pname] = validate_param(pname, pval,
+    #                                        valid_type, orig_config[pname])
+    #
+    # # And finally, check for params in the default config not supplied here:
+    # missing_keys = set(orig_config) - validated_params - set(EVENTWS_SAFE_PARAMS)
+    # if missing_keys:
+    #     raise BadParam(BadParam.P_MISSING, missing_keys)
 
     return new_config, session, authorizer
 
