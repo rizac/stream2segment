@@ -155,7 +155,7 @@ class Channel(Base):
     __tablename__ = 'channel'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    webservice_id = Column(Integer, ForeignKey(WebService.id), nullable=False)
+    # webservice_id = Column(Integer, ForeignKey(WebService.id), nullable=False)
     stationxml_id = Column(
         Integer,
         ForeignKey(StationXML.id, ondelete="SET NULL", onupdate="CASCADE"),
@@ -163,8 +163,8 @@ class Channel(Base):
     )
     network_code = Column(String(8), nullable=False, index=True)
     station_code = Column(String(8), nullable=False, index=True)
-    latitude = Column(Float, nullable=False)
-    longitude = Column(Float, nullable=False)
+    latitude = Column(Float, nullable=False, index=True)
+    longitude = Column(Float, nullable=False, index=True)
     elevation = Column(Float)
     # site_name = Column(String)
     # start_time = Column(DateTime, nullable=False)  # = channel start time
@@ -198,7 +198,7 @@ class Channel(Base):
             'band_code',
             'instrument_code',
             'orientation_code',
-            'webservice_id',
+            #'webservice_id',
             name='unique_channel'
         ),
     )

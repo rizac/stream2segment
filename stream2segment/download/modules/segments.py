@@ -46,8 +46,8 @@ def prepare_for_download(
         # remove already downloaded segments (with data):
         segments = sync_pkey(
             segments,
-            Segment,
             engine,
+            Segment,
             Segment.id.key,
         [Segment.event_id.key, Segment.channel_id.key],
             chunksize=min(1000, len(segments))
@@ -71,8 +71,8 @@ def prepare_for_download(
             where_clause = None
         segments = sync_pkey(
             segments,
-            SkippedSegment,
             engine,
+            SkippedSegment,
             SkippedSegment.id.key,
             [SkippedSegment.event_id.key, SkippedSegment.channel_id.key],
             where_clause,

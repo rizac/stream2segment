@@ -2,7 +2,7 @@
 Utilities for interaction between pandas DataFrames, optimized for our workflow
 """
 from collections.abc import Iterable, Sequence
-from typing import Optional
+from typing import Optional, Literal
 
 import numpy as np
 import pandas as pd
@@ -312,9 +312,9 @@ def get_row_count(engine, table_model):
 
 
 def sync_pkey(
-    dfr,
-    table_model,
-    engine,
+    dfr: pd.DataFrame,
+    engine: Engine,
+    table_model: type[DeclarativeBase],
     pkey_col: str,
     uc_cols: list[str],
     select_where=None,
@@ -369,15 +369,18 @@ def sync_pkey(
 
 def insert_df(
     dfr: pd.DataFrame,
-    engine:Engine,
+    engine: Engine,
     table_model: type[DeclarativeBase],
     chunksize=5000,
-    on_missing_pkey_col='auto-increment'
+    on_missing_pkey_col: Literal["auto-increment", "raise"] = 'auto-increment'
 ):
     """
-    Insert dfr to the given table model. Primary key of the latter are supposed to be
-    int. NaN values (if using pandas Int64) are must be present
-    in dfr columns. Otherwise, see `sync_pkey` for more information
+    Insert dfr to the given table model. The primary key column of the table must be
+    an auto-increment (sequential) integer. If not present in the dataframe, the id
+    values will be inserted according to the current max on the DB, unless
+    on_missing_pkey is 'raise' (then the column must already be present).
+
+    See `sync_pkey` for more information
     """
     stmt = [create_insert_statement(table_model)]
     start = 0

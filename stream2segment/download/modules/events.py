@@ -396,7 +396,8 @@ def save_events(
     _suf = ".-"
 
     def round(series, abs_tol):
-        return (series / abs_tol).round().astype(int)
+        epsilon = np.nextafter(0, 1)  # smallest float (for safety instead of 0)
+        return series if abs_tol <= epsilon else (series / abs_tol).round().astype(int)
 
     # first check equal events in the current dataframe:
     events[lat_col + _suf] = round(events[lat_col], kilometers2degrees(lat_tol_km))
@@ -412,10 +413,7 @@ def save_events(
     drop_ids = []
 
     for _, ev_df in events[events.duplicated(cmp_cols_round)].groupby([
-        Event.latitude.key + _suf,
-        Event.longitude.key + _suf,
-        Event.depth_km.key + _suf,
-        Event.latitude.key + _suf
+        lat_col + _suf, lon_col + _suf, depth_col + _suf, time_col + _suf
     ]):
         # same (eventid, catalog)? If yes, go on, otherwise conflicts
         dupes = ev_df.duplicated(uid_cols, keep=False)
@@ -485,6 +483,7 @@ def save_events(
         (Event.magnitude <= events[Event.magnitude.key].max())
     )
     select_stmt = select(Event).where(where_stmt)
+    _suf = '_db_'
     for saved_events in select_df(engine, select_stmt):
         saved_events[lat_col + _suf] = round(
             saved_events[lat_col], kilometers2degrees(lat_tol_km)
@@ -503,38 +502,37 @@ def save_events(
             saved_events,
             how='left',
             on=cmp_cols_round,
-            suffixes=('_a', '_b'),
+            suffixes=('', _suf),
             indicator = True
         )
         matched = merged[merged["_merge"] == "both"]
-        conflicts += (
-            (matched[uc_cols[0] + '_x'] != matched[uc_cols[0] + '_y']) |
-            (matched[uc_cols[1] + '_x'] != matched[uc_cols[1] + '_y'])
-        ).sum()
-        matched.rename(columns={c + '_y': c for c  in cols}, inplace=True)
+        matched.rename(columns={c + _suf: c for c  in cols}, inplace=True)
         new_events.append(matched[cols] + [Event.id.key])
 
-        events = merged[merged["_merge"] == "left_only"].drop(columns=["_merge"])
-        events = events.rename(columns={c + '_x': c for c  in cols})
+        events = merged[merged["_merge"] == "left_only"]
+        events.drop(
+            columns=[c for c  in events.columns if c.endswith(_suf)] + ["_merge"],
+            inplace=True
+        )
 
-        if not events.empty:  # it might be if we entered the for loop
-            events, failed = insert_df(events, engine, Event)
-            if not failed.empty:
-                logger.warning(f"Unable to insert {len(failed)} event(s)")
-                logger.warning(failed.to_string(
-                    max_rows=30, index=False, na_rep='', show_dimensions=True
-                ))
+    if not events.empty:  # it might be if we entered the for loop
+        events, failed = insert_df(events, engine, Event)
+        if not failed.empty:
+            logger.warning(f"Unable to insert {len(failed)} event(s)")
+            logger.warning(failed.to_string(
+                max_rows=30, index=False, na_rep='', show_dimensions=True
+            ))
 
-        if new_events:
-            if not events.empty:
-                new_events.append(events)
-            events = pd.concat(new_events, ignore_index=True)
-            if not pd.api.types.is_integer_dtype(events[Event.id.key]):
-                events[Event.id.key] = events[Event.id.key].astype(int)
+    if new_events:
+        if not events.empty:
+            new_events.append(events)
+        events = pd.concat(new_events, ignore_index=True)
+        if not pd.api.types.is_integer_dtype(events[Event.id.key]):
+            events[Event.id.key] = events[Event.id.key].astype(int)
 
-        if conflicts > 0:
-            logger.info(
-                f'Found {conflicts} conflict(s) with saved DB events, '
-                f'using the latter instead of downloaded/supplied events'
-            )
+    if conflicts > 0:
+        logger.info(
+            f'Found {conflicts} conflict(s) with saved DB events, '
+            f'using the latter instead of downloaded/supplied events'
+        )
     return events
