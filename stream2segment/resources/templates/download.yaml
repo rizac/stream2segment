@@ -235,15 +235,11 @@ advanced_settings:
  # this number speeds up the download (as a rule of thumb, >= 50) but also increases the
  # memory consumption and - in case of IO errors - the data to be discarded
  db_buf_size: 100
- # The model to assess the travel time of a wave from the event to a station, which will
- # be used to get the segments arrival time (travel time + event time) and eventually the
- # segment time window to download. Type one of the 4 built-in models:
+ # Travel-time model used to compute waveform arrival times. The models are precomputed
+ # grids optimized for speed; typical errors are under 0.5 s and negligible when used
+ # with the `time_window` parameter. Type one of the 4 built-in grids:
  #   ak135_ttp+: ak135 model for all ttp+ phases (P wave arrivals)
  #   ak135_tts+: ak135 model for all tts+ phases (S wave arrivals)
  #   iasp91_ttp+: iasp91 model for all ttp+ phases (P wave arrivals)
  #   iasp91_tts+: iasp91 model for all tts+ phases (S wave arrivals)
- # Implementation details: the models above are grids of pre-computed travel times
- # obtained from the corresponding model. The grids allow to speed up significantly the
- # computation introducing a negligible interpolation error (roughly in the order of
- # few milliseconds and never exceeding 0.5s)
  traveltimes_model: 'ak135_ttp+'
