@@ -3,12 +3,12 @@ Input validation for the download routine
 """
 
 import os
-from datetime import datetime, timedelta, UTC
-from os.path import isabs, abspath, join, dirname
+import re
+from datetime import datetime, timedelta, UTC, date
+from os.path import isabs, abspath, join, dirname, isfile
 
-from stream2segment.download.modules.utils import (
-    EVENTWS_SAFE_PARAMS, Authorizer, strptime, EVENTWS_MAPPING, fdsn_url
-)
+from stream2segment.download.modules.utils import fdsn_url
+from stream2segment.download.modules.events import EVENTWS_MAPPING
 from stream2segment.io import yaml_load
 from stream2segment.io.inputvalidation import (
     validate_param, pop_param, get_param, BadParam, valid_between
@@ -77,7 +77,7 @@ def load_config_for_download(config, validate, **param_overrides):
 
     pname, pval = pop_param(old_config, 'restricted_data')
     validated_params.add(pname)
-    authorizer = validate_param(pname, pval, valid_authorizer, dataws, configfile)
+    credentials = validate_param(pname, pval, valid_credentials, dataws, configfile)
 
     pname, pval = pop_param(old_config, 'dburl')
     validated_params.add(pname)
@@ -205,8 +205,15 @@ def load_config_for_download(config, validate, **param_overrides):
     # if missing_keys:
     #     raise BadParam(BadParam.P_MISSING, missing_keys)
 
-    return new_config, session, authorizer
+    return new_config, session, credentials
 
+
+EVENTWS_SAFE_PARAMS = [
+    'minlatitude', 'minlat', 'maxlatitude', 'maxlat',
+    'minlongitude', 'minlon', 'maxlongitude', 'maxlon',
+    'minmagnitude', 'minmag', 'maxmagnitude', 'maxmag',
+    'mindepth', 'maxdepth'
+]
 
 def _pop_event_params(config, prefix=None):
     """pop / move event params from the given config (`dict`) into a new dict and return
@@ -405,36 +412,75 @@ def valid_nslc(value):
         raise ValueError(str(exc))
 
 
-def valid_authorizer(restricted_data, dataws, configfile=None):
-    """Create an :class:`stream2segment.download.utils.Authorizer`
+def valid_credentials(
+    credentials, dataws, configfile=None
+) -> tuple[str, str] | bytes | None:
+    """Create an :class:`stream2segment.download.utils.Authorizer`  # FIXME DOCSTRING!
     (handling authentication/authorization) from the given restricted_data
 
-    :param restricted_data: either file path, to token, token data in bytes, or
+    :param credentials: either file path, to token, token data in bytes, or
         tuple (user, password). If None, or the empty string, None is returned
     """
-    if restricted_data in ('', None, b''):
+    if credentials in ('', None, b''):
         return None
-    elif len(dataws) != 1:
-        raise ValueError('downloading restricted data requires '
-                         'a single URL in `dataws`')
 
-    if isinstance(restricted_data, str) and configfile is not None:
-        if not isabs(restricted_data):
-            restricted_data = abspath(join(dirname(configfile), restricted_data))
-    ret = Authorizer(restricted_data)
+    if len(dataws) != 1:
+        raise ValueError(
+            'downloading restricted data requires a single URL in `dataws`'
+        )
 
-    # check dataws is single element list:
-    dataws = dataws[0]
-    # Here we have 4 cases:
-    # 1 'eida' + token: OK
-    # 2. Any other fdsn + username & password: OK
-    # 3. eida + username & password: BAD. raise ValueError
-    # 4. Any other fdsn + token: OK (we might have provided a single eida
-    #                                datacenter in which case it's fine)
-    if dataws.lower() == 'eida' and ret.userpass:
-        raise ValueError('downloading from EIDA requires a token, '
-                         'not username and password')
-    return ret
+    if isinstance(credentials, (tuple, list)):
+        if len(credentials) != 2 or not all(isinstance(_, str) for _ in credentials):
+            raise ValueError(
+                'provide username and password as list/tuple of two strings'
+            )
+        if dataws.lower() == 'eida':
+            raise ValueError(
+                'downloading from EIDA requires a token, not username and password'
+            )
+        return str(credentials[0]), str(credentials[1])
+
+    if isinstance(credentials, str):
+        token_path = credentials
+        if not isfile(token_path) and not isabs(token_path) and configfile is not None:
+            token_path = abspath(join(dirname(configfile), token_path))
+
+        if isfile(token_path):
+            with open(token_path, 'rb') as fhd:
+                credentials = fhd.read()
+
+        if not re.search(
+            pattern=rb'\bBEGIN PGP\b', string=credentials, flags=re.IGNORECASE
+        ):
+            raise ValueError(
+                "Invalid token. If you passed a file path, "
+                "check that the file is a valid token"
+            )
+        return credentials
+
+    raise ValueError(f'Invalid "restricted data" parameter: {credentials}')
+    #
+    # if isinstance(credentials, str) and configfile is not None:
+    #     if not isabs(credentials):
+    #         credentials = abspath(join(dirname(configfile), credentials))
+    #
+    #
+    #
+    #
+    # ret = Authorizer(credentials)
+    #
+    # # check dataws is single element list:
+    # dataws = dataws[0]
+    # # Here we have 4 cases:
+    # # 1 'eida' + token: OK
+    # # 2. Any other fdsn + username & password: OK
+    # # 3. eida + username & password: BAD. raise ValueError
+    # # 4. Any other fdsn + token: OK (we might have provided a single eida
+    # #                                datacenter in which case it's fine)
+    # if dataws.lower() == 'eida' and ret.userpass:
+    #     raise ValueError('downloading from EIDA requires a token, '
+    #                      'not username and password')
+    # return ret
 
 
 def valid_tt_table(file_or_name):
@@ -454,24 +500,36 @@ def valid_tt_table(file_or_name):
 
 
 def valid_date(obj):
+    dtime = None
     try:
-        return strptime(obj)  # if obj is datetime, returns obj
-    except (TypeError, ValueError) as _:
+        dtime = datetime.fromisoformat(obj)  # if obj is datetime, returns obj
+    except Exception as _:
         try:
-            days = int(obj)
-            if days <= 0:
-                now = datetime.now(UTC).replace(
-                    hour=0, minute=0, second=0, microsecond=0
-                )
-                return now + timedelta(days=days)
-        except Exception:
+            import dateutil.parser
+            # https://stackoverflow.com/a/15228038
+            try:
+                dtime = dateutil.parser.isoparse(obj)
+            except (TypeError, ValueError):
+                try:
+                    days = int(obj)
+                    dtime = datetime.now(UTC).replace(
+                        hour=0, minute=0, second=0, microsecond=0,
+                    ) + timedelta(days=days)
+                except (TypeError, ValueError):
+                    pass
+        except ImportError:
             pass
-        if isinstance(_, TypeError):
-            raise TypeError(("iso-formatted datetime string, datetime or date "
-                             "object, non-positive int required, found %s") %
-                            str(type(obj)))
-        else:
-            raise _
+
+    if isinstance(dtime, date):
+        dtime = datetime(year=dtime.year, month=dtime.month, day=dtime.day)
+
+    if not isinstance(dtime, datetime):
+        raise TypeError(("iso-formatted datetime string, datetime or date "
+                         "object, non-positive int required, found %s") %
+                        str(type(obj)))
+
+    # convert datetime in UTC, and remove tzinfo (so no 'Z' in its string repr):
+    return dtime.astimezone(UTC).replace(tzinfo=None)
 
 
 def valid_fdsn(url, is_eventws, configfile=None):

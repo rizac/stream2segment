@@ -12,7 +12,6 @@ from click.termui import progressbar
 from stream2segment.download.url import (urlread, URLError, socket, HTTPError)
 from stream2segment.io.cli import Nop, get_progressbar
 from stream2segment.io.db import secure_dburl
-from stream2segment.download.modules.utils import formatmsg
 
 
 DEFAULT_TIMEOUT = socket._GLOBAL_DEFAULT_TIMEOUT  # noqa
@@ -170,22 +169,3 @@ def test_progressbar_functional():
     with get_progressbar(True, length=10) as bar:  # normal progressbar
         for i in range(N):
             bar.update(i)
-
-
-def test_formatmsg():
-    req = Request('http://mysite/query', data='a'*1000)
-    msg = formatmsg("action", "errmsg", req)
-    expected = ("action (errmsg). url: http://mysite/query, POST data:\n%s\n"
-                "...(showing first 200 characters only)") % ('a' * 200)
-    assert msg == expected
-
-    req = Request('http://mysite/query', data='a\n'*5)
-    msg = formatmsg("action", "errmsg", req)
-    expected = ("action (errmsg). url: http://mysite/query, POST data:\n%s") % ('a\n' * 5)
-    assert msg == expected.strip()
-
-    req = Request('http://mysite/query', data=b'a\n'*5)
-    msg = formatmsg("action", "errmsg", req)
-    expected = ("action (errmsg). url: http://mysite/query, POST data:\n"
-                "b'a\\na\\na\\na\\na\\n'")
-    assert msg == expected.strip()

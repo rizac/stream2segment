@@ -3,10 +3,7 @@ running `s2s init`.
 Any NON-PRIVATE variable name (i.e., without leading underscore '_') of this module
 can be injected in a template file in the usual way, e.g.:
 {{ PROCESS_PY_BANDPASSFUNC }}
-
-.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
-from stream2segment.download.modules.utils import EVENTWS_MAPPING
 # DO NOT REMOVE IMPORT BELOW, IT IS USED IN TEMPLATES:
 from stream2segment.process.writers import SEGMENT_ID_COLNAME
 
@@ -54,9 +51,6 @@ the segment stream afterwards with `segment.stream(reload=True)`.
     `@gui.preprocess`)
 """
 
-
-DOWNLOAD_EVENTWS_LIST = '\n'.join('%s"%s": %s' % ('# ' if i > 0 else '', str(k), str(v))
-                                  for i, (k, v) in enumerate(EVENTWS_MAPPING.items()))
 
 # setting up DOCVARS:
 DOCVARS = {k: v.strip() for k, v in globals().items()

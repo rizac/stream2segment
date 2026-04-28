@@ -2,95 +2,17 @@
 Utilities for the download routine
 """
 # date Nov 25, 2016
-import os
-import sys
 import re
 from io import StringIO
-from datetime import datetime, date, timezone
+from datetime import datetime, date
 import logging
-from urllib.parse import urlencode, unquote, urlparse, urlunparse
-from urllib.request import Request
+from typing import Literal
+from urllib.parse import urlencode, urlparse, urlunparse
 
 import pandas as pd
 
-from stream2segment.download.url import responses, get_host, urlread
-
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__)
-
-
-def formatmsg(action=None, errmsg=None, url=None):  # FIXME remove
-    """Format a message in order to have normalized message types across the
-    program (e.g., in logging utilities). The argument can contain new
-    (e.g., "{}") but also old-style format keywords (such as '%s', '%d') for
-    usage within the logging functions, e.g.:
-    `logging.warning(msg('%d segments discarded', 'no response'), 3)`.
-    The resulting string message will be in any of the following formats
-    (according to how many arguments are non-empty):
-    ```
-        "{action} ({errmsg}). url: {url}"
-        "{action} ({errmsg})"
-        "{action}"
-        "{errmsg}. url: {url}"
-        "{errmsg}"
-        "{url}"
-        ""
-    ```
-    :param action: string or None: what has been done
-        (e.g. "discarded 3 events")
-    :param errmsg: string or Exception: the Exception or error message which
-        caused the action
-    :param url: the url (string) or `urllib2.Request` object: the url
-        originating the message, if the latter was issued from a web request
-    """
-    msg = action.strip()
-    if errmsg:
-        strerr = err2str(errmsg)
-        msg = "{} ({})".format(msg, strerr) if msg else strerr
-    if url:
-        urlmsg = url2str(url, maxlen=200).strip()
-        msg = "{}. url: {}".format(msg, urlmsg) if msg else urlmsg
-    return msg
-
-
-def err2str(err):
-    """Return the string representation of `err`
-
-    :param err: string or Exception denoting the error
-    """
-    # This class basically does two things: convert KeyErrors into
-    # "KeyError: 'a'" and not simply "a",
-    # and in case of exceptions which produce the empty string, return their
-    # class name instead (e.g. socket.timeout returns 'timeout' instead of '')
-    errclass = err.__class__
-    if errclass == KeyError:
-        return "%s: %s" % (str(errclass), str(err))
-    if errclass == str:  # if we passed a string, just return it
-        return err
-    return (str(err) or str(errclass.__name__)).strip()
-
-
-def url2str(obj, maxlen=None):
-    """Convert an url or `urllib2.Request` object to string. In the latter
-    case, the format is:
-    "{obj.get_full_url()}" if `obj.data` is falsy
-    "{obj.get_full_url()}, data: '{obj.get_data()}'"
-    if `obj.data` has no newlines, or
-    "{obj.get_full_url()}, data: '{obj.get_data()[:I]}'" otherwise
-    (I=obj.get_data().find('\n')`)
-    """
-    # unquote removes % characters which might be confused with str interpolation
-    try:
-        url = unquote(str(obj.get_full_url()))
-        data = str(obj.data or '')
-        if data:
-            url = "%s, POST data:\n%s" % (url, data)
-    except AttributeError:
-        url = unquote(str(obj))
-    if maxlen is not None and len(url) > maxlen + 10:
-        url = url[:maxlen] + \
-               f"... ({len(url) - maxlen:,} remaining characters not shown)"
-    return url
 
 
 class IdOnceLogFilter(logging.Filter):
@@ -129,11 +51,6 @@ def fdsn_response_text_to_df(response: str):
     Convert a response content obtained from a FDSN webservice with format=text
     into a pandas DataFrame of type str (no casting performed)
     """
-    # read csv but do not let pandas infer data types (`_harmonize_columns` does that
-    # later): `dtype=str` reads everything as strings (this prevents `event_id`s in
-    # catalogs to be inadvertently casted as int), `na_values` + `keep_default_na` reads
-    # empty cells as "" (this prevents channels `location` to be NULL and the relative
-    # row to be dropped in `_harmonize_columns` because NULL is not allowed)
     return pd.read_csv(
         StringIO(response),
         sep='|',
@@ -148,152 +65,14 @@ def fdsn_response_text_to_df(response: str):
     )
 
 
-EVENTWS_MAPPING = {
-    'emsc':  'http://www.seismicportal.eu/fdsnws/event/1/query',
-    'isc':   'http://www.isc.ac.uk/fdsnws/event/1/query',
-    'iris':  'http://service.iris.edu/fdsnws/event/1/query',
-    'ncedc': 'http://service.ncedc.org/fdsnws/event/1/query',
-    'scedc': 'http://service.scedc.caltech.edu/fdsnws/event/1/query',
-    'usgs':  'http://earthquake.usgs.gov/fdsnws/event/1/query',
-}
-
-
-EVENTWS_SAFE_PARAMS = ['minlatitude', 'minlat', 'maxlatitude', 'maxlat',
-                       'minlongitude', 'minlon', 'maxlongitude', 'maxlon',
-                       'minmagnitude', 'minmag', 'maxmagnitude', 'maxmag',
-                       'mindepth', 'maxdepth']
-
-
-class Authorizer(dict[str, tuple[str, str]]):
-    """Class handling authorization/authentication. It subclasses dict
-    returns """
-
-    def __init__(self, token):
-        """Initialize a new Authorizer, a class handling authorization and
-        authentication for restricted data
-
-        :param token: a filepath (to a token), the token data (bytes),
-            or a tuple (username, password). If None, this authorizer is no-op
-        """
-        super().__init__()
-        self._token = None
-        self.user_pass = None, None
-        token_file = None
-        if isinstance(token, (tuple, list)):
-            if len(token) != 2 or not all(isinstance(_, str) for _ in token):
-                raise ValueError('provide username and password as '
-                                 'list/tuple of two strings')
-            self._user_pass = tuple(token)
-        else:
-            # check if there's a local file that matches the provided str
-            token_file = token if os.path.isfile(token) else None
-            if token_file is not None:
-                with open(token_file, 'rb') as fhd:
-                    self._token = fhd.read()
-            valid_eida_token = re.search(
-                pattern=rb'\bBEGIN PGP\b', string=self._token, flags=re.IGNORECASE
-            )
-            if not valid_eida_token:
-                raise ValueError("Invalid token. "
-                                 "If you passed a file path, "
-                                 "check that the file is a valid token")
-
-    def add_url(self, url):
-        """Adds the given url as restricted data download
-
-        :param url: an FDSN url (method and query majorversion will be ignored)
-        """
-        # hostname = get_host(url)
-        if self._token:
-            req = Request(
-                fdsn_url(url, new_service='dataselect', new_method='auth'),
-                data=self._token
-            )
-            response = urlread(req)
-            if response.error:
-                raise response.error
-            data = response.data
-            if ':' not in data:
-                raise ValueError('Invalid user and password returned. '
-                                 'This could be a data-center bug')
-            else:
-                user_pass = tuple(data.split(':'))
-        else:
-            user_pass = self.user_pass
-        self[get_host(url, include_scheme=True)] = user_pass
-
-    # @staticmethod   # FIXME REMOVE
-    # def _validate_eida_token(token):
-    #     """Along the lines of ObsPy: basic check to test that a token is ok"""
-    #     if re.search(pattern=r'\bBEGIN PGP\b', string=token,
-    #                  flags=re.IGNORECASE):  # @UndefinedVariable
-    #         return True
-    #     return False
-    #
-    # @property
-    # def token(self):
-    #     """Return the token (as bytes), or None. You can safely use this method
-    #     also in an if statement: `if auth.token`, as the token can not be empty
-    #     """
-    #     return self._token
-    #
-    # @property
-    # def userpass(self):
-    #     """Return the tuple (user, password), or None, You can safely use
-    #     this method also in an if statement: `if auth.userpass`
-    #     """
-    #     if (self._uname, self._pswd) == (None, None):
-    #         return None
-    #     return self._uname, self._pswd
-
-
-def strptime(obj):
-    """Convert `obj` to a `datetime` object **in UTC without tzinfo** (if the datetime
-    is timezone aware, it will be converted to UTC and then its tzinfo removed).
-
-    :param obj: datetime, date or datetime-string string in ISO format
-
-    :return: a datetime object in UTC, with the tzinfo removed
-    :raise: TypeError or ValueError
-    """
-    dtime = obj
-    if isinstance(obj, str):
-        dtime = _fromisoformat(obj)
-
-    if not isinstance(dtime, datetime):
-        if isinstance(dtime, date):  # note: check here (a datetime is also a date!)
-            dtime = datetime(year=dtime.year, month=dtime.month, day=dtime.day)
-        else:
-            raise TypeError(f'string or datetime required, found {type(obj)}')
-
-    if dtime.tzinfo is not None:
-        # if a time zone is specified, convert to utc and remove the timezone
-        dtime = dtime.astimezone(timezone.utc).replace(tzinfo=None)
-
-    # the datetime has no timezone provided AND is in UTC:
-    return dtime
-
-
-if sys.version_info[0] == 3 and sys.version_info[1] < 11:
-    import dateutil.parser
-
-    def _fromisoformat(string):
-        """fix py<3.11 datetime.fromisoformat where, e.g. microseconds given not in
-        6 digits would raise. Use dateutil for that"""
-        # https://stackoverflow.com/a/15228038
-        try:
-            return dateutil.parser.isoparse(string)
-        except ValueError:  # make msg consistent with datetime.fromisoformat:
-            raise ValueError(f"Invalid isoformat string: '{string}'")
-else:
-    def _fromisoformat(string):
-        return datetime.fromisoformat(string)
-
-
 def fdsn_url(
-    url: str, new_service: str = None, new_method: str = None, check_scheme=True
+    url: str,
+    new_service: Literal['station', 'dataselect', 'event'] | None = None,
+    new_method: Literal['query', 'queryauth', 'auth', 'version', 'application.wadl'] | None = None,   # noqa
+    check_scheme=True
 ):
-    """Check that the given url is a valid FDSN URL and return it (with new service and
+    """
+    Check that the given url is a valid FDSN URL and return it (with new service and
     method substrings, if given). Raise ValueError if the url is invalid. The URL query
     string, if present, will not be checked and returned as it is
 
@@ -403,3 +182,23 @@ def fdsn_url_qs(base_url: str, **query_args):
 
         qs[k] = v
     return f'{base_url}?{urlencode(qs, safe="".join(safe_chars))}'
+
+
+class QuitDownload(Exception):
+    """Base abstract-like Exception denoting a quit download action"""
+
+
+class NothingToDownload(QuitDownload):
+    """Exception that should be raised whenever the download process has no
+    segments to download according to the user's settings (no error). See
+    `download.main.py` for details
+    """
+    pass
+
+
+class FailedDownload(QuitDownload):
+    """Exception that should be raised whenever the download process could not
+    proceed for some error (e.g., download error). See `download.main.py`
+    for details
+    """
+    pass

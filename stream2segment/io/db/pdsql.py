@@ -18,30 +18,30 @@ from sqlalchemy.types import Integer, Float, Boolean, DateTime
 pandas_version = float('.'.join(pd.__version__.split('.')[:2]))
 
 
-def get_dtype(sql_type):
-    """Converts a SQL type to a numpy type. Given a SQLAlchemy column (ORM model
-    attribute) the SQL type is given by its `.type` attribute
-
-    sqlType   | returned type
-    ----------+--------------
-    Integer   | np.int64
-    Float     | np.float64
-    DateTime  | np.datetime64
-    Boolean   | np.bool_
-    Any other | np.object_
-
-    :param sql_type: one of the following: Integer, Float, Boolean, DateTime.
-    """
-    if isinstance(sql_type, Float):
-        return np.float64
-    if isinstance(sql_type, Integer):
-        return np.int64
-    if isinstance(sql_type, DateTime):
-        # Caution: np.datetime64 is also a subclass of np.number.
-        return np.datetime64
-    if isinstance(sql_type, Boolean):
-        return np.bool_  # same as np.bool
-    return np.object_  # same as np.object
+# def get_dtype(sql_type):
+#     """Converts a SQL type to a numpy type. Given a SQLAlchemy column (ORM model
+#     attribute) the SQL type is given by its `.type` attribute
+#
+#     sqlType   | returned type
+#     ----------+--------------
+#     Integer   | np.int64
+#     Float     | np.float64
+#     DateTime  | np.datetime64
+#     Boolean   | np.bool_
+#     Any other | np.object_
+#
+#     :param sql_type: one of the following: Integer, Float, Boolean, DateTime.
+#     """
+#     if isinstance(sql_type, Float):
+#         return np.float64
+#     if isinstance(sql_type, Integer):
+#         return np.int64
+#     if isinstance(sql_type, DateTime):
+#         # Caution: np.datetime64 is also a subclass of np.number.
+#         return np.datetime64
+#     if isinstance(sql_type, Boolean):
+#         return np.bool_  # same as np.bool
+#     return np.object_  # same as np.object
 
 
 def apply_table_dtypes(
@@ -67,11 +67,13 @@ def apply_table_dtypes(
 
     for col in table_cols:  # noqa
         col_name = col.name
-        sql_col = getattr(table, col_name)
-        col_type = get_dtype(sql_col.type)
+        sql_type = getattr(table, col_name).type
         df_col = dataframe[col_name]
         # the type the dataframe column should have
-        if col_type == np.datetime64:
+        if (
+            isinstance(sql_type, DateTime) and not
+            pd.api.types.is_datetime64_any_dtype(df_col)
+        ):
             if issubclass(df_col.dtype.type, np.number):
                 format_ = 's'
             elif pandas_version >= 2:
@@ -83,16 +85,16 @@ def apply_table_dtypes(
             dataframe[col_name] = pd.to_datetime(
                 df_col, errors='coerce', format=format_, utc=True
             ).dt.tz_localize(None)
-        elif col_type == np.float64:
+        elif isinstance(sql_type, Float) and not pd.api.types.is_float_dtype(df_col):
             try:
-                dataframe[col_name] = df_col.astype(col_type, copy=False)
+                dataframe[col_name] = df_col.astype(float, copy=False)
             except (TypeError, ValueError):
                 dataframe[col_name] = pd.to_numeric(df_col, errors='coerce')
-        elif col_type  == np.bool_:
+        elif isinstance(sql_type, Boolean) and not pd.api.types.is_bool_dtype(df_col):
             # bool does not raise, but converts None to False, everything "truthy"
             # to True. So first store nulls, if any:
             invalid = pd.isna(df_col)
-            dataframe[col_name] = df_col.astype(col_type, copy=False)
+            dataframe[col_name] = df_col.astype(bool, copy=False)
             if invalid.any():
                 # convert to object otherwise the next operation upcasts the column
                 # datat type to float:
@@ -101,10 +103,10 @@ def apply_table_dtypes(
                 )
                 # Reset back `None`s:
                 dataframe.loc[invalid, col_name] = None
-        elif col_type == np.int64:
+        elif isinstance(sql_type, Integer) and not pd.api.types.is_integer_dtype(df_col):
             # int is stricter than bool, and does not coerce invalid values, So:
             try:
-                dataframe[col_name] = df_col.astype(col_type, copy=False)
+                dataframe[col_name] = df_col.astype(int, copy=False)
             except (TypeError, ValueError):
                 # support for NaNs:
                 dataframe[col_name] = df_col.astype("Int64", copy=False)

@@ -18,15 +18,13 @@ import pandas as pd
 from pandas.core.dtypes.common import is_categorical_dtype
 from sqlalchemy import select, Engine
 
+from stream2segment.download.modules.events import sync_webservice_ids_with_db
 from stream2segment.io.cli import get_progressbar
-from stream2segment.io.db.pdsql import (
-    sync_pkey, insert_df, get_row_count, apply_table_dtypes, select_df, get_col_max
-)
+from stream2segment.io.db.pdsql import insert_df, apply_table_dtypes, select_df
 from stream2segment.io.db.models import Channel, WebService, Segment
-from stream2segment.download.exc import FailedDownload
 from stream2segment.download.url import urlread
 from stream2segment.download.modules.utils import (
-    formatmsg, fdsn_url, fdsn_url_qs, fdsn_response_text_to_df
+    fdsn_url, fdsn_url_qs, fdsn_response_text_to_df, FailedDownload, NothingToDownload
 )
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
@@ -47,7 +45,6 @@ def get_channels(
     starttime,
     endtime,
     min_sample_rate,
-    update_metadata,
     eida_rs_urls,
     restricted_download: bool,
     # max_thread_workers,
@@ -70,7 +67,8 @@ def get_channels(
     cha_df = download_channels(
         # session.get_bind(),
         cha_urls,
-        show_progress=show_progress
+        show_progress=show_progress,
+        restricted_download=restricted_download,
         # eida_rs_urls,
         # max_thread_workers,
         #advanced_settings['s_timeout'],
@@ -79,7 +77,7 @@ def get_channels(
         # isterminal
     )
     if cha_df.empty:
-        raise FailedDownload('No channel downloaded')
+        raise NothingToDownload('No channel downloaded')
     num_downloaded_channels = len(cha_df)
 
     # post filter (negation "!", sample rate) which raises FailedDownload if no rows:
@@ -93,7 +91,7 @@ def get_channels(
         min_sample_rate
     )
     if cha_df.empty:
-        raise FailedDownload('No channel to work with after filtering out')
+        raise NothingToDownload('All channels filtering out according to settings')
 
     # set ranking based on the order of urls
     cha_df = drop_conflicts(cha_df, eida_rs_urls)
@@ -101,15 +99,28 @@ def get_channels(
         raise FailedDownload('No channel to work with after conflicts dropping')
     cha_df = cha_df.drop(columns=rank_col)
 
-    cha_df = sync_webservice_ids_with_db(cha_df, engine)
+    ws_id_col = Segment.webservice_id.key
+    cha_df = sync_webservice_ids_with_db(cha_df, engine, merge_on=ws_id_col)
+    wsid_na = pd.isna(cha_df[ws_id_col])
+    if wsid_na.any():
+        logger.warning(
+            f"Discarding {wsid_na.sum()} channel(s) (associated URL not saved to DB)"
+        )
+        logger.warning(
+            cha_df[wsid_na].to_string(
+                max_rows=30, index=False, na_rep='', show_dimensions=True
+            )
+        )
+        cha_df = cha_df[~wsid_na].copy()
+
     if cha_df.empty:
         raise FailedDownload(
-            'No channel to work with after attempting to save channel webservices'
+            'No channel to work with after failed attempt to save channel webservices'
         )
     cha_df = save_channels(engine, cha_df)
     if cha_df.empty:
         raise FailedDownload(
-            'No channel to work with after attempting to save channels'
+            'No channel to work with after failed attempt to save channels'
         )
 
     # move (rename) current station ids and urls:
@@ -268,7 +279,7 @@ def get_channel_urls(
             for url, params in check_and_yield_fdsn_urls(url, params):
                 yield fdsn_url_qs(url, **params, level='channel', format='text')
         except ValueError as v_err:
-            logger.warning(formatmsg(str(v_err), '', url))  # FIXME CHECK
+            logger.warning(f"Error from {url}: {v_err}")
 
 
 def get_eida_rs_response(
@@ -291,9 +302,10 @@ def get_eida_rs_response(
         response = urlread(url, decode='utf8')
         if response.is_ok:
             return json.loads(response.data)
-    raise FailedDownload("None of the EIDA routing services returned valid data. "
-                         "Check internet connection or configure the URLs in advanced "
-                         "settings")
+    raise FailedDownload(
+        "None of the EIDA routing services returned valid data. "
+        "Check internet connection or configure the URLs in advanced settings"
+    )
 
 
 def split_times(start: datetime, end: datetime, interval_years=5):
@@ -306,7 +318,7 @@ def split_times(start: datetime, end: datetime, interval_years=5):
 
 def check_and_yield_fdsn_urls(url, params):
     try:
-        fdsn_station_url = fdsn_url(url, new_service='station')
+        fdsn_station_url = fdsn_url(url, new_service='station', new_method='query')
     except ValueError as e:
         raise ValueError("Invalid FDSN URL")
 
@@ -344,7 +356,9 @@ def check_and_yield_fdsn_urls(url, params):
         yield fdsn_station_url, params
 
 
-def download_channels(fdsn_station_urls, show_progress=False):
+def download_channels(
+    fdsn_station_urls, restricted_download: bool, show_progress=False
+):
     """Return a Dataframe representing a query to the station service of each
     URL in :func:`stream2segment.download.modules.datacenters_df` with the
     given arguments.
@@ -365,14 +379,14 @@ def download_channels(fdsn_station_urls, show_progress=False):
     urls = list(fdsn_station_urls)
 
     channels_dfs = []
-    station_urls = set()
+    # station_urls = set()
     with get_progressbar(len(urls) if show_progress else 0) as pbar:
         for idx, response in t_pool.imap_unordered(_urlread, enumerate(urls)):
             pbar.update(1)
             if not response.is_ok:
-                logger.warning(formatmsg("Unable to fetch stations",
-                                         response.data,
-                                         response.request))
+                logger.warning(
+                    f"Unable to fetch stations from {response.request}: {response.data}"
+                )
                 continue
 
             try:
@@ -380,21 +394,31 @@ def download_channels(fdsn_station_urls, show_progress=False):
                 dframe[rank_col] = idx
                 discarded = dframe.attrs.pop('discarded', 0)
                 if discarded > 0:
-                    logger.warning(formatmsg(f"{discarded} row(s) discarded",
-                                             "malformed text data",
-                                             response.request))
+                    logger.warning(
+                        f"{discarded} malformed row(s) discarded from{response.request}"
+                    )
             except ValueError as verr:
-                logger.warning(formatmsg("Discarding response data", verr,
-                                         response.request))
+                logger.warning(
+                    f"Discarding malformed response from {response.request}"
+                )
                 continue
 
             if dframe.empty:
                 continue
-            station_url = urlunparse(
+            # replace full url with the future dataselect url
+            base_fdsn_url = urlunparse(
                 urlparse(response.request)._replace(query='', fragment='')
             )
-            dframe['url'] = station_url
-            station_urls.add(station_url)
+            if restricted_download:
+                datasel_url = fdsn_url(
+                    base_fdsn_url, new_service='dataselect', new_method='queryauth'
+                )
+            else:
+                datasel_url = fdsn_url(
+                    base_fdsn_url, new_service='dataselect', new_method='query'
+                )
+            dframe[ws_url_col] = datasel_url
+            # station_urls.add(station_url)
             channels_dfs.append(dframe)
 
     # build two dataframes which we will concatenate afterwards
@@ -983,44 +1007,44 @@ def save_channels(engine: Engine, channels: pd.DataFrame):
     return channels
 
 
-def sync_webservice_ids_with_db(cha_df, engine, urls_col=WebService.url.key):
-
-    ws_df = pd.DataFrame([{urls_col: u} for u in cha_df[urls_col].cat.categories])
-
-    id_col: str = WebService.id.key
-    sync_pkey(
-        ws_df,
-        engine,
-        WebService,
-        id_col,
-        [urls_col]
-    )
-
-    id_na = ws_df['id'].isna()
-    if id_na.any():
-        inserted, failed = insert_df(ws_df[id_na], engine, WebService)
-        if (~id_na).any():
-            ws_df = pd.concat([inserted, ws_df[~id_na]], ignore_index=True)
-        else:
-            ws_df = inserted
-        if failed:
-            logger.warning(f"Failed to insert {len(failed):,} url(s) to DB, discarding")
-
-    ws_id_col = Segment.webservice_id.key
-    # now assign:
-    cha_df = cha_df.merge(
-        ws_df.rename(columns={id_col: ws_id_col}), on=urls_col, how="left"
-    )
-
-    wsid_na = pd.isna(cha_df[ws_id_col])
-    if wsid_na.any():
-        logger.warning(
-            f"Discarding {wsid_na.sum()} channel(s) (associated URL not saved to DB)"
-        )
-        logger.warning(
-            cha_df[wsid_na].to_string(
-                max_rows=30, index=False, na_rep='', show_dimensions=True
-            )
-        )
-        cha_df = cha_df[~wsid_na].copy()
-    return cha_df
+# def sync_webservice_ids_with_db(cha_df, engine, urls_col=WebService.url.key):
+#
+#     ws_df = pd.DataFrame([{urls_col: cha_df[urls_col].cat.categories}])
+#
+#     id_col: str = WebService.id.key
+#     ws_df = sync_pkey(
+#         ws_df,
+#         engine,
+#         WebService,
+#         id_col,
+#         [urls_col]
+#     )
+#
+#     id_na = ws_df['id'].isna()
+#     if id_na.any():
+#         inserted, failed = insert_df(ws_df[id_na], engine, WebService)
+#         if (~id_na).any():
+#             ws_df = pd.concat([inserted, ws_df[~id_na]], ignore_index=True)
+#         else:
+#             ws_df = inserted
+#         if failed:
+#             logger.warning(f"Failed to insert {len(failed):,} url(s) to DB, discarding")
+#
+#     ws_id_col = Segment.webservice_id.key
+#     # now assign:
+#     cha_df = cha_df.merge(
+#         ws_df.rename(columns={id_col: ws_id_col}), on=urls_col, how="left"
+#     )
+#
+#     wsid_na = pd.isna(cha_df[ws_id_col])
+#     if wsid_na.any():
+#         logger.warning(
+#             f"Discarding {wsid_na.sum()} channel(s) (associated URL not saved to DB)"
+#         )
+#         logger.warning(
+#             cha_df[wsid_na].to_string(
+#                 max_rows=30, index=False, na_rep='', show_dimensions=True
+#             )
+#         )
+#         cha_df = cha_df[~wsid_na].copy()
+#     return cha_df

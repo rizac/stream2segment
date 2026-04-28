@@ -1,13 +1,9 @@
 """
 Segments download functions
-
-:date: Dec 3, 2017
-
-.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
+# :date: Dec 3, 2017
 from __future__ import annotations
 
-from collections import deque
 from collections.abc import Iterable
 from datetime import timedelta, datetime
 import logging
@@ -15,9 +11,10 @@ from enum import IntEnum
 from io import BytesIO
 from math import log
 import time
+from urllib.request import Request
 
 import pandas as pd
-from sqlalchemy import select, Engine
+from sqlalchemy import Engine
 
 from stream2segment.download import url
 from stream2segment.download.modules.mseedlite import MSeedError, Input
@@ -28,9 +25,11 @@ from stream2segment.io.db.pdsql import (
 from stream2segment.io.db.models import (
     WebService, Segment, Channel, MiniSeed, SkippedSegment
 )
-from stream2segment.download.modules.utils import (fdsn_url_qs, IdOnceLogFilter)
+from stream2segment.download.modules.utils import (
+    fdsn_url_qs, IdOnceLogFilter, fdsn_url, FailedDownload
+)
 from stream2segment.download.url import (
-    get_host, read_async, adjust_max_concurrent_downloads, Response
+    get_host, read_async, adjust_max_concurrent_downloads, Response, urlread
 )
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
@@ -90,7 +89,7 @@ def download_and_save(
     engine: Engine,
     segments: pd.DataFrame,
     time_window,
-    authorizer,
+    credentials: tuple[str, str] | bytes | None,
     # download_id,
     # update_datacenters,
     max_thread_workers,
@@ -114,6 +113,38 @@ def download_and_save(
     stats = DownloadStats(
         get_host(u) for u in segments[WebService.url.key].cat.categories
     )
+
+    user_passwords: dict[str, tuple[str,str]] = None
+    if credentials is not None:
+        user_passwords = {}
+        for url in segments[WebService.url.key].cat.categories:
+            if isinstance(credentials, bytes):
+                req = Request(
+                    fdsn_url(url, new_service='dataselect', new_method='auth'),
+                    data=credentials
+                )
+                response = urlread(req)
+                if not response.is_ok or not response.data:
+                    if 'queryauth' in url:
+                        segments = segments[segments[WebService.url.key] != url]
+                    logger.warning(
+                        f'Could not get user password via token from {req.full_url}')
+                    continue
+                data = response.data
+                if ':' not in data:
+                    raise ValueError('Invalid user and password returned. '
+                                     'This could be a data-center bug')
+                else:
+                    user_pass = tuple(data.split(':'))
+            else:
+                user_pass = tuple(credentials)
+
+            user_passwords[get_host(url, include_scheme=True)] = user_pass
+
+        if segments.empty:
+            raise FailedDownload(
+                'Could not get user password from eida token for any URLs'
+            )
 
     if max_thread_workers is None:
         # set max thread workers here cause we might want to retry the download
@@ -164,7 +195,7 @@ def download_and_save(
                 for idx, response in download(
                     segments,
                     time_window,
-                    authorizer,
+                    user_passwords,
                     max_thread_workers,
                     url_domain_max_thread_workers,
                     timeout,
@@ -261,7 +292,7 @@ def download_and_save(
 def download(
     segments: pd.DataFrame,
     time_window: tuple[float, float],
-    authorizer,
+    user_passwords: dict[str, tuple[str, str]],
     max_thread_workers,
     max_workers_d,
     timeout,
@@ -322,7 +353,7 @@ def download(
         max_concurrency_d=max_workers_d,
         timeout=timeout,
         blocksize=download_blocksize,
-        openers=authorizer  # FIXME CORRECT????
+        credentials=user_passwords
     ):
         req_cache: dict = requests_cache.pop(response.request)
         req_start = req_cache.pop('start')

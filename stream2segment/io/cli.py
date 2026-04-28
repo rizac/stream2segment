@@ -1,7 +1,5 @@
 """
-Command line interface IO utilities
-
-.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
+Command line interface (cli) utilities
 """
 
 import sys

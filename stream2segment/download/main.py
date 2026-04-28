@@ -20,7 +20,7 @@ from stream2segment.io.log import close_logger
 from stream2segment.io import yaml_safe_dump
 from stream2segment.io.db import secure_dburl, models
 from stream2segment.download.inputvalidation import load_config_for_download, pop_param
-from stream2segment.download.exc import NothingToDownload, FailedDownload
+from stream2segment.download.modules.utils import NothingToDownload, FailedDownload
 from stream2segment.download.modules.events import get_events
 from stream2segment.download.modules.channels import get_channels
 from stream2segment.download.modules.stationsearch import merge_events_stations
@@ -81,7 +81,7 @@ def download(
     # Validate params converting them in dict of args for the download function. Also in
     # this case do it before configuring loggers, we simply need to raise `BadParam`s in
     # case of problems:
-    d_kwargs, session, authorizer = load_config_for_download(
+    d_kwargs, session, credentials = load_config_for_download(
         config, True, **param_overrides
     )
 
@@ -125,7 +125,7 @@ def download(
         stime = time.time()
         d_stats = _download(
             isterminal=verbose,
-            authorizer=authorizer,
+            credentials=credentials,
             engine=engine,
             **d_kwargs
         )
@@ -133,13 +133,13 @@ def download(
         _write_download_summary(engine, download_id, d_stats)
 
     except NothingToDownload as nothing_to_download_exc:
-        logger.info(nothing_to_download_exc)
+        logger.info(f'Nothing to download: {nothing_to_download_exc}')
     except FailedDownload as failed_download_exc:
-        logger.error(failed_download_exc)
+        logger.error(f'Download failed: {failed_download_exc}')
         ret = 1
     except KeyboardInterrupt:
         # https://stackoverflow.com/q/5191830
-        logger.critical("Aborted by user")
+        logger.critical("Download aborted by user")
         raise
     except:  # noqa
         # https://stackoverflow.com/q/5191830
@@ -159,9 +159,11 @@ def _pretty_printed_str(yaml_dict):
     # provide sorting in the printed yaml by splitting into subdicts:
     dburl_name, dburl_val = pop_param(tmp_cfg, 'dburl')
     dburl_val = secure_dburl(dburl_val)  # hide passwords
-    tmp_cfg_pre = [(dburl_name, dburl_val),
-                   pop_param(tmp_cfg, ('starttime', 'start')),
-                   pop_param(tmp_cfg, ('endtime', 'end'))]
+    tmp_cfg_pre = [
+        (dburl_name, dburl_val),
+        pop_param(tmp_cfg, ('starttime', 'start')),
+        pop_param(tmp_cfg, ('endtime', 'end'))
+    ]
     tmp_cfg_post = [pop_param(tmp_cfg, 'advanced_settings', {})]
     return "\n".join(_.strip() for _ in [
         "####################",
@@ -234,10 +236,26 @@ def version():
         return _.read().strip()
 
 
-def _download(engine: Engine, events_url, starttime, endtime, data_url,
-         events_extra_params, network, station, location, channel, min_sample_rate,
-         search_radius, stationxml, quakeml, time_window,
-         advanced_settings, authorizer, isterminal=False):
+def _download(
+    engine: Engine,
+    events_url,
+    starttime,
+    endtime,
+    data_url,
+    events_extra_params,
+    network,
+    station,
+    location,
+    channel,
+    min_sample_rate,
+    search_radius,
+    stationxml: bool,
+    quakeml: bool,
+    time_window,
+    advanced_settings,
+    credentials: tuple[str, str] | bytes | None,
+    isterminal=False
+):
     """Download waveforms related to events to a specific path.
 
     :raise: :class:`FailedDownload` exceptions
@@ -284,7 +302,7 @@ def _download(engine: Engine, events_url, starttime, endtime, data_url,
         endtime,
         min_sample_rate,
         advanced_settings['routing_service_url'],
-        authorizer is not None,
+        credentials is not None,
         True
     )
 
@@ -305,20 +323,20 @@ def _download(engine: Engine, events_url, starttime, endtime, data_url,
         f"{len(segments):,} segments found. Checking already downloaded segments", 4
     )
     # raises NothingToDownload
-    segments = prepare_for_download(engine, segments, authorizer is not None)
+    segments = prepare_for_download(engine, segments, credentials is not None)
 
     # prepare_for_download raises a NothingToDownload if there is no
     # data, so if we are here segments is not empty
     log_step_header(
         f"Downloading {len(segments):,} segments and saving to db" +
-        ' (no credentials, open data only)' if authorizer is not None else '', 5
+        ' (no credentials, open data only)' if credentials is not None else '', 5
     )
 
     d_stats = download_and_save(
         engine,
         segments,
         time_window,
-        authorizer,
+        credentials,
         # download_id,
         # update_metadata,
         max_thread_workers,
@@ -337,11 +355,13 @@ def _download(engine: Engine, events_url, starttime, endtime, data_url,
     if stationxml:
         log_step_header("Downloading Stations (StationXML)", 6)
         n_downloaded, n_saved, n_errors = \
-            save_stationxml(engine,
-                            max_thread_workers,
-                            advanced_settings['i_timeout'],
-                            download_blocksize,
-                            isterminal)
+            save_stationxml(
+                engine,
+                max_thread_workers,
+                advanced_settings['i_timeout'],
+                download_blocksize,
+                isterminal
+            )
         logger.info(
             f"** Stations StationXML download summary **\n"
             f"- downloaded     {n_downloaded:,} \n"
@@ -351,11 +371,13 @@ def _download(engine: Engine, events_url, starttime, endtime, data_url,
     if quakeml:
         log_step_header("Downloading Events (QuakeML)", 7)
         n_downloaded, n_saved, n_errors = \
-            save_quakeml(engine,
-                         max_thread_workers,
-                         advanced_settings['i_timeout'],
-                         download_blocksize,
-                         isterminal)
+            save_quakeml(
+                engine,
+                max_thread_workers,
+                advanced_settings['i_timeout'],
+                download_blocksize,
+                isterminal
+            )
         logger.info(
             f"** Events QuakeML download summary **\n"
             f"- downloaded     {n_downloaded:,} \n"

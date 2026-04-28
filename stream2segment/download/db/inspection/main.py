@@ -21,10 +21,12 @@ from stream2segment.io import yaml_load
 from stream2segment.io.cli import ascii_decorate
 from stream2segment.io.db import close_session
 from stream2segment.io.db.sqlconstructs import concat
-from stream2segment.io.inputvalidation import validate_param, BadParam
+from stream2segment.io.inputvalidation import (
+    validate_param, BadParam, EVENTWS_SAFE_PARAMS
+)
 from stream2segment.download.db import get_session  # FIXME handle sessions refactor!
 from stream2segment.io.db.models import Download, Segment, Station, WebService
-from stream2segment.download.modules.utils import EVENTWS_SAFE_PARAMS, DownloadStats
+from stream2segment.download.modules.utils import DownloadStats
 
 
 def summary(dburl, download_indices=None, download_ids=None, outfile=None):

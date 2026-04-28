@@ -12,9 +12,8 @@ import logging
 import numpy as np
 import pandas as pd
 
+from stream2segment.download.modules.utils import NothingToDownload, FailedDownload
 from stream2segment.io.db.models import Channel, Event, Segment, WebService
-from stream2segment.download.modules.utils import formatmsg
-from stream2segment.download.exc import FailedDownload
 from stream2segment.io.cli import get_progressbar
 
 
@@ -42,23 +41,6 @@ def merge_events_stations(
     :param channels: pandas DataFrame resulting from `get_channels_df`
     :param events: pandas DataFrame resulting from `get_events_df`
     """
-    # For convenience and readability, define once the mapped column names
-    # representing the dataframe columns that we need:
-    # ev_id_col = Event.id.key
-    # ev_mag_col = Event.magnitude.key
-    # ev_lat_col = Event.latitude.key
-    # ev_lon_col = Event.longitude.key
-    # ev_time_col = Event.time.key
-    # ev_depth_col = Event.depth_km.key
-    # ch_lat_col = Channel.latitude.key
-    # ch_lon_col = Channel.longitude.key
-    # ch_start_col = Channel.start_time.key
-    # ch_end_col = Channel.end_time.key
-    # seg_evid_col = Segment.event_id.key
-
-    # seg_ev_dist_col = Segment.event_distance_deg.key
-
-
     ret = []
 
     with get_progressbar(len(events) if show_progress else 0) as pbar:
@@ -151,8 +133,9 @@ def merge_events_stations(
     # create total segments dataframe:
     # first check we have data:
     if not ret:
-        raise FailedDownload(formatmsg("No segments to process",
-                                       "No station within search radia"))
+        raise NothingToDownload(
+            "No segments to process (no station within search radia)"
+        )
     # now concat:
     ret = pd.concat(ret, axis=0, ignore_index=True, copy=True)
 
@@ -188,11 +171,12 @@ def merge_events_stations(
     # another safety check (arrival times NaT):
     ret.dropna(subset=["arrival_time"], inplace=True)
     if old_len > len(ret):
-        logger.info(formatmsg("%d of %d segments discarded", "Travel times NaN"),
-                    old_len-len(ret), old_len)
         if ret.empty:
-            raise FailedDownload(formatmsg("No segments to process",
-                                           "All travel times NaN"))
+            raise FailedDownload("No segments to process (all travel times NaN)")
+        else:
+            logger.info(
+                f"{old_len - len(ret):,} of {old_len:,} segments discarded (travel times NaN)"
+            )
 
     # convert to event_distance_km:
     degrees = ret.pop('event_distance_deg')
