@@ -1,21 +1,20 @@
 """
-Module implementing the Command line interface (cli) to access function in the main module
-
-:date: Oct 8, 2017
-
-.. moduleauthor:: <rizac@gfz-potsdam.de>
+Command line interface (cli) to access function in the main module
 """
+# :date: Oct 8, 2017
 import sys
 import os
 import warnings
 from collections import OrderedDict, defaultdict
 from contextlib import contextmanager
+from os.path import dirname
 
+import yaml
 import click
 
 from stream2segment.resources import get_templates_fpath
-from stream2segment.io.inputvalidation import BadParam
-from stream2segment.io import yaml_load
+from stream2segment.io.cli import BadParam
+from stream2segment.io.db import resolve_db_path
 
 
 class clickutils:  # noqa
@@ -24,18 +23,19 @@ class clickutils:  # noqa
     @staticmethod
     def valid_dburl_or_download_yamlpath(value, param_name='dburl'):
         """Return the database path from 'value': 'value' can be a file (in that
-        case is assumed to be a yaml file with the `param_name` key in it, which
+        case is assumed to be a YAML file with the `param_name` key in it, which
         must denote a db path) or the database path otherwise
         """
         if not isinstance(value, str):
             raise ValueError('Please provide a string')
         if os.path.isfile(value):
             try:
-                yaml_dict = yaml_load(value)
+                with open(value, 'r') as _:
+                    yaml_dict = yaml.safe_load(_)
             except Exception:
                 raise ValueError('file exists but can not be read as YAML')
             try:
-                return yaml_dict[param_name]
+                return resolve_db_path(yaml_dict[param_name], dirname(value))
             except KeyError:
                 raise ValueError(f'{param_name} not found in YAML file {value}')
         return value

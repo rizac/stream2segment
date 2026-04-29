@@ -1,11 +1,10 @@
 """
 Stations/Channels download functions
-
-:date: Dec 3, 2017
 """
+# :date: Dec 3, 2017
 import re
 import logging
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable
 import json
 from datetime import datetime, timedelta
 from io import BytesIO
@@ -47,10 +46,6 @@ def get_channels(
     min_sample_rate,
     eida_rs_urls,
     restricted_download: bool,
-    # max_thread_workers,
-    # timeout,
-    # blocksize,
-    # db_bufsize,
     show_progress=False
 ):
     cha_urls = get_channel_urls(

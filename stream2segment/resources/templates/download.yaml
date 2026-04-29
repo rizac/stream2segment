@@ -27,7 +27,8 @@ endtime: 2016-12-25T00:00:00
 # Events: https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=14
 # =======
 
-# The event catalog in form of FDSN URL or local file path.
+# The event catalog in form of FDSN URL or local file path. You can supply a string
+# or list of strings, but be careful not to provide several urls with broad parameters.
 # The events list, returned by the URL or in the supplied file, must be in FDSN format
 # (https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=16).
 # You can also type these shortcut strings instead of URLs:
@@ -193,7 +194,7 @@ time_window:
 # Implementation details: restricted segments previously downloaded with no credentials
 # (thus, with no waveform data) will be always re-downloaded ignoring all 'retry'
 # settings
-restricted_data: ""
+credentials: ""
 
 
 # =====================================
@@ -211,7 +212,7 @@ advanced_settings:
  #    after all segments are downloaded, or via the command `s2s dl report`
  max_concurrent_downloads: null
  # Routing service used to fetch EIDA nodes and relative network/stations. If list of
- # Urls, then each url will be queried in the given order, stopping when the first
+ # URLs, then each url will be queried in the given order, stopping when the first
  # provides valid data
  routing_service_url:
    - "http://www.orfeus-eu.org/eidaws/routing/1/query"

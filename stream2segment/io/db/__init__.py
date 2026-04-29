@@ -1,11 +1,9 @@
 import re
 import os
-from contextlib import contextmanager
+from os.path import isabs, abspath, join
 
 from sqlalchemy.exc import ProgrammingError, OperationalError, SQLAlchemyError
-from sqlalchemy.orm.scoping import scoped_session
 from sqlalchemy.engine import create_engine
-from sqlalchemy.orm.session import sessionmaker
 from sqlalchemy import text, __version__ as __sa_version__
 
 
@@ -59,15 +57,6 @@ def get_engine(dbpath, check_db_existence=True, **kwargs):
 
     return engine
 
-    # FIXME REMOVE
-    # session_factory = sessionmaker(bind=engine)
-    #
-    # if not scoped:
-    #     # create a Session
-    #     return session_factory()
-    #
-    # return scoped_session(session_factory)
-
 
 class DbNotFound(ValueError):
     """DbNotFound are exception raised when the database could not be found. this
@@ -91,12 +80,16 @@ class DbNotFound(ValueError):
                'in the URL, timeout (do you use VPN?) or the db does not exist'
 
 
-def is_sqlite(dburl):
-    return isinstance(dburl, str) and dburl.lower().startswith('sqlite')
+sqlite_prefix = "sqlite:///"
 
+def is_sqlite(dburl):
+    return isinstance(dburl, str) and dburl.lower().startswith(sqlite_prefix)
+
+
+postgres_prefix = "postgres://"
 
 def is_postgres(dburl):
-    return isinstance(dburl, str) and dburl.lower().startswith('postgres')
+    return isinstance(dburl, str) and dburl.lower().startswith(postgres_prefix)
 
 
 def get_dbname(dburl):
@@ -114,7 +107,7 @@ def database_exists(engine):
     # https://sqlalchemy-utils.readthedocs.io/en/latest/_modules/sqlalchemy_utils/functions/database.html#database_exists
 
     if is_sqlite(str(engine.url)):
-        if not os.path.isfile(_extract_file_path(str(engine.url))):
+        if not os.path.isfile(extract_sqlite_file_path(str(engine.url))):
             return False
 
     try:
@@ -125,56 +118,31 @@ def database_exists(engine):
         return False
 
 
-def _extract_file_path(sqlite_url):
-    return os.path.abspath(sqlite_url[10:])  # remove sqlite:///
+def extract_sqlite_file_path(sqlite_url):
+    """Extract file path. To be executed only is is_sqlite(sqlite_url) return true"""
+    return sqlite_url.removeprefix(sqlite_prefix)
 
 
-# def get_url(url_or_engine):
-#     """Return the URL from the given argument (if already url, return the argument)
-#     """
-#     if isinstance(url_or_engine, str):
-#         return url_or_engine
-#     return str(url_or_engine.url)
+def resolve_db_path(db_url, rel_dir_path=None) -> str:
+    """
+    Resolve SQLite URL to absolute path relative to rel_dir_path.
+    Non-SQLite URLs are returned unchanged, as well as SQLite URLs with absolute path.
+    If the SQLite URL contains a relative path, it is resolved relative
+    to `rel_dir_path` or, if the latter is None, to the current working directory.
 
-#
-# @contextmanager
-# def _engine(url_or_engine):
-#     engine = url_or_engine
-#     engine_needs_disposal = False
-#     if isinstance(url_or_engine, str):
-#         engine_needs_disposal = True
-#         engine = create_engine(url_or_engine)
-#     try:
-#         yield engine
-#     finally:
-#         if engine_needs_disposal:
-#             engine.dispose()
+    :param db_url: database URL.
+    :param rel_dir_path: base directory used to resolve relative SQLite paths.
+    """
+    if is_sqlite(db_url):
+        file_path = extract_sqlite_file_path(db_url)
+        if isabs(file_path):
+            return db_url
+        elif rel_dir_path is None:
+            return sqlite_prefix + abspath(file_path)
+        else:
+            return sqlite_prefix + abspath(join(rel_dir_path, file_path))
 
-
-# def close_session(session, dispose_engine=True):
-#     """Close the SQLAlchemy session
-#     https://docs.sqlalchemy.org/en/13/orm/session_basics.html#closing
-#     and the underline engine accessible via `session.get_bind()`
-#     https://docs.sqlalchemy.org/en/14/core/connections.html?highlight=dispose#engine-disposal
-#     unless `dispose_engine` is False (default: True).
-#
-#     :param session: a SQLAlchemy session
-#     :param dispose_engine: boolean (default True when missing) close also the
-#         underlying engine
-#     :return: True if all required operation(s) where performed with no exceptions,
-#         False otherwise
-#     """
-#     ret = True
-#     try:
-#         session.close()
-#     except Exception:
-#         ret = False
-#     if dispose_engine:
-#         try:
-#             session.get_bind().dispose()
-#         except Exception:
-#             ret = False
-#     return ret
+    return db_url
 
 
 def secure_dburl(dburl):

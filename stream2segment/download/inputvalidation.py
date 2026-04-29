@@ -9,30 +9,32 @@ from datetime import datetime, timedelta, UTC, date
 from os.path import isabs, abspath, join, dirname, isfile
 from typing import Any
 
+import yaml
+from numpy import inf
 from stream2segment.download.modules.utils import fdsn_url
 from stream2segment.download.modules.events import EVENTWS_MAPPING
-from stream2segment.io import yaml_load
 from stream2segment.io.cli import BadParam
-from stream2segment.io.db import get_engine
-from stream2segment.resources import get_templates_fpath, get_ttable_fpath
+from stream2segment.io.db import get_engine, resolve_db_path
+from stream2segment.resources import get_ttable_fpath
 from stream2segment.traveltimes.ttloader import TTTable
 
 
-def extract_download_args(config: dict, config_file_path: str) -> dict:
-    """Load download arguments from the given config (yaml file or dict) after
-    parsing and checking some of the dict keys.
-
-    :return: a dict loaded from the given `config` and with parsed arguments
-        (dict keys)
-
-    Raise `BadParam` in case of parsing errors, missing arguments,
-    conflicts and so on
+def extract_download_args(config_file_path: str, **override_params) -> tuple[dict, dict]:
     """
-
+    Load config for download, rais BadParm
+    """
     kwargs = {}
-    params = tuple()
+    config = {}
+
+    params = ""
 
     try:
+        params = 'configuration file'
+        with open(config_file_path, 'r') as stream:
+            config = yaml.safe_load(stream)
+            for key, val in override_params.items():
+                config[key] = val
+
         params = ('data_url', 'dataws')  # decalre explicitly (see Except below)
         # validate dataws FIRST because it is used by other params later
         val = pop_param(params, config)
@@ -65,7 +67,10 @@ def extract_download_args(config: dict, config_file_path: str) -> dict:
         )
 
         params = 'dburl'
-        kwargs['engine'] = get_engine(pop_param(params, config))
+        val = pop_param(params, config)
+        kwargs['engine'] = get_engine(
+            resolve_db_path(val, dirname(config_file_path))
+        )
 
         params = ('starttime', 'start')
         kwargs['start'] = valid_date(pop_param(params, config))
@@ -112,50 +117,89 @@ def extract_download_args(config: dict, config_file_path: str) -> dict:
         # Validate eventws (event web service) params. These parameters can be supplied
         # in the main config but also in the eventws_params dict, which was formerly
         # named eventws_query_args:
+        params = ('events_extra_params', 'eventws_params', 'eventws_query_args')
+        evt_params = pop_param(params, config, default={})
+        invalid = set(evt_params.keys()) & set(config)
+        if invalid:
+            raise ValueError(f"invalid duplicated parameter(s): {', '.join(invalid)}")
 
-        pnames = ('events_extra_params', 'eventws_params', 'eventws_query_args')
-        val = pop_param(params, config, default={})
+        params = ['minlatitude', 'minlat']
+        val = pop_param(params, config)
+        if val is not None:
+            assert -90.0 <= float(val) <= 90.0, "not in [-90, 90]"
+            evt_params[params[0]] = float(val)
 
+        params = ['maxlatitude', 'maxlat']
+        val = pop_param(params, config)
+        if val is not None:
+            assert -90.0 <= float(val) <= 90.0, "not in [-90, 90]"
+            evt_params[params[0]] = float(val)
 
-        # get eventws_param dict:
-        pname, evt_params = get_param(old_config, pnames, default=None)
-        # validate it (null is allowed and should be converted to {}):
-        evt_params = validate_param(pnames, evt_params or {}, valid_type, {})
-        if evt_params:
-            # evt_params is not empty, validate some parameters:
-            evt_params.update(_pop_event_params(old_config, pname))
-        # Now remove evt_params dict from the old config:
-        pop_param(old_config, pnames, default=None)
-        # Ok, now do the same above on the main config:
-        evt_params2 = _pop_event_params(old_config)
-        # Now merge (but check conflicts beforehand):
-        _conflicts = set(evt_params) & set(evt_params2)
-        if _conflicts:
-            # Issue a general warning (printing all conflicting params might be too verbose,
-            # and we should print them as they were input,e.g. minlatitude or minlat?)
-            raise BadParam(BadParam.P_CONFLICT.replace('names', 'name(s)'), _conflicts,
-                           message='parameter(s) can be provided globally or in "%s", '
-                                   'not in both' % pname)
-        evt_params.update(evt_params2)  # merge
-        # now put evt_params into new_config:
-        new_config[pnames[0]] = evt_params
+        assert (
+            evt_params.get('minlatitude', evt_params.get('minlat', -inf)) <
+            evt_params.get('maxlatitude', evt_params.get('maxlat', inf))
+        ), "the value must be > minlatitude / minlat"
+
+        params = ['minlongitude', 'minlon']
+        val = pop_param(params, config)
+        if val is not None:
+            assert -180.0 <= float(val) <= 180.0, "not in [-180, 180]"
+            evt_params[params[0]] = float(val)
+
+        params = ['maxlongitude', 'maxlon']
+        val = pop_param(params, config)
+        if val is not None:
+            assert -180.0 <= float(val) <= 180.0, "not in [-180, 180]"
+            evt_params[params[0]] = float(val)
+
+        assert (
+            evt_params.get('minlongitude', evt_params.get('minlon', -inf)) <
+            evt_params.get('maxlongitude', evt_params.get('maxlon', inf))
+        ), "the value must be > minlongitude / minlon"
+
+        params = ['minmagnitude', 'minmag']
+        val = pop_param(params, config)
+        if val is not None:
+            evt_params[params[0]] = float(val)
+
+        params = ['maxmagnitude', 'maxmag']
+        val = pop_param(params, config)
+        if val is not None:
+            evt_params[params[0]] = float(val)
+
+        assert (
+            evt_params.get('minmagnitude', evt_params.get('minmag', -inf)) <
+            evt_params.get('maxmagnitude', evt_params.get('maxmag', inf))
+        ), "the value must be > minmagnitude / minmag"
+
+        params = 'mindepth'
+        val = pop_param(params, config)
+        if val is not None:
+            evt_params[params[0]] = float(val)
+
+        params = 'maxdepth'
+        val = pop_param(params, config)
+        if val is not None:
+            evt_params[params[0]] = float(val)
+
+        assert (
+            evt_params.get('mindepth', -inf) < evt_params.get('maxdepth', inf)
+        ), "the value must be > mindepth"
+
 
         # =========================================================
         # Done with parameter validation. Just perform final checks
         # =========================================================
-
-        # load original config (default in this package) to perform some checks:
-        orig_config = yaml_load(get_templates_fpath("download.yaml"))
-
-        unknown_keys = set(old_config) - set(orig_config)
+        params = "Unknown config. parameter(s)"
         legacy_keys = {
             'retry_client_err', 'retry_mseed_err', 'retry_seg_not_found',
             'retry_server_err', 'retry_timespan_err', 'retry_url_err', 'update_metadata'
         }
-        if unknown_keys - legacy_keys:
-            raise BadParam(BadParam.P_UNKNOWN, unknown_keys - legacy_keys)
+        invalid = set(config.keys()) - legacy_keys
+        if invalid:
+            raise ValueError(', '.join(invalid))
 
-        return kwargs
+        return config, kwargs
 
     except (Exception, ) as err:
         if not isinstance(params, str):
@@ -184,68 +228,6 @@ def pop_param(param: str | Sequence[str], cfg: dict, default: Any=None):
             return default
         raise ValueError(f"parameter not found")
     return cfg.pop(list(params)[0])
-
-
-def _validate_event_params(config, extra_event_params):
-    """pop / move event params from the given config (`dict`) into a new dict and return
-    the new dict. Raise :class:`BadParam` if any event parameter is invalid
-    """
-    # returned dict:
-    evt_params = {}
-
-    pnames = ['minlatitude', 'minlat']
-    pname, pval = pop_param(pnames, config)
-    if pval is not None:
-        new_pname = pnames[0].split('.')[-1]  # remove prefix, if any
-        evt_params[new_pname] = validate_param(pname, pval,
-                                               valid_between, -90.0, 90.0)
-
-    pnames = ['maxlatitude', 'maxlat'],
-    pname, pval = pop_param(config, pnames, None)
-    if pval is not None:
-        new_pname = pnames[0].split('.')[-1]  # remove prefix, if any
-        evt_params[new_pname] = validate_param(pname, pval,
-                                               valid_between, -90.0, 90.0)
-
-    pnames = ['minlongitude', 'minlon'],
-    pname, pval = pop_param(config, pnames, None)
-    if pval is not None:
-        new_pname = pnames[0].split('.')[-1]  # remove prefix, if any
-        evt_params[new_pname] = validate_param(pname, pval,
-                                               valid_between, -180.0, 180.0)
-
-    pnames = ['maxlongitude', 'maxlon'],
-    pname, pval = pop_param(config, pnames, None)
-    if pval is not None:
-        new_pname = pnames[0].split('.')[-1]  # remove prefix, if any
-        evt_params[new_pname] = validate_param(pname, pval,
-                                               valid_between, -180.0, 180.0)
-
-    pnames = ['minmagnitude', 'minmag'],
-    pname, pval = pop_param(config, pnames, None)
-    if pval is not None:
-        newp_name = pnames[0].split('.')[-1]  # remove prefix, if any
-        evt_params[newp_name] = validate_param(pname, pval, float)
-
-    pnames = ['maxmagnitude', 'maxmag'],
-    pname, pval = pop_param(config, pnames, None)
-    if pval is not None:
-        newp_name = pnames[0].split('.')[-1]  # remove prefix, if any
-        evt_params[newp_name] = validate_param(pname, pval, float)
-
-    pnames = ['mindepth'],
-    pname, pval = pop_param(config, pnames, None)
-    if pval is not None:
-        newp_name = pnames[0].split('.')[-1]  # remove prefix, if any
-        evt_params[newp_name] = validate_param(pname, pval, float)
-
-    pnames = ['maxdepth'],
-    pname, pval = pop_param(config, pnames, None)
-    if pval is not None:
-        newp_name = pnames[0].split('.')[-1]  # remove prefix, if any
-        evt_params[newp_name] = validate_param(pname, pval, float)
-
-    return evt_params
 
 
 def _validate_download_advanced_settings(adv_settings: dict):

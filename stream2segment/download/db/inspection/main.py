@@ -15,9 +15,9 @@ from webbrowser import open as open_in_browser
 
 from jinja2 import Environment, FileSystemLoader
 from sqlalchemy import func, or_
+import yaml
 
 from stream2segment.download.url import get_host
-from stream2segment.io import yaml_load
 from stream2segment.io.cli import ascii_decorate
 from stream2segment.io.db import close_session
 from stream2segment.io.db.sqlconstructs import concat
@@ -470,7 +470,7 @@ def yaml_get(yaml_content):
     :param yaml_content: yaml formatted string representing a download config
     """
     try:
-        dic = yaml_load(StringIO(yaml_content))
+        dic = yaml.safe_load(StringIO(yaml_content))
         ret = {k: dic[k] for k in EVENTWS_SAFE_PARAMS if k in dic}
         additional_eventws_params = dic.get('eventws_query_args', None) or {}
         ret.update(additional_eventws_params)

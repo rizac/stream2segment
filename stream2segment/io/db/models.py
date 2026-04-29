@@ -155,12 +155,6 @@ class Channel(Base):
     __tablename__ = 'channel'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    # webservice_id = Column(Integer, ForeignKey(WebService.id), nullable=False)
-    stationxml_id = Column(
-        Integer,
-        ForeignKey(StationXML.id, ondelete="SET NULL", onupdate="CASCADE"),
-        nullable=True
-    )
     network_code = Column(String(8), nullable=False, index=True)
     station_code = Column(String(8), nullable=False, index=True)
     latitude = Column(Float, nullable=False, index=True)
@@ -234,6 +228,11 @@ class Segment(Base):
         Integer, ForeignKey(Channel.id, **on_del_upd_cascade), nullable=False
     )
     webservice_id = Column(Integer, ForeignKey(WebService.id), nullable=False)
+    stationxml_id = Column(
+        Integer,
+        ForeignKey(StationXML.id, ondelete="SET NULL", onupdate="CASCADE"),
+        nullable=True
+    )
 
     event_distance_km = Column(SmallInteger, nullable=False, index=True)
     noise_window_s = Column(SmallInteger, nullable=False)  # duration (in s) of start time relative to arrival_time (often < 0)  # noqa

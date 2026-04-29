@@ -13,7 +13,6 @@ import psutil
 import yaml
 from sqlalchemy import Engine
 
-from stream2segment.io.inputvalidation import BadParam
 from stream2segment.io.log import LevelFilter
 from stream2segment.io.db.pdsql import (
     get_col_max, execute_sql, create_insert_statement
@@ -38,16 +37,13 @@ logger = logging.getLogger(__name__[:__name__.rfind('.')])
 
 
 def download(
-    config_file: str | Path,
-    log2file=True,
-    verbose=False,
-    **param_overrides
+    config_file: str | Path, log2file=True, verbose=False, **override_params
 ):
     """
     Start an event-based download routine, fetching segment data and
     metadata from FDSN web services and saving it in an SQL database
 
-    :param config: str or dict: If str, it is valid path to a configuration
+    :param config_file: str or Path denoting a configuration
         file in YAML syntax that will be read as `dict` of config. parameters
     :param log2file: bool or str (default: True). If string, it is the path to
         the log file (whose parent directory must exist). If True, `config` can
@@ -64,7 +60,7 @@ def download(
         showing the estimated remaining time for each sub-task. This option is
         set to True when this function is invoked from the command line
         interface (`cli.py`)
-    :param param_overrides: additional parameter(s) for the YAML `config`. The
+    :param override_params: additional parameter(s) for the YAML `config`. The
         value of existing config parameters will be overwritten, e.g. if
         `config` is {'a': 1} and `param_overrides` is `a=2`, the result is
         {'a': 2}. Note however that when both parameters are dictionaries, the
@@ -72,37 +68,31 @@ def download(
         `param_overrides` is `a={'c': 2, 'd': 2}`, the result is
         {'a': {'b': 1, 'c': 2, 'd': 2}}
     """
-    try:
-        with open(config_file, 'r') as stream:
-            config = yaml.safe_load(stream)
-            for key, val in param_overrides.items():
-                config[key] = val
-    except Exception as e:
-        raise BadParam('Invalid YAML config file') from None
-
     ret = 0
     engine = None
     d_stats = {}
-
-    # configure logger and handlers:
-    if log2file is True:
-        _now = datetime.now(UTC).replace(microsecond=0).isoformat('T')
-        log_file_path = f'{config_file}.{_now}.log'
-    else:
-        log_file_path = log2file or ''  # assure we have a string
+    config = {}
+    log_file_path = ''
 
     try:
-        kwargs = extract_download_args(dict(config), config_file)
+        config, kwargs = extract_download_args(config_file, **override_params)
+
         engine = kwargs['engine']
 
         if verbose:
             print(f"Configuration file: {config_file})")
-            if param_overrides:
+            if override_params:
                 print(
                     f'(explicitly overwritten parameter(s): '
-                    f'{", ".join(param_overrides)})'
+                    f'{", ".join(override_params)})'
                 )
 
+        # configure logger and handlers:
+        if log2file is True:  # noqa
+            _now = datetime.now(UTC).replace(microsecond=0).isoformat('T')
+            log_file_path = f'{config_file}.{_now}.log'
+        else:
+            log_file_path = log2file or ''  # assure we have a string
         configure_logging(log_file_path, verbose)
 
         if log_file_path and verbose:
@@ -130,6 +120,8 @@ def download(
         raise
     finally:
         close_logger(logger)
+        if engine is not None:
+            engine.dispose()
 
     save_download_run(engine, config, log_file_path, d_stats)
 
@@ -249,12 +241,13 @@ def _download(
     segments = merge_events_stations(
         events, channels, search_radius, tt_table, isterminal
     )
-    # help gc by deleting the (only) refs to unused dataframes
-    del events
-    del channels
+
+    del events  # help gc?
+    del channels  # help gc?
 
     log_step_header(
-        f"{len(segments):,} segments found. Checking already downloaded segments", 4
+        f"{len(segments):,} segments found. Checking already downloaded segments",
+        4
     )
     # raises NothingToDownload
     segments = prepare_for_download(engine, segments, credentials is not None)
@@ -262,8 +255,9 @@ def _download(
     # prepare_for_download raises a NothingToDownload if there is no
     # data, so if we are here segments is not empty
     log_step_header(
-        f"Downloading {len(segments):,} segments and saving to db" +
-        ' (no credentials, open data only)' if credentials is not None else '', 5
+        f"Downloading {len(segments):,} segments and saving to db " +
+        '(no credentials, open data only)' if credentials is None else '',
+        5
     )
 
     d_stats = download_and_save(
@@ -271,8 +265,6 @@ def _download(
         segments,
         time_window,
         credentials,
-        # download_id,
-        # update_metadata,
         max_thread_workers,
         advanced_settings['w_timeout'],
         download_blocksize,

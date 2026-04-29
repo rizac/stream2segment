@@ -33,12 +33,12 @@ def save_stationxml(
         select(
             Channel.network_code,
             Channel.station_code,
-            Channel.webservice_id,
+            Segment.webservice_id,
             WebService.url
         )
-        .join(WebService, Channel.webservice_id == WebService.id)
+        .join(WebService, Segment.webservice_id == WebService.id)
         .join(Segment, Segment.channel_id == Channel.id)
-        .where(Channel.stationxml_id.is_(None))
+        .where(Segment.stationxml_id.is_(None))
         .distinct()
     )
 
@@ -92,24 +92,26 @@ def save_stationxml(
                         (net, sta, ws_id) = cache.pop(url)
                         update_stmt = create_update_statement(
                             Channel,
+                            Channel.stationxml_id,
                             (
                                 (Channel.network_code==net) &
                                 (Channel.station_code==sta) &
                                 (Channel.webservice_id==ws_id)
                             ),
-                            Channel.stationxml_id
+
                         )
                         stationxml_id += 1
-                        execute_sql(
-                            engine,
-                            [insert_stmt, update_stmt],
-                            {
-                                'data': response.data,
-                                'id': stationxml_id,
-                                'stationxml_id': stationxml_id
-                            }
+                        saved += (
+                            1 for _ in execute_sql(
+                                engine,
+                                [insert_stmt, update_stmt],
+                                [{
+                                    'data': response.data,
+                                    'id': stationxml_id,
+                                    'stationxml_id': stationxml_id
+                                }]
+                            )
                         )
-                        saved += 1
                     except Exception:
                         pass
 
@@ -182,15 +184,16 @@ def save_quakeml(engine: Engine, max_thread_workers, timeout,
                 else:
                     try:
                         db_ev_id = cache.pop(url)
-                        execute_sql(
-                            engine,
-                            [insert_stmt],
-                            {
-                                'id': db_ev_id,
-                                'data': response.data
-                            }
+                        saved += (
+                            1 for _ in execute_sql(
+                                engine,
+                                [insert_stmt],
+                                [{
+                                    'id': db_ev_id,
+                                    'data': response.data
+                                }]
+                            )
                         )
-                        saved += 1
                     except Exception:
                         pass
 
