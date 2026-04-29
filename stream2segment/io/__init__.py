@@ -1,29 +1,7 @@
 from os.path import join, normpath, isabs, isdir, abspath, dirname
 import yaml
 
-
-def yaml_safe_dump(data, stream=None, default_flow_style=False, sort_keys=False, **kwds):
-    """Call `yaml.safe_dump` with default shortcuts
-
-    :param default_flow_style: boolean, tells if collections (lists/dicts) should
-        to serialized in the flow style, i.e. `b: {c: 3, d: 4}`. False by default
-    :param sort_keys: whether to sort keys (param names). Defaults to False. Might
-        not work in PyYAML version < 5.1 (in that case, it is ignored)
-    :return: None (if stream is not None). **If stream is None, returns
-        the produced string instead**
-    """
-    kwds['default_flow_style'] = default_flow_style
-    kwds['sort_keys'] = sort_keys
-    try:
-        return yaml.safe_dump(data, stream, **kwds)
-    except TypeError:
-        # we might have a PyYaml version < 5.1 where sort_keys was not
-        # supported: try to remove the argument. Note however that in that
-        # case safe_dump will sort dict keys
-        kwds.pop('sort_keys', None)
-        return yaml.safe_dump(data, stream, **kwds)
-
-
+# FIXME REMOVE!
 def yaml_load(filepath, **updates):
     """Load a yaml file into a dict (if `filepath` is a `dict`, skips loading).
     Then:

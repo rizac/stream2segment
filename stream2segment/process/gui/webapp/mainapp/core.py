@@ -18,7 +18,6 @@ from obspy.core.utcdatetime import UTCDateTime
 
 from stream2segment.process import gui
 from stream2segment.process.inspectimport import iterfuncs
-from stream2segment.io import yaml_safe_dump
 from stream2segment.process.gui.webapp.mainapp import db
 
 
@@ -169,7 +168,7 @@ def get_config(as_str=False):
     if not config_dict:  # if dict is empty,
         # avoid returning: "{}\n", instead return emtpy string:
         return ''
-    return yaml_safe_dump(config_dict)
+    return yaml.safe_dump(config_dict, default_flow_style=False, sort_keys=False)
 
 
 def validate_config_str(string_data):

@@ -4,21 +4,21 @@ Input validation for the download routine
 
 import os
 import re
+from collections.abc import Sequence
 from datetime import datetime, timedelta, UTC, date
 from os.path import isabs, abspath, join, dirname, isfile
+from typing import Any
 
 from stream2segment.download.modules.utils import fdsn_url
 from stream2segment.download.modules.events import EVENTWS_MAPPING
 from stream2segment.io import yaml_load
-from stream2segment.io.inputvalidation import (
-    validate_param, pop_param, get_param, BadParam, valid_between
-)
-from stream2segment.download.db import get_session
+from stream2segment.io.cli import BadParam
+from stream2segment.io.db import get_engine
 from stream2segment.resources import get_templates_fpath, get_ttable_fpath
 from stream2segment.traveltimes.ttloader import TTTable
 
 
-def load_config_for_download(config, validate, **param_overrides):
+def extract_download_args(config: dict, config_file_path: str) -> dict:
     """Load download arguments from the given config (yaml file or dict) after
     parsing and checking some of the dict keys.
 
@@ -28,253 +28,218 @@ def load_config_for_download(config, validate, **param_overrides):
     Raise `BadParam` in case of parsing errors, missing arguments,
     conflicts and so on
     """
-    config_dict = validate_param("config", config, yaml_load, **param_overrides)
 
-    if not validate:
-        return config_dict
+    kwargs = {}
+    params = tuple()
 
-    # few variables:
-    configfile = None
-    if isinstance(config, str) and os.path.isfile(config):
-        configfile = config
+    try:
+        params = ('data_url', 'dataws')  # decalre explicitly (see Except below)
+        # validate dataws FIRST because it is used by other params later
+        val = pop_param(params, config)
+        if isinstance(val, str):  # backward compatibility
+            val = [val]
+        kwargs['data_url'] = [valid_fdsn(url, is_eventws=False) for url in val]
 
-    # =====================
-    # Parameters validation
-    # =====================
+        params = ('events_url', 'eventws')
+        val = pop_param(params, config)
+        if isinstance(val, str):  # backward compatibility
+            val = [val]
+        kwargs['events_url'] = [
+            valid_fdsn(u, is_eventws=True, configfile=config_file_path) for u in val
+        ]
 
-    # put validated params into a new dict, which will be eventually returned:
-    old_config, new_config = config_dict, {}
-    validated_params = set()
+        params = 'search_radius'
+        kwargs['search_radius'] = valid_search_radius(pop_param(params, config))
 
-    # validate dataws FIRST because it is used by other params later
-    pnames = ('data_url', 'dataws')
-    validated_params.update(pnames)
-    pname, pval = pop_param(old_config, pnames)
-    if isinstance(pval, str):  # backward compatibility
-        pval = [pval]
-    dataws = validate_param(pname, pval,
-                            lambda urls: [valid_fdsn(url, is_eventws=False)
-                                          for url in urls])
-    new_config[pnames[0]] = dataws
+        params = 'min_sample_rate'
+        kwargs['min_sample_rate'] = int(pop_param(params, config, default=0))
 
-    pnames = ('events_url', 'eventws')
-    validated_params.update(pnames)
-    pname, pval = pop_param(old_config, pnames)
-    new_config[pnames[0]] = validate_param(
-        pname, pval, valid_fdsn, is_eventws=True, configfile=configfile
-    )
+        # parameters whose validation changes completely their type and should
+        # return separately from the new config dict:
 
-    pname, pval = pop_param(old_config, 'search_radius')
-    validated_params.add(pname)
-    new_config[pname] = validate_param(pname, pval, valid_search_radius)
+        params = ('credentials', 'restricted_data')
+        kwargs['credentials'] = valid_credentials(
+            pop_param(params, config),
+            dataws=kwargs['data_url'],
+            configfile=config_file_path
+        )
 
-    pname, pval = pop_param(old_config, 'min_sample_rate', default=0)
-    validated_params.add(pname)
-    new_config[pname] = validate_param(pname, pval, int)
+        params = 'dburl'
+        kwargs['engine'] = get_engine(pop_param(params, config))
 
-    # parameters whose validation changes completely their type and should
-    # return separately from the new confg dict:
+        params = ('starttime', 'start')
+        kwargs['start'] = valid_date(pop_param(params, config))
 
-    pname, pval = pop_param(old_config, 'restricted_data')
-    validated_params.add(pname)
-    credentials = validate_param(pname, pval, valid_credentials, dataws, configfile)
+        params = ('endtime', 'end')
+        kwargs['end'] = valid_date(pop_param(params, config))
 
-    pname, pval = pop_param(old_config, 'dburl')
-    validated_params.add(pname)
-    session = validate_param(pname, pval, get_session)
+        params = ('network', 'net', 'networks')
+        kwargs['network'] = valid_nslc(pop_param(params, config, default=[]))
 
-    # parameters with multiple allowed names (use get_param_tuple to get which
-    # param name is implemented among the allowed ones)
+        params = ('station', 'sta', 'stations')
+        kwargs['station'] = valid_nslc(pop_param(params, config, default=[]))
 
-    pnames = ('starttime', 'start')
-    validated_params.update(pnames)
-    pname, pval = pop_param(old_config, pnames)
-    new_config[pnames[0]] = validate_param(pname, pval, valid_date)
+        params = ('location', 'loc', 'locations')
+        kwargs['location'] = valid_nslc(pop_param(params, config, default=[]))
 
-    pnames = ('endtime', 'end')
-    validated_params.update(pnames)
-    pname, pval = pop_param(old_config, pnames)
-    new_config[pnames[0]] = validate_param(pname, pval, valid_date)
+        params = ('channel', 'cha', 'channels')
+        kwargs['channel'] = valid_nslc(pop_param(params, config, default=[]))
 
-    pnames = ('network', 'net', 'networks')
-    validated_params.update(pnames)
-    pname, pval = pop_param(old_config, pnames, default=[])
-    new_config[pnames[0]] = validate_param(pname, pval, valid_nslc)
+        params = ('time_window', 'segment_window', 'timespan')
+        is_timespan = 'timespan' in config
+        val = pop_param(params, config)
+        if is_timespan:
+            # a positive timespan[0] is now the same as a negative time_window[0]:
+            val[0] = -float(val[0])
+        kwargs['time_window'] = [float(val[0]), float(val[1])]
 
-    pnames = ('station', 'sta', 'stations')
-    validated_params.update(pnames)
-    pname, pval = pop_param(old_config, pnames, default=[])
-    new_config[pnames[0]] = validate_param(pname, pval, valid_nslc)
+        params = ('stationxml', 'inventory')
+        kwargs['stationxml'] = bool(pop_param(params, config))
 
-    pnames = ('location', 'loc', 'locations')
-    validated_params.update(pnames)
-    pname, pval = pop_param(old_config, pnames, default=[])
-    new_config[pnames[0]] = validate_param(pname, pval, valid_nslc)
+        params = ('quakeml',)
+        kwargs['quakeml'] = bool(pop_param(params, config, default=False))
 
-    pnames = ('channel', 'cha', 'channels')
-    validated_params.update(pnames)
-    pname, pval = pop_param(old_config, pnames, default=[])
-    new_config[pnames[0]] = validate_param(pname, pval, valid_nslc)
+        # validate advanced_settings:
+        params = 'advanced_settings'
+        # old configs had traveltimes_model as top-level param (now in advanced_settings):
+        val = config.pop('traveltimes_model', None)
+        if val is not None:
+            config[params]['traveltimes_model'] = val
+        kwargs['advanced_settings'] = _validate_download_advanced_settings(
+            pop_param(params, config)
+        )
 
-    pnames = ('time_window', 'timespan', 'segment_window')
-    validated_params.update(pnames)
-    pname, pval = pop_param(old_config, pnames, default=None)
-    bounds = validate_param(pname, pval, lambda _: [float(_[0]), float(_[1])])
-    if pname == 'timespan':
-        # a positive timespan[0] is now the same as a negative time_window[0]:
-        bounds[0] = -bounds[0]
-    new_config[pnames[0]] = bounds
+        # Validate eventws (event web service) params. These parameters can be supplied
+        # in the main config but also in the eventws_params dict, which was formerly
+        # named eventws_query_args:
 
-    pnames = ('stationxml', 'inventory')
-    validated_params.update(pnames)
-    pname, pval = pop_param(old_config, pnames, default=None)
-    new_config[pnames[0]] = validate_param(pname, pval, bool)
-
-    pnames = ('quakeml',)
-    validated_params.update(pnames)
-    pname, pval = pop_param(old_config, pnames, default=False)
-    new_config[pnames[0]] = validate_param(pname, pval, bool)
-
-    # validate advanced_settings:
-    pname = 'advanced_settings'
-    # old configs had traveltimes_model as top-level param (now in advanced_settings):
-    ttmodel_pname = 'traveltimes_model'
-    if ttmodel_pname in old_config:
-        validated_params.add(ttmodel_pname)
-        old_config[pname][ttmodel_pname] = old_config.pop(ttmodel_pname)
-    # now process advanced settings:
-    validated_params.add(pname)
-    # Call get_param with no default just for raising if param is missing:
-    new_config[pname] = pop_param(old_config, pname)[1]
-    _validate_download_advanced_settings(new_config, pname)
-
-    # Validate eventws (event web service) params. These parameters can be supplied
-    # in the main config but also in the eventws_params dict, which was formerly
-    # named eventws_query_args:
-
-    pnames = ('events_extra_params', 'eventws_params', 'eventws_query_args')
-    validated_params.update(pnames)
-    # get eventws_param dict:
-    pname, evt_params = get_param(old_config, pnames, default=None)
-    # validate it (null is allowed and should be converted to {}):
-    evt_params = validate_param(pnames, evt_params or {}, valid_type, {})
-    if evt_params:
-        # evt_params is not empty, validate some parameters:
-        evt_params.update(_pop_event_params(old_config, pname))
-    # Now remove evt_params dict from the old config:
-    pop_param(old_config, pnames, default=None)
-    # Ok, now do the same above on the main config:
-    evt_params2 = _pop_event_params(old_config)
-    # Now merge (but check conflicts beforehand):
-    _conflicts = set(evt_params) & set(evt_params2)
-    if _conflicts:
-        # Issue a general warning (printing all conflicting params might be too verbose,
-        # and we should print them as they were input,e.g. minlatitude or minlat?)
-        raise BadParam(BadParam.P_CONFLICT.replace('names', 'name(s)'), _conflicts,
-                       message='parameter(s) can be provided globally or in "%s", '
-                               'not in both' % pname)
-    evt_params.update(evt_params2)  # merge
-    # now put evt_params into new_config:
-    new_config[pnames[0]] = evt_params
-
-    # =========================================================
-    # Done with parameter validation. Just perform final checks
-    # =========================================================
-
-    # load original config (default in this package) to perform some checks:
-    orig_config = yaml_load(get_templates_fpath("download.yaml"))
-
-    unknown_keys = set(old_config) - set(orig_config)
-    legacy_keys = {
-        'retry_client_err', 'retry_mseed_err', 'retry_seg_not_found',
-        'retry_server_err', 'retry_timespan_err', 'retry_url_err', 'update_metadata'
-    }
-    if unknown_keys - legacy_keys:
-        raise BadParam(BadParam.P_UNKNOWN, unknown_keys - legacy_keys)
-
-    # Now check for params supplied here NOT in the default config, and supplied
-    # here but with different type in the original config  # FIXME REMOVE WHY THESE CHECKS???
-    # validated_params.update(old_config)
-    # for pname in list(old_config.keys()):
-    #     pval = old_config.pop(pname)
-    #     new_config[pname] = validate_param(pname, pval,
-    #                                        valid_type, orig_config[pname])
-    #
-    # # And finally, check for params in the default config not supplied here:
-    # missing_keys = set(orig_config) - validated_params - set(EVENTWS_SAFE_PARAMS)
-    # if missing_keys:
-    #     raise BadParam(BadParam.P_MISSING, missing_keys)
-
-    return new_config, session, credentials
+        pnames = ('events_extra_params', 'eventws_params', 'eventws_query_args')
+        val = pop_param(params, config, default={})
 
 
-EVENTWS_SAFE_PARAMS = [
-    'minlatitude', 'minlat', 'maxlatitude', 'maxlat',
-    'minlongitude', 'minlon', 'maxlongitude', 'maxlon',
-    'minmagnitude', 'minmag', 'maxmagnitude', 'maxmag',
-    'mindepth', 'maxdepth'
-]
+        # get eventws_param dict:
+        pname, evt_params = get_param(old_config, pnames, default=None)
+        # validate it (null is allowed and should be converted to {}):
+        evt_params = validate_param(pnames, evt_params or {}, valid_type, {})
+        if evt_params:
+            # evt_params is not empty, validate some parameters:
+            evt_params.update(_pop_event_params(old_config, pname))
+        # Now remove evt_params dict from the old config:
+        pop_param(old_config, pnames, default=None)
+        # Ok, now do the same above on the main config:
+        evt_params2 = _pop_event_params(old_config)
+        # Now merge (but check conflicts beforehand):
+        _conflicts = set(evt_params) & set(evt_params2)
+        if _conflicts:
+            # Issue a general warning (printing all conflicting params might be too verbose,
+            # and we should print them as they were input,e.g. minlatitude or minlat?)
+            raise BadParam(BadParam.P_CONFLICT.replace('names', 'name(s)'), _conflicts,
+                           message='parameter(s) can be provided globally or in "%s", '
+                                   'not in both' % pname)
+        evt_params.update(evt_params2)  # merge
+        # now put evt_params into new_config:
+        new_config[pnames[0]] = evt_params
 
-def _pop_event_params(config, prefix=None):
+        # =========================================================
+        # Done with parameter validation. Just perform final checks
+        # =========================================================
+
+        # load original config (default in this package) to perform some checks:
+        orig_config = yaml_load(get_templates_fpath("download.yaml"))
+
+        unknown_keys = set(old_config) - set(orig_config)
+        legacy_keys = {
+            'retry_client_err', 'retry_mseed_err', 'retry_seg_not_found',
+            'retry_server_err', 'retry_timespan_err', 'retry_url_err', 'update_metadata'
+        }
+        if unknown_keys - legacy_keys:
+            raise BadParam(BadParam.P_UNKNOWN, unknown_keys - legacy_keys)
+
+        return kwargs
+
+    except (Exception, ) as err:
+        if not isinstance(params, str):
+            params = " / ".join(params)
+        raise BadParam(f'{params}: {err}')
+
+
+def pop_param(param: str | Sequence[str], cfg: dict, default: Any=None):
+    """
+    Pop the given `param` from the dict `cfg` and return the associated value.
+    Raises if:
+     - param is not found and `default` is missing or None (otherwise, return `default`)
+     - param is a Sequence of strings and more than one string is a key of `cfg` (all
+       strings are popped from `cfg` before raising)
+    """
+    params = param
+    if isinstance(param, str):
+        params = [param]
+    params = set(params) & set(cfg.keys())
+    if len(params) > 1:
+        for p in params:
+            cfg.pop(p)
+        raise ValueError(f"conflicting parameters, please use {params[0]}")
+    elif len(params) == 0:
+        if default is not None:
+            return default
+        raise ValueError(f"parameter not found")
+    return cfg.pop(list(params)[0])
+
+
+def _validate_event_params(config, extra_event_params):
     """pop / move event params from the given config (`dict`) into a new dict and return
     the new dict. Raise :class:`BadParam` if any event parameter is invalid
     """
-    # define first default event params in order to avoid typos
-    def_evt_params = EVENTWS_SAFE_PARAMS
-
-    if prefix:
-        def_evt_params = [prefix + '.' + _ for _ in def_evt_params]
-
     # returned dict:
     evt_params = {}
 
-    pnames = def_evt_params[:2]  # ['minlatitude', 'minlat']
+    pnames = ['minlatitude', 'minlat']
+    pname, pval = pop_param(pnames, config)
+    if pval is not None:
+        new_pname = pnames[0].split('.')[-1]  # remove prefix, if any
+        evt_params[new_pname] = validate_param(pname, pval,
+                                               valid_between, -90.0, 90.0)
+
+    pnames = ['maxlatitude', 'maxlat'],
     pname, pval = pop_param(config, pnames, None)
     if pval is not None:
         new_pname = pnames[0].split('.')[-1]  # remove prefix, if any
         evt_params[new_pname] = validate_param(pname, pval,
                                                valid_between, -90.0, 90.0)
 
-    pnames = def_evt_params[2:4]  # ['maxlatitude', 'maxlat'],
-    pname, pval = pop_param(config, pnames, None)
-    if pval is not None:
-        new_pname = pnames[0].split('.')[-1]  # remove prefix, if any
-        evt_params[new_pname] = validate_param(pname, pval,
-                                               valid_between, -90.0, 90.0)
-
-    pnames = def_evt_params[4:6]  # ['minlongitude', 'minlon'],
+    pnames = ['minlongitude', 'minlon'],
     pname, pval = pop_param(config, pnames, None)
     if pval is not None:
         new_pname = pnames[0].split('.')[-1]  # remove prefix, if any
         evt_params[new_pname] = validate_param(pname, pval,
                                                valid_between, -180.0, 180.0)
 
-    pnames = def_evt_params[6:8]  # ['maxlongitude', 'maxlon'],
+    pnames = ['maxlongitude', 'maxlon'],
     pname, pval = pop_param(config, pnames, None)
     if pval is not None:
         new_pname = pnames[0].split('.')[-1]  # remove prefix, if any
         evt_params[new_pname] = validate_param(pname, pval,
                                                valid_between, -180.0, 180.0)
 
-    pnames = def_evt_params[8:10]  # ['minmagnitude', 'minmag'],
+    pnames = ['minmagnitude', 'minmag'],
     pname, pval = pop_param(config, pnames, None)
     if pval is not None:
         newp_name = pnames[0].split('.')[-1]  # remove prefix, if any
         evt_params[newp_name] = validate_param(pname, pval, float)
 
-    pnames = def_evt_params[10:12]  # ['maxmagnitude', 'maxmag'],
+    pnames = ['maxmagnitude', 'maxmag'],
     pname, pval = pop_param(config, pnames, None)
     if pval is not None:
         newp_name = pnames[0].split('.')[-1]  # remove prefix, if any
         evt_params[newp_name] = validate_param(pname, pval, float)
 
-    pnames = def_evt_params[12:13]  # ['mindepth'],
+    pnames = ['mindepth'],
     pname, pval = pop_param(config, pnames, None)
     if pval is not None:
         newp_name = pnames[0].split('.')[-1]  # remove prefix, if any
         evt_params[newp_name] = validate_param(pname, pval, float)
 
-    pnames = def_evt_params[13:14]  # ['maxdepth'],
+    pnames = ['maxdepth'],
     pname, pval = pop_param(config, pnames, None)
     if pval is not None:
         newp_name = pnames[0].split('.')[-1]  # remove prefix, if any
@@ -283,68 +248,42 @@ def _pop_event_params(config, prefix=None):
     return evt_params
 
 
-def _validate_download_advanced_settings(config, adv_settings_key):
-    """Validate the advanced settings of the given download config. Modifies
-     config.advanced_settings` keys inplace (do not return the validated `dict`)
-     """
-    adv_settings_dict = config[adv_settings_key]
-    prefix = adv_settings_key + '.'  # 'advanced_settings'
-
-    pname = 'traveltimes_model'
-    tt_table = validate_param(prefix + pname, pop_param(config, prefix + pname)[1],
-                              valid_tt_table)
-    adv_settings_dict[pname] = tt_table
-
-    pname = 'download_blocksize'
-    pval = validate_param(prefix + pname, pop_param(config, prefix + pname)[1],
-                          valid_type, int)
-    adv_settings_dict[pname] = pval if pval > 0 else -1
-
-    pname = 'db_buf_size'
-    adv_settings_dict[pname] = validate_param(
-        prefix + pname,
-        pop_param(config, prefix + pname)[1],
-        valid_between,
-        1,
-        None,
-        pass_if_none=False
-    )
-
-    pname = 'routing_service_url'
-    if not isinstance(adv_settings_dict[pname], (list, tuple)):
-        adv_settings_dict[pname] = [adv_settings_dict[pname]]
-
-    pnames = [prefix + _ for _ in ('max_concurrent_downloads', 'max_thread_workers')]
-    pname, pval = pop_param(config, pnames)
-    if pname == pnames[1]:
-        # When max_thread_workers<0, it defaulted to None:
-        pval = validate_param(pname, pval, valid_type, int, None)
-        if pval <= 0:
-            pval = None
-    else:
-        pval = validate_param(pname, pval, valid_between, 1, None, pass_if_none=True)
-    adv_settings_dict[pnames[0].split('.')[-1]] = pval
-
-
-def valid_type(value, *other_values_or_types):
-    """Return value if it is of the same type (same class, or subclass) of *any*
-    other value type (at least one). Raises TypeError otherwise.
-
-    :param value: a python object
-    :param other_values_or_types: Python objects or classes. In the first case,
-        it will compare the value class vs. the object class.
-
-    :return: value
+def _validate_download_advanced_settings(adv_settings: dict):
     """
-    value_type = value.__class__
-    other_types = tuple(_ if isinstance(_, type) else _.__class__
-                        for _ in other_values_or_types)
+    Validate the advanced settings of the given download config, returning a new dict
+    """
+    advanced_settings = dict(adv_settings)
+    pname = ''
 
-    if issubclass(value_type, other_types):
-        return value
+    try:
+        pname = 'traveltimes_model'
+        advanced_settings[pname] = valid_tt_table(adv_settings[pname])
 
-    raise TypeError("%s expected, found %s" %
-                    (" or ".join(str(_) for _ in other_types), str(value_type)))
+        pname = 'download_blocksize'
+        val = int(adv_settings[pname])
+        advanced_settings[pname] = val if val > 0 else -1
+
+        pname = 'db_buf_size'
+        val = int(adv_settings[pname])
+        assert val > 0
+        advanced_settings[pname] = val
+
+        pname = 'routing_service_url'
+        advanced_settings[pname] = adv_settings[pname]
+        if not isinstance(advanced_settings[pname], (list, tuple)):
+            advanced_settings[pname] = [advanced_settings[pname]]
+
+        pname = 'max_concurrent_downloads'
+        val = adv_settings.get(pname, adv_settings['max_thread_workers'])
+        if val is None:
+            val = 1
+        assert val > 0
+        advanced_settings[pname] = val
+
+        return advanced_settings
+
+    except Exception as e:
+        raise ValueError(f'error in {pname}: {e}')
 
 
 def valid_nslc(value):

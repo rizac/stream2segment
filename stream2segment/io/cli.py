@@ -9,6 +9,14 @@ from itertools import chain
 from click import progressbar as click_progressbar
 
 
+class BadParam(Exception):
+    """
+    Exception describing a bad input parameter that can be caught in
+    command line applications as well as working as normal Exception in codebase
+    """
+    pass
+
+
 def ascii_decorate(string, frame=None):
     """Decorate the string with a frame in unicode decoration characters,
     and returns the decorated string

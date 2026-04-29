@@ -7,19 +7,20 @@ import time
 from datetime import datetime, UTC, timedelta
 import os
 import logging
+from pathlib import Path
 
 import psutil
+import yaml
 from sqlalchemy import Engine
 
+from stream2segment.io.inputvalidation import BadParam
 from stream2segment.io.log import LevelFilter
-from stream2segment.io.db.models import DownloadRun
 from stream2segment.io.db.pdsql import (
-    get_col_max, execute_sql, create_insert_statement, create_update_statement
+    get_col_max, execute_sql, create_insert_statement
 )
 from stream2segment.io.log import close_logger
-from stream2segment.io import yaml_safe_dump
-from stream2segment.io.db import secure_dburl, models
-from stream2segment.download.inputvalidation import load_config_for_download, pop_param
+from stream2segment.io.db import models
+from stream2segment.download.inputvalidation import extract_download_args
 from stream2segment.download.modules.utils import NothingToDownload, FailedDownload
 from stream2segment.download.modules.events import get_events
 from stream2segment.download.modules.channels import get_channels
@@ -37,9 +38,13 @@ logger = logging.getLogger(__name__[:__name__.rfind('.')])
 
 
 def download(
-    config, log2file=True, verbose=False, print_config_only=False, **param_overrides
+    config_file: str | Path,
+    log2file=True,
+    verbose=False,
+    **param_overrides
 ):
-    """Start an event-based download routine, fetching segment data and
+    """
+    Start an event-based download routine, fetching segment data and
     metadata from FDSN web services and saving it in an SQL database
 
     :param config: str or dict: If str, it is valid path to a configuration
@@ -56,13 +61,9 @@ def download(
         will be left on the system for inspection
     :param verbose: if True (default: False) print some log information also on
         the standard output (usually the screen), as well as progress bars
-        showing the estimated remaining time for each sub task. This option is
+        showing the estimated remaining time for each sub-task. This option is
         set to True when this function is invoked from the command line
         interface (`cli.py`)
-    :param print_config_only: boolean (default False). Set to True to test
-        the configuration only (no download): merge input and overridden parameters,
-        validate them, print the final configuration in YAML syntax on the screen,
-        and then simply return skipping the download routine
     :param param_overrides: additional parameter(s) for the YAML `config`. The
         value of existing config parameters will be overwritten, e.g. if
         `config` is {'a': 1} and `param_overrides` is `a=2`, the result is
@@ -71,50 +72,38 @@ def download(
         `param_overrides` is `a={'c': 2, 'd': 2}`, the result is
         {'a': {'b': 1, 'c': 2, 'd': 2}}
     """
+    try:
+        with open(config_file, 'r') as stream:
+            config = yaml.safe_load(stream)
+            for key, val in param_overrides.items():
+                config[key] = val
+    except Exception as e:
+        raise BadParam('Invalid YAML config file') from None
 
-    # short check (this should just raise, so execute this before configuring loggers):
-    isfile = isinstance(config, str) and os.path.isfile(config)
-    if not isfile and log2file is True:
-        raise ValueError('`log2file` can be True only if `config` is a '
-                         'string denoting an existing file')
-
-    # Validate params converting them in dict of args for the download function. Also in
-    # this case do it before configuring loggers, we simply need to raise `BadParam`s in
-    # case of problems:
-    d_kwargs, session, credentials = load_config_for_download(
-        config, True, **param_overrides
-    )
-
-    engine = session.get_bind()  # FIXME remove session!
     ret = 0
-    download_id = None
+    engine = None
+    d_stats = {}
 
     # configure logger and handlers:
     if log2file is True:
         _now = datetime.now(UTC).replace(microsecond=0).isoformat('T')
-        log_file_path = f'{config}.{_now}.log'
+        log_file_path = f'{config_file}.{_now}.log'
     else:
         log_file_path = log2file or ''  # assure we have a string
 
     try:
-        # Download a YAML dict for printing to the screen and saving to the db (No need
-        # to validate parameters again)
-        real_yaml_dict = load_config_for_download(config, False, **param_overrides)
-        # Still, some parameters should be printed/saved as validated. E.g. starttime
-        # and endtime might be integers. In case, they need to be saved as date times
-        # otherwise the config depends on when it is launched
-        for keys in [['starttime', 'start'], ['endtime', 'end']]:
-            key = [k for k in keys if k in real_yaml_dict][0]
-            real_yaml_dict[key] = d_kwargs[keys[0]]
+        kwargs = extract_download_args(dict(config), config_file)
+        engine = kwargs['engine']
 
-        if verbose or print_config_only:
-            print("%s\n" % _pretty_printed_str(real_yaml_dict))
-
-        if print_config_only:
-            return ret
+        if verbose:
+            print(f"Configuration file: {config_file})")
+            if param_overrides:
+                print(
+                    f'(explicitly overwritten parameter(s): '
+                    f'{", ".join(param_overrides)})'
+                )
 
         configure_logging(log_file_path, verbose)
-        download_id = new_download_run(engine, real_yaml_dict)
 
         if log_file_path and verbose:
             print(f"Log file: '{log_file_path}'\n"
@@ -123,14 +112,8 @@ def download(
                   f"'{models.DownloadRun.__tablename__}')")
 
         stime = time.time()
-        d_stats = _download(
-            isterminal=verbose,
-            credentials=credentials,
-            engine=engine,
-            **d_kwargs
-        )
+        d_stats = _download(isterminal=verbose, **kwargs)
         logger.info(f"Completed in {timedelta(seconds=round((time.time()) - stime))}")
-        _write_download_summary(engine, download_id, d_stats)
 
     except NothingToDownload as nothing_to_download_exc:
         logger.info(f'Nothing to download: {nothing_to_download_exc}')
@@ -147,32 +130,16 @@ def download(
         raise
     finally:
         close_logger(logger)
-        _write_download_log(engine, download_id, log_file_path, rm_file=True)
+
+    save_download_run(engine, config, log_file_path, d_stats)
+
+    try:
+        if os.path.isfile(log_file_path):
+            os.remove(log_file_path)
+    except Exception:
+        pass
+
     return ret
-
-
-def _pretty_printed_str(yaml_dict):
-    """Return a pretty printed string from yaml_dict"""
-    # print yaml_dict to terminal if needed. Unfortunately we need a bit of
-    # workaround just to print relevant params first (YAML sorts by key)
-    tmp_cfg = dict(yaml_dict)
-    # provide sorting in the printed yaml by splitting into subdicts:
-    dburl_name, dburl_val = pop_param(tmp_cfg, 'dburl')
-    dburl_val = secure_dburl(dburl_val)  # hide passwords
-    tmp_cfg_pre = [
-        (dburl_name, dburl_val),
-        pop_param(tmp_cfg, ('starttime', 'start')),
-        pop_param(tmp_cfg, ('endtime', 'end'))
-    ]
-    tmp_cfg_post = [pop_param(tmp_cfg, 'advanced_settings', {})]
-    return "\n".join(_.strip() for _ in [
-        "####################",
-        "# Input parameters #",
-        "####################",
-        yaml_safe_dump(dict(tmp_cfg_pre)),
-        yaml_safe_dump(tmp_cfg),
-        yaml_safe_dump(dict(tmp_cfg_post)),
-    ]).strip()
 
 
 def configure_logging(logfile_path='', verbose=False):
@@ -203,44 +170,11 @@ def configure_logging(logfile_path='', verbose=False):
         logger.addHandler(sysout_streamer)
 
 
-def new_download_run(engine, params=None) -> int:
-    if params is None:
-        params = {}
-    config = yaml_safe_dump(params)
-    if isinstance(config, bytes):
-        config = config.decode('utf-8')  # legacy py2 code?
-    tmp_log = ('N/A: either logger not configured, or an '
-               'unexpected error interrupted the process')
-    download_id = get_col_max(engine, models.DownloadRun.id) + 1
-    rows = list(
-        execute_sql(
-            engine,
-            [create_insert_statement(models.DownloadRun)],
-            [dict(
-                id=download_id,
-                time=datetime.now(UTC).replace(tzinfo=None),
-                config=config,
-                log=tmp_log,
-                summary="",
-                s2s_version=version()
-            )]
-        )
-    )
-    if len(rows) != 1:
-        raise FailedDownload('Unable to write to the DB')
-    return download_id
-
-
-def version():
-    with open(get_resource_abspath('program_version')) as _:
-        return _.read().strip()
-
-
 def _download(
     engine: Engine,
     events_url,
-    starttime,
-    endtime,
+    start: datetime,
+    end: datetime,
     data_url,
     events_extra_params,
     network,
@@ -282,8 +216,8 @@ def _download(
         engine,
         events_url,
         events_extra_params,
-        starttime,
-        endtime,
+        start,
+        end,
         True
     )
 
@@ -298,8 +232,8 @@ def _download(
         station,
         location,
         channel,
-        starttime,
-        endtime,
+        start,
+        end,
         min_sample_rate,
         advanced_settings['routing_service_url'],
         credentials is not None,
@@ -387,51 +321,43 @@ def _download(
     return d_stats
 
 
-def _write_download_summary(engine: Engine, download_id: int | None, stats: dict):
+def save_download_run(engine, config: dict, log_file_path: str, d_stats: dict) -> int:
+    if config is None:
+        config = {}
+    config_str = yaml.safe_dump(config, default_flow_style=True, sort_keys=False)
 
-    if download_id is None:
-        return
+    if isinstance(config_str, bytes):
+        config_str = config_str.decode('utf-8')  # legacy py2 code?
 
-    execute_sql(
-        engine,
-        [
-            create_update_statement(
-                DownloadRun,
-                DownloadRun.id.key,
-                [DownloadRun.summary.key]
-            )
-        ],
-        {
-            DownloadRun.id.key: download_id,
-            DownloadRun.summary.key: json.dumps(stats)
-        }
+    try:
+        with (open(log_file_path, 'r') as _):
+            tmp_log = _ .read()
+    except Exception as e:  # noqa
+        tmp_log = (
+            'Log N/A: either logger not configured, file was corrupted or an '
+            'unexpected error interrupted the process'
+        )
+
+    try:
+        with open(get_resource_abspath('program_version')) as _:
+            version =_.read().strip()
+    except Exception as e:  # noqa
+        version = "N/A"
+
+    download_id = get_col_max(engine, models.DownloadRun.id) + 1
+    _ = list(  # list will consume the iterable `execute_sql` FIXME better?
+        execute_sql(
+            engine,
+            [create_insert_statement(models.DownloadRun)],
+            [dict(
+                id=download_id,
+                time=datetime.now(UTC).replace(tzinfo=None),
+                config=config_str,
+                log=tmp_log,
+                summary=json.dumps(d_stats or {}),
+                s2s_version=version
+            )]
+        )
     )
 
-
-def _write_download_log(
-    engine: Engine, download_id: int | None, log_file_path: str, rm_file: bool
-):
-    is_file = log_file_path and os.path.isfile(log_file_path)
-    if download_id and is_file:
-
-        with open(log_file_path, 'r') as f:
-            execute_sql(
-                engine,
-                [
-                    create_update_statement(
-                        DownloadRun,
-                        DownloadRun.id.key,
-                        [DownloadRun.log.key]
-                    )
-                ],
-                {
-                    DownloadRun.id.key: download_id,
-                    DownloadRun.log.key: f.read()
-                }
-            )
-
-    if is_file and rm_file:
-        try:
-            os.remove(log_file_path)
-        except Exception:  # noqa
-            pass
+    return download_id

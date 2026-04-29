@@ -471,16 +471,12 @@ def copy_example_files(outpath, prompt=True, *filenames):
 @click.option('-maxmag', '--maxmagnitude', type=float,
               help=clickutils.EQA + " Limit to events with a magnitude smaller "
                                     "than the specified maximum")
-@click.option('--print-config-only', is_flag=True, default=False,
-              help="Do not execute any download, but print the final YAML created by "
-                   "merging the provided yaml file with the command line parameters "
-                   "(default False when missing)")
 def download(config, dburl, events_url, starttime, endtime, network,  # noqa
              station, location, channel, min_sample_rate,  # noqa
              data_url, time_window,  stationxml,  # noqa
              minlatitude, maxlatitude, minlongitude,  # noqa
              maxlongitude, mindepth, maxdepth, minmagnitude,  # noqa
-             maxmagnitude, print_config_only):  # noqa
+             maxmagnitude):  # noqa
     """Download waveform data segments and their metadata on a SQL database.
     NOTE: The config file (-c option, see below) is the only required option.
     All other options, if provided, will overwrite the corresponding value in
@@ -495,12 +491,10 @@ def download(config, dburl, events_url, starttime, endtime, network,  # noqa
     try:
         overrides = {k: list(v) if type(v) == tuple else v for k, v in _locals.items()
                      if v not in ((), {}, None) and k not in
-                     ('config', 'print_config_only')}
+                     ('config',)}
         with warnings.catch_warnings():  # capture (ignore) warnings
             warnings.simplefilter("ignore")
-            ret = _download(config, log2file=True, verbose=True,
-                            print_config_only=print_config_only,
-                            **overrides)
+            ret = _download(config, log2file=True, verbose=True, **overrides)
     except BadParam as err:
         _print_badparam_and_exit(err)
     except:  # @IgnorePep8 pylint: disable=bare-except
