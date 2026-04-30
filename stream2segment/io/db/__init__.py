@@ -4,7 +4,7 @@ from os.path import isabs, abspath, join
 from typing import Literal
 
 from sqlalchemy.exc import ProgrammingError, OperationalError, SQLAlchemyError
-from sqlalchemy.engine import create_engine
+from sqlalchemy.engine import create_engine as sa_create_engine
 from sqlalchemy import inspect
 from sqlalchemy import text, __version__ as __sa_version__
 
@@ -19,9 +19,9 @@ sqlalchemy_version = float(".".join(__sa_version__.split('.')[0:2]))  # https://
 #     from sqlalchemy.ext.declarative import declarative_base  # noqa
 
 
-def get_engine(dbpath, check_db_existence=True, **kwargs):
+def create_engine(dbpath: str, check_db_existence=True, **kwargs):
     """
-    Create an SQLAlchemy Engine for IO database operations
+    Wrapper around SQLAlchemy create_engine. Returns an Engine for IO DB operations
 
     :param dbpath: the path to the database, e.g. sqlite:///path_to_my_dbase.sqlite
     :param check_db_existence: True by default, will raise a :class:`DbNotFound` if the
@@ -35,16 +35,13 @@ def get_engine(dbpath, check_db_existence=True, **kwargs):
         For info see:
         https://docs.sqlalchemy.org/en/14/core/engines.html#sqlalchemy.create_engine.params.connect_args
     """
-    if not isinstance(dbpath, str):
-        raise TypeError('string required, %s found' % str(type(dbpath)))
-
     try:
         # set max timeout if not set
         if is_postgres(dbpath):
             timeout = 20  # in seconds
             kwargs.setdefault('connect_args', {})
             kwargs['connect_args'].setdefault('connect_timeout', timeout)
-        engine = create_engine(dbpath, **kwargs)
+        engine = sa_create_engine(dbpath, **kwargs)
     except (SQLAlchemyError, ValueError) as _:
         # ValueError: 'postgresql://4:a6gfds' (cannot create port)
         raise ValueError('Cannot create a db engine. Possible reason: '
@@ -72,7 +69,7 @@ class DbNotFound(ValueError):
         super().__init__(dburl)
 
     @property
-    def dburl(self):
+    def dburl(self):  # FIXME USED? OVERLY VERBOSE CLASS RIGHT?
         return self.args[0]
 
     def __str__(self):
@@ -87,17 +84,17 @@ sqlite_prefix = "sqlite:///"
 sqlite_in_memory_path = ":memory:"
 
 
-def is_sqlite(dburl):
-    return isinstance(dburl, str) and dburl.lower().startswith(sqlite_prefix)
+def is_sqlite(dburl: str):
+    return dburl.lower().startswith(sqlite_prefix)
 
 
 postgres_prefix = "postgres://"
 
-def is_postgres(dburl):
-    return isinstance(dburl, str) and dburl.lower().startswith(postgres_prefix)
+def is_postgres(dburl: str):
+    return dburl.lower().startswith(postgres_prefix)
 
 
-def get_dbname(dburl):
+def get_dbname(dburl: str):
     return dburl[dburl.rfind('/') + 1:]
 
 
@@ -112,8 +109,9 @@ def database_exists(engine):
     # https://sqlalchemy-utils.readthedocs.io/en/latest/_modules/sqlalchemy_utils/functions/database.html#database_exists
 
     db_url = str(engine.url)
-    if is_sqlite(db_url) and extract_sqlite_file_path(db_url) != sqlite_in_memory_path:
-        if not os.path.isfile(extract_sqlite_file_path(db_url)):
+    if is_sqlite(db_url):
+        file_path = db_url.removeprefix(sqlite_prefix)
+        if file_path != sqlite_in_memory_path and not os.path.isfile(file_path):
             return False
 
     try:
@@ -124,12 +122,7 @@ def database_exists(engine):
         return False
 
 
-def extract_sqlite_file_path(sqlite_url):
-    """Extract file path. To be executed only is is_sqlite(sqlite_url) return true"""
-    return sqlite_url.removeprefix(sqlite_prefix)
-
-
-def resolve_db_path(db_url, rel_dir_path=None) -> str:
+def resolve_db_path(db_url: str, rel_dir_path=None) -> str:
     """
     Resolve SQLite URL to absolute path relative to rel_dir_path.
     Non-SQLite URLs are returned unchanged, as well as SQLite URLs with absolute path.
@@ -140,7 +133,7 @@ def resolve_db_path(db_url, rel_dir_path=None) -> str:
     :param rel_dir_path: base directory used to resolve relative SQLite paths.
     """
     if is_sqlite(db_url):
-        file_path = extract_sqlite_file_path(db_url)
+        file_path = db_url.removeprefix(sqlite_prefix)
         if file_path == sqlite_in_memory_path or isabs(file_path):
             return db_url
         elif rel_dir_path is None:

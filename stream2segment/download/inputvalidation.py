@@ -14,9 +14,7 @@ from numpy import inf
 from stream2segment.download.modules.utils import fdsn_url
 from stream2segment.download.modules.events import EVENTWS_MAPPING
 from stream2segment.io.cli import BadParam
-from stream2segment.io.db import (
-    get_engine as original_get_engine, resolve_db_path, s2s_db_version, database_exists
-)
+from stream2segment.io.db import (create_engine, resolve_db_path, s2s_db_version)
 from stream2segment.resources import get_ttable_fpath
 from stream2segment.traveltimes.ttloader import TTTable
 
@@ -271,11 +269,10 @@ def _validate_download_advanced_settings(adv_settings: dict):
 
 
 def get_engine(db_url):
-    engine = original_get_engine(db_url, check_db_existence=True)
+    engine = create_engine(db_url, check_db_existence=True)
     if s2s_db_version(engine) < 5:
         raise ValueError(
-            'Invalid DB schema (possible cause: trying to '
-            'save on an old s2s DB)'
+            'Invalid DB schema (possible cause: trying to save on an old s2s DB)'
         )
     from stream2segment.io.db.models import Base
     Base.metadata.create_all(engine)
