@@ -25,6 +25,7 @@ def extract_download_args(config_file_path: str, **override_params) -> tuple[dic
     """
     kwargs = {}
     config = {}
+    original_config = {}
 
     params = ""
 
@@ -34,6 +35,7 @@ def extract_download_args(config_file_path: str, **override_params) -> tuple[dic
             config = yaml.safe_load(stream)
             for key, val in override_params.items():
                 config[key] = val
+        original_config = dict(config)
 
         params = ('data_url', 'dataws')  # decalre explicitly (see Except below)
         # validate dataws FIRST because it is used by other params later
@@ -119,9 +121,12 @@ def extract_download_args(config_file_path: str, **override_params) -> tuple[dic
         # named eventws_query_args:
         params = ('events_extra_params', 'eventws_params', 'eventws_query_args')
         evt_params = pop_param(params, config, default={})
+        if evt_params is None:
+            evt_params = {}
         invalid = set(evt_params.keys()) & set(config)
         if invalid:
             raise ValueError(f"invalid duplicated parameter(s): {', '.join(invalid)}")
+        kwargs['event_params'] = evt_params
 
         params = ['minlatitude', 'minlat']
         val = pop_param(params, config)
@@ -199,7 +204,11 @@ def extract_download_args(config_file_path: str, **override_params) -> tuple[dic
         if invalid:
             raise ValueError(', '.join(invalid))
 
-        return config, kwargs
+        # remove from original config
+        for p in legacy_keys:
+            original_config.pop(p, None)
+
+        return original_config, kwargs
 
     except (Exception, ) as err:
         if not isinstance(params, str):
@@ -256,10 +265,10 @@ def _validate_download_advanced_settings(adv_settings: dict):
             advanced_settings[pname] = [advanced_settings[pname]]
 
         pname = 'max_concurrent_downloads'
-        val = adv_settings.get(pname, adv_settings['max_thread_workers'])
-        if val is None:
-            val = 1
-        assert val > 0
+        val = adv_settings.get(pname, adv_settings.get('max_thread_workers'))
+        if val is not None:
+            val = int(val)
+        assert val is None or val > 0
         advanced_settings[pname] = val
 
         return advanced_settings
@@ -431,7 +440,7 @@ def valid_tt_table(file_or_name):
     return TTTable(filepath)
 
 
-def valid_date(obj):
+def valid_date(obj) -> datetime:
     dtime = obj
     try:
         dtime = datetime.fromisoformat(obj)  # if obj is datetime, returns obj
@@ -461,7 +470,8 @@ def valid_date(obj):
                          "object, non-positive int required, found %s") %
                         str(type(obj)))
 
-    # convert datetime in UTC, and remove tzinfo (so no 'Z' in its string repr):
+    # convert datetime in UTC, and remove tzinfo
+    # (so no 'Z' or "+00:00" in its ISO repr):
     return dtime.astimezone(UTC).replace(tzinfo=None)
 
 

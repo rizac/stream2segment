@@ -38,7 +38,7 @@ def create_engine(dbpath: str, check_db_existence=True, **kwargs):
     try:
         # set max timeout if not set
         if is_postgres(dbpath):
-            timeout = 20  # in seconds
+            timeout = 10  # in seconds
             kwargs.setdefault('connect_args', {})
             kwargs['connect_args'].setdefault('connect_timeout', timeout)
         engine = sa_create_engine(dbpath, **kwargs)
@@ -52,50 +52,34 @@ def create_engine(dbpath: str, check_db_existence=True, **kwargs):
         # (the only case when we don't care if the database exists is when
         #  we have sqlite, and we are downloading)
         if not database_exists(engine):
-            raise DbNotFound(dbpath)
+            raise DbNotFound(
+               'Database not accessible. Possible reason: wrong user/password/host '
+               'in the URL, timeout (do you use VPN?) or the db does not exist'
+            )
 
     return engine
 
 
-class DbNotFound(ValueError):
-    """DbNotFound are exception raised when the database could not be found. this
-    happens basically when either the db does not exist, or any entry (user, password,
-    host) is wrong. E.g.: this connects to an engine but might raise this exception:
-    postgresql://<user>:<password>@<host>.gfz-potsdam.de/me"
-    whereas this does not even raise this exception and fails when creating an engine:
-    wrong_dialect_and_driver://<user>:<password>@<host>.gfz-potsdam.de/me"
-    """
-    def __init__(self, dburl):
-        super().__init__(dburl)
-
-    @property
-    def dburl(self):  # FIXME USED? OVERLY VERBOSE CLASS RIGHT?
-        return self.args[0]
-
-    def __str__(self):
-        # Warning: if you change the message below, check also the message raised in
-        # `stream2segment.download.db::valid_session` that relies upon it
-        return 'Database not accessible. Possible reason: wrong user/password/host ' \
-               'in the URL, timeout (do you use VPN?) or the db does not exist'
-
+class DbNotFound(Exception):
+    pass
 
 sqlite_prefix = "sqlite:///"
 
 sqlite_in_memory_path = ":memory:"
 
 
-def is_sqlite(dburl: str):
-    return dburl.lower().startswith(sqlite_prefix)
+def is_sqlite (db_url: str):
+    return db_url.lower().startswith(sqlite_prefix)
 
 
 postgres_prefix = "postgres://"
 
-def is_postgres(dburl: str):
-    return dburl.lower().startswith(postgres_prefix)
+def is_postgres(db_url: str):
+    return db_url.lower().startswith(postgres_prefix)
 
 
-def get_dbname(dburl: str):
-    return dburl[dburl.rfind('/') + 1:]
+def get_dbname(db_url: str):
+    return db_url[db_url.rfind('/') + 1:]
 
 
 def database_exists(engine):
@@ -122,7 +106,7 @@ def database_exists(engine):
         return False
 
 
-def resolve_db_path(db_url: str, rel_dir_path=None) -> str:
+def resolve_db_path(db_url: str, base_dir_path=None) -> str:
     """
     Resolve SQLite URL to absolute path relative to rel_dir_path.
     Non-SQLite URLs are returned unchanged, as well as SQLite URLs with absolute path.
@@ -130,32 +114,32 @@ def resolve_db_path(db_url: str, rel_dir_path=None) -> str:
     to `rel_dir_path` or, if the latter is None, to the current working directory.
 
     :param db_url: database URL.
-    :param rel_dir_path: base directory used to resolve relative SQLite paths.
+    :param base_dir_path: base directory used to resolve relative SQLite paths.
     """
     if is_sqlite(db_url):
         file_path = db_url.removeprefix(sqlite_prefix)
         if file_path == sqlite_in_memory_path or isabs(file_path):
             return db_url
-        elif rel_dir_path is None:
+        elif base_dir_path is None:
             return sqlite_prefix + abspath(file_path)
         else:
-            return sqlite_prefix + abspath(join(rel_dir_path, file_path))
+            return sqlite_prefix + abspath(join(base_dir_path, file_path))
 
     return db_url
 
 
-def secure_dburl(dburl):
+def secure_dburl(db_url):
     """Return a printable database name by removing passwords, if any
 
-    :param dburl: database path as string in the format:
+    :param db_url: database path as string in the format:
         dialect+driver://username:password@host:port/database
         For info see:
         http://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls
     """
-    return re.sub(r"://(.*?):(.*)@", r"://\1:***@", dburl)
+    return re.sub(r"://(.*?):(.*)@", r"://\1:***@", db_url)
 
 
-def s2s_db_version(engine) -> Literal[-1, 4, 5]:
+def s2s_db_version(engine) -> Literal[4, 5]:
     from stream2segment.io.db.models import MiniSeed
 
     inspector = inspect(engine)

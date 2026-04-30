@@ -6,7 +6,7 @@ import re
 import logging
 from collections.abc import Iterable
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 from io import BytesIO
 from multiprocessing.pool import ThreadPool
 from urllib.parse import urlunparse, urlparse
@@ -449,10 +449,10 @@ def fdsn_channel_response_text_to_df(response: str):
             dframe.columns[7]: Channel.depth.key,
             dframe.columns[8]: Channel.azimuth.key,
             dframe.columns[9]: Channel.dip.key,
-            # skip sensor_description (Rarely used, memory-intensive text field)
-            dframe.columns[11]: Channel.scale.key,
-            dframe.columns[12]: Channel.scale_freq.key,
-            dframe.columns[13]: Channel.scale_units.key,
+            # skip sensor_description and instrument attrs below:
+            # dframe.columns[11]: "scale",
+            # dframe.columns[12]: "scale_freq",
+            # dframe.columns[13]: "scale_units",
             dframe.columns[14]: Channel.sample_rate.key,
             dframe.columns[15]: start_col,
             dframe.columns[16]: end_col
@@ -586,7 +586,7 @@ def drop_conflicts(
 
     channels.reset_index(drop=True, inplace=True)
     channels.loc[channels['end'].isna(), 'end'] = (
-        pd.Timestamp.utcnow() + timedelta(days=30)  # some random margin in the future
+        datetime.now(UTC).replace(tzinfo=None) + timedelta(days=30)  # some random margin in the future
     )
     # # all orientations of the same channel must have the same URL:
     # grp_cols = [net_col, sta_col, loc_col, cha_col, start_col]
@@ -823,6 +823,8 @@ def _resolve_station_lat_lon(urls, net, sta, loc, cha, start):
                 foramt='text'
             )
         )
+        if not resp.is_ok:  # FIXME CHECK IF URL IS OK!
+            continue
         data = pd.read_csv(BytesIO(resp.data), header=None, comment='#')
         if (data[data.columns[2]].nunique(dropna=False) != 1 or
             data[data.columns[3]].nunique(dropna=False) != 1):

@@ -80,7 +80,7 @@ def download(
         engine = kwargs['engine']
 
         if verbose:
-            print(f"Configuration file: {config_file})")
+            print(f"Configuration file: {config_file}")
             if override_params:
                 print(
                     f'(explicitly overwritten parameter(s): '
@@ -89,7 +89,7 @@ def download(
 
         # configure logger and handlers:
         if log2file is True:  # noqa
-            _now = datetime.now(UTC).replace(microsecond=0).isoformat('T')
+            _now = datetime.now(UTC).replace(microsecond=0, tzinfo=None).isoformat('T')
             log_file_path = f'{config_file}.{_now}.log'
         else:
             log_file_path = log2file or ''  # assure we have a string
@@ -168,7 +168,7 @@ def _download(
     start: datetime,
     end: datetime,
     data_url,
-    events_extra_params,
+    event_params,
     network,
     station,
     location,
@@ -207,7 +207,7 @@ def _download(
     events = get_events(
         engine,
         events_url,
-        events_extra_params,
+        event_params,
         start,
         end,
         True
