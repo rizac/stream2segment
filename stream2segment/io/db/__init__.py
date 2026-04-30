@@ -1,9 +1,11 @@
 import re
 import os
 from os.path import isabs, abspath, join
+from typing import Literal
 
 from sqlalchemy.exc import ProgrammingError, OperationalError, SQLAlchemyError
 from sqlalchemy.engine import create_engine
+from sqlalchemy import inspect
 from sqlalchemy import text, __version__ as __sa_version__
 
 
@@ -11,10 +13,10 @@ sqlalchemy_version = float(".".join(__sa_version__.split('.')[0:2]))  # https://
 
 # IMPORTS to be called from the codebase to fix sqlalchemy 1.x vs 2.x changes:
 
-if sqlalchemy_version >= 2:
-    from sqlalchemy.orm import declarative_base  # noqa
-else:
-    from sqlalchemy.ext.declarative import declarative_base  # noqa
+# if sqlalchemy_version >= 2:
+#     from sqlalchemy.orm import declarative_base  # noqa
+# else:
+#     from sqlalchemy.ext.declarative import declarative_base  # noqa
 
 
 def get_engine(dbpath, check_db_existence=True, **kwargs):
@@ -82,6 +84,9 @@ class DbNotFound(ValueError):
 
 sqlite_prefix = "sqlite:///"
 
+sqlite_in_memory_path = ":memory:"
+
+
 def is_sqlite(dburl):
     return isinstance(dburl, str) and dburl.lower().startswith(sqlite_prefix)
 
@@ -106,8 +111,9 @@ def database_exists(engine):
     # (a db is created if it does not exist). For a more sophisticated solution, see:
     # https://sqlalchemy-utils.readthedocs.io/en/latest/_modules/sqlalchemy_utils/functions/database.html#database_exists
 
-    if is_sqlite(str(engine.url)):
-        if not os.path.isfile(extract_sqlite_file_path(str(engine.url))):
+    db_url = str(engine.url)
+    if is_sqlite(db_url) and extract_sqlite_file_path(db_url) != sqlite_in_memory_path:
+        if not os.path.isfile(extract_sqlite_file_path(db_url)):
             return False
 
     try:
@@ -135,7 +141,7 @@ def resolve_db_path(db_url, rel_dir_path=None) -> str:
     """
     if is_sqlite(db_url):
         file_path = extract_sqlite_file_path(db_url)
-        if isabs(file_path):
+        if file_path == sqlite_in_memory_path or isabs(file_path):
             return db_url
         elif rel_dir_path is None:
             return sqlite_prefix + abspath(file_path)
@@ -154,3 +160,12 @@ def secure_dburl(dburl):
         http://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls
     """
     return re.sub(r"://(.*?):(.*)@", r"://\1:***@", dburl)
+
+
+def s2s_db_version(engine) -> Literal[-1, 4, 5]:
+    from stream2segment.io.db.models import MiniSeed
+
+    inspector = inspect(engine)
+    if inspector.has_table(MiniSeed.__tablename__) or not inspector.get_table_names():
+        return 5
+    return 4

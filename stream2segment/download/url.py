@@ -1,11 +1,8 @@
 """
 Http requests with multi-threading
-
-:date: Apr 15, 2017
-
-.. moduleauthor:: <rizac@gfz-potsdam.de>
 """
-from collections import defaultdict, deque
+# :date: Apr 15, 2017
+from collections import deque
 from dataclasses import dataclass
 from threading import Condition, current_thread, main_thread, Lock, Event
 import signal
@@ -24,21 +21,21 @@ from urllib.request import (urlopen, build_opener, HTTPPasswordMgrWithDefaultRea
 
 
 # https://docs.python.org/3/library/urllib.request.html#request-objects
-def get_host(url_or_request, include_scheme=False) -> str:
-    """Returns the host (domain name, lower case) from a urllib.request.Request object
-    or str (URL). If hostname is not found, return the full url "untouched"
-    get_host("https://GEOFON.de/fdsnws") -> "geofon.de"
-    get_host("https://GEOFON.de/fdsnws", True) -> "https://geofon.de"
-    get_host("geofon.de.invalid_url") -> "geofon.de.invalid_url"
+def get_host(url: str | Request, default_scheme="https://") -> str:
     """
-    # Handle both url as Request obj. (use attr. host) or string (use urlparse):
-    url = getattr(url_or_request, 'full_url', url_or_request)
+    Return the host (domain name, lower case, no user info, no port) from an
+    urllib.request.Request object or URL str. Calling again this function with the
+    hostname returned here will be consistent and return always the same result,
+    (see default_scheme).
+
+    get_host("https://geofon.gfz.de/fdsnws") -> "geofon.gfz.de"
+    get_host("geofon.gfz.de") -> "geofon.gfz.de"
+    """
+    url = getattr(url, 'full_url', url)  # if Request, URL is in the `full_url` attr
     parsed = urlparse(url)
-    if not parsed.hostname:
-        return url
-    if include_scheme and parsed.scheme:  # scheme is present
-        return f"{parsed.scheme}://{parsed.hostname}"
-    return parsed.hostname  # noqa
+    if not parsed.scheme:
+        parsed = urlparse(f'{default_scheme}{url}')
+    return parsed.hostname
 
 
 def _get_opener(base_url, user, password):
@@ -104,7 +101,7 @@ class Response:
     - request: The request (URL string or Request object) generating the Response
     """
 
-    data: str | bytes | Exception | Any
+    data: str | bytes | dict
     status_code: int
     request: str | Request
 
@@ -122,7 +119,7 @@ def urlread(
     :param url: (str or ``urllib.request..Request`)
     :param blocksize: int, default: -1. The block size while reading, -1 means:
         read entire content at once
-    :param: decode: string or None, default: None. The string used for decoding (e.g.,
+    :param decode: string or None, default: None. The string used for decoding (e.g.,
         'utf8'). If None, the result is a `bytes` object, otherwise `str`
     :param timeout: timeout parameter specifies a timeout in seconds for blocking
         operations like the connection attempt (if not specified, None or non-positive,
@@ -163,31 +160,32 @@ def urlread(
             ret = ret.decode(decode)
         return Response(ret, conn.code, url)
     except HTTPError as exc:
-        exc.__traceback__ = exc.__context__ = exc.__cause__ = None  # free mem.
-        return Response(exc, exc.code, url)
-    except URLError as u_err:
+        return Response(str(exc), exc.code, url)
+    except HTTPException as exc:
+        return Response(str(exc), CustomResponseCode.HTTP_EXC_ERROR, url)
+    except URLError as err:
         code = CustomResponseCode.URL_ERROR
-        if isinstance(u_err.reason, (socket.timeout, TimeoutError)):
+        if isinstance(err.reason, (socket.timeout, TimeoutError)):
             code = CustomResponseCode.TIMEOUT_ERROR
-        elif isinstance(u_err.reason, socket.gaierror):
-            code = CustomResponseCode.GET_ADDR_INFO_ERROR
-        elif isinstance(u_err.reason, ConnectionRefusedError):
+        elif isinstance(err.reason, (ConnectionError, ConnectionRefusedError)):
             code = CustomResponseCode.CONNECTION_ERROR
-        elif isinstance(u_err.reason, ssl.SSLError):
+        elif isinstance(err.reason, ssl.SSLError):
             code = CustomResponseCode.SSL_ERROR
-        u_err.__traceback__ = u_err.__context__ = u_err.__cause__ = None  # free mem.
-        return Response(u_err, code, url)
-    except HTTPException as h_exc:
-        h_exc.__traceback__ = h_exc.__context__ = h_exc.__cause__ = None  # free mem.
-        return Response(h_exc, CustomResponseCode.HTTP_EXC_ERROR, url)
-    except (socket.timeout, TimeoutError) as t_exc:
-        t_exc.__traceback__ = t_exc.__context__ = t_exc.__cause__ = None  # free mem.
-        return Response(t_exc, CustomResponseCode.TIMEOUT_ERROR, url)
-    except ConnectionError as c_exc:
-        c_exc.__traceback__ = c_exc.__context__ = c_exc.__cause__ = None  # free mem.
-        return Response(c_exc, CustomResponseCode.CONNECTION_ERROR, url)
-    except Exception as e_exc:
-        asd = 9  # FIXME REMOVE
+        elif isinstance(err.reason, socket.gaierror):
+            code = CustomResponseCode.GET_ADDR_INFO_ERROR
+        return Response(str(err), code, url)
+    except (socket.timeout, TimeoutError) as err:
+        return Response(str(err), CustomResponseCode.TIMEOUT_ERROR, url)
+    except (ConnectionError, ConnectionRefusedError) as err:
+        return Response(str(err), CustomResponseCode.CONNECTION_ERROR, url)
+    except ssl.SSLError as err:
+        return Response(str(err), CustomResponseCode.SSL_ERROR, url)
+    except socket.gaierror as err:
+        return Response(str(err), CustomResponseCode.GET_ADDR_INFO_ERROR, url)
+    except socket.error as err:
+        return Response(str(err), CustomResponseCode.URL_ERROR, url)
+    except Exception as err:
+        asd = 9  # FIXME REMOVE (only for debug)
         raise
 
 

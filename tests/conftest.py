@@ -5,29 +5,26 @@ Created on 3 May 2018
 
 @author: riccardo
 """
-
 import os
-from io import BytesIO
+from collections import namedtuple
+from io import BytesIO, StringIO
 import traceback
 import uuid
 from datetime import datetime
+from unittest.mock import patch
+
 import yaml
 
 import pytest
 import pandas as pd
-from sqlalchemy.engine import create_engine
-from sqlalchemy.orm import close_all_sessions
-from sqlalchemy.orm.session import sessionmaker
 from obspy.core.stream import read as read_stream
 from obspy.core.inventory.inventory import read_inventory
 
 from click.testing import CliRunner
 
-import stream2segment.io.db.models as dbm
-# import stream2segment.process.db.models as dbp
+from stream2segment.io.db import is_postgres, is_sqlite
 
 from stream2segment.traveltimes.ttloader import TTTable
-from stream2segment.io import yaml_load
 
 
 # https://docs.pytest.org/en/3.0.0/parametrize.html#basic-pytest-generate-tests-example
@@ -37,25 +34,62 @@ def pytest_addoption(parser):
     multiple times and will parametrize all tests with the 'db' fixture with all defined
     databases (plus a default SQLite database)
     """
-    parser.addoption("--dburl", action="append", default=[],
-                     help=("list of database url(s) to be used for testing "
-                           "*in addition* to the default SQLite database"))
+    parser.addoption(
+        "--dburl",
+        action="append",
+        default=[],
+        help=(
+            "list of database url(s) to be used for testing *in addition* to the "
+            "default SQLite database"
+        )
+    )
+
+@pytest.fixture
+def log_capture():
+    stream = StringIO()
+
+    from stream2segment.download.main  import configure_logging as _configure_logging, logger
+
+    import logging
+    db_streamer = logging.StreamHandler(stream)
+
+    def fake_configure_logging(*args, **kwargs):
+        _configure_logging("", True)
+
+        logger.addHandler(db_streamer)
+        # same setting as in _configure_logging:
+        db_streamer.setLevel(logging.INFO)  # do not print debug, print others
+        db_streamer.setFormatter(logging.Formatter('[%(levelname).1s]  %(message)s'))
+
+    with patch("stream2segment.download.main.configure_logging", fake_configure_logging):
+        yield stream
+
+        logger.removeHandler(db_streamer)
+        db_streamer.close()
 
 
-# make all test functions having 'db' in their argument use the passed databases
+def db_urls(config):
+    urls = ["sqlite:///:memory:"]
+    urls.extend(config.getoption("--dburl"))
+    return urls
+
+
+@pytest.fixture
+def db(db_url):
+
+    from stream2segment.download.inputvalidation import get_engine
+    engine = get_engine(db_url)
+
+    with patch("stream2segment.download.inputvalidation.get_engine", return_value=engine):
+        yield namedtuple(
+            "DB", ["url", "engine", "is_postgres", "is_sqlite"]
+        )(db_url, engine, is_postgres(db_url), is_sqlite(db_url))
+
+
 def pytest_generate_tests(metafunc):
-    """This function is called before generating all tests and parametrizes all tests
-    with the argument 'db' (which is a fixture defined below)
-    """
-    if 'db' in metafunc.fixturenames:
-        dburls = ["sqlite:///:memory:",
-                  os.getenv("DB_URL", None)] + metafunc.config.option.dburl  # command line (list)
-        dburls = [_ for _ in dburls if _]
-        ids = [_[:_.find('://')] for _ in dburls]
-        # metafunc.parametrize("db", dburls)
-        metafunc.parametrize('db', dburls,
-                             ids=ids,
-                             indirect=True, scope='module')
+    """parametrize all tests with db in it with all URLs given in the command line"""
+    if "db" in metafunc.fixturenames:
+        metafunc.parametrize("db_url", db_urls(metafunc.config))
 
 
 _PDOPT = {_: pd.get_option(_) for _ in ['display.max_colwidth']}
@@ -84,31 +118,31 @@ def pytest_sessionfinish(session,  # pylint: disable=unused-argument
         pd.set_option(k, v)
 
 
-@pytest.fixture(scope="session")
-def clirunner(request):  # pylint: disable=unused-argument
-    """Shorthand for
-        runner = CliRunner()
-    with an additional method `assertok(result)` which asserts the returned value of
-    the cli (command line interface) is ok, and prints relevant information to the
-    standard output and error:
-
-        result = clirunner.invoke(...)
-        assert clirunner.ok(result)
-    """
-    class Clirunner(CliRunner):
-
-        @classmethod
-        def ok(cls, result):
-            """Return True if result's exit_code is 0. If nonzero, prints
-            relevant info to the standard output and error for debugging"""
-            if result.exit_code != 0:
-                print(result.output)
-                if result.exception:
-                    if result.exc_info[0] != SystemExit:
-                        traceback.print_exception(*result.exc_info)
-            return result.exit_code == 0
-
-    return Clirunner()
+# @pytest.fixture(scope="session")
+# def clirunner(request):  # pylint: disable=unused-argument
+#     """Shorthand for
+#         runner = CliRunner()
+#     with an additional method `assertok(result)` which asserts the returned value of
+#     the cli (command line interface) is ok, and prints relevant information to the
+#     standard output and error:
+#
+#         result = clirunner.invoke(...)
+#         assert clirunner.ok(result)
+#     """
+#     class Clirunner(CliRunner):
+#
+#         @classmethod
+#         def ok(cls, result):
+#             """Return True if result's exit_code is 0. If nonzero, prints
+#             relevant info to the standard output and error for debugging"""
+#             if result.exit_code != 0:
+#                 print(result.output)
+#                 if result.exception:
+#                     if result.exc_info[0] != SystemExit:
+#                         traceback.print_exception(*result.exc_info)
+#             return result.exit_code == 0
+#
+#     return Clirunner()
 
 
 @pytest.fixture(scope="session")
@@ -356,106 +390,106 @@ def pytestdir(tmpdir):
     return Pytestdir
 
 
-@pytest.fixture
-def db(request, tmpdir_factory):  # pylint: disable=invalid-name
-    """Fixture handling all db reoutine stuff. Pass it as argument to a test function
-    ```
-        def test_bla(..., db,...)
-    ```
-    and just use `db.session` inside the code
-    """
-    class DB:
-        """class handling a database in testing functions. You should call self.create
-        inside the tests"""
-        def __init__(self, dburl):
-            self.dburl = dburl
-            self._session = None
-            self.engine = None
-            self.session_maker = None
-
-        def create(self, to_file=False):
-            """Create the database, deleting it if already existing (i.e., if this
-            method has already been called and self.delete has not been called)
-
-            :param to_file: boolean (False by default) tells whether, if the url denotes
-                sqlite, the database should be created on the filesystem. Creating
-                in-memory sqlite databases is handy in most cases but once the session
-                is closed it seems that the database is closed too.
-            :param process: ignored if base is supplied, if True attaches obspy methods
-                to the ORM classes (streams2segment.process.db)
-            :param custom_base: the Base class whereby creating the db schema. If None
-                (the default) it defaults to the download ot process Base defined in s2s,
-                depending on the value of the `process` argument
-            """
-            self.delete()
-            if self.is_sqlite and to_file:
-                self.dburl = (
-                    f"sqlite:///{tmpdir_factory.mktemp('db', numbered=True).join('db.sqlite')}"
-                )
-
-            self.engine = create_engine(self.dburl)
-            self._base = dbm.Base
-            self._base.metadata.create_all(self.engine)  # @UndefinedVariable
-            asd = 9
-
-        @property
-        def session(self):
-            """Create a session if not already created and returns it"""
-            if self.engine is None:
-                raise TypeError('Database not created. Call `create` first')
-            if self._session is None:
-                session_maker = self.session_maker = sessionmaker(bind=self.engine)
-                # create a Session
-                self._session = session_maker()
-            return self._session
-
-        @property
-        def is_sqlite(self):
-            """Return True if this db is sqlite, False otherwise"""
-            return (self.dburl or '').startswith("sqlite:///")
-
-        @property
-        def is_postgres(self):
-            """Return True if this db is postgres, False otherwise"""
-            return (self.dburl or '').startswith("postgresql://")
-
-        def delete(self):
-            """Delete this da tabase, i.e. all tables and the file referring to it,
-            if any
-            """
-            if self._session is not None:
-                try:
-                    self.session.rollback()
-                    self.session.close()
-                except:  # @IgnorePep8 pylint: disable=bare-except
-                    pass
-                self._session = None
-
-            # 'drop_all' below hangs sometimes. The fix is to type beforehand a
-            # `self.session_maker.close_all()` (https://stackoverflow.com/a/44437760)
-            # which is now deprecated in favour of:
-            close_all_sessions()  # https://stackoverflow.com/a/62884420
-
-            if self.engine:
-                try:
-                    self._base.metadata.drop_all(self.engine)  # @UndefinedVariable
-                except:  # @IgnorePep8 pylint: disable=bare-except
-                    pass
-                self.engine.dispose()
-
-            # clear file if sqlite:
-            sqlite = "sqlite:///"
-            if self.dburl.startswith(sqlite):
-                filename = self.dburl[len(sqlite):]
-                if filename != ':memory:' and os.path.isfile(filename):
-                    try:
-                        os.remove(filename)
-                    except:  # @IgnorePep8 pylint: disable=bare-except
-                        pass
-
-    ret = DB(request.param)
-    request.addfinalizer(ret.delete)
-    return ret
+# @pytest.fixture
+# def db(request, tmpdir_factory):  # pylint: disable=invalid-name
+#     """Fixture handling all db reoutine stuff. Pass it as argument to a test function
+#     ```
+#         def test_bla(..., db,...)
+#     ```
+#     and just use `db.session` inside the code
+#     """
+#     class DB:
+#         """class handling a database in testing functions. You should call self.create
+#         inside the tests"""
+#         def __init__(self, dburl):
+#             self.dburl = dburl
+#             self._session = None
+#             self.engine = None
+#             self.session_maker = None
+#
+#         def create(self, to_file=False):
+#             """Create the database, deleting it if already existing (i.e., if this
+#             method has already been called and self.delete has not been called)
+#
+#             :param to_file: boolean (False by default) tells whether, if the url denotes
+#                 sqlite, the database should be created on the filesystem. Creating
+#                 in-memory sqlite databases is handy in most cases but once the session
+#                 is closed it seems that the database is closed too.
+#             :param process: ignored if base is supplied, if True attaches obspy methods
+#                 to the ORM classes (streams2segment.process.db)
+#             :param custom_base: the Base class whereby creating the db schema. If None
+#                 (the default) it defaults to the download ot process Base defined in s2s,
+#                 depending on the value of the `process` argument
+#             """
+#             self.delete()
+#             if self.is_sqlite and to_file:
+#                 self.dburl = (
+#                     f"sqlite:///{tmpdir_factory.mktemp('db', numbered=True).join('db.sqlite')}"
+#                 )
+#
+#             self.engine = create_engine(self.dburl)
+#             self._base = dbm.Base
+#             self._base.metadata.create_all(self.engine)  # @UndefinedVariable
+#             asd = 9
+#
+#         @property
+#         def session(self):
+#             """Create a session if not already created and returns it"""
+#             if self.engine is None:
+#                 raise TypeError('Database not created. Call `create` first')
+#             if self._session is None:
+#                 session_maker = self.session_maker = sessionmaker(bind=self.engine)
+#                 # create a Session
+#                 self._session = session_maker()
+#             return self._session
+#
+#         @property
+#         def is_sqlite(self):
+#             """Return True if this db is sqlite, False otherwise"""
+#             return (self.dburl or '').startswith("sqlite:///")
+#
+#         @property
+#         def is_postgres(self):
+#             """Return True if this db is postgres, False otherwise"""
+#             return (self.dburl or '').startswith("postgresql://")
+#
+#         def delete(self):
+#             """Delete this da tabase, i.e. all tables and the file referring to it,
+#             if any
+#             """
+#             if self._session is not None:
+#                 try:
+#                     self.session.rollback()
+#                     self.session.close()
+#                 except:  # @IgnorePep8 pylint: disable=bare-except
+#                     pass
+#                 self._session = None
+#
+#             # 'drop_all' below hangs sometimes. The fix is to type beforehand a
+#             # `self.session_maker.close_all()` (https://stackoverflow.com/a/44437760)
+#             # which is now deprecated in favour of:
+#             close_all_sessions()  # https://stackoverflow.com/a/62884420
+#
+#             if self.engine:
+#                 try:
+#                     self._base.metadata.drop_all(self.engine)  # @UndefinedVariable
+#                 except:  # @IgnorePep8 pylint: disable=bare-except
+#                     pass
+#                 self.engine.dispose()
+#
+#             # clear file if sqlite:
+#             sqlite = "sqlite:///"
+#             if self.dburl.startswith(sqlite):
+#                 filename = self.dburl[len(sqlite):]
+#                 if filename != ':memory:' and os.path.isfile(filename):
+#                     try:
+#                         os.remove(filename)
+#                     except:  # @IgnorePep8 pylint: disable=bare-except
+#                         pass
+#
+#     ret = DB(request.param)
+#     request.addfinalizer(ret.delete)
+#     return ret
 
 
 @pytest.fixture

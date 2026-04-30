@@ -124,9 +124,9 @@ class Event(Base):  # noqa
     # event_location_name = Column(String)
     # event_type = Column(String)
 
-    __table_args__ = (
-        UniqueConstraint('catalog', 'eventid', name='ws_eventid_uc'),
-    )  # <- tuple
+    # __table_args__ = (
+    #     UniqueConstraint('catalog', 'eventid', name='ws_eventid_uc'),
+    # )  # <- tuple
 
 
 class QuakeML(Base):

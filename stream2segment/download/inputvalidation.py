@@ -14,7 +14,9 @@ from numpy import inf
 from stream2segment.download.modules.utils import fdsn_url
 from stream2segment.download.modules.events import EVENTWS_MAPPING
 from stream2segment.io.cli import BadParam
-from stream2segment.io.db import get_engine, resolve_db_path
+from stream2segment.io.db import (
+    get_engine as original_get_engine, resolve_db_path, s2s_db_version, database_exists
+)
 from stream2segment.resources import get_ttable_fpath
 from stream2segment.traveltimes.ttloader import TTTable
 
@@ -268,6 +270,18 @@ def _validate_download_advanced_settings(adv_settings: dict):
         raise ValueError(f'error in {pname}: {e}')
 
 
+def get_engine(db_url):
+    engine = original_get_engine(db_url, check_db_existence=True)
+    if s2s_db_version(engine) < 5:
+        raise ValueError(
+            'Invalid DB schema (possible cause: trying to '
+            'save on an old s2s DB)'
+        )
+    from stream2segment.io.db.models import Base
+    Base.metadata.create_all(engine)
+    return engine
+
+
 def valid_nslc(value):
     """Return a nslc (network/station/location/channel) parameter value
     converted as list. This method cleans-up and checks `value` splitting each
@@ -421,7 +435,7 @@ def valid_tt_table(file_or_name):
 
 
 def valid_date(obj):
-    dtime = None
+    dtime = obj
     try:
         dtime = datetime.fromisoformat(obj)  # if obj is datetime, returns obj
     except Exception as _:
@@ -441,8 +455,9 @@ def valid_date(obj):
         except ImportError:
             pass
 
-    if isinstance(dtime, date):
-        dtime = datetime(year=dtime.year, month=dtime.month, day=dtime.day)
+    if not isinstance(dtime, datetime):
+        if isinstance(dtime, date):
+            dtime = datetime(year=dtime.year, month=dtime.month, day=dtime.day)
 
     if not isinstance(dtime, datetime):
         raise TypeError(("iso-formatted datetime string, datetime or date "

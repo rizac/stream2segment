@@ -4,10 +4,10 @@ Created on Feb 4, 2016
 @author: riccardo
 """
 import sys
-from http.client import HTTPException
-from urllib.error import URLError
 
-from stream2segment.download.exc import NothingToDownload
+from click.testing import CliRunner
+
+from stream2segment.download.modules.utils import NothingToDownload
 from io import StringIO
 from unittest.mock import patch
 import socket
@@ -16,10 +16,7 @@ import pandas as pd
 import pytest
 
 from stream2segment.cli import cli
-from stream2segment.download.main import configure_logging
 from stream2segment.io.db.models import WebService
-from stream2segment.download.url import urlread
-# from stream2segment.download.modules.channels import get_post_data as origi_get_post_data
 
 
 def no_connection():
@@ -33,39 +30,22 @@ def no_connection():
         return True
 
 
-class patches:
-    # paths container for class-level patchers used below. Hopefully
-    # will mek easier debug when refactoring/move functions
-    # urlopen = 'stream2segment.download.url.urlopen'
-    get_session = 'stream2segment.download.inputvalidation.get_session'
-    # close_session = 'stream2segment.download.main.close_session'
-    # yaml_load = 'stream2segment.download.inputvalidation.yaml_load'
-    # ThreadPool = 'stream2segment.download.url.ThreadPool'
-    configlog4download = 'stream2segment.download.main.configure_logging'
-    download_save_segments = 'stream2segment.download.main.download_and_save'
-    get_events_df = 'stream2segment.download.main.get_events'
-    get_post_data = 'stream2segment.download.modules.channels.get_post_data'
-    mock_merge_event_stations = 'stream2segment.download.main.merge_events_stations'
+download_save_segments_path = 'stream2segment.download.main.download_and_save'
+get_events_df_path = 'stream2segment.download.main.get_events'
+# get_post_data = 'stream2segment.download.modules.channels.get_post_data'
+mock_merge_event_stations_path = 'stream2segment.download.main.merge_events_stations'
 
 
-@pytest.mark.skipif(no_connection(),
-                    reason="no internet connection")
-@pytest.mark.skipif(sys.version_info < (3,7),
-                    reason="requires python3.7+")
-@patch(patches.get_session)
-#@patch(patches.close_session)
-@patch(patches.configlog4download)
-@patch(patches.download_save_segments)
-@patch(patches.get_events_df)
+@pytest.mark.skipif(no_connection(), reason="no internet connection")
+@pytest.mark.skipif(sys.version_info < (3,7), reason="requires python3.7+")
+@patch(download_save_segments_path)
+@patch(get_events_df_path)
 # @patch(patches.get_post_data)  # FIXME REMOVE?
 def test_real_run_old_buggy_network_filter( # mock_get_post_data,  # FIXME REMOVE
                                            mock_get_events_df,
                                            mock_download_save_segments,
-                                           mock_config4download,
-                                           # mock_close_session,
-                                           mock_get_session,
                                            # fixtures:
-                                           db, clirunner, pytestdir, data):
+                                           db, log_capture, data):
     """This tess a REAL download run with an OLD bug when providing filtering on network
     and stations with negations only. We just test that the correct 'NothingToDownload'
     messages are issued. The download of segments and inventories (the time-consuming
@@ -77,12 +57,12 @@ def test_real_run_old_buggy_network_filter( # mock_get_post_data,  # FIXME REMOV
         # SETUP FOR TESTS)
         return
 
-    db.create(to_file=False)
-
-    ws = WebService(url='http://www.isc.ac.uk/fdsnws/event/1/query')
-    db.session.add(ws)
-    db.session.commit()
-    ws_id = ws.id
+    ws_id = 1
+    with db.engine.begin() as conn:
+        conn.execute(
+            WebService.__table__.insert(),
+            {'url': 'http://www.isc.ac.uk/fdsnws/event/1/query', 'ws_id': ws_id}
+        )
 
     # mock just one event downloaded. The event below is a RELa event (we took  the
     # 1st one only):
@@ -94,26 +74,6 @@ def test_real_run_old_buggy_network_filter( # mock_get_post_data,  # FIXME REMOV
 
     mock_get_events_df.return_value = d
 
-    mock_get_session.return_value=db.session
-    # (close_session is ignored, as we will close the session with the db ficture)
-    # Now define the mock for the config4download option
-    logfilepath = pytestdir.newfile('.log')
-    def c4d(*a, **kw):
-        # config logger as usual, but redirects to a temp file
-        # that will be deleted by pytest, instead of polluting the program
-        # package:
-        # ret = configlog4download(logger, logfilepath, verbose)
-        # return ret
-        pass
-
-    mock_config4download.side_effect = c4d
-
-    # FIXME REMOVE?
-    # def mock_get_post_data_side_effect(*a, **kw):
-    #     ret = origi_get_post_data(*a, **kw)
-    #     return ret.replace('*', '')
-    # mock_get_post_data.side_effect = mock_get_post_data_side_effect
-
     # mock download save segments: raise NothingToDownload to speed up things:
     def func_(*a, **kw):
         raise NothingToDownload("custom message")
@@ -121,11 +81,11 @@ def test_real_run_old_buggy_network_filter( # mock_get_post_data,  # FIXME REMOV
 
     cfg_file = data.path("download-network-filter.yaml")
 
-    result = clirunner.invoke(cli, ['download',
+    result = CliRunner().invoke(cli, ['download',
                                     '-c', cfg_file,
-                                    '--dburl', db.dburl,
+                                    '--dburl', db.url,
                                     ])
-    assert not clirunner.ok(result)
+    assert not result.exit_code == 0
     assert 'No station found' in result.output
 
 
@@ -133,14 +93,11 @@ def test_real_run_old_buggy_network_filter( # mock_get_post_data,  # FIXME REMOV
                     reason="no internet connection")
 @pytest.mark.skipif(sys.version_info < (3,7),
                     reason="requires python3.7+")
-@patch(patches.get_session)
+
 # @patch(patches.close_session)
-@patch(patches.configlog4download)
-@patch(patches.mock_merge_event_stations)
-@patch(patches.get_events_df)
-def test_real_run(mock_get_events_df, mock_merge_event_stations, mock_config4download,
-                  # mock_close_session,
-                  mock_get_session,
+@patch(mock_merge_event_stations_path)
+@patch(get_events_df_path)
+def test_real_run(mock_get_events_df,
                   # fixtures:
                   db, clirunner, pytestdir, data):
     """This tess a REAL download run providing filtering on network and stations

@@ -139,7 +139,7 @@ def download_and_save(
             else:
                 user_pass = tuple(credentials)
 
-            user_passwords[get_host(url, include_scheme=True)] = user_pass
+            user_passwords[get_host(url)] = user_pass
 
         if segments.empty:
             raise FailedDownload(
