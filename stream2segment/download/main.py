@@ -186,10 +186,11 @@ def _download(
 
     :raise: :class:`FailedDownload` exceptions
     """
-    dbbufsize = advanced_settings['db_buf_size']
-    max_thread_workers = advanced_settings['max_concurrent_downloads']
+    max_download_concurrency = advanced_settings['max_concurrent_downloads']
     download_blocksize = advanced_settings['download_blocksize']
     tt_table = advanced_settings['traveltimes_model']
+    text_download_timeout = advanced_settings['text_download_timeout']
+    data_download_timeout = advanced_settings['data_download_timeout']
 
     process = psutil.Process(os.getpid()) if isterminal else None
 
@@ -210,6 +211,7 @@ def _download(
         event_params,
         start,
         end,
+        text_download_timeout,
         True
     )
 
@@ -229,6 +231,7 @@ def _download(
         min_sample_rate,
         advanced_settings['routing_service_url'],
         credentials is not None,
+        text_download_timeout,
         True
     )
 
@@ -265,10 +268,9 @@ def _download(
         segments,
         time_window,
         credentials,
-        max_thread_workers,
-        advanced_settings['w_timeout'],
+        max_download_concurrency,
+        data_download_timeout,
         download_blocksize,
-        dbbufsize,
         isterminal
     )
     del segments  # help gc?
@@ -283,8 +285,8 @@ def _download(
         n_downloaded, n_saved, n_errors = \
             save_stationxml(
                 engine,
-                max_thread_workers,
-                advanced_settings['i_timeout'],
+                max_download_concurrency,
+                data_download_timeout,
                 download_blocksize,
                 isterminal
             )
@@ -299,8 +301,8 @@ def _download(
         n_downloaded, n_saved, n_errors = \
             save_quakeml(
                 engine,
-                max_thread_workers,
-                advanced_settings['i_timeout'],
+                max_download_concurrency,
+                data_download_timeout,
                 download_blocksize,
                 isterminal
             )

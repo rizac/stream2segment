@@ -45,6 +45,7 @@ def get_events(
     evt_query_args: dict,
     start: datetime,
     end: datetime,
+    download_timeout = None,
     show_progress=True
 ) -> pd.DataFrame:
     """Return the event data frame from the given url or local file"""
@@ -66,7 +67,7 @@ def get_events(
     #     event_ws_id = configure_ws_fk(url, engine)
 
     dfr_iter = download_events(
-        urls, evt_query_args, start, end, 120, show_progress
+        urls, evt_query_args, start, end, download_timeout, show_progress
     )
     # pd_df_list surely not empty (otherwise we raised FailedDownload)
     events = pd.concat(dfr_iter, axis=0, ignore_index=True, copy=False)

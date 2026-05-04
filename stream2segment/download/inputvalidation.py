@@ -250,14 +250,15 @@ def _validate_download_advanced_settings(adv_settings: dict):
         pname = 'traveltimes_model'
         advanced_settings[pname] = valid_tt_table(adv_settings[pname])
 
+        # this param is now settable but hidden (keep config simple):
         pname = 'download_blocksize'
-        val = int(adv_settings[pname])
+        val = int(adv_settings.pop(pname, 1024 * 1024))
         advanced_settings[pname] = val if val > 0 else -1
 
+        # this param is not settable anymore and set automatically (keep config simple):
         pname = 'db_buf_size'
-        val = int(adv_settings[pname])
-        assert val > 0
-        advanced_settings[pname] = val
+        adv_settings.pop(pname, -1)
+        # advanced_settings[pname] = int(val)
 
         pname = 'routing_service_url'
         advanced_settings[pname] = adv_settings[pname]
@@ -266,9 +267,27 @@ def _validate_download_advanced_settings(adv_settings: dict):
 
         pname = 'max_concurrent_downloads'
         val = adv_settings.get(pname, adv_settings.get('max_thread_workers'))
-        if val is not None:
-            val = int(val)
         assert val is None or val > 0
+        advanced_settings[pname] = val
+
+        pname = 'text_download_timeout'
+        val = adv_settings.get(
+            pname,
+            adv_settings.get(
+                'e_timeout', adv_settings.get('s_timeout')
+            )
+        )
+        assert val > 0
+        advanced_settings[pname] = val
+
+        pname = 'data_download_timeout'
+        val = adv_settings.get(
+            pname,
+            adv_settings.get(
+                'w_timeout', adv_settings.get('i_timeout')
+            )
+        )
+        assert val > 0
         advanced_settings[pname] = val
 
         return advanced_settings

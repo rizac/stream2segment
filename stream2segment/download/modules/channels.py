@@ -46,6 +46,7 @@ def get_channels(
     min_sample_rate,
     eida_rs_urls,
     restricted_download: bool,
+    download_timeout: int | None = None,
     show_progress=False
 ):
     cha_urls = get_channel_urls(
@@ -62,6 +63,7 @@ def get_channels(
     cha_df = download_channels(
         # session.get_bind(),
         cha_urls,
+        timeout=download_timeout,
         show_progress=show_progress,
         restricted_download=restricted_download,
         # eida_rs_urls,
@@ -352,7 +354,7 @@ def check_and_yield_fdsn_urls(url, params):
 
 
 def download_channels(
-    fdsn_station_urls, restricted_download: bool, show_progress=False
+    fdsn_station_urls, restricted_download: bool, timeout: int, show_progress=False
 ):
     """Return a Dataframe representing a query to the station service of each
     URL in :func:`stream2segment.download.modules.datacenters_df` with the
@@ -368,7 +370,7 @@ def download_channels(
     t_pool = ThreadPool(4)
     def _urlread(_):
         return _[0], urlread(
-            fdsn_url(_[1], new_service='station'), timeout=120, blocksize=-1
+            fdsn_url(_[1], new_service='station'), timeout=timeout, blocksize=-1
         )
 
     urls = list(fdsn_station_urls)

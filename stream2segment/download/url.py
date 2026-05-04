@@ -192,10 +192,10 @@ def urlread(
 def read_async(
     iterable,
     *,
-    max_concurrency=None,
-    suspend_trigger=25,
-    max_concurrency_d=4,
-    suspend_trigger_d=10,
+    max_global_concurrency=None,
+    max_concurrency=8,
+    error_limit=25,
+    consecutive_error_limit=10,
     blocksize=-1,
     decode=None,
     timeout=None,
@@ -211,19 +211,21 @@ def read_async(
     `(obj: [Any], response [Response])`
 
     :param iterable: an iterable strings (URLs) or `Request` objects
-    :param max_concurrency: integer or None (the default) denoting the max parallel
-        downloads. This corresponds to the maximum worker (sub) threads used. When None,
-        the threads allocated are relative to the machine CPU (should be around 16-32)
-    :param suspend_trigger: int denoting the maximum downloads from the same
-        domain if any download error is repeatedly returned by the server. Default: 25.
-        After that, the domain remaining requests will simply not be yielded
-    :param max_concurrency_d: integer or None (the default) denoting the max parallel
-        downloads per url domain (e.g. "geofon.gfz.de"). Defaults to 4. when zero
-        is reached (see `suspend_trigger_d`) it is equivalent to hit `suspend_trigger`
-        (downloads for the saem domain will be suspended)
-    :param suspend_trigger_d: int denoting the maximum downloads from the same
-        url domain (e.g. "geofon.gfz.de") if the same error is repeatedly returned by
-        the server. Default: 10. After that, max_concurrency_d will be decreased.
+    :param max_global_concurrency: integer or None (the default) denoting the max
+        parallel downloads globally. This corresponds to the maximum worker (sub)
+        threads used. When None, the threads allocated are relative to the machine CPU
+        (should be around 16-32)
+    :param max_concurrency: integer denoting the max parallel downloads per url domain.
+        Defaults to 4. This parameter might be adjusted and decreased when
+        `consecutive_error_limit` errors are returned
+    :param error_limit: int denoting the error limit per-domain: if no download is
+        successful for `error_limit` times, regardless of the error type, the downloads
+        from that domain are suspended and nothing is yielded anymore. Default: 25
+    :param consecutive_error_limit: int denoting the (same) error limit per-domain: if
+        the same error type is returned for `consecutive_error_limit` times from the
+        same url domain, the concurrency for that domain is decreased until it reaches
+        0 (in that case, downloads from that domain are suspended and nothing is
+        yielded anymore). Default: 10
     :param blocksize: integer defaulting to 1024*1024 specifying, when connecting to one
         of the given urls, the maximum number of bytes to be read at each call of
         `urlopen.read`. If the size argument is negative or omitted, read all data until
@@ -249,7 +251,10 @@ def read_async(
     exception (particularly relevant in case of e.g., `KeyboardInterrupt`) by canceling
     all worker threads before raising
     """
-    max_concurrency = adjust_max_concurrent_downloads(max_concurrency)
+    if max_global_concurrency is None:
+        max_global_concurrency = get_os_max_thread_count()
+
+    max_concurrency = min(max_concurrency, max_global_concurrency)
 
     user, pswd, openers = None, None, None
     openers = {}
@@ -270,7 +275,7 @@ def read_async(
     t_pool = None
     t_map = map
 
-    concurrency_is_on = max_concurrency > 1
+    concurrency_is_on = max_global_concurrency > 1
 
     if concurrency_is_on:
         # flag for CTRL-C or cancelled tasks
@@ -281,7 +286,7 @@ def read_async(
 
         signal.signal(signal.SIGINT, signal_handler)
 
-        t_pool = ThreadPool(max_concurrency)
+        t_pool = ThreadPool(max_global_concurrency)
         t_map = t_pool.imap_unordered if unordered else t_pool.imap
         # note above: chunksize argument for threads (not processes)
         # seems to slow down download. Omit the argument and leave chunksize=1 (default)
@@ -307,7 +312,7 @@ def read_async(
                     opener = openers.get(domain, None)
 
                 hostname_limiter = limiters.setdefault(
-                    domain, DynamicLimiter(max_concurrency_d)
+                    domain, DynamicLimiter(max_concurrency)
                 )
                 hostname_limiter.acquire()
                 try:
@@ -336,16 +341,18 @@ def read_async(
                 continue
 
             # error response. Append to queue:
-            resp_queue = last_n_errors.setdefault(domain, deque(maxlen=suspend_trigger))
+            resp_queue = last_n_errors.setdefault(domain, deque(maxlen=error_limit))
             resp_queue.appendleft(resp_tuple)
 
-            if len(resp_queue) < suspend_trigger_d:
+            if len(resp_queue) < consecutive_error_limit:
                 # threshold not yet reached, go on:
                 continue
 
-            if len({_.status_code for _ in resp_queue[:suspend_trigger_d]}) == 1:
+            if len({_.status_code for _ in resp_queue[:consecutive_error_limit]}) == 1:
                 # same error got more than threshold. Decrease domain concurrency:
-                new_limit = limiters[domain].adjust_limit(-1)
+                new_limit = limiters[domain].adjust_limit(
+                    -max(1, limiters[domain].limit // 2)
+                )
                 resp_queue.clear()
                 if new_limit <= 0:
                     # cannot decrease further: discard domain downloads
@@ -353,7 +360,7 @@ def read_async(
                         aborted_download_domains.add(domain)
                 continue
 
-            if len(resp_queue) >= suspend_trigger:
+            if len(resp_queue) >= error_limit:
                 # too many errors (any error): discard domain downloads
                 with per_domain_lock(domain):
                     aborted_download_domains.add(domain)
@@ -372,20 +379,14 @@ def read_async(
             t_pool.join()
 
 
-def adjust_max_concurrent_downloads(preferred_max_concurrent_downloads=None):
-    """Return the maximum number of concurrent downloads adjusting the argument
+def get_os_max_thread_count():
+    """
+    Return the maximum number of concurrent downloads adjusting the argument
     in order not to exceed the computer CPU
-
-    :param preferred_max_concurrent_downloads: int denoting the preferred
-        number of concurrent downloads. <=0 or None means: no preferred number, infer
-        and return the max number of concurrent downloads from the computer CPU
     """
     # Now adjust with the computer capacity (algorithm copied from
     # concurrent.futures.ThreadPoolExecutor):
-    os_max_concurrent_downloads = min(32, os.cpu_count() + 4)
-    if not preferred_max_concurrent_downloads or preferred_max_concurrent_downloads < 0:
-        return os_max_concurrent_downloads
-    return min(os_max_concurrent_downloads, preferred_max_concurrent_downloads)
+    return min(32, os.cpu_count() + 4)
 
 
 def thread_lock_factory():
@@ -407,7 +408,7 @@ def thread_lock_factory():
 
 
 class DynamicLimiter:
-    def __init__(self, limit=4):
+    def __init__(self, limit: int):
         self.limit = limit
         self.active = 0
         self.cond = Condition()

@@ -14,12 +14,12 @@ dburl: 'sqlite:///<local_file_path>'  # or, e.g.: postgresql://<user>:<password>
 
 # Download events (and data) on or after the specified time. Type an ISO-formatted
 # date, date-time string, or an integer in days, where 0 is the start of the current day.
-# E.g., start=-1 and end=0 means: fetch events occurred yesterday
+# E.g., starttime: -1 and endtime: 0 means: fetch events occurred yesterday
 starttime: 2006-01-01T00:00:00
 
 # Download events (and data) on or before the specified time. Type an ISO-formatted
 # date, date-time string, or an integer in days, where 0 is the start of the current day.
-# E.g., start=-1 and end=0 means: fetch events occurred yesterday
+# E.g., starttime: -1 and endtime: 0 means: fetch events occurred yesterday
 endtime: 2016-12-25T00:00:00
 
 
@@ -30,7 +30,7 @@ endtime: 2016-12-25T00:00:00
 # The event catalog in form of FDSN URL or local file path. You can supply a string
 # or list of strings, but be careful not to provide several urls with broad parameters.
 # The events list, returned by the URL or in the supplied file, must be in FDSN format
-# (https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=16).
+# (https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=15).
 # You can also type these shortcut strings instead of URLs:
 # 'emsc':  'http://www.seismicportal.eu/fdsnws/event/1/query'
 # 'isc':   'http://www.isc.ac.uk/fdsnws/event/1/query'
@@ -38,7 +38,7 @@ endtime: 2016-12-25T00:00:00
 # 'ncedc': 'http://service.ncedc.org/fdsnws/event/1/query'
 # 'scedc': 'http://service.scedc.caltech.edu/fdsnws/event/1/query'
 # 'usgs':  'http://earthquake.usgs.gov/fdsnws/event/1/query'
-events_url: 'http://seismicportal.eu/fdsnws/event/1/query'
+events_url: 'https://seismicportal.eu/fdsnws/event/1/query'
 
 # NOTE: all event parameters below are ignored if missing, empty, null, or
 # 'events_url' is  given as file path
@@ -69,7 +69,7 @@ maxmagnitude: null
 
 # Event parameters in addition to those already provided above. These are usually for
 # refined searches and can be provided as YAML Mapping of indented "param: value" pairs.
-# For info see https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=14
+# For info see https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=15
 # Note that parameters with support 'Optional' at the link above are not guaranteed to
 # work. The 'format' parameter will be ignored as it is automatically set by the program
 events_extra_params:
@@ -85,7 +85,7 @@ quakeml: false
 
 
 # ====================
-# Stations / Channels: https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=10
+# Stations / Channels: https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=11
 # ====================
 
 # NOTE: the station URL(s) are configurable in `data_url` (see below). If multiple URLs
@@ -125,16 +125,13 @@ location: '*'
 # Set to 0 or negative number to ignore the sampling rate
 min_sample_rate: 60
 
-
-# Download stationxml. Set to false only if you simply need raw waveform segments (e.g.,
-# no conversion from digital samples into meaningful physical units, no bandpass
-# filtering needed)
+# Download stationxml. Set to false only if you simply need raw unprocessed waveform
+# segments (e.g., no conversion from digital samples into physical units)
 stationxml: true
-
 
 # search radius: defines the criteria for selecting stations around events. It is a dict
 # which can have either:
-# 1) two arguments ('min', 'max'), to select stations within 'min' and 'max' deggrees
+# 1) two arguments ('min', 'max'), to select stations within 'min' and 'max' degrees
 # (endpoints included) from each event location (type min=0 for a circular search area)
 # 2) four arguments, to select stations within a circular area whose radius is dependent
 # on the event magnitude:
@@ -151,16 +148,16 @@ stationxml: true
 # If minmag = maxmag = M, `maxmag_radius` will be used for events with magnitude >= M,
 # `minmag_radius` otherwise
 search_radius:
- minmag: 6 # min magnitude
- maxmag: 7 # max magnitude
- minmag_radius: 3 # search radius for min mag (deg)
- maxmag_radius: 3 # search radius for max mag (deg)
- # min: 0  # min radius (deg)
- # max: 3  # max radius (deg)
+  minmag: 6 # min magnitude
+  maxmag: 7 # max magnitude
+  minmag_radius: 3 # search radius for min mag (deg)
+  maxmag_radius: 3 # search radius for max mag (deg)
+  # min: 0  # min radius (deg)
+  # max: 3  # max radius (deg)
 
 
 # ========================
-# Data (waveform segments) https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=8
+# Data (waveform segments) https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=9
 # ========================
 
 # List of URLs for downloading waveform data segments. All URLs must be
@@ -178,22 +175,17 @@ data_url:
 # usually negative). Note that 3.5 means 3 minutes 30 seconds, and each segment window
 # will be eventually rounded to the nearest second.
 time_window:
- - -1.0
- - 3.0
+  - -1.0
+  - 3.0
 
 
 # Credentials to download restricted data. When null, missing or "", only open waveforms
 # will be downloaded. When provided, it can be either a list of two strings (username and
-# password), or, for EIDA node(s), a string denoting the path of a token file (to get a
-# token, see https://geofon.gfz-potsdam.de/waveform/archive/auth/auth-overview.php)
-# IMPORTANT: credentials are valid only for the organization emitting them and often have
-# an expiration time (e.g., few hours for EIDA tokens). As such, it is advisable NOT to
-# perform massive downloads when fetching restricted data: target only the relative
-# data URL and - if available - the specific network, station or time period of interest
-# (for advanced users: see also `max_concurrent_downloads` in `advanced_settings`).
-# Implementation details: restricted segments previously downloaded with no credentials
-# (thus, with no waveform data) will be always re-downloaded ignoring all 'retry'
-# settings
+# password), or, for EIDA node(s), a string denoting the path of a token file (see
+# https://geofon.gfz-potsdam.de/waveform/archive/auth/auth-overview.php for details).
+# IMPORTANT: with credentials, the download must be targeted to a single data URL, and
+# preferably to the specific network, station or time period of interest (you might
+# also want to set `max_concurrent_downloads` in `advanced_settings` to 1 or 2)
 credentials: ""
 
 
@@ -202,45 +194,38 @@ credentials: ""
 # =====================================
 
 advanced_settings:
- # Maximum number of concurrent downloads allowed. We recommend to leave this parameter
- # to null (let the program infer the number automatically) and set it to 1 (max 2) only
- # in case you need to maximize download efficiency over speed, e.g.:
- # a) when fetching restricted data (see `restricted_data` parameter)
- # b) when retrying to fetch data from a specific datacenter which reported many download
- #    errors suggesting to "slow down", e.g. "Service Unavailable" (code 503) or
- #    "Too Many Requests" (code 429). You can inspect errors in the summary table printed
- #    after all segments are downloaded, or via the command `s2s dl report`
- max_concurrent_downloads: null
- # Routing service used to fetch EIDA nodes and relative network/stations. If list of
- # URLs, then each url will be queried in the given order, stopping when the first
- # provides valid data
- routing_service_url:
-   - "http://www.orfeus-eu.org/eidaws/routing/1/query"
-   - "http://geofon.gfz.de/eidaws/routing/1/query"
-   - "http://eida.ethz.ch/eidaws/routing/1/query"
- # Max time to wait (in seconds) for a single request while downloading events
- e_timeout: 120
- # Max time to wait (in seconds) for a single request while downloading stations+channel
- # metadata
- s_timeout: 120
- # Max time to wait (in seconds) for a single request while downloading an inventory in
- # XML format
- i_timeout: 60
- # Max time to wait (in seconds) for a single request while downloading waveform data
- w_timeout: 30
- # Size (in bytes) of each block of data requested when downloading. It applies to any
- # kind of data (event, waveform or station metadata). If 0, it will be converted to -1.
- # If negative, all data will be always read in a single call and one block.
- download_blocksize: 1048576  # = 1024*1024
- # The buffer size - in number of db rows - used when writing to the database. Increasing
- # this number speeds up the download (as a rule of thumb, >= 50) but also increases the
- # memory consumption and - in case of IO errors - the data to be discarded
- db_buf_size: 100
- # Travel-time model used to compute waveform arrival times. The models are precomputed
- # grids optimized for speed; typical errors are under 0.5 s and negligible when used
- # with the `time_window` parameter. Type one of the 4 built-in grids:
- #   ak135_ttp+: ak135 model for all ttp+ phases (P wave arrivals)
- #   ak135_tts+: ak135 model for all tts+ phases (S wave arrivals)
- #   iasp91_ttp+: iasp91 model for all ttp+ phases (P wave arrivals)
- #   iasp91_tts+: iasp91 model for all tts+ phases (S wave arrivals)
- traveltimes_model: 'ak135_ttp+'
+  # Maximum number of concurrent downloads per data URL. If set to null, concurrency
+  # is tuned automatically for optimal performance. Higher values may speed up downloads
+  # but can lead to throttling or failures (e.g. "Too Many Requests", "Service Unavailable")
+  # depending on the data center. Use low values (1–2) to reduce server load and improve
+  # reliability, especially for restricted data or after repeated errors.
+  max_concurrent_downloads: null
+  # Routing service used to fetch EIDA nodes and relative network/stations. If list of
+  # URLs, then each url will be queried in the given order, stopping when the first one
+  # provides valid data
+  routing_service_url:
+    - "https://www.orfeus-eu.org/eidaws/routing/1/query"
+    - "https://geofon.gfz.de/eidaws/routing/1/query"
+  # Max time to wait (in s) for a single request while downloading text (FDSN events,
+  # channels). Can be slightly increased, as text requests are rarely the main bottleneck
+  text_download_timeout: 120
+  # Max time to wait (in s) for a single request while downloading data (MiniSEED, XML).
+  # Keep low to avoid unnecessary delays in large-scale downloads
+  data_download_timeout: 30
+  # Travel-time model used to compute waveform arrival times. The models are precomputed
+  # grids optimized for speed; typical errors are under 0.5 s and negligible with respect
+  # to the `time_window` parameter. Type one of the 4 built-in grids:
+  #   ak135_ttp+: ak135 model for all ttp+ phases (P wave arrivals)
+  #   ak135_tts+: ak135 model for all tts+ phases (S wave arrivals)
+  #   iasp91_ttp+: iasp91 model for all ttp+ phases (P wave arrivals)
+  #   iasp91_tts+: iasp91 model for all tts+ phases (S wave arrivals)
+  traveltimes_model: 'ak135_ttp+'
+  # Spatio-temporal tolerance used to detect overlapping events that may produce
+  # duplicate waveforms. If events overlap and share the same magnitude type => keep the highest
+  # magnitude; otherwise resolution follows `on_event_conflict`.
+  event_overlap_tolerance:
+    lat: 5 # in km
+    lon: 5 # in km
+    depth: 5  # in km
+    time: 30  # in s
+  on_event_conflict: "keep"  # keep | discard

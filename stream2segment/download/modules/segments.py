@@ -26,10 +26,10 @@ from stream2segment.io.db.models import (
     WebService, Segment, Channel, MiniSeed, SkippedSegment
 )
 from stream2segment.download.modules.utils import (
-    fdsn_url_qs, IdOnceLogFilter, fdsn_url, FailedDownload
+    fdsn_url_qs, IdOnceLogFilter, fdsn_url, FailedDownload, compute_db_buf_size
 )
 from stream2segment.download.url import (
-    get_host, read_async, adjust_max_concurrent_downloads, Response, urlread
+    get_host, read_async, Response, urlread
 )
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
@@ -90,12 +90,9 @@ def download_and_save(
     segments: pd.DataFrame,
     time_window,
     credentials: tuple[str, str] | bytes | None,
-    # download_id,
-    # update_datacenters,
-    max_thread_workers,
+    max_download_concurrency,
     timeout,
     download_blocksize,
-    db_bufsize,
     show_progress=False
 ):
     """Download and saves the segments. segments_df MUST not be empty (this is
@@ -146,18 +143,15 @@ def download_and_save(
                 'Could not get user password from eida token for any URLs'
             )
 
-    if max_thread_workers is None:
-        # set max thread workers here cause we might want to retry the download
-        max_thread_workers = adjust_max_concurrent_downloads()
-        url_domain_max_thread_workers = min(
-            8, max_thread_workers // len(segments[WebService.url.key].cat.categories)
-        )
-    else:
-        url_domain_max_thread_workers = min(2, max_thread_workers)  # FIXME DECIDE strategy
+    retry_decreasing_concurrency = False
+    if max_download_concurrency is None:
+        retry_decreasing_concurrency = True
+        max_download_concurrency = 8
 
     # report seg. errors only once per error type and data center:
     id_once_filter: IdOnceLogFilter | None = None
 
+    db_bufsize = compute_db_buf_size(1)  # avg size of 10 minutes MiniSeed in Mb
 
     processed_indices = []
     # this is the maximum id (primary key) of NoDataSegments.
@@ -196,8 +190,7 @@ def download_and_save(
                     segments,
                     time_window,
                     user_passwords,
-                    max_thread_workers,
-                    url_domain_max_thread_workers,
+                    max_download_concurrency,
                     timeout,
                     download_blocksize
                 ):
@@ -252,7 +245,7 @@ def download_and_save(
                     stats.increment(url_domain, response.status_code)
                     pbar.update(1)
 
-                if url_domain_max_thread_workers <= 1:
+                if max_download_concurrency <= 1 or not retry_decreasing_concurrency:
                     # add segments not processed to the stats
                     counts = segments[WebService.url.key].value_counts()
                     for url_, count in counts.items():
@@ -270,7 +263,7 @@ def download_and_save(
                         segments = segments.loc[
                             segments.index.difference(processed_indices)
                         ]
-                    url_domain_max_thread_workers = url_domain_max_thread_workers // 2
+                    max_download_concurrency //= 2
                     # stop for a while to avoid stressing URL domains
                     time.sleep(30)
     finally:
@@ -293,8 +286,7 @@ def download(
     segments: pd.DataFrame,
     time_window: tuple[float, float],
     user_passwords: dict[str, tuple[str, str]],
-    max_thread_workers,
-    max_workers_d,
+    max_download_concurrency: int,
     timeout,
     download_blocksize
 ):
@@ -348,9 +340,10 @@ def download(
 
     for response in read_async(
         (get_request(*params, dfr) for (params, dfr) in dataframes),  # noqa
-        max_workers=max_thread_workers,
-        max_workers_d=max_workers_d,
-        max_concurrency_d=max_workers_d,
+        max_concurrency=max_download_concurrency,
+        #max_global_concurrency=max_thread_workers,
+        #max_workers_d=max_workers_d,
+        #max_concurrency=max_workers_d,
         timeout=timeout,
         blocksize=download_blocksize,
         credentials=user_passwords
