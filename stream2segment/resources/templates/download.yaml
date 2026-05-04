@@ -24,7 +24,7 @@ endtime: 2016-12-25T00:00:00
 
 
 # =======
-# Events: https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=14
+# Events: https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=15
 # =======
 
 # The event catalog in form of FDSN URL or local file path. You can supply a string
@@ -178,7 +178,6 @@ time_window:
   - -1.0
   - 3.0
 
-
 # Credentials to download restricted data. When null, missing or "", only open waveforms
 # will be downloaded. When provided, it can be either a list of two strings (username and
 # password), or, for EIDA node(s), a string denoting the path of a token file (see
@@ -228,4 +227,7 @@ advanced_settings:
     lon: 5 # in km
     depth: 5  # in km
     time: 30  # in s
-  on_event_conflict: "keep"  # keep | discard
+  # What to do with overlapping events: "keep", "discard", or a single / comma-separated
+  # list of preferred magnitude types (e.g. "Mw,Mb"). If no preferred magnitude type is
+  # found, all events are kept.
+  on_event_conflict: "keep"

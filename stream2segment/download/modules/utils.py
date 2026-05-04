@@ -203,16 +203,3 @@ class FailedDownload(QuitDownload):
     for details
     """
     pass
-
-
-def compute_db_buf_size(
-    item_avg_size_mb: float,
-    max_mem_fraction: float = 0.2,
-    hard_cap_mb: int = 4096
-) -> int:
-    mem = psutil.virtual_memory()
-
-    available_mb = mem.available / (1024 ** 2)
-    usable_mb = min(available_mb * max_mem_fraction, hard_cap_mb)
-
-    return max(1, int(usable_mb // item_avg_size_mb))

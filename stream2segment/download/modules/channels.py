@@ -41,8 +41,8 @@ def get_channels(
     station: list[str],
     location: list[str],
     channel: list[str],
-    starttime,
-    endtime,
+    start,
+    end,
     min_sample_rate,
     eida_rs_urls,
     restricted_download: bool,
@@ -56,22 +56,15 @@ def get_channels(
         [s for s in station if not s.startswith('!')],
         [l for l in location if not l.startswith('!')],
         [c for c in channel if not c.startswith('!')],
-        starttime,
-        endtime
+        start,
+        end
     )
 
     cha_df = download_channels(
-        # session.get_bind(),
         cha_urls,
         timeout=download_timeout,
         show_progress=show_progress,
         restricted_download=restricted_download,
-        # eida_rs_urls,
-        # max_thread_workers,
-        #advanced_settings['s_timeout'],
-        #download_blocksize,
-        #dbbufsize,
-        # isterminal
     )
     if cha_df.empty:
         raise NothingToDownload('No channel downloaded')
@@ -120,32 +113,6 @@ def get_channels(
             'No channel to work with after failed attempt to save channels'
         )
 
-    # move (rename) current station ids and urls:
-    # ws_url_col = WebService.url.key
-    # cha_df = cha_df.rename(columns={
-    #     ws_url_col: f'channel_{ws_url_col}',
-    #     Channel.webservice_id.key: f'channel_{Channel.webservice_id.key}',
-    # })
-    # # get dataselect urls:
-    # dataselect_urls = {}
-    # for sta_url in pd.unique(cha_df[f'channel_{ws_url_col}']):
-    #     dataselect_urls[sta_url] = fdsn_url(
-    #         sta_url,
-    #         new_service='dataselect',
-    #         new_method='queryuauth' if restricted_download else None
-    #     )
-    #
-    # # set new "url" column with dataselect urls:
-    # cha_df[ws_url_col] = cha_df[f'channel_{ws_url_col}'].map(
-    #     dataselect_urls
-    # ).astype('category')
-    # # sync dataselect urls:
-    # cha_df = sync_webservice_ids_with_db(cha_df, engine)
-    # if cha_df.empty:
-    #     raise FailedDownload(
-    #         'No channel to work with after attempting to save channel webservices'
-    #     )
-
     logger.info(
         f'Working with {len(cha_df):,} station channels '
         f'(downloaded {num_downloaded_channels:,}, '
@@ -168,6 +135,7 @@ def get_channels(
             cha_df[c] = cha_df[c].astype('str').astype('category')
 
     cha_df.rename(columns={Channel.id.key: Segment.channel_id.key}, inplace=True)
+
     # return a copy of relevant columns only:
     return cha_df[[
         Segment.channel_id.key,

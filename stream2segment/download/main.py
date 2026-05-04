@@ -167,18 +167,18 @@ def _download(
     events_url,
     start: datetime,
     end: datetime,
-    data_url,
-    event_params,
-    network,
-    station,
-    location,
-    channel,
-    min_sample_rate,
+    data_url: str | list[str],
+    event_params: dict,
+    network: list[str],
+    station: list[str],
+    location: list[str],
+    channel: list[str],
+    min_sample_rate: float,
     search_radius,
     stationxml: bool,
     quakeml: bool,
     time_window,
-    advanced_settings,
+    advanced_settings: dict,
     credentials: tuple[str, str] | bytes | None,
     isterminal=False
 ):
@@ -206,13 +206,15 @@ def _download(
     log_step_header("Fetching events", 1)
 
     events = get_events(
-        engine,
-        events_url,
-        event_params,
-        start,
-        end,
-        text_download_timeout,
-        True
+        engine=engine,
+        urls=events_url,
+        evt_query_args=event_params,
+        start=start,
+        end=end,
+        download_timeout=text_download_timeout,
+        event_overlap_tolerance=advanced_settings['event_overlap_tolerance'],
+        on_event_conflict=advanced_settings['on_event_conflict'],
+        show_progress=isterminal
     )
 
     # Get datacenters, store them in the db, returns the dc instances
@@ -220,19 +222,19 @@ def _download(
     log_step_header("Fetching channels urls", 2)
 
     channels = get_channels(
-        engine,
-        data_url,
-        network,
-        station,
-        location,
-        channel,
-        start,
-        end,
-        min_sample_rate,
-        advanced_settings['routing_service_url'],
-        credentials is not None,
-        text_download_timeout,
-        True
+        engine=engine,
+        datacenter_urls=data_url,
+        network=network,
+        station=station,
+        location=location,
+        channel=channel,
+        start=start,
+        end=end,
+        min_sample_rate=min_sample_rate,
+        eida_rs_urls=advanced_settings['routing_service_url'],
+        restricted_download=credentials is not None,
+        download_timeout=text_download_timeout,
+        show_progress=isterminal
     )
 
     log_step_header(
@@ -242,7 +244,11 @@ def _download(
     )
     # merge vents and stations (might raise FailedDownload):
     segments = merge_events_stations(
-        events, channels, search_radius, tt_table, isterminal
+        events=events,
+        channels=channels,
+        search_radius=search_radius,
+        tttable=tt_table,
+        show_progress=isterminal
     )
 
     del events  # help gc?
@@ -253,7 +259,11 @@ def _download(
         4
     )
     # raises NothingToDownload
-    segments = prepare_for_download(engine, segments, credentials is not None)
+    segments = prepare_for_download(
+        engine=engine,
+        segments=segments,
+        restricted_download=credentials is not None
+    )
 
     # prepare_for_download raises a NothingToDownload if there is no
     # data, so if we are here segments is not empty
@@ -264,14 +274,14 @@ def _download(
     )
 
     d_stats = download_and_save(
-        engine,
-        segments,
-        time_window,
-        credentials,
-        max_download_concurrency,
-        data_download_timeout,
-        download_blocksize,
-        isterminal
+        engine=engine,
+        segments=segments,
+        time_window=time_window,
+        credentials=credentials,
+        max_download_concurrency=max_download_concurrency,
+        download_timeout=data_download_timeout,
+        download_blocksize=download_blocksize,
+        show_progress=isterminal
     )
     del segments  # help gc?
     logger.info("")
@@ -284,11 +294,11 @@ def _download(
         log_step_header("Downloading Stations (StationXML)", 6)
         n_downloaded, n_saved, n_errors = \
             save_stationxml(
-                engine,
-                max_download_concurrency,
-                data_download_timeout,
-                download_blocksize,
-                isterminal
+                engine=engine,
+                max_download_concurrency=max_download_concurrency,
+                download_timeout=data_download_timeout,
+                download_blocksize=download_blocksize,
+                show_progress=isterminal
             )
         logger.info(
             f"** Stations StationXML download summary **\n"
@@ -300,11 +310,11 @@ def _download(
         log_step_header("Downloading Events (QuakeML)", 7)
         n_downloaded, n_saved, n_errors = \
             save_quakeml(
-                engine,
-                max_download_concurrency,
-                data_download_timeout,
-                download_blocksize,
-                isterminal
+                engine=engine,
+                max_download_concurrency=max_download_concurrency,
+                download_timeout=data_download_timeout,
+                download_blocksize=download_blocksize,
+                show_progress=isterminal
             )
         logger.info(
             f"** Events QuakeML download summary **\n"

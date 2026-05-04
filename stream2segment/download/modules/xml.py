@@ -22,9 +22,10 @@ logger = logging.getLogger(__name__)
 
 
 def save_stationxml(
+    *,
     engine: Engine,
     max_download_concurrency: int | None,
-    timeout,
+    download_timeout,
     download_blocksize,
     show_progress=False
 ):
@@ -73,7 +74,7 @@ def save_stationxml(
             reader = read_async(
                 (url_builder(*row) for row in rows),
                 max_concurrency=max_download_concurrency,
-                timeout=timeout,
+                timeout=download_timeout,
                 blocksize=download_blocksize
             )
 
@@ -128,9 +129,10 @@ def save_stationxml(
 
 
 def save_quakeml(
+    *,
     engine: Engine,
     max_download_concurrency: int | None,
-    timeout,
+    download_timeout,
     download_blocksize,
     show_progress=False
 ):
@@ -172,7 +174,7 @@ def save_quakeml(
         reader = read_async(
             (url_builder(*row) for row in rows),
             max_concurrency=max_download_concurrency,
-            timeout=timeout,
+            timeout=download_timeout,
             blocksize=download_blocksize
         )
 

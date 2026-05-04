@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 def merge_events_stations(
+    *,
     events: pd.DataFrame,
     channels: pd.DataFrame,
     search_radius,

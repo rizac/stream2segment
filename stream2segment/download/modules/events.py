@@ -6,6 +6,7 @@ from collections.abc import Iterable
 from datetime import timedelta, datetime
 import logging
 from itertools import product
+from typing import Literal
 
 import numpy as np
 import pandas as pd
@@ -40,31 +41,21 @@ EVENTWS_MAPPING = {
 
 
 def get_events(
+    *,
     engine: Engine,
     urls: str | Iterable[str],
     evt_query_args: dict,
     start: datetime,
     end: datetime,
-    download_timeout = None,
-    show_progress=True
+    download_timeout,
+    event_overlap_tolerance: dict,
+    on_event_conflict: Literal["keep", "discard"] = "keep",
+    show_progress=True,
 ) -> pd.DataFrame:
     """Return the event data frame from the given url or local file"""
 
     if isinstance(urls, str):
         urls = [urls]
-
-    # urls = [
-    #     url_file_prefix + os.path.abspath(u)
-    #     if is_local_file(u) else EVENTWS_MAPPING.get(u, u)
-    #     for u in urls
-    # ]
-
-    # local_file = is_local_file(url)
-
-    # event_ws_id = None
-
-    # if not local_file:
-    #     event_ws_id = configure_ws_fk(url, engine)
 
     dfr_iter = download_events(
         urls, evt_query_args, start, end, download_timeout, show_progress
@@ -73,7 +64,15 @@ def get_events(
     events = pd.concat(dfr_iter, axis=0, ignore_index=True, copy=False)
     events[WebService.url.key] = events[WebService.url.key].astype("category")
     sync_webservice_ids_with_db(events, engine, merge_on=Event.webservice_id.key)
-    events = save_events(events, engine)
+    events = save_events(
+        events,
+        engine,
+        lat_tol_km=event_overlap_tolerance['lat'],
+        lon_tol_km=event_overlap_tolerance['lon'],
+        depth_tol_km=event_overlap_tolerance['depth'],
+        time_tol_sec=event_overlap_tolerance['time'],
+        on_event_conflict=on_event_conflict
+    )
 
     return events[[
         Event.id.key,
@@ -243,76 +242,12 @@ def fdsn_event_response_text_to_df(response: str):
     return dframe
 
 
-# def normalize_url(base_url, evt_query_args, start, end):
-#     """Return the normalized URL string of url:
-#     1. Converts base_url to a normal URL if the former is a key of EVENTWS_MAPPING
-#     2. Set event_query_args 'starttime' and 'endtime' equal to the provided arguments
-#        `start` and `end` (handling duplicate names such as 'start' / 'startime')
-#     3. Converts 'minmag' 'maxmag' in `evt_query_args` to 'minmagnitude', 'maxmagnitude'
-#     4. Adds a custom format 'text' unless the base_url is not EVENTWS_MAPPING['isc']
-#     """
-#     _url, _query_args = _normalize(base_url, evt_query_args, start, end)
-#     return fdsn_url_qs(_url, **_query_args)
-
-
 def is_local_file(url):
     """Return whether url denotes a local file path, existing on the computer
     machine
     """
     return url not in EVENTWS_MAPPING and os.path.isfile(url)
 
-
-# def _normalize(base_url, evt_query_args, start, end):
-#     """Return the normalized tuple (url, evt_query_args):
-#     1. Converts base_url to a normal URL if the former is a key of EVENTWS_MAPPING
-#     2. Set event_query_args 'starttime' and 'endtime' equal to the provided arguments
-#        `start` and `end` (handling duplicate names such as 'start' / 'startime')
-#     3. Converts 'minmag' 'maxmag' in `evt_query_args` to 'minmagnitude', 'maxmagnitude'
-#     4. Adds a custom format 'text'
-#     """
-#     # This should never happen but let's be safe: override start and end
-#     if 'start' in evt_query_args:
-#         evt_query_args.pop('start')
-#     evt_query_args['starttime'] = start
-#     if 'end' in evt_query_args:
-#         evt_query_args.pop('end')
-#     evt_query_args['endtime'] = end
-#     # assure that we have 'minmagnitude' and 'maxmagnitude' as mag parameters,
-#     # if any:
-#     if 'minmag' in evt_query_args:
-#         minmag = evt_query_args.pop('minmag')
-#         if 'minmagnitude' not in evt_query_args:
-#             evt_query_args['minmagnitude'] = minmag
-#     if 'maxmag' in evt_query_args:
-#         maxmag = evt_query_args.pop('maxmag')
-#         if 'maxmagnitude' not in evt_query_args:
-#             evt_query_args['maxmagnitude'] = maxmag
-#
-#     url = EVENTWS_MAPPING.get(base_url, base_url)
-#     evt_query_args.setdefault('format', "text")
-#
-#     return url, evt_query_args
-
-
-# _SUSPECTED_REQUEST_TOO_ARGE = type('suspected_request_too_large', (object,), {})()
-#
-#
-# def _urlread(url, timeout=None):
-#     """Wrapper around `urlread` but returns None if the url should be split
-#     because of a too long request
-#     """
-#     raw_data, exc, code = urlread(url, decode='utf8', timeout=timeout)
-#
-#     if exc is not None:
-#         if isinstance(exc, socket.timeout) or \
-#                 (isinstance(exc, HTTPError) and exc.code in (413, 504)):  # noqa
-#             return _SUSPECTED_REQUEST_TOO_ARGE
-#         raise exc
-#
-#     if code == 204:
-#         raw_data = ''
-#
-#     return raw_data
 
 def _split_request(evt_query_args: dict):
     query_args = dict(evt_query_args)
@@ -355,76 +290,6 @@ def _split_request(evt_query_args: dict):
             'start': t1,
             'end': t2
         }
-
-# def _split_request(evt_query_args):
-#     """Split the event query issued with the given `event_query_args` (dict)
-#     and returns a two-element list:
-#     (event_query_args1, event_query_args2)
-#     of event query parameters (dicts) resulting from splitting `evt_query_args`
-#     """
-#     minmag, deltamag, evtfreq_freq_mag_dist = _get_freq_mag_distrib(evt_query_args)
-#     if len(evtfreq_freq_mag_dist) < 2:  # max recusrion on magnitudes, split by time:
-#         start = strptime(evt_query_args['starttime'])
-#         end = strptime(evt_query_args['endtime'])
-#         days_diff = int((end - start).days / 2.0)
-#         if days_diff < 1:
-#             raise ValueError('maximum recursion depth reached')
-#         half_dtime_str = (start + timedelta(days=days_diff)).isoformat()
-#         evt_query_args1 = dict(evt_query_args)
-#         evt_query_args2 = dict(evt_query_args)
-#         evt_query_args1['endtime'] = half_dtime_str
-#         evt_query_args2['starttime'] = half_dtime_str
-#     else:
-#         half = evtfreq_freq_mag_dist.sum() / 2.0
-#         idx = 1
-#         while evtfreq_freq_mag_dist[:idx + 1].sum() < half:
-#             idx += 1
-#         mag_half = minmag + idx * deltamag
-#         evt_query_args1 = dict(evt_query_args)
-#         evt_query_args2 = dict(evt_query_args)
-#         evt_query_args1['maxmagnitude'] = str(round(mag_half, 1))
-#         evt_query_args2['minmagnitude'] = str(round(mag_half, 1))
-#
-#     return evt_query_args1, evt_query_args2
-
-
-# def _get_freq_mag_distrib(evt_query_args):
-#     """Return the tuple minmag, step, distrib, where minmag is a float
-#     representing `func` first point (magnitude), step is the magnitude
-#     distance two adjacent points of `distrib`, and `distrib` is a a numpy array
-#     (dtype=int) representing the theoretical events distribution from a given
-#     magnitude `mag`:
-#     ```
-#     f(mag) = 10 ** (9-mag)
-#     ```
-#     """
-#     default_min, step, default_max = 0, .1, 9
-#
-#     # create the function:
-#     ret = ((10 ** (default_max - np.arange(default_min, default_max, step))) + 0.5). \
-#         astype(int)
-#     # set all points of magnitude <1 equal to the frequency at magnitude 1
-#     # (no frequency increase after that threshold)
-#     index_of_mag_1 = int(0.5 + ((1.0 - default_min) / step))
-#     if index_of_mag_1 > 0:
-#         ret[:index_of_mag_1] = ret[index_of_mag_1]
-#
-#     # trim ret if maxmagnitude is given:
-#     if 'maxmagnitude' in evt_query_args:
-#         maxmag = float(evt_query_args['maxmagnitude'])
-#         index_of_maxmag = int(0.5 + ((maxmag - default_min) / step))
-#         if index_of_maxmag < len(ret):
-#             ret = ret[:index_of_maxmag]
-#
-#     minmag = default_min
-#     # trim ret if minmagnitude is given:
-#     if 'minmagnitude' in evt_query_args:
-#         minmag = float(evt_query_args['minmagnitude'])
-#         index_of_minmag = int(0.5 + ((minmag - default_min) / step))
-#         if index_of_minmag > 0:
-#             ret = ret[index_of_minmag:]
-#
-#     return minmag, step, ret
 
 
 def sync_webservice_ids_with_db(
@@ -475,7 +340,7 @@ def save_events(
     lat_tol_km=5,
     depth_tol_km=5,
     time_tol_sec=30,
-    preferred_mag_types: list | None = None,
+    on_event_conflict: str = 'keep',
     show_progress=False
 ):
     events.reset_index(drop=True, inplace=True)
@@ -499,7 +364,6 @@ def save_events(
 
     cmp_cols = [lat_col, lon_col, depth_col, time_col]
     cmp_cols_round = [_ + _suf for _ in cmp_cols]
-    # uid_cols = [Event.eventid.key, Event.catalog.key]
 
     conflict_ids = []
     drop_ids = []
@@ -540,16 +404,6 @@ def save_events(
     if drop_ids:
         logger.warning(f"Dropping {len(drop_ids)} duplicated events")
         events = events[~events.index.isin(drop_ids)]
-
-
-    # duplicated = events.duplicated(uid_cols, keep=False)
-    # if duplicated.any():
-    #     logger.warning(events.loc[duplicated].to_string(index=False, na_rep=''))
-    #     raise FailedDownload(
-    #         f'{len(conflict_ids)} '
-    #         f'(eventid, catalog) conflict(s) in events, '
-    #         f'see log for details'
-    #     )
 
     cols = events.columns
     conflicts = 0

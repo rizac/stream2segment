@@ -37,7 +37,7 @@ def extract_download_args(config_file_path: str, **override_params) -> tuple[dic
                 config[key] = val
         original_config = dict(config)
 
-        params = ('data_url', 'dataws')  # decalre explicitly (see Except below)
+        params = ('data_url', 'dataws')  # declare explicitly (see Except below)
         # validate dataws FIRST because it is used by other params later
         val = pop_param(params, config)
         if isinstance(val, str):  # backward compatibility
@@ -290,6 +290,17 @@ def _validate_download_advanced_settings(adv_settings: dict):
         assert val > 0
         advanced_settings[pname] = val
 
+        pname = 'event_overlap_tolerance'
+        val = adv_settings.get(
+            pname, {
+                'lat':5, 'lon': 5, 'time': 10, 'depth': 5
+            }
+        )
+        advanced_settings[pname] = val
+
+        pname = 'on_event_conflict'
+        advanced_settings[pname] = adv_settings.get(pname,"keep")
+
         return advanced_settings
 
     except Exception as e:
@@ -346,8 +357,7 @@ def valid_nslc(value):
             value = [value]
 
         for string in value:
-            splitted = string.split(",")
-            for chunk in splitted:
+            for chunk in string.split(","):
                 chunk = chunk.strip()
                 if ' ' in chunk:
                     raise Exception("invalid space char(s): '%s'" % chunk)
