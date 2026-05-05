@@ -29,7 +29,6 @@ from stream2segment.download.modules.utils import (
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__)
 
-rank_col = "_.rank._"
 start_col = "start"
 end_col = "end"
 
@@ -87,7 +86,6 @@ def get_channels(
     cha_df = drop_conflicts(cha_df, eida_rs_urls)
     if cha_df.empty:
         raise FailedDownload('No channel to work with after conflicts dropping')
-    cha_df = cha_df.drop(columns=rank_col)
 
     ws_id_col = Segment.webservice_id.key
     cha_df = sync_webservice_ids_with_db(cha_df, engine, merge_on=ws_id_col)
@@ -190,10 +188,6 @@ def get_channel_urls(
 
         if service_url == 'eida':
             priority_skipped = 0
-            # if eidars_response_text is None:  # FIXME REMOVE
-            #     eidars_response_text = get_eidars_response_text(
-            #         routing_service_url, **params
-            #     )
             eida_rs: dict = get_eida_rs_response(routing_service_url, **params)
             # sort (for easier grouping here below):
             for eida_dc_dict in eida_rs:
@@ -334,6 +328,7 @@ def download_channels(
         for no-filtering (all channels)
     """
     ws_url_col = WebService.url.key
+    rank_col = "_.rank._"
 
     t_pool = ThreadPool(4)
     def _urlread(_):
@@ -371,9 +366,9 @@ def download_channels(
             if dframe.empty:
                 continue
             # replace full url with the future dataselect url
-            base_fdsn_url = urlunparse(
+            base_fdsn_url = str(urlunparse(
                 urlparse(response.request)._replace(query='', fragment='')
-            )
+            ))
             if restricted_download:
                 datasel_url = fdsn_url(
                     base_fdsn_url, new_service='dataselect', new_method='queryauth'
@@ -386,14 +381,20 @@ def download_channels(
             # station_urls.add(station_url)
             channels_dfs.append(dframe)
 
-    # build two dataframes which we will concatenate afterwards
+    # build two dataframes which we will concatenate afterward
     cha_df = pd.DataFrame()
     if channels_dfs:  # pd.concat complains about empty list
         # save urls and set them as categorical
         cha_df = pd.concat(channels_dfs, axis=0, ignore_index=True, copy=False)
         cha_df[ws_url_col] = cha_df[ws_url_col].astype('category')
 
-    return cha_df
+    # sort by rank col and reset index so that we can see with the index which urls
+    # have priority in case of conflicts:
+    cha_df.index.name = '._index._'
+    return (
+        cha_df.sort_values(by=[rank_col, cha_df.index.name], ascending=True).
+        drop(columns=rank_col).reset_index(drop=True)
+    )
 
 
 def fdsn_channel_response_text_to_df(response: str):
@@ -548,27 +549,22 @@ def drop_conflicts(
     sta_col = Channel.station_code.key
     loc_col = Channel.location_code.key
     band_col = Channel.band_code.key
-    inst_col = Channel.band_code.key
-    # orient_col = Channel.orientation_code.key
+    inst_col = Channel.instrument_code.key
+    orient_col = Channel.orientation_code.key
     # start_col = Channel.start_time.key
     # end_col = Channel.end_time.key
     url_col = WebService.url.key
 
     channels.reset_index(drop=True, inplace=True)
     channels.loc[channels['end'].isna(), 'end'] = (
-        datetime.now(UTC).replace(tzinfo=None) + timedelta(days=30)  # some random margin in the future
+        datetime.now(UTC).replace(microsecond=0, tzinfo=None) + timedelta(days=30)  # some random margin in the future
     )
-    # # all orientations of the same channel must have the same URL:
-    # grp_cols = [net_col, sta_col, loc_col, cha_col, start_col]
-    #
-    # # drop duplicates (against DB unique constraints):
-    # channels = channels.drop_duplicates(
-    #     subset=grp_cols, keep='first'
-    # )
 
     lat_col = Channel.latitude.key
     lon_col = Channel.longitude.key
     # depth_col = Channel.depth.key
+
+    channels.dropna(subset=[lat_col, lon_col], inplace=True)
 
     # inst_cols = [
     #     Channel.scale.key,
@@ -585,230 +581,154 @@ def drop_conflicts(
     # band_inst_col: pd.Series = channels[cha_col].str[:2]
 
     # 1) CHANNELS WITH SAME CODE AND START TIME MUST COME FROM A SINGLE URL:
-    grp_cols = [net_col, sta_col, loc_col, band_col, inst_col, WebService.url.key]
+    grp_cols = [net_col, sta_col, loc_col, band_col, inst_col]
 
+    # will this speed up grouping?
+    for c in grp_cols + [url_col, orient_col]:
+        if not pd.api.types.is_categorical_dtype(channels[c]):
+            channels[c] = channels[c].astype('category')
     # def webservice_urls(_df):
     #     return pd.unique(_df[webs_url_col])
 
     # table_empty = get_row_count(engine, Channel) < 1
-
-    has_rank = rank_col in channels.columns
+    indices2keep = set()
 
     new_cha_df = []
 
-    for (net, sta, loc, band, inst, url), cha_df in (
+    for (net, sta, loc, band, inst), cha_df in (
         channels.groupby(grp_cols)
     ):
-        urls = pd.unique(cha_df[url_col])
+        if str(net) == 'DK' and sta == 'NUUG':
+            asd = 9
 
-        # check geo bounds
-        sta_lat = cha_df[lat_col].iloc[0]
-        sta_lon = cha_df[lon_col].iloc[0]
-        all_equal = (
-            (cha_df[lat_col].nunique(dropna=False) == 1) and
-            (cha_df[lon_col].nunique(dropna=False) == 1)
-        )
-        if not all_equal:
-            atol = 0.0001  # approx 6 to 11 mt tolerance
-            all_equal = (
-                np.allclose(cha_df[lat_col], sta_lat, rtol=0, atol=atol) and
-                np.allclose(cha_df[lon_col], sta_lon, rtol=0, atol=atol)
-            )
-            if not all_equal:
-                sta_lat, sta_lon = _resolve_station_lat_lon(
-                    urls, net, sta, loc or None, f"{band}{inst}?", cha_df[start_col].min()
-                )
-            if sta_lat is None or sta_lon is None:
-                continue
+        if (
+            cha_df[lat_col].nunique(dropna=False) ==
+            cha_df[lon_col].nunique(dropna=False) ==
+            cha_df[url_col].nunique(dropna=False) ==
+            cha_df[start_col].nunique(dropna=False) ==
+            cha_df[end_col].nunique(dropna=False) == 1
+        ):
+            indices2keep.update(cha_df.drop_duplicates(orient_col, keep='first').index)
+            continue
 
-        times = pd.concat([cha_df[start_col], cha_df[end_col]]).drop_duplicates()
-        times = times.sort_values().values  # noqa
+        lat_lons: dict[str, list[tuple[datetime, datetime, float, float]]] = {}
+
+        times = pd.concat(
+            [cha_df[start_col], cha_df[end_col]]
+        ).drop_duplicates().sort_values().to_numpy()  # noqa
 
         for start, end in zip(times[:-1], times[1:]):
 
             tmp_df = cha_df[~((cha_df[start_col] >= end) | (cha_df[end_col] <= start))]
 
-            if tmp_df[url_col].nunique(dropna=True) > 1:
+            if tmp_df.empty:
+                continue  # for safety
+
+            if tmp_df[url_col].nunique(dropna=False) > 1:
                 tmp_df2 = _resolve_via_eida_rs(
                     tmp_df, eida_rs_urls,net, sta, loc, band, inst, start, end
                 )
-                if tmp_df2 is None and has_rank:
-                    tmp_df = tmp_df[tmp_df[rank_col] == tmp_df[rank_col].min()]
-                else:
-                    tmp_df = tmp_df.head(0)  # empty it
-                if tmp_df2 is None or tmp_df2.empty or tmp_df2[url_col].nunique(dropna=True) > 1:
-                    tmp_df = tmp_df.head(0)
-            else:
-                tmp_df = tmp_df.copy()
+                if not tmp_df2.empty:
+                    if tmp_df2[url_col].nunique(dropna=False) > 1:
+                        # take first url (it is sorted b rank):
+                        for url in cha_df[url_col].values:
+                            _ = tmp_df2[url_col] == url
+                            if _.any():
+                                tmp_df2 = _
+                                break
+                    if tmp_df2[url_col].nunique(dropna=False) != 1:
+                        tmp_df2 = tmp_df2.head(0)
+                tmp_df = tmp_df2
 
-            if not tmp_df.empty and tmp_df[url_col].nunique(dropna=True) == 1:
-                tmp_df.loc[:, lat_col] = sta_lat
-                tmp_df.loc[:, lon_col] = sta_lon
-                new_cha_df.append(tmp_df)
+            if tmp_df.empty:
+                continue  # FIXME log warn!
 
-    return pd.concat(new_cha_df, ignore_index=True)
+            lat_lon_unique = (
+                tmp_df[lat_col].nunique() == 1 and tmp_df[lon_col].nunique() == 1
+            )
+            time_bounds_coincide = (
+                (tmp_df[start_col] == start).all() and (tmp_df[end_col] == end).all()
+            )
+            if lat_lon_unique and time_bounds_coincide:
+                indices2keep.update(
+                    tmp_df.drop_duplicates(orient_col, keep='first').index
+                )
+                continue
 
-    #     if len(urls) > 1:
-    #
-    #         logger.warning(
-    #             'Duplicated urls for channel (attempting to resolve conflict): ' +
-    #             "\n".join(
-    #                 fdsn_url_qs(u, net=net, sta=sta, loc=loc, cha=band_inst + "?")
-    #                 for u in urls
-    #             )
-    #         )
-    #
-    #         if not table_empty:
-    #             keep = _check_conflict_between_via_db(
-    #                 engine,
-    #                 cha_df,
-    #                 net,
-    #                 sta,
-    #                 loc,
-    #                 *band_inst
-    #             )
-    #             conflicting_indices.update(cha_df[~keep].index)
-    #             cha_df = cha_df[keep]
-    #             urls = webservice_urls(cha_df)
-    #
-    #         if eida_rs_urls is not None and len(urls) > 1:
-    #             eida_rs_json = get_eida_rs_response(eida_rs_urls, net=net, sta=sta)
-    #             keep = _check_conflict_between_via_eida_rs(
-    #                 cha_df, eida_rs_json
-    #             )
-    #             conflicting_indices.update(cha_df[~keep].index)
-    #             cha_df = cha_df[keep]
-    #             urls = webservice_urls(cha_df)
-    #
-    #         if len(urls) > 1:
-    #             # conflict found, unresolvable through already saved data. Get first
-    #             # if instructed to do so. FIXME add param or do it automatically likle here?
-    #             real_ws_url = cha_df[
-    #                 cha_df[rank_col] == cha_df[rank_col].min()
-    #             ].iloc[0][webs_url_col]
-    #             keep = cha_df[webs_url_col] == real_ws_url
-    #             conflicting_indices.update(cha_df[~keep].index)
-    #             cha_df = cha_df[keep]
-    #             urls = webservice_urls(cha_df)
-    #
-    #         if len(urls) > 1 or cha_df.empty:
-    #             conflicting_indices.update(cha_df.index)
-    #             continue
-    #
-    #     url = urls[0]
-    #
-    #     # No double webservice url.
-    #     # First check that geo locations match (otherwise we might have
-    #     # inconsistencies in arrival times for same channel) by relaxing a bit
-    #     # equality (use allclose):
-    #     if not all(allclose(cha_df[c]) for c in geoloc_cols):
-    #         logger.warning(
-    #             'Non-unique (lat, lon) for channel (conflict not handled, all channels kept): ' +
-    #             fdsn_url_qs(url, net=net, sta=sta, loc=loc, cha=band_inst + "?")
-    #         )
-    #
-    # # 2) CHANNELS WITH SAME CODE AND URL MUST HAVE DIFFERENT TIME RANGES:
-    # grp_cols = [net_col, sta_col, loc_col, band_inst_col, webs_url_col]
-    #
-    # for (net, sta, loc, band_inst, url), cha_df in (
-    #     channels[~channels.index.isin(conflicting_indices)].groupby(grp_cols)
-    # ):
-    #     if len(pd.unique(cha_df[start_col])) > 1:
-    #
-    #         logger.warning(
-    #             'Duplicated start_time for channel (attempting to resolve conflict): ' +
-    #             fdsn_url_qs(url, net=net, sta=sta, loc=loc, cha=band_inst+"?")
-    #         )
-    #         for o_code in pd.unique(cha_df[cha_col].str[2]):
-    #             cha_df_o = cha_df[cha_df[cha_col].str[2] == o_code]
-    #             if all(allclose(cha_df_o[c]) for c in inst_cols):
-    #                 # only cur_time ranges differ, merge all columns into first:
-    #                 idx = cha_df_o.index[0]
-    #                 # merge cur_time ranges:
-    #                 channels.at[idx, start_col] = cha_df_o[start_col].min()
-    #                 channels.at[idx, end_col] = cha_df_o[end_col].max()
-    #                 # discard other columns:
-    #                 conflicting_indices.update(cha_df_o.index[1:])
-    #             else:
-    #                 # Only instrument values differ, then it is likely a problem in cur_time
-    #                 # ranges. Because they all overlap, set end times to not overlap next
-    #                 # start cur_time (keep all columns):
-    #                 for i in range(len(cha_df_o) -1):
-    #                     start_time = cha_df_o.at[cha_df_o.index[i + 1], start_col]
-    #                     channels.at[cha_df_o.index[i], end_col] = start_time
-    #
-    # if conflicting_indices:
-    #     drop = channels.index.isin(conflicting_indices)
-    #     # log_df = channels[drop]
-    #     channels = channels[~drop]
-    #     # logger.warning('Station channels dropped after applying conflict resolver:')
-    #     # logger.warning(
-    #     #     # groupby url and station code, join all channels together and sort by url:
-    #     #     df2str(
-    #     #         log_df.groupby(
-    #     #             [webs_url_col, net_col, sta_col, loc_col]
-    #     #         )[Channel.channel_code.key].agg(lambda x: ",".join({_ for _ in x.astype(str)})).
-    #     #         reset_index().sort_values(by=webs_url_col)
-    #     #     )
-    #     # )
+            tmp_df = tmp_df.copy()
+            tmp_df[start_col] = start
+            tmp_df[end_col] = end
+            url = tmp_df[url_col].values[0]
+            if not lat_lon_unique:
+                if url not in lat_lons:
+                    lat_lons[url] = _resolve_station_lat_lon(
+                        url,
+                        net,
+                        sta,
+                        loc,
+                        band + inst + '?',
+                        times[0],
+                        times[-1]
+                    )
+                lat, lon = None, None
+                for start_, end_, lat_, lon_ in lat_lons[url]:
+                    if start_ <= start and end_ >= end:
+                        lat = lat_
+                        lon = lon_
+                        break
+                if lat is None or lon is None:
+                    continue  # FIXME log warn!
+                tmp_df[lat_col] = lat
+                tmp_df[lon_col] = lon
+            new_cha_df.append(tmp_df.drop_duplicates(subset=[orient_col], keep='first'))
 
+    channels = pd.concat(
+        [channels.loc[list(indices2keep)]] + new_cha_df, ignore_index=True
+    )
+
+    for c in grp_cols + [url_col, orient_col]:
+        if not pd.api.types.is_categorical_dtype(channels[c]):
+            channels[c] = channels[c].astype('category')
     return channels
 
-# def _check_conflict_between_via_db(
-#     engine, cha_df, net, sta, loc, band, inst
-# ) -> pd.Series:
-#
-#     keep = np.zeros(len(cha_df), dtype=bool)
-#     webs_url_col = WebService.url.key
-#
-#     for _, cha_df in cha_df.groupby([webs_url_col], sort=False):
-#         stmt = (
-#             select(WebService.url)
-#             .join(Channel, Channel.webservice_id == WebService.id)
-#             .where(
-#                 Channel.network_code == net,
-#                 Channel.station_code == sta,
-#             )
-#         )
-#
-#         with engine.connect() as conn:
-#             real_ws_urls = conn.execute(stmt).scalars().all()
-#
-#         if len(real_ws_urls) == 1:
-#             keep |= (cha_df[webs_url_col] == next(iter(real_ws_urls))).values
-#
-#     return keep
-def _resolve_station_lat_lon(urls, net, sta, loc, cha, start):
-    sta_lat, sta_lon = None, None
-    for url in urls:
-        resp = urlread(
-            fdsn_url_qs(
-                fdsn_url(url, new_service='station'),
-                net=net,
-                sta=sta,
-                loc=loc or None,
-                cha=cha,
-                start=start,
-                level='station',
-                foramt='text'
-            )
-        )
-        if not resp.is_ok:  # FIXME CHECK IF URL IS OK!
-            continue
-        data = pd.read_csv(BytesIO(resp.data), header=None, comment='#')
-        if (data[data.columns[2]].nunique(dropna=False) != 1 or
-            data[data.columns[3]].nunique(dropna=False) != 1):
-            return None, None
-        _sta_lat = data[data.columns[2]].iloc[0]
-        if sta_lat is not None and sta_lat != _sta_lat:
-            return None, None
-        sta_lat = _sta_lat
-        _sta_lon = data[data.columns[3]].iloc[0]
-        if sta_lon is not None and sta_lon != _sta_lon:
-            return None, None
-        sta_lon = _sta_lon
 
-    return sta_lat, sta_lon
+def _resolve_station_lat_lon(
+    url, net, sta, loc, cha, start, end
+) -> list[tuple[datetime, datetime, float, float]]:
+
+    resp = urlread(
+        fdsn_url_qs(
+            fdsn_url(url, new_service='station'),
+            net=net,
+            sta=sta,
+            loc=loc or None,
+            cha=cha,
+            start=start,
+            end=end,
+            level='station',
+            format='text'
+        )
+    )
+    if not resp.is_ok:
+        return []
+    data = pd.read_csv(BytesIO(resp.data), sep='|', header=None, comment='#')
+
+    data = pd.DataFrame({
+        'lat': pd.to_numeric(data[data.columns[2]], errors='coerce'),
+        'lon': pd.to_numeric(data[data.columns[2]], errors='coerce'),
+        'start': pd.to_datetime(data[data.columns[6]], errors='coerce'),
+        'end': pd.to_datetime(data[data.columns[7]], errors='coerce'),
+    })
+    data.loc[data['end'].isna(), 'end'] = datetime.now(UTC).replace(
+        microsecond=0, tzinfo=None
+    )
+    data_starts = np.append(data['start'], data['end'].max())
+    ret = []
+    for start, end in zip(data_starts[:-1], data_starts[1:]):
+        _ = data[data['start'] == start]
+        ret.append((start, end, _['lat'].values[0], _['lon'].values[0]))
+
+    return ret
 
 
 def _resolve_via_eida_rs(
@@ -821,7 +741,7 @@ def _resolve_via_eida_rs(
     inst: str,
     start: datetime,
     end: datetime
-) -> pd.DataFrame | None:
+) -> pd.DataFrame:
 
     eida_rs_json = get_eida_rs_response(
         eida_rs_urls,
@@ -840,42 +760,22 @@ def _resolve_via_eida_rs(
     #   ]
     # ]
     url_col = WebService.url.key
-    eida_no_priority = {
-        'start': set(), 'end': set(), 'urls': set(), 'is_empty': True
-    }
+    urls_no_priority = set()
     for item in eida_rs_json:
-        mask = channels[url_col].str.startswith(item['url'])
-        if not mask.any():
-            continue
+        url = item['url']
         for params in item['params']:
-            # start = max(datetime.fromisoformat(params['start']), start)
-            # end = min(datetime.fromisoformat(params['end']), end)
             if params['priority'] == 1:
-                # tmp_df['start'] = start
-                # tmp_df['end'] = end
-                return channels[mask]
-                # tmp_df = tmp_df.head(0)  # empty df (remove rows)
+                return channels[channels[url_col].str.startswith(url)]
             else:
-                # eida_no_priority['start'].add(start)
-                # eida_no_priority['end'].add(end)
-                eida_no_priority['urls'].add(item['url'])
-                eida_no_priority['is_empty'] = False
+                urls_no_priority.add(url)
 
-    if not eida_no_priority['is_empty']:
-        # start = eida_no_priority['start']
-        # end = eida_no_priority['end']
-        # if start < end:
-        mask = ~channels[url_col].str.startswith(
-            eida_no_priority['urls'], na=False
-        )
-        if mask.any():
-            channels = channels[mask]
-            if channels[url_col].nunique() == 1:
-                # tmp_df['start'] = start
-                # tmp_df['end'] = end
-                return channels
+    if urls_no_priority:
+        return channels[
+            ~channels[url_col].str.startswith(tuple(urls_no_priority), na=False)
+        ]
 
-    return None
+    return channels.head(0)
+
 
 def wild2regex(text: str):
     return (
@@ -972,46 +872,3 @@ def save_channels(engine: Engine, channels: pd.DataFrame):
 
     channels[id_col] = channels[id_col].astype(int)
     return channels
-
-
-# def sync_webservice_ids_with_db(cha_df, engine, urls_col=WebService.url.key):
-#
-#     ws_df = pd.DataFrame([{urls_col: cha_df[urls_col].cat.categories}])
-#
-#     id_col: str = WebService.id.key
-#     ws_df = sync_pkey(
-#         ws_df,
-#         engine,
-#         WebService,
-#         id_col,
-#         [urls_col]
-#     )
-#
-#     id_na = ws_df['id'].isna()
-#     if id_na.any():
-#         inserted, failed = insert_df(ws_df[id_na], engine, WebService)
-#         if (~id_na).any():
-#             ws_df = pd.concat([inserted, ws_df[~id_na]], ignore_index=True)
-#         else:
-#             ws_df = inserted
-#         if failed:
-#             logger.warning(f"Failed to insert {len(failed):,} url(s) to DB, discarding")
-#
-#     ws_id_col = Segment.webservice_id.key
-#     # now assign:
-#     cha_df = cha_df.merge(
-#         ws_df.rename(columns={id_col: ws_id_col}), on=urls_col, how="left"
-#     )
-#
-#     wsid_na = pd.isna(cha_df[ws_id_col])
-#     if wsid_na.any():
-#         logger.warning(
-#             f"Discarding {wsid_na.sum()} channel(s) (associated URL not saved to DB)"
-#         )
-#         logger.warning(
-#             cha_df[wsid_na].to_string(
-#                 max_rows=30, index=False, na_rep='', show_dimensions=True
-#             )
-#         )
-#         cha_df = cha_df[~wsid_na].copy()
-#     return cha_df

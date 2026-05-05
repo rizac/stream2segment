@@ -300,7 +300,7 @@ def sync_webservice_ids_with_db(
 
     if not pd.api.types.is_categorical_dtype(dfr[url_col]):
         dfr[url_col] = dfr[url_col].astype("category")
-    ws_df = pd.DataFrame([{url_col: dfr[url_col].cat.categories}])
+    ws_df = pd.DataFrame({url_col: dfr[url_col].cat.categories})
 
     id_col = WebService.id.key
     ws_df = sync_pkey(

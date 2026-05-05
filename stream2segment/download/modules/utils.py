@@ -11,6 +11,8 @@ from typing import Literal
 from urllib.parse import urlencode, urlparse, urlunparse
 
 import pandas as pd
+from obspy.clients.fdsn.header import service
+
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
 # logger = logging.getLogger(__name__)
@@ -87,12 +89,7 @@ def fdsn_url(
         miss the schema
     """
     services = {'station', 'dataselect', 'event'}
-    if new_service is not None and new_service not in services:
-        raise ValueError(f'Invalid argument service: {new_service}')
-
     methods = {'query', 'queryauth', 'auth', 'version', 'application.wadl'}
-    if new_method is not None and new_method not in methods:
-        raise ValueError(f'Invalid argument method: {new_method}')
 
     parsed_url = urlparse(url)
     if not parsed_url.scheme and check_scheme:
@@ -125,9 +122,17 @@ def fdsn_url(
     if method not in methods:
         raise ValueError(f"Invalid method in url: {method}")
 
-    change_service = new_service is not None and new_service != service
-    change_method = new_method is not None and new_method != method
-    if change_service or change_method:
+    if new_service is None:
+        new_service = service
+    elif new_service not in services:
+        raise ValueError(f'Invalid argument service: {new_service}')
+
+    if new_method is None:
+        new_method = method
+    elif new_method not in methods:
+        raise ValueError(f'Invalid argument method: {new_method}')
+
+    if new_service != service or new_method != method:
         path2 = f'/fdsnws/{new_service}/{majorversion}/{new_method}'
         new_parsed = parsed_url._replace(path=path2)
         url = urlunparse(new_parsed)
@@ -136,19 +141,20 @@ def fdsn_url(
 
 
 def fdsn_url_qs(base_url: str, **query_args):
-    """Build a valid FDSN URL appending to `base_url` the query string (qs) built
-    from the FDSN parameters in `query_args`.
+    """Build a valid FDSN URL with a query string from a base URL and a dictionary of
+    parameters. If `query_args` is empty, the original `base_url` is returned unchanged.
 
-    Note: any query parameter (keys of `query_args`) mapped to None will be removed.
-    Any other value will be encoded using its string representation, except for the
-    following parameters:
-    - net, sta, loc, cha (and their long-name variants, e.g. network)
-      will be ignored if '*'.
-    - start, end (and their long-name variants) will be converted to ISO format strings
-      if Python datetime or date
-    Duplicates (e.g. 'mag', 'magnitude') are not checked for and will be both encoded,
-    whether the encoded URL is valid depends on the server, but in principle it
-    should be rejected
+    :param base_url: the base FDSN URL. Its well-formation is not checked for here
+        (See `fdsn_url`)
+    :param query_args: the query string to append to the base FDSN URL, in form of dict.
+        dict keys (param names) mapped to None will be skipped (not appended), any other
+        value will be encoded using its `str` representation or using their
+        `isoformat()` method (parameters `start` /`starttime`, `end` / `endtime` that
+        are expected to be `datetime`s). Parameters net, sta, loc, cha (and their
+        long-name variants, e.g. network) will be ignored if '*'
+        Duplicates (e.g. 'mag', 'magnitude') are not checked for and will be both encoded,
+        whether the encoded URL is valid depends on the server, but in principle it
+        should be invalid
     """
     qs = {}
     # date and time params:
@@ -182,6 +188,9 @@ def fdsn_url_qs(base_url: str, **query_args):
                 safe_chars.update(set('.') & set(v))  # don't encode '.' if in v
 
         qs[k] = v
+
+    if not qs:
+        return base_url
     return f'{base_url}?{urlencode(qs, safe="".join(safe_chars))}'
 
 
