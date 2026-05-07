@@ -19,7 +19,7 @@ from pandas.core.dtypes.common import is_categorical_dtype
 from sqlalchemy import select, Engine
 
 from stream2segment.download.modules.events import sync_webservice_ids_with_db
-from stream2segment.io.cli import get_progressbar
+from stream2segment.io.utils import get_progressbar
 from stream2segment.io.db.pdsql import insert_df, apply_table_dtypes, select_df
 from stream2segment.io.db.models import Channel, WebService, Segment
 from stream2segment.download.url import read_url
@@ -757,7 +757,8 @@ def save_channels(engine: Engine, channels: pd.DataFrame):
     # if update is True, don't update inventories HERE (handled later)
     depth_col = Channel.depth.key
     id_col = Channel.id.key
-    uc_cols = [net_col, sta_col, loc_col, band_col, inst_col, orient_col]
+    ws_id_col = Channel.data_webservice_id.key
+    uc_cols = [net_col, sta_col, loc_col, band_col, inst_col, orient_col, ws_id_col]
 
     channels[id_col] = pd.Series(pd.NA, index = channels.index, dtype = "Int64")
     _suf = '_db_'
@@ -766,15 +767,17 @@ def save_channels(engine: Engine, channels: pd.DataFrame):
         Channel.id,
         Channel.network_code,
         Channel.station_code,
+        Channel.location_code,
         Channel.band_code,
         Channel.instrument_code,
         Channel.orientation_code,
         Channel.latitude,
         Channel.longitude,
+        Channel.data_webservice_id,
         Channel.depth
     )):
         channels = channels.merge(
-            df, how='inner', on=uc_cols, suffixes = ('', _suf)
+            df, how='left', on=uc_cols, suffixes = ('', _suf)
         )
         on_db = channels[id_col + _suf].notna()
         mismatches = (
@@ -786,15 +789,11 @@ def save_channels(engine: Engine, channels: pd.DataFrame):
         )
         if mismatches.any():
             # write to dataframe and log FIXME log!
-            channels.loc[mismatches.index, lat_col] = channels.loc[
-                mismatches.index, lat_col + _suf
-            ]
-            channels.loc[mismatches.index, lon_col] = channels.loc[
-                mismatches.index, lon_col + _suf]
-
-            channels.loc[mismatches.index, depth_col] = channels.loc[
-                mismatches.index, depth_col + _suf
-            ]
+            channels.loc[mismatches, lat_col] = channels.loc[mismatches, lat_col + _suf]
+            channels.loc[mismatches, lon_col] = channels.loc[mismatches, lon_col + _suf]
+            channels.loc[mismatches, depth_col] = (
+                channels.loc[mismatches, depth_col + _suf]
+            )
         channels[id_col] = channels[id_col].fillna(
             channels[id_col + _suf]
         )

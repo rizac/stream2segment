@@ -6,7 +6,7 @@ from typing import Optional
 
 from sqlalchemy import select, Engine
 
-from stream2segment.io.cli import get_progressbar
+from stream2segment.io.utils import get_progressbar
 from stream2segment.io.db.pdsql import (
     create_update_statement, create_insert_statement, execute_sql, get_col_max
 )

@@ -49,24 +49,20 @@ def pytest_addoption(parser):
 def log_capture():
     stream = StringIO()
 
-    from stream2segment.download.main  import configure_logging as _configure_logging, logger
+    from stream2segment.download.main  import create_log_handlers as _create_log_handlers
 
-    import logging
-    db_streamer = logging.StreamHandler(stream)
-
-    def fake_configure_logging(*args, **kwargs):
-        _configure_logging("", True)
-
-        logger.addHandler(db_streamer)
+    def fake_create_log_handlers(*args, **kwargs):
+        handlers = _create_log_handlers("", True)  # <- no file
+        import logging
+        db_streamer = logging.StreamHandler(stream)
         # same setting as in _configure_logging:
         db_streamer.setLevel(logging.INFO)  # do not print debug, print others
         db_streamer.setFormatter(logging.Formatter('[%(levelname).1s]  %(message)s'))
+        handlers.append(db_streamer)
+        return handlers
 
-    with patch("stream2segment.download.main.configure_logging", fake_configure_logging):
+    with patch("stream2segment.download.main.create_log_handlers", fake_create_log_handlers):
         yield stream
-
-        logger.removeHandler(db_streamer)
-        db_streamer.close()
 
 
 def db_urls(config):

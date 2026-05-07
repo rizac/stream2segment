@@ -13,7 +13,7 @@ import yaml
 import click
 
 from stream2segment.resources import get_templates_fpath
-from stream2segment.io.cli import BadParam
+from stream2segment.io.utils import BadParam
 from stream2segment.io.db import resolve_db_path
 
 

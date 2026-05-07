@@ -18,7 +18,7 @@ from sqlalchemy import func, or_
 import yaml
 
 from stream2segment.download.url import get_host
-from stream2segment.io.cli import ascii_decorate
+from stream2segment.io.utils import ascii_decorate
 from stream2segment.io.db import close_session
 from stream2segment.io.db.sqlconstructs import concat
 from stream2segment.io.inputvalidation import (

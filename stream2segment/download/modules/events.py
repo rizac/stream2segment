@@ -13,7 +13,7 @@ import pandas as pd
 from obspy.geodetics import kilometers2degrees
 from sqlalchemy import Engine, select
 
-from stream2segment.io.cli import get_progressbar
+from stream2segment.io.utils import get_progressbar
 from stream2segment.io.db.pdsql import (
     apply_table_dtypes, select_df, insert_df, sync_pkey
 )

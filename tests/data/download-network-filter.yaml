@@ -224,8 +224,8 @@ traveltimes_model: 'ak135_ttp+'
 # Implementation details: the rounding is necessary to avoid floating point errors when
 # checking for segments to re-download because of a changed window.
 timespan:
- - 1.0 # start of the waveform segment, in minutes *before* the calculated arrival time.
- - 3.0 # end of the waveform segment, in minutes *after* the calculated arrival time
+ - 0.5 # start of the waveform segment, in minutes *before* the calculated arrival time.
+ - 1.0 # end of the waveform segment, in minutes *after* the calculated arrival time
 
 # Credentials to download restricted data. When null, missing or "", only open waveforms
 # will be downloaded. When provided, it can be either a list of two strings (username and

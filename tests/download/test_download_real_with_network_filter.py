@@ -17,7 +17,8 @@ import pandas as pd
 import pytest
 
 from stream2segment.cli import cli
-from stream2segment.io.db.models import WebService
+from stream2segment.io.db.models import WebService, Event, Channel
+from stream2segment.io.db.pdsql import get_row_count
 
 
 def no_connection():
@@ -87,6 +88,10 @@ def test_real_run_old_buggy_network_filter(
             '--net', 'BE,16,DK,1B,1C,3D,BK', '--sta', 'MEM,MG09,NUUG,KARA,ANR,MM01,BRIB'
         ]
     )
+    assert result.exit_code == 0
+    assert 'Nothing to download:' in result.output
+    num_channels = get_row_count(db.engine, Channel)
+    num_events = get_row_count(db.engine, Event)
 
     # do it again (test what's been written):
     result = CliRunner().invoke(
@@ -95,18 +100,23 @@ def test_real_run_old_buggy_network_filter(
             '--net', 'BE,16,DK,1B,1C,3D,BK', '--sta', 'MEM,MG09,NUUG,KARA,ANR,MM01,BRIB'
         ]
     )
+    assert result.exit_code == 0
+    assert 'Nothing to download:' in result.output
+    # nothing new has been written:
+    assert num_channels == get_row_count(db.engine, Channel)
+    assert num_events == get_row_count(db.engine, Event)
 
     result = CliRunner().invoke(
         cli, [
-            'download', '-c', str(cfg_file), '--dburl', db.url
+            'download', '-c', str(cfg_file), '--dburl', db.url, '-ds', 'iris'
         ]
     )
-    assert not result.exit_code == 0
-    assert 'No station found' in result.output
+    assert result.exit_code == 0
+    assert 'Nothing to download: custom message' in result.output
+    # nothing new has been written:
+    assert num_channels < get_row_count(db.engine, Channel)
+    assert num_events == get_row_count(db.engine, Event)
 
-    from stream2segment.download.inputvalidation import extract_download_args
-    with patch("stream2segment.download.inputvalidation.extract_download_args") as mock_load_config:
-        mock_load_config.side_effect = lambda *a, **kw: dict()
 
 @pytest.mark.skipif(no_connection(),
                     reason="no internet connection")

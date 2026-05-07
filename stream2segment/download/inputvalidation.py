@@ -13,19 +13,21 @@ import yaml
 from numpy import inf
 from stream2segment.download.modules.utils import fdsn_url
 from stream2segment.download.modules.events import EVENTWS_MAPPING
-from stream2segment.io.cli import BadParam
+from stream2segment.io.utils import BadParam
 from stream2segment.io.db import (create_engine, resolve_db_path, s2s_db_version)
 from stream2segment.resources import get_ttable_fpath
 from stream2segment.traveltimes.ttloader import TTTable
 
 
-def extract_download_args(config_file_path: str, **override_params) -> tuple[dict, dict]:
+def extract_download_args(
+    config_file_path: str, **override_params
+) -> tuple[dict, dict]:
     """
-    Load config for download, rais BadParm
+    Load config for download, returning a clean config and a kwargs dict for the
+    download routine. Raise BadParm
     """
     kwargs = {}
     config = {}
-    original_config = {}
 
     params = ""
 
@@ -33,94 +35,103 @@ def extract_download_args(config_file_path: str, **override_params) -> tuple[dic
         params = 'configuration file'
         with open(config_file_path, 'r') as stream:
             config = yaml.safe_load(stream)
-            for key, val in override_params.items():
-                config[key] = val
-        original_config = dict(config)
 
         params = ('data_url', 'dataws')  # declare explicitly (see Except below)
         # validate dataws FIRST because it is used by other params later
-        val = pop_param(params, config)
+        val = get_param(params, config, override_params)
         if isinstance(val, str):  # backward compatibility
             val = [val]
         kwargs['data_url'] = [valid_fdsn(url, is_eventws=False) for url in val]
 
         params = ('events_url', 'eventws')
-        val = pop_param(params, config)
+        val = get_param(params, config, override_params)
         if isinstance(val, str):  # backward compatibility
             val = [val]
         kwargs['events_url'] = [
             valid_fdsn(u, is_eventws=True, configfile=config_file_path) for u in val
         ]
 
-        params = 'search_radius'
-        kwargs['search_radius'] = valid_search_radius(pop_param(params, config))
+        params = ('search_radius',)
+        kwargs['search_radius'] = valid_search_radius(
+            get_param(params, config, override_params)
+        )
 
-        params = 'min_sample_rate'
-        kwargs['min_sample_rate'] = int(pop_param(params, config, default=0))
+        params = ('min_sample_rate',)
+        kwargs['min_sample_rate'] = int(
+            get_param(params, config, override_params, default=0)
+        )
 
         # parameters whose validation changes completely their type and should
         # return separately from the new config dict:
 
         params = ('credentials', 'restricted_data')
         kwargs['credentials'] = valid_credentials(
-            pop_param(params, config),
+            get_param(params, config, override_params),
             dataws=kwargs['data_url'],
             configfile=config_file_path
         )
 
-        params = 'dburl'
-        val = pop_param(params, config)
+        params = ('dburl',)
+        val = get_param(params, config, override_params)
         kwargs['engine'] = get_engine(
             resolve_db_path(val, dirname(config_file_path))
         )
 
         params = ('starttime', 'start')
-        kwargs['start'] = valid_date(pop_param(params, config))
+        kwargs['start'] = valid_date(get_param(params, config, override_params))
 
         params = ('endtime', 'end')
-        kwargs['end'] = valid_date(pop_param(params, config))
+        kwargs['end'] = valid_date(get_param(params, config, override_params))
 
         params = ('network', 'net', 'networks')
-        kwargs['network'] = valid_nslc(pop_param(params, config, default=[]))
+        kwargs['network'] = valid_nslc(
+            get_param(params, config, override_params, default=[])
+        )
 
         params = ('station', 'sta', 'stations')
-        kwargs['station'] = valid_nslc(pop_param(params, config, default=[]))
+        kwargs['station'] = valid_nslc(
+            get_param(params, config, override_params, default=[])
+        )
 
         params = ('location', 'loc', 'locations')
-        kwargs['location'] = valid_nslc(pop_param(params, config, default=[]))
+        kwargs['location'] = valid_nslc(
+            get_param(params, config, override_params, default=[])
+        )
 
         params = ('channel', 'cha', 'channels')
-        kwargs['channel'] = valid_nslc(pop_param(params, config, default=[]))
+        kwargs['channel'] = valid_nslc(
+            get_param(params, config, override_params, default=[])
+        )
 
         params = ('time_window', 'segment_window', 'timespan')
         is_timespan = 'timespan' in config
-        val = pop_param(params, config)
+        val = get_param(params, config, override_params)
         if is_timespan:
             # a positive timespan[0] is now the same as a negative time_window[0]:
             val[0] = -float(val[0])
         kwargs['time_window'] = [float(val[0]), float(val[1])]
 
         params = ('stationxml', 'inventory')
-        kwargs['stationxml'] = bool(pop_param(params, config))
+        kwargs['stationxml'] = bool(get_param(params, config, override_params))
 
         params = ('quakeml',)
-        kwargs['quakeml'] = bool(pop_param(params, config, default=False))
+        kwargs['quakeml'] = bool(
+            get_param(params, config, override_params, default=False)
+        )
 
-        # validate advanced_settings:
-        params = 'advanced_settings'
+        params = ('advanced_settings',)
         # old configs had traveltimes_model as top-level param (now in advanced_settings):
         val = config.pop('traveltimes_model', None)
         if val is not None:
-            config[params]['traveltimes_model'] = val
+            config[params[0]]['traveltimes_model'] = val
         kwargs['advanced_settings'] = _validate_download_advanced_settings(
-            pop_param(params, config)
+            get_param(params, config, override_params)
         )
 
-        # Validate eventws (event web service) params. These parameters can be supplied
-        # in the main config but also in the eventws_params dict, which was formerly
-        # named eventws_query_args:
+        # event parameters:
+
         params = ('events_extra_params', 'eventws_params', 'eventws_query_args')
-        evt_params = pop_param(params, config, default={})
+        evt_params = get_param(params, config, override_params, default={})
         if evt_params is None:
             evt_params = {}
         invalid = set(evt_params.keys()) & set(config)
@@ -128,14 +139,14 @@ def extract_download_args(config_file_path: str, **override_params) -> tuple[dic
             raise ValueError(f"invalid duplicated parameter(s): {', '.join(invalid)}")
         kwargs['event_params'] = evt_params
 
-        params = ['minlatitude', 'minlat']
-        val = pop_param(params, config)
+        params = ('minlatitude', 'minlat')
+        val = get_param(params, config, override_params)
         if val is not None:
             assert -90.0 <= float(val) <= 90.0, "not in [-90, 90]"
             evt_params[params[0]] = float(val)
 
-        params = ['maxlatitude', 'maxlat']
-        val = pop_param(params, config)
+        params = ('maxlatitude', 'maxlat')
+        val = get_param(params, config, override_params)
         if val is not None:
             assert -90.0 <= float(val) <= 90.0, "not in [-90, 90]"
             evt_params[params[0]] = float(val)
@@ -145,14 +156,14 @@ def extract_download_args(config_file_path: str, **override_params) -> tuple[dic
             evt_params.get('maxlatitude', evt_params.get('maxlat', inf))
         ), "the value must be > minlatitude / minlat"
 
-        params = ['minlongitude', 'minlon']
-        val = pop_param(params, config)
+        params = ('minlongitude', 'minlon')
+        val = get_param(params, config, override_params)
         if val is not None:
             assert -180.0 <= float(val) <= 180.0, "not in [-180, 180]"
             evt_params[params[0]] = float(val)
 
-        params = ['maxlongitude', 'maxlon']
-        val = pop_param(params, config)
+        params = ('maxlongitude', 'maxlon')
+        val = get_param(params, config, override_params)
         if val is not None:
             assert -180.0 <= float(val) <= 180.0, "not in [-180, 180]"
             evt_params[params[0]] = float(val)
@@ -162,13 +173,13 @@ def extract_download_args(config_file_path: str, **override_params) -> tuple[dic
             evt_params.get('maxlongitude', evt_params.get('maxlon', inf))
         ), "the value must be > minlongitude / minlon"
 
-        params = ['minmagnitude', 'minmag']
-        val = pop_param(params, config)
+        params = ('minmagnitude', 'minmag')
+        val = get_param(params, config, override_params)
         if val is not None:
             evt_params[params[0]] = float(val)
 
-        params = ['maxmagnitude', 'maxmag']
-        val = pop_param(params, config)
+        params = ('maxmagnitude', 'maxmag')
+        val = get_param(params, config, override_params)
         if val is not None:
             evt_params[params[0]] = float(val)
 
@@ -177,13 +188,13 @@ def extract_download_args(config_file_path: str, **override_params) -> tuple[dic
             evt_params.get('maxmagnitude', evt_params.get('maxmag', inf))
         ), "the value must be > minmagnitude / minmag"
 
-        params = 'mindepth'
-        val = pop_param(params, config)
+        params = ('mindepth',)
+        val = get_param(params, config, override_params)
         if val is not None:
             evt_params[params[0]] = float(val)
 
-        params = 'maxdepth'
-        val = pop_param(params, config)
+        params = ('maxdepth',)
+        val = get_param(params, config, override_params)
         if val is not None:
             evt_params[params[0]] = float(val)
 
@@ -195,48 +206,65 @@ def extract_download_args(config_file_path: str, **override_params) -> tuple[dic
         # =========================================================
         # Done with parameter validation. Just perform final checks
         # =========================================================
-        params = "Unknown config. parameter(s)"
+        # params = ("Unknown config. parameter(s)",)  # just for the error msg (see below)
         legacy_keys = {
             'retry_client_err', 'retry_mseed_err', 'retry_seg_not_found',
             'retry_server_err', 'retry_timespan_err', 'retry_url_err', 'update_metadata'
         }
-        invalid = set(config.keys()) - legacy_keys
-        if invalid:
-            raise ValueError(', '.join(invalid))
+        # invalid = set(config.keys()) - legacy_keys
+        # if invalid:
+        #     raise ValueError(', '.join(invalid))
 
         # remove from original config
         for p in legacy_keys:
-            original_config.pop(p, None)
+            config.pop(p, None)
 
-        return original_config, kwargs
+        return config, kwargs
 
     except (Exception, ) as err:
-        if not isinstance(params, str):
-            params = " / ".join(params)
-        raise BadParam(f'{params}: {err}')
+        raise BadParam(f'{params[0]}: {err}') from None
 
 
-def pop_param(param: str | Sequence[str], cfg: dict, default: Any=None):
+def get_param(
+    params: Sequence[str],
+    cfg: dict,
+    override_params: dict,
+    *,
+    default: Any=None
+):
     """
-    Pop the given `param` from the dict `cfg` and return the associated value.
-    Raises if:
-     - param is not found and `default` is missing or None (otherwise, return `default`)
-     - param is a Sequence of strings and more than one string is a key of `cfg` (all
-       strings are popped from `cfg` before raising)
+    Get the value of the given param from either `cfg` or `override_params`, raising
+    in case of conflicts or missing parameter. The returned value is assured to be in
+    `cfg`, keyed by its primary name (`param[0]`). As such, `cfg` might also be modified
+    inplace
     """
-    params = param
-    if isinstance(param, str):
-        params = [param]
-    params = set(params) & set(cfg.keys())
-    if len(params) > 1:
-        for p in params:
-            cfg.pop(p)
-        raise ValueError(f"conflicting parameters, please use {params[0]}")
-    elif len(params) == 0:
+    param = params[0]
+
+    p1 = [p for p in params if p in cfg]
+    p2 = [p for p in params if p in override_params]
+
+    if len(p1) + len(p2) == 0:
         if default is not None:
+            cfg[param] = default
             return default
         raise ValueError(f"parameter not found")
-    return cfg.pop(list(params)[0])
+
+    if len(p1) > 1 or len(p2) > 1:
+        p_names = ", ".join(p for p in p1 + p2 if p != param)
+        raise ValueError(f"names conflict ({p_names}), please use {repr(param)}")
+
+    if len(p2) == 1:
+        val = override_params[p2[0]]
+        if p1:
+            cfg.pop(p1[0])
+        cfg[param] = val
+    else:
+        val = cfg[p1[0]]
+        if p1[0] != param:
+            cfg.pop(p1[0])
+            cfg[param] = val
+
+    return val
 
 
 def _validate_download_advanced_settings(adv_settings: dict):

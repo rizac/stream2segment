@@ -10,7 +10,7 @@ import pytest
 from click.termui import progressbar
 
 from stream2segment.download.url import (read_url, URLError, socket, HTTPError)
-from stream2segment.io.cli import Nop, get_progressbar
+from stream2segment.io.utils import Nop, get_progressbar
 from stream2segment.io.db import secure_dburl
 
 

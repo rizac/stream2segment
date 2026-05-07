@@ -31,7 +31,8 @@ def get_host(url: str | Request, default_scheme="https://") -> str:
     get_host("https://geofon.gfz.de/fdsnws") -> "geofon.gfz.de"
     get_host("geofon.gfz.de") -> "geofon.gfz.de"
     """
-    url = getattr(url, 'full_url', url)  # if Request, URL is in the `full_url` attr
+    if isinstance(url, Request):
+        url = url.full_url
     parsed = urlparse(url)
     if not parsed.scheme:
         parsed = urlparse(f'{default_scheme}{url}')

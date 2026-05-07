@@ -13,11 +13,10 @@ import psutil
 import yaml
 from sqlalchemy import Engine
 
-from stream2segment.io.log import LevelFilter
+from stream2segment.io.utils import start_logging
 from stream2segment.io.db.pdsql import (
     get_col_max, execute_sql, create_insert_statement
 )
-from stream2segment.io.log import close_logger
 from stream2segment.io.db import models
 from stream2segment.download.inputvalidation import extract_download_args
 from stream2segment.download.modules.utils import NothingToDownload, FailedDownload
@@ -72,52 +71,49 @@ def download(
     engine = None
     d_stats = {}
     config = {}
-    log_file_path = ''
 
-    try:
-        config, kwargs = extract_download_args(config_file, **override_params)
+    if verbose:
+        print(f"Configuration file: {config_file}")
+        if override_params:
+            print(
+                f'(explicitly overwritten parameter(s): '
+                f'{", ".join(override_params)})'
+            )
 
-        engine = kwargs['engine']
+    # configure logger and handlers:
+    if log2file is True:  # noqa
+        _now = datetime.now(UTC).replace(microsecond=0, tzinfo=None).isoformat('T')
+        log_file_path = f'{config_file}.{_now}.log'
+    else:
+        log_file_path = log2file or ''  # assure we have a string
 
-        if verbose:
-            print(f"Configuration file: {config_file}")
-            if override_params:
-                print(
-                    f'(explicitly overwritten parameter(s): '
-                    f'{", ".join(override_params)})'
-                )
+    if log_file_path and verbose:
+        # this is not going to the logger (and not saved to db):
+        print(f"Log file: '{log_file_path}'\n"
+              "(if the download ends with no errors, the file will be deleted "
+              "and its content written to the database)")
 
-        # configure logger and handlers:
-        if log2file is True:  # noqa
-            _now = datetime.now(UTC).replace(microsecond=0, tzinfo=None).isoformat('T')
-            log_file_path = f'{config_file}.{_now}.log'
-        else:
-            log_file_path = log2file or ''  # assure we have a string
-        configure_logging(log_file_path, verbose)
+    with start_logging(logger, create_log_handlers(log_file_path, verbose)):
+        try:
+            config, kwargs = extract_download_args(config_file, **override_params)
+            engine = kwargs['engine']
+            stime = time.time()
+            d_stats = _download(isterminal=verbose, **kwargs)
+            logger.info(f"Completed in {timedelta(seconds=round((time.time()) - stime))}")
 
-        if log_file_path and verbose:
-            print(f"Log file: '{log_file_path}'\n"
-                  "(if the download ends with no errors, the file will be deleted "
-                  "and its content written to the database)")
+        except NothingToDownload as nothing_to_download_exc:
+            logger.info(f'Nothing to download: {nothing_to_download_exc}')
+        except FailedDownload as failed_download_exc:
+            logger.error(f'Download failed: {failed_download_exc}')
+            ret = 1
+        except:  # noqa
+            logger.critical("Download aborted", exc_info=True)
+            # by raising, we execute finally but not what's afterward:
+            raise
+        finally:
+            save_download_run(engine, config, log_file_path, d_stats)
+            close_engine(engine)
 
-        stime = time.time()
-        d_stats = _download(isterminal=verbose, **kwargs)
-        logger.info(f"Completed in {timedelta(seconds=round((time.time()) - stime))}")
-
-    except NothingToDownload as nothing_to_download_exc:
-        logger.info(f'Nothing to download: {nothing_to_download_exc}')
-    except FailedDownload as failed_download_exc:
-        logger.error(f'Download failed: {failed_download_exc}')
-        ret = 1
-    except:  # noqa
-        logger.critical("Download aborted", exc_info=True)
-        # by raising, we execute final;ly but not what's afterwards:
-        raise
-    finally:
-        close_logger(logger)
-        save_download_run(engine, config, log_file_path, d_stats)
-        close_engine(engine)
-    # executed only if no exception propagates beyond the try/except/finally block
     try:
         if os.path.isfile(log_file_path):
             os.remove(log_file_path)
@@ -132,7 +128,8 @@ def close_engine(engine: Engine):
     if engine is not None:
         engine.dispose()
 
-def configure_logging(logfile_path='', verbose=False):
+
+def create_log_handlers(logfile_path='', verbose=False) -> list[logging.Handler]:
     """
     Configure the logger for download
     """
@@ -143,21 +140,23 @@ def configure_logging(logfile_path='', verbose=False):
 
     logger.setLevel(logging.INFO)  # necessary to forward to handlers
 
+    handlers = []
     if logfile_path:
         db_streamer = logging.FileHandler(logfile_path, mode='w+')
         db_streamer.setLevel(logging.INFO)  # do not print debug, print others
         db_streamer.setFormatter(logging.Formatter('[%(levelname).1s]  %(message)s'))
-        logger.addHandler(db_streamer)
+        handlers.append(db_streamer)
 
     if verbose:
-        sysout_streamer = logging.StreamHandler(sys.stdout)
-        sysout_streamer.setFormatter(logging.Formatter('%(message)s'))
+        stdout_streamer = logging.StreamHandler(sys.stdout)
+        stdout_streamer.setFormatter(logging.Formatter('%(message)s'))
         # configure the levels we want to print (20: info, 40: error, 50: critical)
-        l_filter = LevelFilter((logging.INFO, logging.ERROR, logging.CRITICAL))
-        sysout_streamer.addFilter(l_filter)
-        # set minimum level (for safety):
-        sysout_streamer.setLevel(min(l_filter.levels))
-        logger.addHandler(sysout_streamer)
+        stdout_streamer.addFilter(
+            lambda rec: rec.levelno in {logging.INFO, logging.ERROR, logging.CRITICAL}
+        )
+        handlers.append(stdout_streamer)
+
+    return handlers
 
 
 def _download(

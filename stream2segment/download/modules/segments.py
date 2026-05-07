@@ -23,7 +23,7 @@ from stream2segment.download.modules.channels import url_col, orient_col, net_co
 from stream2segment.download.modules.mseedlite import MSeedError, Input
 from stream2segment.download.modules.stationsearch import atime_col, dist_col, \
     ev_id_col, ch_id_col
-from stream2segment.io.cli import get_progressbar
+from stream2segment.io.utils import get_progressbar
 from stream2segment.io.db.pdsql import (
     sync_pkey, get_row_count, get_col_max, create_insert_statement, execute_sql
 )

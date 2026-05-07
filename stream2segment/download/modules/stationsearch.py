@@ -11,7 +11,7 @@ import pandas as pd
 
 from stream2segment.download.modules.utils import NothingToDownload, FailedDownload
 from stream2segment.io.db.models import Channel, Event, Segment, WebService
-from stream2segment.io.cli import get_progressbar
+from stream2segment.io.utils import get_progressbar
 from stream2segment.download.modules.events import (
     lat_col as ev_lat_col, lon_col as ev_lon_col, mag_col as mag_col,
     depth_col as ev_depth_col, time_col as ev_time_col,

@@ -20,11 +20,9 @@ import inspect
 import numpy as np
 
 from stream2segment.io import yaml_load
-from stream2segment.io.log import LevelFilter
 from stream2segment.io.db import secure_dburl, close_session
 from stream2segment.process.db.sqlevalexpr import exprquery
-from stream2segment.io.log import close_logger
-from stream2segment.io.cli import get_progressbar, ascii_decorate
+from stream2segment.io.utils import get_progressbar, ascii_decorate, start_logging
 from stream2segment.io.inputvalidation import validate_param
 from stream2segment.process.db import get_session
 from stream2segment.process.db.models import Segment, Station, SkipSegment
@@ -141,7 +139,7 @@ def process(pyfunc, dburl, segments_selection=None, config=None, outfile=None,
             _now = datetime.now(UTC).replace(microsecond=0).isoformat()
             logfile = f'{outfile}.{_now}.log'
 
-    with _setup_logging(logfile, verbose):
+    with start_processing(logfile, verbose):
         abp = os.path.abspath
         info = [
             "Input database:      %s" % secure_dburl(dburl),
@@ -244,32 +242,39 @@ def imap(pyfunc, dburl, segments_selection=None, config=None,
         or None, it defaults to :class:`stream2segmetn.process.SkipExeption`
     """
     seg_ids = fetch_segments_ids(dburl, segments_selection)
-    with _setup_logging(logfile, verbose):
-        for result, seg_id in run_and_yield(dburl, seg_ids, pyfunc, config,
-                                            verbose, multi_process, chunksize,
-                                            skip_exceptions):
+    with start_processing(logfile, verbose):
+        for result, seg_id in run_and_yield(
+            dburl,
+            seg_ids,
+            pyfunc,
+            config,
+            verbose,
+            multi_process,
+            chunksize,
+            skip_exceptions
+        ):
             yield result
 
 
 @contextmanager
-def _setup_logging(logfile, verbose):
+def start_processing(logfile, verbose):
     """Contextmanager handling log stuff and closing session at the end"""
-    try:
-        configure_logger(logfile, verbose)
-        stime = time.time()
-        yield
-        logger.info(f"Completed in {timedelta(seconds=round((time.time()) - stime))}")
-    except KeyboardInterrupt:
-        logger.critical("Aborted by user")  # see comment above
-        raise
-    except:  # noqa
-        logger.critical("Process aborted", exc_info=True)  # see comment above
-        raise
-    finally:
-        close_logger(logger)
+    with start_logging(logger, create_log_handlers(logfile, verbose)):
+        try:
+            stime = time.time()
+            yield
+            logger.info(
+                f"Completed in {timedelta(seconds=round((time.time()) - stime))}"
+            )
+        except KeyboardInterrupt:
+            logger.critical("Aborted by user")  # see comment above
+            raise
+        except:  # noqa
+            logger.critical("Process aborted", exc_info=True)  # see comment above
+            raise
 
 
-def configure_logger(logfile_path='', verbose=False):
+def create_log_handlers(logfile_path='', verbose=False):
     """
     Configure the logger for processing
     """
@@ -279,22 +284,22 @@ def configure_logger(logfile_path='', verbose=False):
     logging.logProcesses = 0
 
     logger.setLevel(logging.INFO)  # necessary to forward to handlers
+
     handlers = []
     if logfile_path:
-        logger.addHandler(logging.FileHandler(logfile_path, mode='w'))
+        handlers.append(logging.FileHandler(logfile_path, mode='w'))
+
     if verbose:
         # handlers.append(SysOutStreamHandler(sys.stdout))
-        sysout_streamer = logging.StreamHandler(sys.stdout)
-        sysout_streamer.setFormatter(logging.Formatter('%(message)s'))
+        stdout_streamer = logging.StreamHandler(sys.stdout)
+        stdout_streamer.setFormatter(logging.Formatter('%(message)s'))
         # configure the levels we want to print (20: info, 40: error, 50: critical)
-        l_filter = LevelFilter((20, 40, 50))
-        sysout_streamer.addFilter(l_filter)
-        # set minimum level (for safety):
-        sysout_streamer.setLevel(min(l_filter.levels))
-        logger.addHandler(sysout_streamer)
+        stdout_streamer.addFilter(
+            lambda rec: rec.levelno in {logging.INFO, logging.ERROR, logging.CRITICAL}
+        )
+        handlers.append(stdout_streamer)
 
-    for hand in handlers:
-        logger.addHandler(hand)
+    return handlers
 
 
 def run_and_yield(dburl, seg_ids, pyfunc, config, show_progress=False,

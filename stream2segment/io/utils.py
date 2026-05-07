@@ -18,10 +18,10 @@ class BadParam(Exception):
 
 
 def ascii_decorate(string, frame=None):
-    """Decorate the string with a frame in unicode decoration characters,
+    """Decorate the string with a frame in Unicode decoration characters,
     and returns the decorated string
 
-    :param string: a signle- or multi-line string
+    :param string: a single- or multi-line string
     :param frame: list of characters or string. The string/list can have length 1,3 or 7:
         1 character/list defines the decorator character. E.g. '#' or ('#',)
         3 characters/lists define the (top, mid, bottom) characters. E.g. ("=", "|", "-")
@@ -38,15 +38,17 @@ def ascii_decorate(string, frame=None):
     elif len(frame) == 3:
         frame = [frame[0]*3, frame[1]*2, frame[2]*3]
 
-    linez = string.splitlines()
-    maxlen = max(len(l) for l in linez)
-    frmt = "%s {:<%d} %s" % (frame[3], maxlen, frame[4])
-    hline_top = frame[0] + frame[1] * (maxlen + 2) + frame[2]
-    hline_bottom = frame[-3] + frame[-2] * (maxlen + 2) + frame[-1]
+    lines = string.splitlines()
+    max_len = max(len(l) for l in lines)
+    frmt = "%s {:<%d} %s" % (frame[3], max_len, frame[4])
+    header_line = frame[0] + frame[1] * (max_len + 2) + frame[2]
+    footer_line = frame[-3] + frame[-2] * (max_len + 2) + frame[-1]
 
-    return "\n".join(chain([hline_top],
-                           (frmt.format(l) for l in linez),
-                           [hline_bottom]))
+    return "\n".join(
+        chain(
+            [header_line], (frmt.format(l) for l in lines), [footer_line]
+        )
+    )
 
 
 class Nop:
@@ -91,3 +93,22 @@ def get_progressbar(length, **kw):
             kw['length'] = length
         with click_progressbar(**kw) as pbar:
             yield pbar
+
+
+@contextmanager
+def start_logging(logger, handlers):
+    for h in handlers:
+        logger.addHandler(h)
+    try:
+        yield
+    finally:
+        for handler in handlers:
+            try:
+                handler.flush()
+            except Exception:  # noqa
+                pass
+            try:
+                handler.close()  # maybe already closed? pass in case
+            except Exception:  # noqa
+                pass
+            logger.removeHandler(handler)

@@ -79,7 +79,7 @@ events_extra_params:
   # maxradius: 21.0
 
 # Download QuakeML for each event. Set to false unless if you absolutely need accurate
-# event information in your processing routine (e.g. phase arrivals,  moment tensor or
+# event information in your processing routine (e.g. phase arrivals, moment tensor or
 # focal mechanism information, multiple origins and magnitudes)
 quakeml: false
 
