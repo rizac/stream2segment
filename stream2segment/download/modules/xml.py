@@ -13,7 +13,7 @@ from stream2segment.io.db.pdsql import (
 from stream2segment.io.db.models import (
     WebService, Segment, Channel, StationXML, Event, QuakeML
 )
-from stream2segment.download.url import read_async, get_host, responses
+from stream2segment.download.url import read_urls, get_host, responses
 from stream2segment.download.modules.utils import (IdOnceLogFilter, fdsn_url_qs,
                                                    fdsn_url)
 
@@ -71,7 +71,7 @@ def save_stationxml(
 
         with get_progressbar(len(rows) if show_progress else 0) as pbar:
 
-            reader = read_async(
+            reader = read_urls(
                 (url_builder(*row) for row in rows),
                 max_concurrency=max_download_concurrency,
                 timeout=download_timeout,
@@ -171,7 +171,7 @@ def save_quakeml(
 
     with get_progressbar(len(rows) if show_progress else 0) as pbar:
 
-        reader = read_async(
+        reader = read_urls(
             (url_builder(*row) for row in rows),
             max_concurrency=max_download_concurrency,
             timeout=download_timeout,

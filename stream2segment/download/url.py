@@ -110,7 +110,7 @@ class Response:
         return 200 <= self.status_code <= 299
 
 
-def urlread(
+def read_url(
     url, blocksize=-1, decode=None, timeout=None, opener=None, **kwargs
 ) -> Response:
     """Read and return data from the given `url` using Python `urllib.open`.
@@ -189,7 +189,7 @@ def urlread(
         raise
 
 
-def read_async(
+def read_urls(
     iterable,
     *,
     max_global_concurrency=None,
@@ -203,7 +203,8 @@ def read_async(
     credentials=None,
     **kwargs
 ):
-    """Download data asynchronously from different urls iteratively. Specifically
+    """
+    Download data (optionally asynchronously) from different urls. Specifically
     designed for large downloads, handles concurrency (`threading.Pool`) globally
     and per URL-domain, stopping at specific errors iteratively received.
 
@@ -316,7 +317,7 @@ def read_async(
                 )
                 hostname_limiter.acquire()
                 try:
-                    resp = urlread(url, blocksize, decode, timeout, opener, **kwargs)
+                    resp = read_url(url, blocksize, decode, timeout, opener, **kwargs)
                 finally:
                     hostname_limiter.release()
 
@@ -390,9 +391,11 @@ def get_os_max_thread_count():
 
 
 def thread_lock_factory():
-    """Create a function F so that F(key:str) returns a unique key-based
+    """
+    Create a function F so that F(key:str) returns a unique key-based
     threading.Lock, meaning that calling the function with the same key again will
-    return the same Lock"""
+    return the same Lock
+    """
 
     thread_locks = {}
     global_lock = Lock()
@@ -437,9 +440,9 @@ class DynamicLimiter:
             self.cond.notify_all()
 
 
-def _ismainthread():
-    """Mainly uised for testing, returns True if we are currently executing in the
-    mainv thread
+def _is_main_thread():
+    """
+    Used for testing, returns True if we are currently executing in the main Thread
     """
     # https://stackoverflow.com/q/23206787
     return current_thread() is main_thread()

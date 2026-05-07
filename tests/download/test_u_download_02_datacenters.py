@@ -506,7 +506,7 @@ Z3 A318A * * 2015-11-17T10:32:52 2019-02-02T23:59:00"""]
     def test_adarray(self, #fixtures:
                      db):
         from urllib.request import urlopen as original_urlopen
-        from stream2segment.download.url import HTTPError, urlread, HTTPException
+        from stream2segment.download.url import HTTPError, read_url, HTTPException
         try:
             with original_urlopen("https://geofon.gfz-potsdam.de/") as _o:
                 _ = _o.read(1)

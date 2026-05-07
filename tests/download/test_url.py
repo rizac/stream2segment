@@ -10,7 +10,7 @@ from subprocess import call
 from unittest.mock import Mock, patch, MagicMock
 import pytest
 
-from stream2segment.download.url import _ismainthread, read_async
+from stream2segment.download.url import _is_main_thread, read_urls
 from stream2segment.download.url import URLError
 
 
@@ -40,8 +40,8 @@ class Test:
             yield
 
     def read_async(self, *a, **v):
-        for obj, result, exc, code in read_async(*a, **v):
-            assert _ismainthread()
+        for obj, result, exc, code in read_urls(*a, **v):
+            assert _is_main_thread()
             self.progress += 1
             if exc:
                 self.errors.append(exc)
@@ -52,8 +52,8 @@ class Test:
         """it is easy to check what happens if an unknown exception is raised from urllib: just mock it
         but what about an exception raised in the caller body, if urlread is ok? Check it here
         """
-        for obj, result, exc, code in read_async(*a, **v):
-            assert _ismainthread()
+        for obj, result, exc, code in read_urls(*a, **v):
+            assert _is_main_thread()
             raise KeyboardInterrupt()
             # self.progress += 1
             # if exc:

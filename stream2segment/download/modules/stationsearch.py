@@ -1,10 +1,7 @@
 """
 Event-based station search functions
-
-:date: Dec 3, 2017
-
-.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
+# :date: Dec 3, 2017
 from itertools import cycle
 from datetime import timedelta
 import logging
@@ -15,10 +12,23 @@ import pandas as pd
 from stream2segment.download.modules.utils import NothingToDownload, FailedDownload
 from stream2segment.io.db.models import Channel, Event, Segment, WebService
 from stream2segment.io.cli import get_progressbar
+from stream2segment.download.modules.events import (
+    lat_col as ev_lat_col, lon_col as ev_lon_col, mag_col as mag_col,
+    depth_col as ev_depth_col, time_col as ev_time_col,
+)
+from stream2segment.download.modules.channels import (
+    lat_col as ch_lat_col, lon_col as ch_lon_col, net_col, sta_col, loc_col,
+    start_col, end_col, band_col, inst_col, orient_col, url_col
+)
 
+atime_col = "arrival_time"
+dist_col = Segment.event_distance_deg.key
+ev_id_col = Segment.event_id.key
+ch_id_col = Segment.channel_id.key
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__)
+
 
 
 def merge_events_stations(
@@ -47,7 +57,7 @@ def merge_events_stations(
     with get_progressbar(len(events) if show_progress else 0) as pbar:
 
         min_radia, max_radia = get_search_radia(
-            search_radius, events[Event.magnitude.key].values
+            search_radius, events[mag_col].values
         )
 
         oneday = timedelta(days=1)
@@ -57,26 +67,23 @@ def merge_events_stations(
             min_radia,
             max_radia,
             events[Event.id.key],
-            events[Event.latitude.key],
-            events[Event.longitude.key],
-            events[Event.time.key],
-            events[Event.depth_km.key]
+            events[ev_lat_col],
+            events[ev_lon_col],
+            events[ev_time_col],
+            events[ev_depth_col]
         ):
 
             l2d = locations2degrees(
-                channels[Channel.latitude.key],
-                channels[Channel.longitude.key],
-                ev_lat,
-                ev_lon
+                channels[ch_lat_col], channels[ch_lon_col], ev_lat, ev_lon
             )
             # set condition incrementally. First, distance must be finite:
             condition = pd.notna(l2d) & (np.abs(l2d) != np.inf)
             # channel start time matches event time:
-            condition &= (channels[Channel.start_time.key] <= ev_time)
+            condition &= (channels[start_col] <= ev_time)
             # channel end time None or matches event time:
             condition &= (
-                channels[Channel.end_time.key].isna() |
-                (channels[Channel.end_time.key] >= ev_time + oneday)
+                # channels[end_col].isna() |
+                (channels[end_col] >= ev_time + oneday)
             )
             # add conditions based on matching radia:
             if min_radius:  # not None (legacy code) or 0:
@@ -96,57 +103,23 @@ def merge_events_stations(
             cha_df = channels.copy()
             cha_df["event_distance_deg"] = l2d
             # add scalar broadcasted to all elements:
-            cha_df[Segment.event_id.key] = ev_id
+            cha_df[ev_id_col] = ev_id
             cha_df["_.event_depth._"] = [ev_depth] * len(cha_df)
             cha_df["_.event_time._"] = [ev_time] * len(cha_df)
             ret.append(cha_df)
-
-            # FIXME remove?
-
-            # sourcedepths += [ev_depth] * len(cha_df)
-            # eventtimes += [ev_time] * len(cha_df)
-            # # Set (or re-set from second iteration on) as NaN seg_evdist_col
-            # # columns. This is important cause from second loop on we might
-            # # have some elements not-NaN which should be NaN now
-            # channels_df[seg_evdist_col] = np.nan
-            # # set locations2 degrees
-            # stations_df[seg_evdist_col] = l2d
-            # # Copy distances calculated on stations to their channels
-            # # (match along column CHA_STAID shared between the reletive
-            # # dataframes). Set values only for channels whose stations are
-            # # within radius (stations_df[condition]):
-            # cha_df = mergeupdate(channels_df, stations_df[condition],
-            #                      [CHA_STAID], [seg_evdist_col],
-            #                      drop_other_df_duplicates=False)
-            # # Note above: duplicates already dropped
-            # # Now drop channels which are not related to station within radius:
-            # cha_df = cha_df.dropna(subset=[seg_evdist_col], inplace=False).copy()
-            # # ...and add "safely" seg_evid_col values:
-            # cha_df[seg_evid_col] = ev_id
-            # # append to arrays (calculate arrival times in one shot a t the
-            # # end, it's faster):
-            # sourcedepths += [ev_depth] * len(cha_df)
-            # eventtimes += [ev_time] * len(cha_df)
-            # # Append only relevant columns:
-            # ret.append(cha_df[[SEG_CHAID, seg_evid_col, SEG_DCID, seg_evdist_col,
-            #                    STA_NET, STA_STA, CHA_LOC, CHA_CHA]])
 
     # create total segments dataframe:
     # first check we have data:
     if not ret:
         raise NothingToDownload(
-            "No segments to process (no station within search radia)"
+            "No segments to process (no station within events search area)"
         )
     # now concat:
     ret = pd.concat(ret, axis=0, ignore_index=True, copy=True)
 
     # check categorical dtypes are preserved (for safety):
     for c in [
-        Channel.network_code.key,
-        Channel.station_code.key,
-        Channel.location_code.key,
-        Channel.channel_code.key,
-        WebService.url.key
+        net_col, sta_col, loc_col, band_col, inst_col, orient_col, url_col
     ]:
         if not pd.api.types.is_categorical_dtype(ret[c]):
             ret[c] = ret[c].astype('category')
@@ -166,11 +139,11 @@ def merge_events_stations(
     # 8bytes timedelta with microsecond resolution (10^-6). Side note: all
     # numpy timedelta constructors (as well as "astype") round to int argument,
     # at least in numpy13.
-    ret["arrival_time"] = event_times.values + (traveltimes*1000000).astype("m8[us]")
+    ret[atime_col] = event_times.values + (traveltimes*1000000).astype("m8[us]")
     # drop nat values
     old_len = len(ret)
     # another safety check (arrival times NaT):
-    ret.dropna(subset=["arrival_time"], inplace=True)
+    ret.dropna(subset=[atime_col], inplace=True)
     if old_len > len(ret):
         if ret.empty:
             raise FailedDownload("No segments to process (all travel times NaN)")
@@ -188,19 +161,21 @@ def merge_events_stations(
     event_distance_km =  np.around(
         degrees * 2.0 * radius * np.pi / 360.0, 0
     ).astype(np.int16)
-    ret[Segment.event_distance_km.key] = event_distance_km
+    ret[dist_col] = event_distance_km
 
     return ret[[
-        WebService.url.key,
-        Channel.network_code.key,
-        Channel.station_code.key,
-        Channel.location_code.key,
-        Channel.channel_code.key,
-        "arrival_time",
-        Segment.event_distance_km.key,
-        Segment.webservice_id.key,
-        Segment.channel_id.key,
-        Segment.event_id.key
+        url_col,
+        net_col,
+        sta_col,
+        loc_col,
+        band_col,
+        inst_col,
+        orient_col,
+        atime_col,
+        dist_col,
+        # Channel.data_webservice_id.key,
+        ch_id_col,
+        ev_id_col
     ]]
 
 

@@ -11,6 +11,7 @@ from io import BytesIO, StringIO
 import traceback
 import uuid
 from datetime import datetime
+from pathlib import Path
 from unittest.mock import patch
 
 import yaml
@@ -78,12 +79,18 @@ def db_urls(config):
 def db(db_url):
 
     from stream2segment.download.inputvalidation import get_engine
+    from stream2segment.download.main import close_engine
     engine = get_engine(db_url)
 
-    with patch("stream2segment.download.inputvalidation.get_engine", return_value=engine):
-        yield namedtuple(
-            "DB", ["url", "engine", "is_postgres", "is_sqlite"]
-        )(db_url, engine, is_postgres(db_url), is_sqlite(db_url))
+    with (
+        patch("stream2segment.download.inputvalidation.get_engine", return_value=engine),
+        patch("stream2segment.download.main.close_engine")
+    ):
+           yield namedtuple(
+                "DB", ["url", "engine", "is_postgres", "is_sqlite"]
+            )(db_url, engine, is_postgres(db_url), is_sqlite(db_url))
+
+    close_engine(engine)
 
 
 def pytest_generate_tests(metafunc):
@@ -118,6 +125,11 @@ def pytest_sessionfinish(session,  # pylint: disable=unused-argument
         pd.set_option(k, v)
 
 
+@pytest.fixture(scope="session")
+def test_data_dir():  # n
+    return Path(__file__).parent / "data"
+
+
 # @pytest.fixture(scope="session")
 # def clirunner(request):  # pylint: disable=unused-argument
 #     """Shorthand for
@@ -145,124 +157,124 @@ def pytest_sessionfinish(session,  # pylint: disable=unused-argument
 #     return Clirunner()
 
 
-@pytest.fixture(scope="session")
-def data(request):  # noqa
-    """Fixture handling all data to be used for testing. It points to the testing 'data'
-    folder allowing to just get files / read file contents by file name.
-    Pass it as argument to a test function
-    ```
-        def test_bla(..., data,...)
-    ```
-    and just use its methods inside the code, e.g,:
-    ```
-        data.path('myfilename')
-        data.read('myfilename')
-        data.read_stream('myfilename')
-        data.read_inv('myfilename')
-    ```
-    """
-    class Data():
-        """class handling common read operations on files in the 'data' folder"""
-
-        def __init__(self, root=None):
-            self.root = root or os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                             'data')
-            self._cache = {}
-
-        def path(self, filename):
-            """Return the full path (string) of the given data file name
-
-            :param filename: a string denoting the file name inside the test data
-                directory
-            """
-            filepath = os.path.join(self.root, filename)
-            assert os.path.isfile(filepath)
-            return filepath
-
-        def read(self, filename):
-            """Read the data (byte mode) and returns it
-
-            :param filename: a string denoting the file name inside the test data
-                directory
-            """
-            key = ('raw', filename)
-            bytesdata = self._cache.get(key, None)
-            if bytesdata is None:
-                with open(self.path(filename), 'rb') as opn:
-                    bytesdata = self._cache[key] = opn.read()
-            return bytesdata
-
-        def _read_stream(self, filename):
-            key = ('stream', filename, None, None)
-            stream = self._cache.get(key, None)
-            if stream is None:
-                stream = self._cache[key] = read_stream(self.path(filename))  # , format='MSEED')
-            return stream.copy()
-
-        def read_stream(self, filename, inventory_filename=None, output=None):
-            """Return the ObpPy stream object of the given filename
-
-            :param filename: a string denoting the file name inside the test data
-                directory"""
-            assert (inventory_filename is None) == (output is None)
-            # read the non-processed stream
-            stream = self._read_stream(filename)  # returns a copy
-            if inventory_filename is None:
-                return stream
-            key = ('stream', filename, inventory_filename, output)
-            ret_stream = self._cache.get(key, None)
-            if ret_stream is None:
-                inv_obj = self.read_inv(inventory_filename)
-                stream.remove_response(inv_obj, output=output)
-                ret_stream = self._cache[key] = stream
-            return ret_stream.copy()
-
-        def read_inv(self, filename):
-            """Return the ObpPy Inventory object of the given filename
-
-            :param filename: a string denoting the file name inside the test data
-                directory
-            """
-            key = ('inv', filename)
-            inv = self._cache.get(key, None)
-            if inv is None:
-                inv = self._cache[key] = read_inventory(self.path(filename))
-            # seems that inventories do not have a copy method as they cannot be modified
-            # https://docs.obspy.org/packages/autogen/obspy.core.inventory.inventory.Inventory.html
-            return inv
-
-        def read_tttable(self, filename):
-            """Return the stream2segment TTTable object of the given filename
-
-            :param filename: a string denoting the file name inside the test data
-            directory
-            """
-            # the cache assumes we do not modify ttable (which should be always the case)
-            key = ('tttable', filename)
-            tttable = self._cache.get(key, None)
-            if tttable is None:
-                tttable = self._cache[key] = TTTable(self.path(filename))
-            return tttable
-
-        def to_segment_dict(self, filename):
-            """Return a dict to be passed as argument for creating new Segment(s), by
-            reading an existing miniseed. The arrival time is set one third of the
-            miniSeed time span
-            """
-            bdata = self.read(filename)
-            stream = read_stream(BytesIO(bdata))
-            start_time = stream[0].stats.starttime
-            end_time = stream[0].stats.endtime
-            # set arrival time to one third duration
-            return dict(data=bdata,
-                        arrival_time=(start_time + (end_time - start_time) / 3).datetime,
-                        request_start=start_time.datetime,
-                        request_end=end_time.datetime,
-                        start_time=start_time.datetime,
-                        end_time=end_time.datetime,
-                        sample_rate=stream[0].stats.sampling_rate)
-
-    return Data()
+# @pytest.fixture(scope="session")
+# def data(request):  # noqa
+#     """Fixture handling all data to be used for testing. It points to the testing 'data'
+#     folder allowing to just get files / read file contents by file name.
+#     Pass it as argument to a test function
+#     ```
+#         def test_bla(..., data,...)
+#     ```
+#     and just use its methods inside the code, e.g,:
+#     ```
+#         data.path('myfilename')
+#         data.read('myfilename')
+#         data.read_stream('myfilename')
+#         data.read_inv('myfilename')
+#     ```
+#     """
+#     class Data():
+#         """class handling common read operations on files in the 'data' folder"""
+#
+#         def __init__(self, root=None):
+#             self.root = root or os.path.join(os.path.dirname(os.path.abspath(__file__)),
+#                                              'data')
+#             self._cache = {}
+#
+#         def path(self, filename):
+#             """Return the full path (string) of the given data file name
+#
+#             :param filename: a string denoting the file name inside the test data
+#                 directory
+#             """
+#             filepath = os.path.join(self.root, filename)
+#             assert os.path.isfile(filepath)
+#             return filepath
+#
+#         def read(self, filename):
+#             """Read the data (byte mode) and returns it
+#
+#             :param filename: a string denoting the file name inside the test data
+#                 directory
+#             """
+#             key = ('raw', filename)
+#             bytesdata = self._cache.get(key, None)
+#             if bytesdata is None:
+#                 with open(self.path(filename), 'rb') as opn:
+#                     bytesdata = self._cache[key] = opn.read()
+#             return bytesdata
+#
+#         def _read_stream(self, filename):
+#             key = ('stream', filename, None, None)
+#             stream = self._cache.get(key, None)
+#             if stream is None:
+#                 stream = self._cache[key] = read_stream(self.path(filename))  # , format='MSEED')
+#             return stream.copy()
+#
+#         def read_stream(self, filename, inventory_filename=None, output=None):
+#             """Return the ObpPy stream object of the given filename
+#
+#             :param filename: a string denoting the file name inside the test data
+#                 directory"""
+#             assert (inventory_filename is None) == (output is None)
+#             # read the non-processed stream
+#             stream = self._read_stream(filename)  # returns a copy
+#             if inventory_filename is None:
+#                 return stream
+#             key = ('stream', filename, inventory_filename, output)
+#             ret_stream = self._cache.get(key, None)
+#             if ret_stream is None:
+#                 inv_obj = self.read_inv(inventory_filename)
+#                 stream.remove_response(inv_obj, output=output)
+#                 ret_stream = self._cache[key] = stream
+#             return ret_stream.copy()
+#
+#         def read_inv(self, filename):
+#             """Return the ObpPy Inventory object of the given filename
+#
+#             :param filename: a string denoting the file name inside the test data
+#                 directory
+#             """
+#             key = ('inv', filename)
+#             inv = self._cache.get(key, None)
+#             if inv is None:
+#                 inv = self._cache[key] = read_inventory(self.path(filename))
+#             # seems that inventories do not have a copy method as they cannot be modified
+#             # https://docs.obspy.org/packages/autogen/obspy.core.inventory.inventory.Inventory.html
+#             return inv
+#
+#         def read_tttable(self, filename):
+#             """Return the stream2segment TTTable object of the given filename
+#
+#             :param filename: a string denoting the file name inside the test data
+#             directory
+#             """
+#             # the cache assumes we do not modify ttable (which should be always the case)
+#             key = ('tttable', filename)
+#             tttable = self._cache.get(key, None)
+#             if tttable is None:
+#                 tttable = self._cache[key] = TTTable(self.path(filename))
+#             return tttable
+#
+#         def to_segment_dict(self, filename):
+#             """Return a dict to be passed as argument for creating new Segment(s), by
+#             reading an existing miniseed. The arrival time is set one third of the
+#             miniSeed time span
+#             """
+#             bdata = self.read(filename)
+#             stream = read_stream(BytesIO(bdata))
+#             start_time = stream[0].stats.starttime
+#             end_time = stream[0].stats.endtime
+#             # set arrival time to one third duration
+#             return dict(data=bdata,
+#                         arrival_time=(start_time + (end_time - start_time) / 3).datetime,
+#                         request_start=start_time.datetime,
+#                         request_end=end_time.datetime,
+#                         start_time=start_time.datetime,
+#                         end_time=end_time.datetime,
+#                         sample_rate=stream[0].stats.sampling_rate)
+#
+#     return Data()
 
 
 @pytest.fixture

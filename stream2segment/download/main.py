@@ -97,9 +97,8 @@ def download(
 
         if log_file_path and verbose:
             print(f"Log file: '{log_file_path}'\n"
-                  "(if the download ends with no errors, the file will be deleted"
-                  "and its content written to the db table "
-                  f"'{models.DownloadRun.__tablename__}')")
+                  "(if the download ends with no errors, the file will be deleted "
+                  "and its content written to the database)")
 
         stime = time.time()
         d_stats = _download(isterminal=verbose, **kwargs)
@@ -110,21 +109,15 @@ def download(
     except FailedDownload as failed_download_exc:
         logger.error(f'Download failed: {failed_download_exc}')
         ret = 1
-    except KeyboardInterrupt:
-        # https://stackoverflow.com/q/5191830
-        logger.critical("Download aborted by user")
-        raise
     except:  # noqa
-        # https://stackoverflow.com/q/5191830
         logger.critical("Download aborted", exc_info=True)
+        # by raising, we execute final;ly but not what's afterwards:
         raise
     finally:
         close_logger(logger)
-        if engine is not None:
-            engine.dispose()
-
-    save_download_run(engine, config, log_file_path, d_stats)
-
+        save_download_run(engine, config, log_file_path, d_stats)
+        close_engine(engine)
+    # executed only if no exception propagates beyond the try/except/finally block
     try:
         if os.path.isfile(log_file_path):
             os.remove(log_file_path)
@@ -133,6 +126,11 @@ def download(
 
     return ret
 
+
+def close_engine(engine: Engine):
+    """close the engine, this function is implemented for easy patching in tests"""
+    if engine is not None:
+        engine.dispose()
 
 def configure_logging(logfile_path='', verbose=False):
     """
@@ -238,8 +236,7 @@ def _download(
     )
 
     log_step_header(
-        f"Selecting nearby station channels "
-        f"for each event via input search parameters",
+        f"Finding nearby stations for each event",
         3
     )
     # merge vents and stations (might raise FailedDownload):
@@ -355,7 +352,7 @@ def save_download_run(engine, config: dict, log_file_path: str, d_stats: dict) -
             [create_insert_statement(models.DownloadRun)],
             [dict(
                 id=download_id,
-                time=datetime.now(UTC).replace(tzinfo=None),
+                time=datetime.now(UTC).replace(tzinfo=None, microsecond=0),
                 config=config_str,
                 log=tmp_log,
                 summary=json.dumps(d_stats or {}),

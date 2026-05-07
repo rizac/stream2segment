@@ -18,7 +18,7 @@ from stream2segment.io.db.pdsql import (
     apply_table_dtypes, select_df, insert_df, sync_pkey
 )
 from stream2segment.io.db.models import Event, WebService
-from stream2segment.download.url import urlread, CustomResponseCode
+from stream2segment.download.url import read_url, CustomResponseCode
 from stream2segment.download.modules.utils import (
     fdsn_url_qs, fdsn_response_text_to_df, FailedDownload, NothingToDownload
 )
@@ -28,6 +28,13 @@ logger = logging.getLogger(__name__)
 
 
 url_file_prefix = "file://"
+lat_col = Event.latitude.key
+lon_col = Event.longitude.key
+mag_col = Event.magnitude.key
+depth_col = Event.depth_km.key
+time_col = Event.time.key
+url_col = WebService.url.key
+magtype_col = Event.mag_type.key
 
 
 EVENTWS_MAPPING = {
@@ -43,27 +50,31 @@ EVENTWS_MAPPING = {
 def get_events(
     *,
     engine: Engine,
-    urls: str | Iterable[str],
+    urls: Iterable[str],
     evt_query_args: dict,
     start: datetime,
     end: datetime,
     download_timeout,
     event_overlap_tolerance: dict,
-    on_event_conflict: Literal["keep", "discard"] = "keep",
+    on_event_conflict: Literal["keep", "discard"] | str = "keep",
     show_progress=True,
 ) -> pd.DataFrame:
     """Return the event data frame from the given url or local file"""
-
-    if isinstance(urls, str):
-        urls = [urls]
 
     dfr_iter = download_events(
         urls, evt_query_args, start, end, download_timeout, show_progress
     )
     # pd_df_list surely not empty (otherwise we raised FailedDownload)
     events = pd.concat(dfr_iter, axis=0, ignore_index=True, copy=False)
-    events[WebService.url.key] = events[WebService.url.key].astype("category")
-    sync_webservice_ids_with_db(events, engine, merge_on=Event.webservice_id.key)
+
+    events[url_col] = events[url_col].astype("category")
+    ws_id_col = Event.webservice_id.key
+    sync_webservice_ids_with_db(events, engine, merge_on=ws_id_col)
+    wsid_na = pd.isna(events[ws_id_col])
+    if wsid_na.any():
+        logger.warning(
+            f"Discarding {wsid_na.sum()} event(s) (associated URL not saved to DB)"
+        )
     events = save_events(
         events,
         engine,
@@ -76,11 +87,11 @@ def get_events(
 
     return events[[
         Event.id.key,
-        Event.magnitude.key,
-        Event.latitude.key,
-        Event.longitude.key,
-        Event.depth_km.key,
-        Event.time.key
+        mag_col,
+        lat_col,
+        lon_col,
+        depth_col,
+        time_col
     ]]
 
 
@@ -103,7 +114,7 @@ def download_events(
                 yield read_events_file(url)
             else:
                 url = EVENTWS_MAPPING.get(url, url)
-                yield from download_from_url(
+                yield from download_events_from_url(
                     url, evt_query_args, start, end, timeout, show_progress
                 )
         except Exception as exc:
@@ -135,12 +146,12 @@ def read_events_file(file_path: str) -> pd.DataFrame:
 
     col_names = {
         # ("id", "event_id", "eventid",  "evt_id"): Event.id.key,
-        ("time",): Event.time.key,
-        ("latitude", "lat"): Event.latitude.key,
-        ("longitude", "lon"): Event.longitude.key,
-        ("depth_km", "depth"): Event.depth_km.key,
-        ("magnitude", "mag"): Event.magnitude.key,
-        ("mag_type", "magtype"): Event.mag_type.key,
+        ("time",): time_col,
+        ("latitude", "lat"): lat_col,
+        ("longitude", "lon"): lon_col,
+        ("depth_km", "depth"): depth_col,
+        ("magnitude", "mag"): mag_col,
+        ("mag_type", "magtype"): magtype_col,
     }
     rename = {}
 
@@ -157,7 +168,7 @@ def read_events_file(file_path: str) -> pd.DataFrame:
     return apply_table_dtypes(Event, dfr, drop_non_nullable=True)
 
 
-def download_from_url(
+def download_events_from_url(
     base_url,
     evt_query_args,
     start: datetime,
@@ -186,7 +197,7 @@ def download_from_url(
         while downloads:
             evt_query_args = downloads.pop(0)
             url = fdsn_url_qs(base_url, **evt_query_args)
-            response = urlread(url, timeout)
+            response = read_url(url, timeout)
 
             if response.is_ok:
                 if len(downloads) == 0:
@@ -218,16 +229,16 @@ def fdsn_event_response_text_to_df(response: str):
         # ContributorID|MagType|Magnitude|MagAuthor|EventLocationName|EventType
         columns = {
             dframe.columns[0]: Event.event_id.key,
-            dframe.columns[1]: Event.time.key,
-            dframe.columns[2]: Event.latitude.key,
-            dframe.columns[3]: Event.longitude.key,
-            dframe.columns[4]: Event.depth_km.key,
+            dframe.columns[1]: time_col,
+            dframe.columns[2]: lat_col,
+            dframe.columns[3]: lon_col,
+            dframe.columns[4]: depth_col,
             # skip Author (Rarely used, memory-intensive text field)
             # dframe.columns[6]: Event.catalog.key,
             # skip Contributor (Rarely used, memory-intensive text field)
             # skip ContributorID (Rarely used, memory-intensive text field)
-            dframe.columns[9]: Event.mag_type.key,
-            dframe.columns[10]: Event.magnitude.key
+            dframe.columns[9]: magtype_col,
+            dframe.columns[10]: mag_col
             # skip MagAuthor (Rarely used, memory-intensive text field)
             # skip EventLocationName (Rarely used, memory-intensive text field)
             # skip EventType (Rarely used, memory-intensive text field)
@@ -296,8 +307,6 @@ def sync_webservice_ids_with_db(
     dfr: pd.DataFrame, engine, merge_on:str
 ) -> pd.DataFrame:
 
-    url_col = WebService.url.key
-
     if not pd.api.types.is_categorical_dtype(dfr[url_col]):
         dfr[url_col] = dfr[url_col].astype("category")
     ws_df = pd.DataFrame({url_col: dfr[url_col].cat.categories})
@@ -313,15 +322,17 @@ def sync_webservice_ids_with_db(
 
     id_na = ws_df[id_col].isna()
     if id_na.any():
-        inserted, failed = insert_df(ws_df[id_na], engine, WebService)
-        if (~id_na).any():
-            ws_df = pd.concat([inserted, ws_df[~id_na]], ignore_index=True)
-        else:
+        inserted, failed = insert_df(
+            ws_df[id_na].drop(columns=id_col), engine, WebService
+        )
+        if id_na.all():
             ws_df = inserted
-        if failed:
+        else:
+            ws_df = pd.concat([inserted, ws_df[~id_na]], ignore_index=True)
+        if not failed.empty:
             logger.warning(
-                f"Failed to insert {len(failed):,} "
-                f"WebService url(s) to DB, discarding"
+                f"Discarding {len(failed):,} "
+                f"WebService URL(s) (error while inserting to DB)"
             )
 
     # avoid conflicts (remove merge_on column, if any):
@@ -336,24 +347,19 @@ def sync_webservice_ids_with_db(
 def save_events(
     events: pd.DataFrame,
     engine: Engine,
-    lon_tol_km=5,
-    lat_tol_km=5,
-    depth_tol_km=5,
-    time_tol_sec=30,
-    on_event_conflict: str = 'keep',
+    lon_tol_km,
+    lat_tol_km,
+    depth_tol_km,
+    time_tol_sec,
+    on_event_conflict: Literal['keep', 'discard'] | str,
     show_progress=False
 ):
     events.reset_index(drop=True, inplace=True)
 
-    lat_col = Event.latitude.key
-    lon_col = Event.longitude.key
-    depth_col = Event.depth.key
-    time_col = Event.time.key
-
     _suf = ".-"
 
     def round(series, abs_tol):
-        epsilon = np.finfo(float).tiny  # smallest float (for safety instead of 0)
+        epsilon = np.finfo(float).eps  # (for safety instead of 0)
         return series if abs_tol <= epsilon else (series / abs_tol).round().astype(int)
 
     # first check equal events in the current dataframe:
@@ -365,62 +371,55 @@ def save_events(
     cmp_cols = [lat_col, lon_col, depth_col, time_col]
     cmp_cols_round = [_ + _suf for _ in cmp_cols]
 
-    conflict_ids = []
     drop_ids = []
 
     for _, ev_df in events[events.duplicated(cmp_cols_round)].groupby([
         lat_col + _suf, lon_col + _suf, depth_col + _suf, time_col + _suf
     ]):
-        # different mag_types? If preferred_mag_types provided check, otherwise conflicts
-        aval_mag_types = pd.unique(ev_df[Event.mag_type.key])
-        if len(aval_mag_types) > 1:
-            preferred_mag_type = None
-            if preferred_mag_types is not None:
-                for ma_type in preferred_mag_types:
-                    if ma_type in aval_mag_types:
-                        preferred_mag_type = ma_type
-                        break
-            if preferred_mag_type is None:
-                conflict_ids.extend(ev_df.index)
-                continue
-            else:
-                # take first mag type (if we have more than once):
-                keep_idx = (
-                    ev_df[ev_df[Event.mag_type.key] == preferred_mag_type].index[0]
-                )
-                drop_ids.extend(ev_df[ev_df.index != keep_idx].index)
-        else:
+        _drop_ids = []
+        if ev_df[magtype_col].nunique(dropna=True) == 1:
             # same mag type, take first index that has max mag:
-            drop_ids.extend(
-                ev_df.index.difference([ev_df[Event.magnitude.key].idxmax()])
+            _drop_ids.extend(
+                ev_df.index.difference([ev_df[mag_col].idxmax()])
             )
+        elif on_event_conflict == 'discard':
+            _drop_ids.extend(ev_df.index)
+        elif on_event_conflict != 'keep':
+            for ma_type in on_event_conflict.split(','):
+                mask = ev_df[magtype_col].str.lower() == ma_type.strip().lower()
+                if mask.any():
+                    _drop_ids.extend(
+                        ev_df.index.difference([mask.idxmax()])  # take first true
+                    )
+                    break
+            else:
+                # no break loop hit:
+                _drop_ids.extend(ev_df.index)
+        if _drop_ids:
+            logger.warning(f"Discarding {len(_drop_ids)} overlapping events: "
+                           f"{to_urls(ev_df.loc[_drop_ids])}")
+            drop_ids.extend(_drop_ids)
 
-    if conflict_ids:
-        logger.warning(events.loc[conflict_ids].to_string(index=False, na_rep=''))
-        raise FailedDownload(
-            f'{len(conflict_ids)} spatio-temporal conflict(s) in events, see log for details'
-        )
 
     if drop_ids:
-        logger.warning(f"Dropping {len(drop_ids)} duplicated events")
+        logger.info(f"{len(drop_ids):,} overlapping event(s) discarded")
         events = events[~events.index.isin(drop_ids)]
 
     cols = events.columns
-    conflicts = 0
     new_events = []
     # uc_cols = [Event.eventid.key, Event.catalog.key]
 
     where_stmt = (
-        (Event.latitude >= events[Event.latitude.key].min()) &
-        (Event.latitude <= events[Event.latitude.key].max()) &
-        (Event.longitude >= events[Event.longitude.key].min()) &
-        (Event.longitude <= events[Event.longitude.key].max()) &
-        (Event.time >= events[Event.time.key].min()) &
-        (Event.time <= events[Event.time.key].max()) &
-        (Event.depth_km >= events[Event.depth_km.key].min()) &
-        (Event.depth_km <= events[Event.depth_km.key].max()) &
-        (Event.magnitude >= events[Event.magnitude.key].min()) &
-        (Event.magnitude <= events[Event.magnitude.key].max())
+        (Event.latitude >= events[lat_col].min()) &
+        (Event.latitude <= events[lat_col].max()) &
+        (Event.longitude >= events[lon_col].min()) &
+        (Event.longitude <= events[lon_col].max()) &
+        (Event.time >= events[time_col].min()) &
+        (Event.time <= events[time_col].max()) &
+        (Event.depth_km >= events[depth_col].min()) &
+        (Event.depth_km <= events[depth_col].max()) &
+        (Event.magnitude >= events[mag_col].min()) &
+        (Event.magnitude <= events[mag_col].max())
     )
     select_stmt = select(Event).where(where_stmt)
     _suf = '_db_'
@@ -466,12 +465,34 @@ def save_events(
         if not events.empty:
             new_events.append(events)
         events = pd.concat(new_events, ignore_index=True)
-        if not pd.api.types.is_integer_dtype(events[Event.id.key]):
-            events[Event.id.key] = events[Event.id.key].astype(int)
 
-    if conflicts > 0:
-        logger.info(
-            f'Found {conflicts} conflict(s) with saved DB events, '
-            f'using the latter instead of downloaded/supplied events'
-        )
+    events[Event.id.key] = events[Event.id.key].astype(int)
+
     return events
+
+
+def to_urls(dfr:pd.DataFrame, max_rows=3):
+    ret = []
+    _i = 0
+    if max_rows is None:
+        max_rows = np.inf
+    for row in dfr.itertuples(index=True):
+        url = getattr(row, url_col, None)
+        ev_id = getattr(row, Event.eventid.key, None)
+        if url is None and ev_id is None:
+            line = (
+                f'event #{row.Index + 1} ('
+                f'mag: {getattr(row, mag_col, "N/A")}, '
+                f'lat: {getattr(row, lat_col, "N/A")}, '
+                f'lon: {getattr(row, lon_col, "N/A")},'
+                f'time: {getattr(row, time_col, "N/A")})'
+            )
+        else:
+            line = fdsn_url_qs(url, eventid=ev_id)
+        ret.append(line)
+        _i += 1
+        if _i >= max_rows:
+            ret.append(f'(showing first {max_rows:,} of {len(dfr):,})')
+            break
+
+    return "\n".join(ret)

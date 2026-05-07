@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch
 import pytest
 from click.termui import progressbar
 
-from stream2segment.download.url import (urlread, URLError, socket, HTTPError)
+from stream2segment.download.url import (read_url, URLError, socket, HTTPError)
 from stream2segment.io.cli import Nop, get_progressbar
 from stream2segment.io.db import secure_dburl
 
@@ -54,36 +54,36 @@ def test_utils_url_read(mock_urlopen):
 
     mock_urlopen.side_effect = lambda url, **kw: mybytesio(url, **kw)
     with pytest.raises(TypeError):
-        urlread('', "name")
+        read_url('', "name")
 
     val = b'url'
     blockSize = 1024 * 1024
-    assert urlread(val, blockSize)[0] == val
+    assert read_url(val, blockSize)[0] == val
     mock_urlopen.assert_called_with(val)  # , timeout=DEFAULT_TIMEOUT)
     assert mockread.call_count == 2
     mockread.assert_called_with(blockSize)
 
     mock_urlopen.side_effect = lambda url, **kw: mybytesio(url, **kw)
 
-    assert urlread(val, arg_to_read=56)[0] == val
+    assert read_url(val, arg_to_read=56)[0] == val
     mock_urlopen.assert_called_with(val, arg_to_read=56)
     assert mockread.call_count == 1  # because blocksize is -1
 
     mock_urlopen.side_effect = lambda url, **kw: mybytesio(URLError('wat?'))
-    d, e, c = urlread(val)
+    d, e, c = read_url(val)
     assert isinstance(e, URLError)
 
     mock_urlopen.side_effect = lambda url, **kw: mybytesio(socket.timeout())
-    d, e, c = urlread(val)
+    d, e, c = read_url(val)
     assert isinstance(e, socket.error)
 
     mock_urlopen.side_effect = lambda url, **kw: mybytesio(HTTPError('url', 500, '?', None, None))
-    d, e, c = urlread(val)
+    d, e, c = read_url(val)
     assert isinstance(e, HTTPError)
 
     err = HTTPError('url', 500, '?', None, None)
     mock_urlopen.side_effect = lambda url, **kw: mybytesio(err)
-    assert urlread(val) == (None, err, 500)
+    assert read_url(val) == (None, err, 500)
 
 
 @pytest.mark.parametrize('input, expected_result, ',

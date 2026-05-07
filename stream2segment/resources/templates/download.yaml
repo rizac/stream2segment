@@ -227,7 +227,7 @@ advanced_settings:
     lon: 5 # in km
     depth: 5  # in km
     time: 30  # in s
-  # What to do with overlapping events: "keep", "discard", or a single / comma-separated
-  # list of preferred magnitude types (e.g. "Mw,Mb"). If no preferred magnitude type is
-  # found, all events are kept.
+  # Resolve overlaps among downloaded events (saved events always take precedence):
+  # "keep", "discard", or a comma-separated, case-insensitive list of preferred magnitude types
+  # (e.g. "mw,mb". The first matching type is kept; if none match, discard all)
   on_event_conflict: "keep"

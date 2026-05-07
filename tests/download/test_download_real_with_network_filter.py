@@ -6,6 +6,7 @@ Created on Feb 4, 2016
 import sys
 
 from click.testing import CliRunner
+from sqlalchemy.testing.plugin.plugin_base import FixtureFunctions
 
 from stream2segment.download.modules.utils import NothingToDownload
 from io import StringIO
@@ -32,7 +33,6 @@ def no_connection():
 
 download_save_segments_path = 'stream2segment.download.main.download_and_save'
 get_events_df_path = 'stream2segment.download.main.get_events'
-# get_post_data = 'stream2segment.download.modules.channels.get_post_data'
 mock_merge_event_stations_path = 'stream2segment.download.main.merge_events_stations'
 
 
@@ -41,11 +41,11 @@ mock_merge_event_stations_path = 'stream2segment.download.main.merge_events_stat
 @patch(download_save_segments_path)
 @patch(get_events_df_path)
 # @patch(patches.get_post_data)  # FIXME REMOVE?
-def test_real_run_old_buggy_network_filter( # mock_get_post_data,  # FIXME REMOVE
-                                           mock_get_events_df,
-                                           mock_download_save_segments,
-                                           # fixtures:
-                                           db, log_capture, data):
+def test_real_run_old_buggy_network_filter(
+    mock_get_events_df, mock_download_save_segments,
+    # fixtures:
+    db, log_capture, test_data_dir
+):
     """This tess a REAL download run with an OLD bug when providing filtering on network
     and stations with negations only. We just test that the correct 'NothingToDownload'
     messages are issued. The download of segments and inventories (the time-consuming
@@ -79,15 +79,34 @@ def test_real_run_old_buggy_network_filter( # mock_get_post_data,  # FIXME REMOV
         raise NothingToDownload("custom message")
     mock_download_save_segments.side_effect = func_
 
-    cfg_file = data.path("download-network-filter.yaml")
+    cfg_file = test_data_dir / "download-network-filter.yaml"
 
-    result = CliRunner().invoke(cli, ['download',
-                                    '-c', cfg_file,
-                                    '--dburl', db.url,
-                                    ])
+    result = CliRunner().invoke(
+        cli, [
+            'download', '-c', str(cfg_file), '--dburl', db.url,
+            '--net', 'BE,16,DK,1B,1C,3D,BK', '--sta', 'MEM,MG09,NUUG,KARA,ANR,MM01,BRIB'
+        ]
+    )
+
+    # do it again (test what's been written):
+    result = CliRunner().invoke(
+        cli, [
+            'download', '-c', str(cfg_file), '--dburl', db.url,
+            '--net', 'BE,16,DK,1B,1C,3D,BK', '--sta', 'MEM,MG09,NUUG,KARA,ANR,MM01,BRIB'
+        ]
+    )
+
+    result = CliRunner().invoke(
+        cli, [
+            'download', '-c', str(cfg_file), '--dburl', db.url
+        ]
+    )
     assert not result.exit_code == 0
     assert 'No station found' in result.output
 
+    from stream2segment.download.inputvalidation import extract_download_args
+    with patch("stream2segment.download.inputvalidation.extract_download_args") as mock_load_config:
+        mock_load_config.side_effect = lambda *a, **kw: dict()
 
 @pytest.mark.skipif(no_connection(),
                     reason="no internet connection")

@@ -9,13 +9,13 @@ from urllib.request import Request
 
 from stream2segment.download.exc import FailedDownload
 from stream2segment.download.modules.events import events_df_list
-from stream2segment.download.url import read_async, urlread
+from stream2segment.download.url import read_urls, read_url
 
 
 def no_connection():
     from stream2segment.download.url import HTTPError
     try:
-        data, err, code = urlread("https://geofon.gfz-potsdam.de/")
+        data, err, code = read_url("https://geofon.gfz-potsdam.de/")
         return err is not None  # or isinstance(err, HTTPError)
     except Exception:  # noqa
         return True
@@ -64,10 +64,10 @@ level=channel"""
                               data=('format=text\nlevel=channel\n'+post_data_str).encode('utf8')))
                 for url, id_ in zip(urls, ids))
 
-    for obj, result, exc, code in read_async(iterable, urlkey=lambda obj: obj[-1],
-                                                       blocksize=1048576,
-                                                       max_workers=None,
-                                                       decode='utf8', timeout=120):
+    for obj, result, exc, code in read_urls(iterable, urlkey=lambda obj: obj[-1],
+                                            blocksize=1048576,
+                                            max_workers=None,
+                                            decode='utf8', timeout=120):
 
         pass
 #     r = Request("http://geofon.gfz-potsdam.de/fdsnws/station/1/query",

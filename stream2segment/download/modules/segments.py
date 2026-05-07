@@ -18,7 +18,11 @@ import psutil
 from sqlalchemy import Engine
 
 from stream2segment.download import url
+from stream2segment.download.modules.channels import url_col, orient_col, net_col, \
+    sta_col, loc_col, band_col, inst_col
 from stream2segment.download.modules.mseedlite import MSeedError, Input
+from stream2segment.download.modules.stationsearch import atime_col, dist_col, \
+    ev_id_col, ch_id_col
 from stream2segment.io.cli import get_progressbar
 from stream2segment.io.db.pdsql import (
     sync_pkey, get_row_count, get_col_max, create_insert_statement, execute_sql
@@ -30,7 +34,7 @@ from stream2segment.download.modules.utils import (
     fdsn_url_qs, IdOnceLogFilter, fdsn_url, FailedDownload
 )
 from stream2segment.download.url import (
-    get_host, read_async, Response, urlread
+    get_host, read_urls, Response, read_url
 )
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
@@ -49,7 +53,7 @@ def prepare_for_download(
             engine,
             Segment,
             Segment.id.key,
-        [Segment.event_id.key, Segment.channel_id.key],
+        [ev_id_col, ch_id_col],
             chunksize=min(1000, len(segments))
         )
         # max_id = segments_with_pkeys.attrs.pop(f'{Segment.id.key}_max')
@@ -110,22 +114,22 @@ def download_and_save(
     """
 
     stats = DownloadStats(
-        get_host(u) for u in segments[WebService.url.key].cat.categories
+        get_host(u) for u in segments[url_col].cat.categories
     )
 
     user_passwords: dict[str, tuple[str,str]] = None
     if credentials is not None:
         user_passwords = {}
-        for url in segments[WebService.url.key].cat.categories:
+        for url in segments[url_col].cat.categories:
             if isinstance(credentials, bytes):
                 req = Request(
                     fdsn_url(url, new_service='dataselect', new_method='auth'),
                     data=credentials
                 )
-                response = urlread(req)
+                response = read_url(req)
                 if not response.is_ok or not response.data:
                     if 'queryauth' in url:
-                        segments = segments[segments[WebService.url.key] != url]
+                        segments = segments[segments[url_col] != url]
                     logger.warning(
                         f'Could not get user password via token from {req.full_url}')
                     continue
@@ -249,7 +253,7 @@ def download_and_save(
 
                 if max_download_concurrency <= 1 or not retry_decreasing_concurrency:
                     # add segments not processed to the stats
-                    counts = segments[WebService.url.key].value_counts()
+                    counts = segments[url_col].value_counts()
                     for url_, count in counts.items():
                         stats.increment(get_host(url_),None, count)
                         pbar.update(count)
@@ -306,12 +310,7 @@ def download(
     #     return dc_dataselect_manager.opener(dframe[SEG.DCID].iloc[0])
 
     grp_cols = [
-        Segment.event_id.key,
-        Channel.network_code.key,
-        Channel.station_code.key,
-        Channel.location_code.key,
-        Channel.band_code.key,
-        Channel.instrument_code.key
+        ev_id_col, net_col, sta_col, loc_col, band_col, inst_col
     ]
     dataframes = segments.groupby(grp_cols, sort=False, observed=True)
 
@@ -320,8 +319,8 @@ def download(
     signal_w = timedelta(minutes=time_window[1])
 
     def get_request(ev_id, net, sta, loc, band, inst, dfr:pd.DataFrame) -> str:
-        dc_url = dfr[WebService.utl.key].iloc[0]
-        a_time = dfr[Segment.arrival_time.key].iloc[0].to_pydatetime()
+        dc_url = dfr[url_col].iloc[0]
+        a_time = dfr[atime_col].iloc[0].to_pydatetime()
         # start and end (round down and round up to nearest second):
         req_start = (a_time + noise_w).replace(microsecond=0),
         req_end = (a_time + signal_w + timedelta(seconds=1)).replace(microsecond=0),
@@ -331,7 +330,7 @@ def download(
             'net': net or None,
             'sta': sta or None,
             'loc': loc or None,
-            'cha': ",".join(f'{band}{inst}{o}' for o in dfr[Channel.orientation_code.key]),
+            'cha': ",".join(f'{band}{inst}{o}' for o in dfr[orient_col]),
         }
         _url = fdsn_url_qs(dc_url, **params)
         requests_cache[_url] = {
@@ -340,7 +339,7 @@ def download(
         } | {'request_start': req_start, 'request_end': req_end}
         return _url
 
-    for response in read_async(
+    for response in read_urls(
         (get_request(*params, dfr) for (params, dfr) in dataframes),  # noqa
         max_concurrency=max_download_concurrency,
         #max_global_concurrency=max_thread_workers,
@@ -484,15 +483,15 @@ def prepare_segment_to_insert(
     db_id: int, segments: pd.DataFrame, idx: int, mseed_data, fsamp, start, end, maxgap
 ) -> dict:
 
-    arrival_time = segments.at[idx, "arrival_time"]
+    arrival_time = segments.at[idx, atime_col]
     return{
         Segment.id.key: db_id,
-        Segment.event_distance_km.key: int(
-            segments.at[idx, Segment.event_distance_km.key]
+        dist_col: int(
+            segments.at[idx, dist_col]
         ),
-        Segment.webservice_id.key: int(segments.at[idx, Segment.webservice_id.key]),
-        Segment.event_id.key: int(segments.at[idx, Segment.event_id.key]),
-        Segment.channel_id.key: int(segments.at[idx, Segment.channel_id.key]),
+        # Segment.webservice_id.key: int(segments.at[idx, Segment.webservice_id.key]),
+        ev_id_col: int(segments.at[idx, ev_id_col]),
+        ch_id_col: int(segments.at[idx, ch_id_col]),
         Segment.noise_window_sec.key: int(round(
             (start - arrival_time).total_seconds()
         )),

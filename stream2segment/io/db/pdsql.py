@@ -188,7 +188,7 @@ def insert_df(
     table_model: type[DeclarativeBase],
     chunksize=5000,
     on_missing_pkey_col: Literal["auto-increment", "raise"] = 'auto-increment'
-):
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Insert dfr to the given table model. The primary key column of the table must be
     an auto-increment (sequential) integer. If not present in the dataframe, the id
