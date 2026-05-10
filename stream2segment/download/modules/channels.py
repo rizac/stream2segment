@@ -498,7 +498,7 @@ def to_datetime(series: pd.Series, fillna=None):
 
 
 def to_latlon(series: pd.Series):
-    return pd.to_numeric(series, errors='coerce').round(5)
+    return pd.to_numeric(series, errors='coerce').round(6)
 
 
 def resolve_intra_conflicts(fdsn_df: pd.DataFrame, url:str):
@@ -687,7 +687,7 @@ def save_channels(engine: Engine, channels: pd.DataFrame):
         Channel.latitude,
         Channel.longitude,
         Channel.start_time,
-        Channel.depth,
+        # Channel.depth,
         Channel.data_webservice_id
     ).where(where)):
         channels = channels.merge(
@@ -697,14 +697,15 @@ def save_channels(engine: Engine, channels: pd.DataFrame):
         mismatches = on_db & (
             (channels[lat_col] != channels[lat_col + _suf]) |
             (channels[lon_col] != channels[lon_col + _suf]) |
-            (channels[depth_col] != channels[depth_col + _suf])
+            (channels[ws_id_col] != channels[ws_id_col + _suf]) # |
+            # (channels[depth_col] != channels[depth_col + _suf])
         )
         if mismatches.any():
             # write to dataframe and log FIXME log!
             channels.loc[mismatches, lat_col] = channels.loc[mismatches, lat_col + _suf]
             channels.loc[mismatches, lon_col] = channels.loc[mismatches, lon_col + _suf]
-            channels.loc[mismatches, depth_col] = (
-                channels.loc[mismatches, depth_col + _suf]
+            channels.loc[mismatches, ws_id_col] = (
+                channels.loc[mismatches, ws_id_col + _suf]
             )
         channels[id_col] = channels[id_col].fillna(
             channels[id_col + _suf]
@@ -714,7 +715,7 @@ def save_channels(engine: Engine, channels: pd.DataFrame):
         )
 
     inserted, failed = insert_df(
-        channels[channels[id_col].isna()], engine, Channel
+        channels[channels[id_col].isna()].drop(columns=id_col), engine, Channel
     )
     if not failed.empty:
         logger.warning(

@@ -402,11 +402,9 @@ def save_events(
         logger.info(f"{len(drop_ids):,} overlapping event(s) discarded")
         events = events[~events.index.isin(drop_ids)]
 
-    cols = events.columns
-    new_events = []
-    # uc_cols = [Event.eventid.key, Event.catalog.key]
+    id_col = Event.id.key
 
-    where_stmt = (
+    where = (
         (Event.latitude >= events[lat_col].min()) &
         (Event.latitude <= events[lat_col].max()) &
         (Event.longitude >= events[lon_col].min()) &
@@ -418,11 +416,17 @@ def save_events(
         (Event.magnitude >= events[mag_col].min()) &
         (Event.magnitude <= events[mag_col].max())
     )
-    select_stmt = select(Event).where(where_stmt)
-    _suf = '_.db._'
-    id_col = Event.id.key
 
-    for saved_events in select_df(engine, select_stmt):
+    events[id_col] = pd.Series(pd.NA, index=events.index, dtype="Int64")
+    _suf = '_.db._'
+
+    for saved_events in select_df(engine, select(
+        Event.id,
+        Event.latitude,
+        Event.longitude,
+        Event.time,
+        Event.depth_km,
+    ).where(where)):
         saved_events[lat_col + _round_suf] = round(
             saved_events[lat_col], kilometers2degrees(lat_tol_km)
         )
@@ -462,7 +466,7 @@ def save_events(
         )
 
     inserted, failed = insert_df(
-        events[events[id_col].isna()], engine, Channel
+        events[events[id_col].isna()].drop(columns=id_col), engine, Event
     )
     if not failed.empty:
         logger.warning(
@@ -473,6 +477,7 @@ def save_events(
         )
     if not inserted.empty:
         # put id_col into events:
+        uc_cols = [c for c in events.columns if c != id_col]
         events = events.merge(
             inserted[uc_cols + [id_col]], how='left', on=uc_cols,  suffixes = ('', _suf)
         )
