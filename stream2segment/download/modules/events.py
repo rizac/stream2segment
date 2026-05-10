@@ -356,26 +356,23 @@ def save_events(
 ):
     events.reset_index(drop=True, inplace=True)
 
-    _suf = ".-"
+    _round_suf = "_.round._"
 
     def round(series, abs_tol):
         epsilon = np.finfo(float).eps  # (for safety instead of 0)
         return series if abs_tol <= epsilon else (series / abs_tol).round().astype(int)
 
     # first check equal events in the current dataframe:
-    events[lat_col + _suf] = round(events[lat_col], kilometers2degrees(lat_tol_km))
-    events[lon_col + _suf] = round(events[lon_col], kilometers2degrees(lon_tol_km))
-    events[depth_col + _suf] = round(events[depth_col], depth_tol_km)
-    events[time_col + _suf] = round(events[time_col].dt.timestamp, time_tol_sec)
+    events[lat_col + _round_suf] = round(events[lat_col], kilometers2degrees(lat_tol_km))
+    events[lon_col + _round_suf] = round(events[lon_col], kilometers2degrees(lon_tol_km))
+    events[depth_col + _round_suf] = round(events[depth_col], depth_tol_km)
+    events[time_col + _round_suf] = round(events[time_col].dt.timestamp, time_tol_sec)
 
-    cmp_cols = [lat_col, lon_col, depth_col, time_col]
-    cmp_cols_round = [_ + _suf for _ in cmp_cols]
+    cmp_cols_round = [_ + _round_suf for _ in [lat_col, lon_col, depth_col, time_col]]
 
     drop_ids = []
 
-    for _, ev_df in events[events.duplicated(cmp_cols_round)].groupby([
-        lat_col + _suf, lon_col + _suf, depth_col + _suf, time_col + _suf
-    ]):
+    for _, ev_df in events[events.duplicated(cmp_cols_round)].groupby(cmp_cols_round):
         _drop_ids = []
         if ev_df[magtype_col].nunique(dropna=True) == 1:
             # same mag type, take first index that has max mag:
@@ -422,52 +419,71 @@ def save_events(
         (Event.magnitude <= events[mag_col].max())
     )
     select_stmt = select(Event).where(where_stmt)
-    _suf = '_db_'
+    _suf = '_.db._'
+    id_col = Event.id.key
+
     for saved_events in select_df(engine, select_stmt):
-        saved_events[lat_col + _suf] = round(
+        saved_events[lat_col + _round_suf] = round(
             saved_events[lat_col], kilometers2degrees(lat_tol_km)
         )
-        saved_events[lon_col + _suf] = round(
+        saved_events[lon_col + _round_suf] = round(
             saved_events[lon_col], kilometers2degrees(lon_tol_km)
         )
-        saved_events[depth_col + _suf] = round(
+        saved_events[depth_col + _round_suf] = round(
             saved_events[depth_col], depth_tol_km
         )
-        saved_events[time_col + _suf] = round(
+        saved_events[time_col + _round_suf] = round(
             saved_events[time_col].dt.timestamp, time_tol_sec
         )
 
-        merged = events.merge(
+        events = events.merge(
             saved_events,
             how='left',
             on=cmp_cols_round,
-            suffixes=('', _suf),
-            indicator = True
+            suffixes=('', _suf)
         )
-        suf_cols = [c for c in merged.columns if c.endswith(_suf)]
-        merged = merged.drop_duplicates(subset=cmp_cols_round, keep='first')
-        matched = merged[merged["_merge"] == "both"]
-        matched.rename(columns={c: c.removesuffix(_suf) for c  in suf_cols}, inplace=True)
-        new_events.append(matched[cols])
+        on_db = events[id_col + _suf].notna()
+        mismatches = on_db & (
+            (events[lat_col + _round_suf] != events[lat_col + _round_suf + _suf]) |
+            (events[lon_col + _round_suf] != events[lon_col + _round_suf + _suf]) |
+            (events[depth_col + _round_suf] != events[depth_col + _round_suf + _suf]) |
+            (events[time_col + _round_suf] != events[time_col + _round_suf + _suf])
+        )
+        if mismatches.any():
+            # write to dataframe and log FIXME log!
+            events.loc[mismatches, lat_col] = events.loc[mismatches, lat_col + _suf]
+            events.loc[mismatches, lon_col] = events.loc[mismatches, lon_col + _suf]
+            events.loc[mismatches, depth_col] = events.loc[mismatches, depth_col + _suf]
+            events.loc[mismatches, time_col] = events.loc[mismatches, time_col + _suf]
 
-        events = merged[merged["_merge"] == "left_only"]
-        events.drop(columns=suf_cols + ["_merge"], inplace=True)
+        events[id_col] = events[id_col].fillna(events[id_col + _suf])
+        events.drop(
+            columns=[c for c in events.columns if c.endswith(_suf)], inplace=True
+        )
 
-    if not events.empty:  # it might be if we entered the for loop
-        events, failed = insert_df(events, engine, Event)
-        if not failed.empty:
-            logger.warning(f"Unable to insert {len(failed)} event(s)")
-            logger.warning(failed.to_string(
+    inserted, failed = insert_df(
+        events[events[id_col].isna()], engine, Channel
+    )
+    if not failed.empty:
+        logger.warning(
+            f"{len(failed)} events(s) discarded (error while inserting to DB)\n" +
+            failed.to_string(
                 max_rows=30, index=False, na_rep='', show_dimensions=True
-            ))
+            )
+        )
+    if not inserted.empty:
+        # put id_col into events:
+        events = events.merge(
+            inserted[uc_cols + [id_col]], how='left', on=uc_cols,  suffixes = ('', _suf)
+        )
+        events.drop(
+            columns=[c for c in events.columns if c.endswith(_suf)], inplace=True
+        )
 
-    if new_events:
-        if not events.empty:
-            new_events.append(events)
-        events = pd.concat(new_events, ignore_index=True)
+    events.drop(columns=cmp_cols_round, inplace=True)
 
-    events[Event.id.key] = events[Event.id.key].astype(int)
-
+    # for safety:
+    events[id_col] = events[id_col].astype(int)
     return events
 
 

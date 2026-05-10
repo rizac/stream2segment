@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 from stream2segment.download.modules.utils import NothingToDownload, FailedDownload
-from stream2segment.io.db.models import Channel, Event, Segment, WebService
+from stream2segment.io.db.models import Event, Segment
 from stream2segment.io.utils import get_progressbar
 from stream2segment.download.modules.events import (
     lat_col as ev_lat_col, lon_col as ev_lon_col, mag_col as mag_col,
@@ -28,7 +28,6 @@ ch_id_col = Segment.channel_id.key
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__)
-
 
 
 def merge_events_stations(
@@ -81,10 +80,7 @@ def merge_events_stations(
             # channel start time matches event time:
             condition &= (channels[start_col] <= ev_time)
             # channel end time None or matches event time:
-            condition &= (
-                # channels[end_col].isna() |
-                (channels[end_col] >= ev_time + oneday)
-            )
+            condition &= (channels[end_col] > ev_time + oneday)
             # add conditions based on matching radia:
             if min_radius:  # not None (legacy code) or 0:
                 condition &= (l2d >= min_radius)

@@ -175,7 +175,8 @@ def sync_pkey(
             dfr = dfr.merge(db_df, how='left', on=uc_cols, suffixes=('', suffix))
             # For each row, if dfr[pkey_col + suffix] is not null (row exists on db),
             # set it on dfr[pkey_col]. Otherwise, keep dfr[pkey_col]:
-            dfr[pkey_col] = dfr[pkey_col + suffix].combine_first(dfr[pkey_col])
+            # dfr[pkey_col] = dfr[pkey_col + suffix].combine_first(dfr[pkey_col])
+            dfr[pkey_col] = dfr[pkey_col].fillna(dfr[pkey_col + suffix])
             # drop new ids (already merged):
             dfr = dfr.drop(columns=[pkey_col + suffix])
 
@@ -197,6 +198,9 @@ def insert_df(
 
     See `sync_pkey` for more information
     """
+    if dfr.empty:
+        return dfr.head(0), dfr.head(0)
+
     stmt = [create_insert_statement(table_model)]
     start = 0
     index_inserted = set()

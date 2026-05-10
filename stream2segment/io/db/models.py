@@ -167,7 +167,7 @@ class Channel(Base):
     longitude = Column(Float, nullable=False, index=True)
     elevation = Column(Float)
     # site_name = Column(String)
-    # start_time = Column(DateTime, nullable=False)  # = channel start time
+    start_time = Column(DateTime, nullable=False)  # = channel start time
     # end_time = Column(DateTime)  # = channel end time
     location_code = Column(String(8), nullable=False)
     band_code = Column(String(1), nullable=False)
@@ -189,7 +189,8 @@ class Channel(Base):
             'station_code',
             'location_code',
             'instrument_code',
-            'band_code'
+            'band_code',
+            'orientation_code',
         ),
         UniqueConstraint(
             'network_code',
@@ -198,7 +199,7 @@ class Channel(Base):
             'band_code',
             'instrument_code',
             'orientation_code',
-            'data_webservice_id',
+            'start_time',
             name='unique_channel'
         ),
     )

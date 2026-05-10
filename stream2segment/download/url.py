@@ -13,7 +13,7 @@ from enum import IntEnum
 from multiprocessing.pool import ThreadPool
 from typing import Any
 
-from urllib.parse import urlparse  # , urlencode
+from urllib.parse import urlsplit  # , urlencode
 from urllib.error import HTTPError, URLError
 from http.client import HTTPException, responses as builtin_responses
 from urllib.request import (urlopen, build_opener, HTTPPasswordMgrWithDefaultRealm,
@@ -33,9 +33,9 @@ def get_host(url: str | Request, default_scheme="https://") -> str:
     """
     if isinstance(url, Request):
         url = url.full_url
-    parsed = urlparse(url)
+    parsed = urlsplit(url)
     if not parsed.scheme:
-        parsed = urlparse(f'{default_scheme}{url}')
+        parsed = urlsplit(f'{default_scheme}{url}')
     return parsed.hostname
 
 

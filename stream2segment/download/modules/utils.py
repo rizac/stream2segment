@@ -8,7 +8,7 @@ from io import StringIO
 from datetime import datetime, date
 import logging
 from typing import Literal
-from urllib.parse import urlencode, urlparse, urlunparse
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
 import pandas as pd
 from obspy.clients.fdsn.header import service
@@ -72,7 +72,7 @@ def fdsn_url(
     url: str,
     new_service: Literal['station', 'dataselect', 'event'] | None = None,
     new_method: Literal['query', 'queryauth', 'auth', 'version', 'application.wadl'] | None = None,   # noqa
-    check_scheme=True
+    new_query_string: str | None=None
 ):
     """
     Check that the given url is a valid FDSN URL and return it (with new service and
@@ -84,21 +84,24 @@ def fdsn_url(
         a string in ('station', 'dataselect', 'event')
     :param new_method: the new method, None will leave the url method. Must be a string
         in ('query', 'queryauth', 'auth', 'version', 'application.wadl')
-    :param check_scheme: if True (the default) check that the url is prefixed with a
-        scheme (e.g. https://), raising ValueError if missing. If False, urls can also
-        miss the schema
+    :param new_query_string: if None (the default) keeps the same query string (e.g.
+        "?net=AB&lat=39"), if present. Otherwise, set the new query string ("" means
+        removing the string entirely, as well as the leading "? character)
     """
     services = {'station', 'dataselect', 'event'}
     methods = {'query', 'queryauth', 'auth', 'version', 'application.wadl'}
 
-    parsed_url = urlparse(url)
-    if not parsed_url.scheme and check_scheme:
+    split_url = urlsplit(url)
+    if not split_url.scheme:
         raise ValueError('url starts with no scheme, e.g. "https://")')
 
-    if not parsed_url.netloc:
+    if not split_url.netloc:
         raise ValueError('url has no valid domain, e.g. "geofon.gfz.de"')
 
-    path = parsed_url.path
+    if split_url.fragment:
+        raise ValueError(f'Invalid fragment (#{split_url.fragment}) in url')
+
+    path = split_url.path
     # urlparse has already removed query char '?' and params and fragment
     # from the path (which starts with '/'). Now check the path:
     reg = re.match(
@@ -132,10 +135,17 @@ def fdsn_url(
     elif new_method not in methods:
         raise ValueError(f'Invalid argument method: {new_method}')
 
-    if new_service != service or new_method != method:
-        path2 = f'/fdsnws/{new_service}/{majorversion}/{new_method}'
-        new_parsed = parsed_url._replace(path=path2)
-        url = urlunparse(new_parsed)
+    if new_query_string is None:
+        new_query_string = split_url.query
+
+    if (
+        new_service != service or
+        new_method != method or
+        new_query_string != split_url.query
+    ):
+        new_path = f'/fdsnws/{new_service}/{majorversion}/{new_method}'
+        new_parsed = split_url._replace(path=new_path, query=new_query_string)
+        url = urlunsplit(new_parsed)
 
     return url
 
