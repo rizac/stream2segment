@@ -143,10 +143,6 @@ def sync_pkey(
     rows whose `id_col` value is greater than that maximum **ARE NOT YET INSERTED
     ON THE DATABASE**: the id was assigned to be safely used in insert operation.
 
-
-    :param pkey_col: string denoting the ID (primary key) table column. It
-        MUST be a SQL numeric column (preferably, an auto increment primary key
-        of type int)
     :param and unique_cols: list of strings denoting the unique constraint columns,
         i.e. the columns that must be unique for each row and can then be used to
         match equal rows. They should be relatively few and of type integer for better
@@ -201,28 +197,28 @@ def insert_df(
     """
     Insert dfr to the given table model. The primary key column of the table must be
     an auto-increment (sequential) integer (int or Int64). The column must be already
-    supplied (see `set_pkey`)
+    supplied (see `set_pkeys`)
     """
     if dfr.empty:
         return dfr, dfr.head(0)
 
     stmt = [insert(table_model)]
     start = 0
-    ids_inserted = set()
+    ids_failed = set()
 
     id_col = [col.name for col in table_model.__table__.primary_key.columns][0]
     while start < len(dfr):
         rows = list(iter_rows(dfr[start: start + chunksize]))
-        ids_inserted.update(  # Python Set update, not SQL!
-            r[id_col] for r in execute_sql(engine, stmt, rows)
-        )
+        ids_inserted = set(r[id_col] for r in execute_sql(engine, stmt, rows))
+        if len(ids_inserted) < len(rows):
+            ids_failed.update(set(r[id_col] for r in rows) - ids_inserted)
         start += chunksize
 
     failed = pd.DataFrame(columns=dfr.columns, data=[])
-    if len(ids_inserted) < len(dfr):
-        _mask = dfr[id_col].isin(ids_inserted)
-        failed = dfr[~_mask]
-        dfr = dfr[_mask]
+    if len(ids_failed):
+        failed_mask = dfr[id_col].isin(ids_failed)
+        failed = dfr[failed_mask]
+        dfr = dfr[~failed_mask]
 
     return dfr, failed
 

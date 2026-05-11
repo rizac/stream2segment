@@ -11,9 +11,8 @@ import os
 import ssl
 from enum import IntEnum
 from multiprocessing.pool import ThreadPool
-from typing import Any
 
-from urllib.parse import urlsplit  # , urlencode
+from urllib.parse import urlsplit
 from urllib.error import HTTPError, URLError
 from http.client import HTTPException, responses as builtin_responses
 from urllib.request import (urlopen, build_opener, HTTPPasswordMgrWithDefaultRealm,

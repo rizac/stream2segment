@@ -10,7 +10,6 @@ from datetime import datetime, timedelta, UTC
 from multiprocessing.pool import ThreadPool
 from urllib.request import urlopen
 
-import numpy as np
 import pandas as pd
 from obspy.signal.evrespwrapper import Channel
 from pandas.core.dtypes.common import is_categorical_dtype
@@ -30,7 +29,7 @@ from stream2segment.download.modules.utils import (
 logger = logging.getLogger(__name__)
 
 
-start_col = "start"
+start_col = Channel.start_time.key
 end_col = "end"
 net_col = Channel.network_code.key
 sta_col = Channel.station_code.key
@@ -82,7 +81,7 @@ def get_channels(
         reg = re.compile("|".join(f"^(?:{wild2regex(v)})$" for v in val))
         filter_funcs[key] = lambda s: ~s.str.match(reg)
     if min_sample_rate is not None and min_sample_rate > 0:
-        filter_funcs[Channel.sample_rate.key] = lambda s: s > min_sample_rate
+        filter_funcs[Channel.sample_rate.key] = lambda s: s >= min_sample_rate
 
     cha_df = download_channels(
         cha_urls,
@@ -93,7 +92,7 @@ def get_channels(
     )
     if cha_df.empty:
         raise NothingToDownload(
-            'No channel downloaded. Possible reasons: network error, '
+            'No channel downloaded. Possible reasons: no internet connection, '
             'all channels filtered out'
         )
 
@@ -101,7 +100,7 @@ def get_channels(
 
     cha_df = resolve_inter_conflicts(cha_df, eida_rs_urls)
     if cha_df.empty:
-        raise FailedDownload('No channel to work with after conflicts dropping')
+        raise FailedDownload('No channels left after dropping conflicts')
 
     ws_id_col = Channel.data_webservice_id.key
     cha_df = sync_webservice_ids_with_db(cha_df, engine, merge_on=ws_id_col)
@@ -117,17 +116,17 @@ def get_channels(
 
     if cha_df.empty:
         raise FailedDownload(
-            'No channel to work with after failed attempt to save channel webservices'
+            'No channels left after failing to save channel webservices'
         )
     cha_df = save_channels(engine, cha_df)
     if cha_df.empty:
         raise FailedDownload(
-            'No channel to work with after failed attempt to save channels'
+            'No channels left after failing to save them'
         )
 
     logger.info(
-        f'Working with {len(cha_df):,} station channels '
-        f'(downloaded {num_downloaded_channels:,})'
+        f'Working with {len(cha_df):,} station channel(s) '
+        f'(downloaded: {num_downloaded_channels:,})'
     )
 
     # convert to categorical type (for safety):
@@ -204,7 +203,7 @@ def get_channel_urls(
 
             if not eida_rs:
                 raise FailedDownload(
-                    "None of the EIDA routing services returned valid data. Check "
+                    "No EIDA routing services returned valid data. Check "
                     "internet connection or configure the URLs in advanced settings"
                 )
 
@@ -244,15 +243,8 @@ def get_channel_urls(
         else:
             if service_url == 'iris':
                 service_url = 'https://service.iris.edu/fdsnws/station/1/query'
-
             parsed_urls.append((service_url, params))
-            # # restrict the search if too big:
-            # if params['net'] == '*' or params['sta'] == '*':
-            #     for start_, end_ in split_times(params['start'], params['end'], 5):
-            #         _params = dict(params)
-            #         _params['start'] = start_
-            #         _params['end'] = end_
-            #         parsed_urls.append((service_url, _params))
+
 
     for url, params in parsed_urls:
         try:
@@ -294,6 +286,9 @@ def split_times(start: datetime, end: datetime, interval_years=5):
 
 
 def check_and_yield_fdsn_urls(url, params):
+    """
+
+    """
     try:
         fdsn_station_url = fdsn_url(url, new_service='station', new_method='query')
     except ValueError as e:
@@ -340,14 +335,8 @@ def download_channels(
     timeout: int,
     show_progress=False
 ):
-    """Return a Dataframe representing a query to the station service of each
-    URL in :func:`stream2segment.download.modules.datacenters_df` with the
-    given arguments.
+    """
 
-    :param datacenters_df: (DataFrame) the first item resulting from
-        `get_datacenters_df`
-    :param min_sample_rate: minimum sampling rate, set to negative value
-        for no-filtering (all channels)
     """
     rank_col = "_.rank._"
 
@@ -366,7 +355,14 @@ def download_channels(
             pbar.update(1)
             if not response.is_ok:
                 logger.warning(
-                    f"Unable to fetch stations from {response.request}: {response.data}"
+                    f"Unable to download data from {response.request}: "
+                    f"{response.data}"
+                )
+                continue
+            elif response.status_code == 204:
+                logger.warning(
+                    f"Unable to download data from {response.request}: "
+                    f"no data"
                 )
                 continue
 
@@ -374,20 +370,13 @@ def download_channels(
                 dframe = fdsn_channel_response_text_to_df(
                     response.data.decode('utf8'), filter_funcs
                 )
-                dframe[rank_col] = idx
-                discarded = dframe.attrs.pop('discarded', 0)
-                if discarded > 0:
-                    logger.warning(
-                        f"{discarded} malformed row(s) discarded from{response.request}"
-                    )
-            except ValueError as verr:
+            except Exception as e:
                 logger.warning(
-                    f"Discarding malformed response from {response.request}"
+                    f"Unable to read data downloaded from {response.request}: {e}"
                 )
                 continue
+            dframe[rank_col] = idx
 
-            if dframe.empty:
-                continue
             # replace full url with the future dataselect url
             if restricted_download:
                 datasel_url = fdsn_url(
@@ -405,7 +394,7 @@ def download_channels(
                 )
             dframe[url_col] = datasel_url
             # station_urls.add(station_url)
-            channels_dfs.extend(resolve_intra_conflicts(dframe, response.request))
+            channels_dfs.append(resolve_intra_conflicts(dframe, response.request))
 
     # build two dataframes which we will concatenate afterward
     cha_df = pd.DataFrame()
@@ -414,16 +403,16 @@ def download_channels(
         cha_df = pd.concat(channels_dfs, axis=0, ignore_index=True, copy=False)
         cha_df[url_col] = cha_df[url_col].astype('category')
 
-    if cha_df.empty:
-        raise FailedDownload('No channel found, please retry later')
+        if not cha_df.empty:
+            # sort by rank col and reset index so that we can see with the index which
+            # urls have priority in case of conflicts:
+            cha_df.index.name = '._index._'
+            cha_df = (
+                cha_df.sort_values(by=[rank_col, cha_df.index.name], ascending=True).
+                drop(columns=rank_col).reset_index(drop=True)
+            )
 
-    # sort by rank col and reset index so that we can see with the index which urls
-    # have priority in case of conflicts:
-    cha_df.index.name = '._index._'
-    return (
-        cha_df.sort_values(by=[rank_col, cha_df.index.name], ascending=True).
-        drop(columns=rank_col).reset_index(drop=True)
-    )
+    return cha_df
 
 
 def fdsn_channel_response_text_to_df(
@@ -456,7 +445,7 @@ def fdsn_channel_response_text_to_df(
             # dframe.columns[12]: "scale_freq",
             # dframe.columns[13]: "scale_units",
             dframe.columns[14]: Channel.sample_rate.key,
-            dframe.columns[15]: start_col,
+            dframe.columns[15]: Channel.start_time.key,
             dframe.columns[16]: end_col
         }
 
@@ -468,21 +457,19 @@ def fdsn_channel_response_text_to_df(
         dframe[lon_col] = to_latlon(dframe[lon_col])
         # fir safety:
         dframe[Channel.sample_rate.key] = dframe[Channel.sample_rate.key].astype(float)
-
-        for key, func in filter_func.items():
-            dframe = dframe[func(dframe[key])]
-            if dframe.empty:
-                # log filtered out
-                continue
-
         # dframe = dframe[dframe[[start_col, end_col]].notna().all(axis=1)]
         dframe[
             [band_col, inst_col, orient_col]
         ] = dframe.pop("channel_code").str.extract(r"(.)(.)(.)")
-        dframe = apply_table_dtypes(Channel, dframe, drop_non_nullable=True)
 
-    if dframe.empty:
-        raise ValueError("Malformed data (e.g., no data, type mismatch, NaN)")
+        # filter out
+        for key, func in filter_func.items():
+            dframe = dframe[func(dframe[key])]
+            if dframe.empty:
+                return dframe
+
+        if not dframe.empty:
+            dframe = apply_table_dtypes(Channel, dframe, drop_non_nullable=True)
 
     return dframe
 
@@ -498,7 +485,7 @@ def to_latlon(series: pd.Series):
     return pd.to_numeric(series, errors='coerce').round(6)
 
 
-def resolve_intra_conflicts(fdsn_df: pd.DataFrame, url:str):
+def resolve_intra_conflicts(fdsn_df: pd.DataFrame, url:str) -> pd.DataFrame:
     """
     Resolve intra conflicts (same URL, different lat lon, overlapping time ranges)
     """
@@ -512,10 +499,9 @@ def resolve_intra_conflicts(fdsn_df: pd.DataFrame, url:str):
           g[lon_col].nunique(dropna=False) == 1
     )
 
-    # if same channels share same start time, take the biggest time window:
-    fdsn_df = fdsn_df.groupby(uc_cols, group_keys=False).apply(
-        lambda g: g if len(g) == 1 else g.loc[g[end_col] == g[end_col].max()].head(1)
-    )
+    # if same channels share same start time, take the largest end_col:
+    idx = fdsn_df.groupby(uc_cols)[end_col].idxmax()
+    fdsn_df = fdsn_df.loc[idx]
 
     # make end_time not overlapping previous start_time in case:
     for _, dfr in fdsn_df.groupby(uc_cols[:-1]):
@@ -523,7 +509,7 @@ def resolve_intra_conflicts(fdsn_df: pd.DataFrame, url:str):
         if not new_end_times.empty:
             fdsn_df.loc[new_end_times.index, end_col] = new_end_times
 
-    return fdsn_url
+    return fdsn_df
 
 
 def clip_overlapping_end_times(dfr: pd.DataFrame) -> pd.Series:
@@ -536,7 +522,7 @@ def clip_overlapping_end_times(dfr: pd.DataFrame) -> pd.Series:
 
 def resolve_inter_conflicts(
     channels: pd.DataFrame, eida_rs_urls: list[str] | None = None
-):
+) -> pd.DataFrame:
     """
     Resolve inter conflicts (same channel, different URLs, overlapping time ranges
     """
@@ -554,13 +540,15 @@ def resolve_inter_conflicts(
 
         for o in pd.unique(cha_df[orient_col]):
             if not clip_overlapping_end_times(cha_df[cha_df[orient_col] == o]).empty:
+                # overlapping time ranges: break and handle it (no 'continue' below)
                 break
         else:
             continue
 
         indices2discard.update(cha_df.index)
         if cha_df[url_col].nunique(dropna=False) <= 1:
-            # log FIXME
+            # unresolvable problem (we should not have resolved in intra conflicts)
+            # log? FIXME
             continue
 
         for dfr in resolve_via_eida_rs(cha_df, eida_rs_urls, net, sta, loc, band, inst):
@@ -614,27 +602,30 @@ def resolve_via_eida_rs(
                 (channels[start_col] >= end) | (channels[end_col] <= start)
             )
             if params['priority'] == 1:
-                time_range_inside = (
-                    (channels[start_col] >= start) & (channels[end_col] <= end)
+                # trust only start time (we got matching start time and end time
+                # differing for just 12h...)
+                mask = (
+                    channels[url_col].str.startswith(url) &
+                    (channels[start_col] == start)
                 )
-                tmp = (
-                    channels[channels[url_col].str.startswith(url) & time_range_inside]
-                )
-                if not tmp.empty:
-                    yield tmp
+                if mask.any():
+                    yield channels[mask]
                 channels = channels[time_range_outside]
             else:
                 time_range_intersects = ~time_range_outside
+                # drop rows of the current url (priority != 1) that intersect the
+                # interval:
                 channels = channels[
                     ~(channels[url_col].str.startswith(url) & time_range_intersects)
                 ]
 
-    if channels[url_col].nunique(dropna=False) == 1:
+    if channels[url_col].nunique(dropna=True) == 1:
         yield channels
 
 
 def save_channels(engine: Engine, channels: pd.DataFrame):
-    """Saves to db channels (and their stations) and returns a dataframe with
+    """
+    Save to db channels (and their stations) and returns a dataframe with
     only channels saved. The returned Dataframe will have the column 'id'
     (`Station.id`) renamed to 'station_id' (`Channel.station_id`) and a new
     'id' column referring to the Channel id (`Channel.id`)
@@ -676,7 +667,7 @@ def save_channels(engine: Engine, channels: pd.DataFrame):
         (Channel.latitude >= channels[lat_col].min()) &
         (Channel.latitude <= channels[lat_col].max()) &
         (Channel.longitude <= channels[lon_col].min()) &
-        (Channel.longitude >= channels[lon_col].mmax()) &
+        (Channel.longitude >= channels[lon_col].max()) &
         (Channel.data_webservice_id.isin_(pd.unique(channels[ws_id_col]))) &
         (Channel.band_code.isin_(channels[band_col].cat.categories)) &
         (Channel.instrument_code_col.isin_(channels[inst_col].cat.categories)) &
@@ -726,21 +717,3 @@ def save_channels(engine: Engine, channels: pd.DataFrame):
     channels[id_col] = channels[id_col].astype(int)
 
     return channels
-
-
-def to_urls(dfr:pd.DataFrame, max_rows=5):
-    ret = []
-    _i = 0
-    if max_rows is None:
-        max_rows = np.inf
-    group_by = dfr.groupby([
-        net_col, sta_col, loc_col, band_col, inst_col, start_col, end_col, url_col
-    ], sort=False)
-    total = group_by.ngroups
-    for (n, s, l, b, i, st, et, u), _ in group_by:
-        ret.append(fdsn_url_qs(u, net=n, sta=s, loc=l, cha=b+i+"?", start=st, end=et))
-        _i += 1
-        if _i >= max_rows:
-            ret.append(f'(showing first {max_rows:,} of {total:,})')
-            break
-    return "\n".join(ret)

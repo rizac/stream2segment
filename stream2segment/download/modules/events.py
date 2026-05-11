@@ -66,6 +66,8 @@ def get_events(
     )
     # pd_df_list surely not empty (otherwise we raised FailedDownload)
     events = pd.concat(dfr_iter, axis=0, ignore_index=True, copy=False)
+    if events.empty:
+        raise NothingToDownload('No valid event downloaded or read from file')
 
     events[url_col] = events[url_col].astype("category")
     ws_id_col = Event.webservice_id.key
@@ -109,16 +111,19 @@ def download_events(
         formatted)
     """
     for url in urls:
-        try:
-            if is_local_file(url):
+        if is_local_file(url):
+            try:
                 yield read_events_file(url)
-            else:
-                url = EVENTWS_MAPPING.get(url, url)
+            except Exception as exc:
+                raise FailedDownload(f"Error reading file {repr(url)}: {exc}")
+        else:
+            url = EVENTWS_MAPPING.get(url, url)
+            try:
                 yield from download_events_from_url(
                     url, evt_query_args, start, end, timeout, show_progress
                 )
-        except Exception as exc:
-            raise FailedDownload(f"Error downloading from {url}: {exc}")
+            except Exception as exc:
+                raise FailedDownload(f"Error downloading from {url}: {exc}")
 
 
 def read_events_file(file_path: str) -> pd.DataFrame:
@@ -159,9 +164,11 @@ def read_events_file(file_path: str) -> pd.DataFrame:
     for names, sql_col_name in col_names.items():
         keys = set(names) & dfr_columns
         if not keys:
-            raise KeyError(f"No column named {names[0]} in {file_path}")
+            raise FailedDownload(f"No column named {names[0]} in {file_path}")
         elif len(keys) != 1 and names[0] != 'id':
-            raise KeyError(f"Conflict: Multiple column named {names} in {file_path}")
+            raise FailedDownload(
+                f"Conflict: Multiple column named {names} in {file_path}"
+            )
         rename[list(keys)[0]] = sql_col_name
 
     dfr = dfr.rename(columns=rename)[list(rename.values())]
@@ -206,7 +213,7 @@ def download_events_from_url(
                 done += 1
                 try:
                     if response.status_code == 204:
-                        raise Exception("No data (Http code 204)")
+                        raise Exception("No data (Http code 204)")  # fallback below
                     yield fdsn_event_response_text_to_df(response.data)
                 except Exception as exc:
                     logger.warning(f"Error downloading from {url}: {exc}")
@@ -248,8 +255,6 @@ def fdsn_event_response_text_to_df(response: str):
         dframe = dframe.rename(columns=columns)[list(columns.values())]
         dframe = apply_table_dtypes(Event, dframe, drop_non_nullable=True)
 
-    if dframe.empty:
-        raise ValueError("Malformed data (e.g., no data, type mismatch, NaN)")
     return dframe
 
 

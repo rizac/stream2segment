@@ -70,16 +70,16 @@ def fdsn_response_text_to_df(response: str):
 
 def fdsn_url(
     url: str,
+    *,
     new_service: Literal['station', 'dataselect', 'event'] | None = None,
     new_method: Literal['query', 'queryauth', 'auth', 'version', 'application.wadl'] | None = None,   # noqa
-    new_query_string: str | None=None
+    new_query_string: str | None = None
 ):
     """
-    Check that the given url is a valid FDSN URL and return it (with new service and
-    method substrings, if given). Raise ValueError if the url is invalid. The URL query
-    string, if present, will not be checked and returned as it is
+    Check the validity of the given FDSN URL, raising ValueError if invalid, returning
+    unchanged or modified according to the arguments.
 
-    :param url: a valid FDSN url, with or without query string or schema
+    :param url: a valid FDSN url, with or without query string (path suffix after '?')
     :param new_service: the new service. None will leave the service of `url`. Must be
         a string in ('station', 'dataselect', 'event')
     :param new_method: the new method, None will leave the url method. Must be a string
@@ -87,6 +87,8 @@ def fdsn_url(
     :param new_query_string: if None (the default) keeps the same query string (e.g.
         "?net=AB&lat=39"), if present. Otherwise, set the new query string ("" means
         removing the string entirely, as well as the leading "? character)
+
+    :return: a valid FDSN URL
     """
     services = {'station', 'dataselect', 'event'}
     methods = {'query', 'queryauth', 'auth', 'version', 'application.wadl'}
@@ -101,9 +103,9 @@ def fdsn_url(
     if split_url.fragment:
         raise ValueError(f'Invalid fragment (#{split_url.fragment}) in url')
 
-    path = split_url.path
-    # urlparse has already removed query char '?' and params and fragment
-    # from the path (which starts with '/'). Now check the path:
+    path = split_url.path  # the query string is in split_url.query
+
+    # Check the path:
     reg = re.match(
         "^/fdsnws/(?P<service>[^/]+)/(?P<majorversion>[^/]+)/(?P<method>.+)$", path
     )
@@ -151,7 +153,8 @@ def fdsn_url(
 
 
 def fdsn_url_qs(base_url: str, **query_args):
-    """Build a valid FDSN URL with a query string from a base URL and a dictionary of
+    """
+    Build a valid FDSN URL with a query string from a base URL and a dictionary of
     parameters. If `query_args` is empty, the original `base_url` is returned unchanged.
 
     :param base_url: the base FDSN URL. Its well-formation is not checked for here

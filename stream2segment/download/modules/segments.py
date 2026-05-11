@@ -38,6 +38,9 @@ from stream2segment.download.url import (
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__)
 
+already_skipped_col = "_.already_skipped._"
+
+
 def prepare_for_download(
     *,
     engine: Engine,
@@ -78,7 +81,7 @@ def prepare_for_download(
             where_clause,
             chunksize=min(1000, len(segments))
         )
-        segments["_.already_skipped._"] =  segments[SkippedSegment.id.key].motna()
+        segments[already_skipped_col] =  segments[SkippedSegment.id.key].motna()
         segments.pop(SkippedSegment.id.key)
     # segments['_.new._'] = segments[NoDataSegment.id.key.isna()].astype(bool)
     # segments.pop(NoDataSegment.id.key)
@@ -160,8 +163,6 @@ def download_and_save(
     # On download error (no data), it will be used to get if we need to save the segment
     # download info:
 
-
-    already_skipped_col = "_.already_skipped._"
     if already_skipped_col not in segments.columns:
         def not_already_skipped(*a, **kw):
             return True
