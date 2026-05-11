@@ -7,21 +7,18 @@ import logging
 from collections.abc import Iterable, Callable
 import json
 from datetime import datetime, timedelta, UTC
-from io import BytesIO
 from multiprocessing.pool import ThreadPool
-# from urllib.parse import urlunparse, urlparse, urlsplit, urlunsplit
 from urllib.request import urlopen
 
 import numpy as np
 import pandas as pd
 from obspy.signal.evrespwrapper import Channel
 from pandas.core.dtypes.common import is_categorical_dtype
-from sqlalchemy import select, Engine
 
 from stream2segment.download.modules.events import sync_webservice_ids_with_db
 from stream2segment.io.utils import get_progressbar
 from stream2segment.io.db.pdsql import (
-    insert_df, apply_table_dtypes, select_df, get_col_max
+    insert_df, apply_table_dtypes, fetch_df, get_col_max, select, Engine, set_pkeys
 )
 from stream2segment.io.db.models import Channel, WebService, Segment
 from stream2segment.download.url import read_url
@@ -662,7 +659,20 @@ def save_channels(engine: Engine, channels: pd.DataFrame):
         # lon_col
     ]
 
-    where = (
+    select_stmt = select(
+        Channel.id,
+        Channel.network_code,
+        Channel.station_code,
+        Channel.location_code,
+        Channel.band_code,
+        Channel.instrument_code,
+        Channel.orientation_code,
+        Channel.latitude,
+        Channel.longitude,
+        Channel.start_time,
+        # Channel.depth,
+        Channel.data_webservice_id
+    ).where(
         (Channel.latitude >= channels[lat_col].min()) &
         (Channel.latitude <= channels[lat_col].max()) &
         (Channel.longitude <= channels[lon_col].min()) &
@@ -676,20 +686,7 @@ def save_channels(engine: Engine, channels: pd.DataFrame):
 
     channels[id_col] = pd.Series(pd.NA, index = channels.index, dtype = "Int64")
     _suf = '_.db._'
-    for saved_channels in select_df(engine, select(
-        Channel.id,
-        Channel.network_code,
-        Channel.station_code,
-        Channel.location_code,
-        Channel.band_code,
-        Channel.instrument_code,
-        Channel.orientation_code,
-        Channel.latitude,
-        Channel.longitude,
-        Channel.start_time,
-        # Channel.depth,
-        Channel.data_webservice_id
-    ).where(where)):
+    for saved_channels in fetch_df(engine, select_stmt):
         channels = channels.merge(
             saved_channels, how='left', on=uc_cols, suffixes = ('', _suf)
         )
@@ -714,9 +711,8 @@ def save_channels(engine: Engine, channels: pd.DataFrame):
             columns=[c for c in channels.columns if c.endswith(_suf)], inplace=True
         )
 
-    inserted, failed = insert_df(
-        channels[channels[id_col].isna()].drop(columns=id_col), engine, Channel
-    )
+    to_insert = set_pkeys(channels[channels[id_col].isna()], engine, Channel)
+    inserted, failed = insert_df(to_insert, engine, Channel)
     if not failed.empty:
         logger.warning(
             f"{len(failed)} channel(s) discarded (error while inserting to DB)\n" +
@@ -725,16 +721,10 @@ def save_channels(engine: Engine, channels: pd.DataFrame):
             )
         )
     if not inserted.empty:
-        # put id_col into channels:
-        channels = channels.merge(
-            inserted[uc_cols + [id_col]], how='left', on=uc_cols,  suffixes = ('', _suf)
-        )
-        channels.drop(
-            columns=[c for c in channels.columns if c.endswith(_suf)], inplace=True
-        )
-
+        channels[id_col] = inserted[id_col]  # assignment is index aligned
     # for safety:
     channels[id_col] = channels[id_col].astype(int)
+
     return channels
 
 

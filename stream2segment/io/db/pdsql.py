@@ -2,16 +2,16 @@
 Utilities for interaction between pandas DataFrames, optimized for our workflow
 """
 from collections.abc import Iterable, Sequence
-from typing import Literal, TypeAlias
 
 import numpy as np
 import pandas as pd
 
-from sqlalchemy import select, UpdateBase, Column, Select, Insert, Update, ColumnElement
+# leave all imports below because they might be used elsewhere:
+from sqlalchemy import select, update, insert, UpdateBase, Column, Select
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import DeclarativeBase, InstrumentedAttribute
-from sqlalchemy.sql.expression import func, bindparam
+from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.sql.expression import func
 from sqlalchemy.types import Integer, Float, Boolean, DateTime
 
 pandas_version = float('.'.join(pd.__version__.split('.')[:2]))
@@ -130,8 +130,7 @@ def sync_pkey(
     dfr: pd.DataFrame,
     engine: Engine,
     table_model: type[DeclarativeBase],
-    pkey_col: str,
-    uc_cols: list[str],
+    unique_cols: list[str],
     select_where=None,
     chunksize=5000
 ):
@@ -148,31 +147,29 @@ def sync_pkey(
     :param pkey_col: string denoting the ID (primary key) table column. It
         MUST be a SQL numeric column (preferably, an auto increment primary key
         of type int)
-    :param and uc_cols: list of strings denoting the unique constraint columns,
+    :param and unique_cols: list of strings denoting the unique constraint columns,
         i.e. the columns that must be unique for each row and can then be used to
         match equal rows. They should be relatively few and of type integer for better
         performance
     """
     columns = table_model.__table__.c  # columns collection
-    col_names = [pkey_col] + list(uc_cols)
+    pkey_col = [col.name for col in table_model.__table__.primary_key.columns][0]
+    col_names = [pkey_col] + list(unique_cols)
     stmt = select(*(columns[c] for c in col_names))
     if select_where is not None:
         stmt = stmt.where(select_where)
     # set column nullable int type (for now):
     dfr[pkey_col] = pd.Series(pd.NA, index = dfr.index, dtype="Int64")
 
-    if chunksize <= 0:  # fetch at once (db table small to medium size)
-        chunksize = get_row_count(engine, table_model)
-
     if chunksize > 0:  # fetch in chunks (db table huge):
         # create an id_col + suffix where we put fetched db values:
         suffix = '_'
         while pkey_col + suffix in dfr.columns:
             suffix += '_'
-        for db_df in select_df(engine, stmt, chunksize=chunksize):
+        for db_df in fetch_df(engine, stmt, chunksize=chunksize):
             if db_df.empty:
                 continue
-            dfr = dfr.merge(db_df, how='left', on=uc_cols, suffixes=('', suffix))
+            dfr = dfr.merge(db_df, how='left', on=unique_cols, suffixes=('', suffix))
             # For each row, if dfr[pkey_col + suffix] is not null (row exists on db),
             # set it on dfr[pkey_col]. Otherwise, keep dfr[pkey_col]:
             # dfr[pkey_col] = dfr[pkey_col + suffix].combine_first(dfr[pkey_col])
@@ -183,86 +180,65 @@ def sync_pkey(
     return dfr
 
 
+def set_pkeys(dfr: pd.DataFrame, engine: Engine, table_model: type[DeclarativeBase]):
+    id_col = [col.name for col in table_model.__table__.primary_key.columns][0]
+    # empty case: just add id_col for compatibility with pd ops (e.g. concat, merge):
+    if dfr.empty:
+        if id_col not in dfr.columns:
+            dfr[id_col] = pd.Series(dtype=int)
+        return dfr
+    id_max = get_col_max(engine, table_model.__table__.c[id_col]) + 1
+    dfr[id_col] = np.arange(id_max, id_max + len(dfr), dtype=int)
+    return dfr
+
+
 def insert_df(
     dfr: pd.DataFrame,
     engine: Engine,
     table_model: type[DeclarativeBase],
     chunksize=5000,
-    on_missing_pkey_col: Literal["auto-increment", "raise"] = 'auto-increment'
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Insert dfr to the given table model. The primary key column of the table must be
-    an auto-increment (sequential) integer. If not present in the dataframe, the id
-    values will be inserted according to the current max on the DB, unless
-    on_missing_pkey is 'raise' (then the column must already be present).
-
-    See `sync_pkey` for more information
+    an auto-increment (sequential) integer (int or Int64). The column must be already
+    supplied (see `set_pkey`)
     """
     if dfr.empty:
-        return dfr.head(0), dfr.head(0)
+        return dfr, dfr.head(0)
 
-    stmt = [create_insert_statement(table_model)]
+    stmt = [insert(table_model)]
     start = 0
-    index_inserted = set()
-    failed = pd.DataFrame(columns=dfr.columns, data=[])
+    ids_inserted = set()
 
     id_col = [col.name for col in table_model.__table__.primary_key.columns][0]
-    if id_col not in dfr.columns:
-        if on_missing_pkey_col != 'auto-increment':
-            raise ValueError(f'Missing {id_col}')
-        id_max = get_col_max(engine, table_model.__table__.c[id_col]) + 1
-        dfr[id_col] = np.arange(id_max, id_max + len(dfr), dtype=int)
-
     while start < len(dfr):
         rows = list(iter_rows(dfr[start: start + chunksize]))
-        index_inserted.update(  # Python Set update, not SQL!
+        ids_inserted.update(  # Python Set update, not SQL!
             r[id_col] for r in execute_sql(engine, stmt, rows)
         )
         start += chunksize
 
-    if len(index_inserted) < len(dfr):
-        _mask = dfr.index.isin(index_inserted)
+    failed = pd.DataFrame(columns=dfr.columns, data=[])
+    if len(ids_inserted) < len(dfr):
+        _mask = dfr[id_col].isin(ids_inserted)
         failed = dfr[~_mask]
         dfr = dfr[_mask]
 
     return dfr, failed
 
 
-def select_df(engine, query: Select, chunksize=5000) -> Iterable[pd.DataFrame]:
+def fetch_df(engine, select_stmt: Select, chunksize=5000) -> Iterable[pd.DataFrame]:
     # columns = [c['name'] for c in query.column_descriptions]
-    query = query.execution_options(stream_results=True)
+    select_stmt = select_stmt.execution_options(stream_results=True)
 
     with engine.connect() as conn:
-        result = conn.execute(query).yield_per(chunksize)
+        result = conn.execute(select_stmt).yield_per(chunksize)
 
         while True:
             rows = result.fetchmany(chunksize)
             if not rows:
                 break
             yield pd.DataFrame(rows, columns=result.keys())
-
-
-def create_insert_statement(table_model) -> Insert:
-    return table_model.__table__.insert()
-
-
-ColumnLike: TypeAlias = str | InstrumentedAttribute | Column
-
-def create_update_statement(
-    table_model,
-    update_cols: ColumnLike | list[ColumnLike],
-    where_clause: ColumnElement[bool]
-) -> Update:
-
-    if not isinstance(update_cols, (list, tuple)):
-        update_cols = [update_cols]
-
-    return (
-        table_model.__table__.update()
-        .where(where_clause)
-        #.where(columns[where_col] == bindparam(where_col))
-        .values({col: bindparam(getattr(col, "key", col)) for col in update_cols})
-    )
 
 
 def execute_sql(

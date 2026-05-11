@@ -15,7 +15,7 @@ from sqlalchemy import Engine
 
 from stream2segment.io.utils import start_logging
 from stream2segment.io.db.pdsql import (
-    get_col_max, execute_sql, create_insert_statement
+    get_col_max, execute_sql, insert
 )
 from stream2segment.io.db import models
 from stream2segment.download.inputvalidation import extract_download_args
@@ -348,7 +348,7 @@ def save_download_run(engine, config: dict, log_file_path: str, d_stats: dict) -
     _ = list(  # list will consume the iterable `execute_sql` FIXME better?
         execute_sql(
             engine,
-            [create_insert_statement(models.DownloadRun)],
+            [insert(models.DownloadRun)],
             [dict(
                 id=download_id,
                 time=datetime.now(UTC).replace(tzinfo=None, microsecond=0),

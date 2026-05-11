@@ -25,11 +25,9 @@ from stream2segment.download.modules.stationsearch import atime_col, dist_col, \
     ev_id_col, ch_id_col
 from stream2segment.io.utils import get_progressbar
 from stream2segment.io.db.pdsql import (
-    sync_pkey, get_row_count, get_col_max, create_insert_statement, execute_sql
+    sync_pkey, get_row_count, get_col_max, insert, execute_sql
 )
-from stream2segment.io.db.models import (
-    WebService, Segment, Channel, MiniSeed, SkippedSegment
-)
+from stream2segment.io.db.models import Segment, Channel, MiniSeed, SkippedSegment
 from stream2segment.download.modules.utils import (
     fdsn_url_qs, IdOnceLogFilter, fdsn_url, FailedDownload
 )
@@ -52,7 +50,6 @@ def prepare_for_download(
             segments,
             engine,
             Segment,
-            Segment.id.key,
         [ev_id_col, ch_id_col],
             chunksize=min(1000, len(segments))
         )
@@ -77,7 +74,6 @@ def prepare_for_download(
             segments,
             engine,
             SkippedSegment,
-            SkippedSegment.id.key,
             [SkippedSegment.event_id.key, SkippedSegment.channel_id.key],
             where_clause,
             chunksize=min(1000, len(segments))
@@ -177,10 +173,7 @@ def download_and_save(
 
     segments_current_id = get_col_max(engine, Segment.id)
 
-    sql_insert_ok = [
-        create_insert_statement(Segment),
-        create_insert_statement(MiniSeed)
-    ]
+    sql_insert_ok = [insert(Segment), insert(MiniSeed)]
     rows_ok = []
     sql_insert_skip = [create_insert_statement(SkippedSegment)]
     rows_skip = []

@@ -4,18 +4,18 @@ StationsXML download
 import logging
 from typing import Optional
 
-from sqlalchemy import select, Engine
-
 from stream2segment.io.utils import get_progressbar
 from stream2segment.io.db.pdsql import (
-    create_update_statement, create_insert_statement, execute_sql, get_col_max
+    Engine, execute_sql, get_col_max, insert, update, select
 )
 from stream2segment.io.db.models import (
     WebService, Segment, Channel, StationXML, Event, QuakeML
 )
 from stream2segment.download.url import read_urls, get_host, responses
-from stream2segment.download.modules.utils import (IdOnceLogFilter, fdsn_url_qs,
-                                                   fdsn_url)
+from stream2segment.download.modules.utils import (
+    IdOnceLogFilter, fdsn_url_qs, fdsn_url
+)
+
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__)
@@ -52,7 +52,7 @@ def save_stationxml(
     with engine.connect() as conn:
         rows = conn.execute(stmt).fetchall()
 
-    insert_stmt = [create_insert_statement(StationXML)]
+    insert_stmt = insert(StationXML)
     stationxml_id = get_col_max(engine, StationXML.id)
     cache: dict[str, tuple[str, str, int]] = {}
 
@@ -69,7 +69,7 @@ def save_stationxml(
             cache.setdefault(url, (net, sta, ws_id))
             return url
 
-        with get_progressbar(len(rows) if show_progress else 0) as pbar:
+        with (get_progressbar(len(rows) if show_progress else 0) as pbar):
 
             reader = read_urls(
                 (url_builder(*row) for row in rows),
@@ -97,25 +97,23 @@ def save_stationxml(
                 else:
                     try:
                         (net, sta, ws_id) = cache.pop(url)
-                        update_stmt = create_update_statement(
-                            Channel,
-                            Channel.stationxml_id,
-                            (
-                                (Channel.network_code==net) &
-                                (Channel.station_code==sta) &
-                                (Channel.webservice_id==ws_id)
-                            ),
-
-                        )
                         stationxml_id += 1
-                        saved += (
+                        update_stmt = update(
+                            Channel
+                        ).where(
+                            (Channel.network_code==net) &
+                            (Channel.station_code==sta) &
+                            (Channel.webservice_id==ws_id)
+                        ).values({
+                            Channel.stationxml_id: stationxml_id
+                        })
+                        saved += sum(
                             1 for _ in execute_sql(
                                 engine,
                                 [insert_stmt, update_stmt],
                                 [{
                                     'data': response.data,
-                                    'id': stationxml_id,
-                                    'stationxml_id': stationxml_id
+                                    'id': stationxml_id
                                 }]
                             )
                         )
@@ -158,7 +156,7 @@ def save_quakeml(
     with engine.connect() as conn:
         rows = conn.execute(stmt).fetchall()
 
-    insert_stmt = create_insert_statement(QuakeML)
+    insert_stmt = insert(QuakeML)
     cache: dict[str, int] = {}
 
     downloaded = len(rows)
@@ -197,7 +195,7 @@ def save_quakeml(
             else:
                 try:
                     db_ev_id = cache.pop(url)
-                    saved += (
+                    saved += sum(
                         1 for _ in execute_sql(
                             engine,
                             [insert_stmt],

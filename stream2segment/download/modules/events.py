@@ -15,7 +15,7 @@ from sqlalchemy import Engine, select
 
 from stream2segment.io.utils import get_progressbar
 from stream2segment.io.db.pdsql import (
-    apply_table_dtypes, select_df, insert_df, sync_pkey
+    apply_table_dtypes, fetch_df, insert_df, sync_pkey, set_pkeys
 )
 from stream2segment.io.db.models import Event, WebService
 from stream2segment.download.url import read_url, CustomResponseCode
@@ -316,24 +316,21 @@ def sync_webservice_ids_with_db(
         ws_df,
         engine,
         WebService,
-        id_col,
         [url_col]
     )
 
-    id_na = ws_df[id_col].isna()
-    if id_na.any():
-        inserted, failed = insert_df(
-            ws_df[id_na].drop(columns=id_col), engine, WebService
+    to_insert = set_pkeys(ws_df[ws_df[id_col].isna()], engine, WebService)
+    inserted, failed = insert_df(to_insert, engine, WebService)
+    if not inserted.empty:
+        ws_df[id_col] = inserted[id_col]  # assignment is index aligned
+    # for safety:
+    ws_df[id_col] = ws_df[id_col].astype(int)
+
+    if not failed.empty:
+        logger.warning(
+            f"Discarding {len(failed):,} "
+            f"WebService URL(s) (error while inserting to DB)"
         )
-        if id_na.all():
-            ws_df = inserted
-        else:
-            ws_df = pd.concat([inserted, ws_df[~id_na]], ignore_index=True)
-        if not failed.empty:
-            logger.warning(
-                f"Discarding {len(failed):,} "
-                f"WebService URL(s) (error while inserting to DB)"
-            )
 
     # avoid conflicts (remove merge_on column, if any):
     dfr.drop(columns=[merge_on], errors="ignore", inplace=True)
@@ -404,7 +401,9 @@ def save_events(
 
     id_col = Event.id.key
 
-    where = (
+    select_stmt = select(
+        Event.id, Event.latitude, Event.longitude, Event.time, Event.depth_km,
+    ).where(
         (Event.latitude >= events[lat_col].min()) &
         (Event.latitude <= events[lat_col].max()) &
         (Event.longitude >= events[lon_col].min()) &
@@ -420,13 +419,7 @@ def save_events(
     events[id_col] = pd.Series(pd.NA, index=events.index, dtype="Int64")
     _suf = '_.db._'
 
-    for saved_events in select_df(engine, select(
-        Event.id,
-        Event.latitude,
-        Event.longitude,
-        Event.time,
-        Event.depth_km,
-    ).where(where)):
+    for saved_events in fetch_df(engine, select_stmt):
         saved_events[lat_col + _round_suf] = round(
             saved_events[lat_col], kilometers2degrees(lat_tol_km)
         )
@@ -464,10 +457,10 @@ def save_events(
         events.drop(
             columns=[c for c in events.columns if c.endswith(_suf)], inplace=True
         )
+    events.drop(columns=cmp_cols_round, inplace=True)
 
-    inserted, failed = insert_df(
-        events[events[id_col].isna()].drop(columns=id_col), engine, Event
-    )
+    to_insert = set_pkeys(events[events[id_col].isna()], engine, Event)
+    inserted, failed = insert_df(to_insert, engine, Event)
     if not failed.empty:
         logger.warning(
             f"{len(failed)} events(s) discarded (error while inserting to DB)\n" +
@@ -476,19 +469,11 @@ def save_events(
             )
         )
     if not inserted.empty:
-        # put id_col into events:
-        uc_cols = [c for c in events.columns if c != id_col]
-        events = events.merge(
-            inserted[uc_cols + [id_col]], how='left', on=uc_cols,  suffixes = ('', _suf)
-        )
-        events.drop(
-            columns=[c for c in events.columns if c.endswith(_suf)], inplace=True
-        )
-
-    events.drop(columns=cmp_cols_round, inplace=True)
-
+        if not inserted.empty:
+            events[id_col] = inserted[id_col]  # assignment is index aligned
     # for safety:
     events[id_col] = events[id_col].astype(int)
+
     return events
 
 
