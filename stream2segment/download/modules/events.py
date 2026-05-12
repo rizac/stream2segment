@@ -71,14 +71,16 @@ def get_events(
 
     events[url_col] = events[url_col].astype("category")
     ws_id_col = Event.webservice_id.key
+    rows = len(events)
     sync_webservice_urls_and_assign_ids(events, engine, ids_column_name=ws_id_col)
-    wsid_na = pd.isna(events[ws_id_col])
-    if wsid_na.any():
-        msg = f"Discarding {wsid_na.sum()} event(s) (associated URL not saved to DB)"
-        if wsid_na.all():
-            raise FailedDownload(msg)
-        logger.warning(msg)
-        events.drop(wsid_na.index, inplace=True)
+    events.dropna(subset=[ws_id_col], inplace=True)
+    if events.empty:
+        raise FailedDownload("No events left after failed DB URLs insertion")
+    elif rows > len(events):
+        logger.warning(
+            f"Discarding {rows - len(events)} events(s) "
+            f"(associated URL not saved to DB)"
+        )
     events[ws_id_col] = events[ws_id_col].astype(int)
 
     events = save_events(

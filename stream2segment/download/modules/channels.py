@@ -109,20 +109,22 @@ def get_channels(
         raise FailedDownload('No channels left after dropping conflicts')
 
     ws_id_col = Channel.data_webservice_id.key
+    rows = len(channels)
     channels = sync_webservice_urls_and_assign_ids(channels, engine, ids_column_name=ws_id_col)
-    wsid_na = pd.isna(channels[ws_id_col])
-    if wsid_na.any():
-        msg = f"Discarding {wsid_na.sum()} channel(s) (associated URL not saved to DB)"
-        if wsid_na.all():
-            raise FailedDownload(msg)
-        logger.warning(msg)
-        channels.drop(wsid_na.index, inplace=True)
+    channels.dropna(subset=[ws_id_col], inplace=True)
+    if channels.empty:
+        raise FailedDownload("No channels left after failed DB URLs insertion")
+    elif rows > len(channels):
+        logger.warning(
+            f"Discarding {rows-len(channels)} channel(s) "
+            f"(associated URL not saved to DB)"
+        )
     channels[ws_id_col] = channels[ws_id_col].astype(int)
 
     channels = save_channels(engine, channels)
     if channels.empty:
         raise FailedDownload(
-            'No channels left after failing to save them'
+            'No channels left after failed DB insertion'
         )
 
     logger.info(
