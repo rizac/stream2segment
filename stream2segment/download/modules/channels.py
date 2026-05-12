@@ -93,7 +93,7 @@ def get_channels(
     if cha_df.empty:
         raise NothingToDownload(
             'No channel downloaded. Possible reasons: no internet connection, '
-            'all channels filtered out'
+            'all channels filtered out. See log for details'
         )
 
     num_downloaded_channels = len(cha_df)
@@ -527,35 +527,32 @@ def resolve_inter_conflicts(
     Resolve inter conflicts (same channel, different URLs, overlapping time ranges
     """
     channels.reset_index(drop=True, inplace=True)
-
-    # 1) CHANNELS WITH SAME CODE AND START TIME MUST COME FROM A SINGLE URL:
     grp_cols = [net_col, sta_col, loc_col, band_col, inst_col, start_col]
-
-    # table_empty = get_row_count(engine, Channel) < 1
     indices2discard = set()
-
-    new_cha_df = []
+    new_channels = []
 
     for (net, sta, loc, band, inst, start), cha_df in channels.groupby(grp_cols):
 
         for o in pd.unique(cha_df[orient_col]):
             if not clip_overlapping_end_times(cha_df[cha_df[orient_col] == o]).empty:
-                # overlapping time ranges: break and handle it (no 'continue' below)
-                break
+                break  # overlapping time ranges: break and handle it below
         else:
+            # no overlapping time ranges: next loop
             continue
 
+        # handle overlapping times. Regardless of the outcome, drop current df:
         indices2discard.update(cha_df.index)
         if cha_df[url_col].nunique(dropna=False) <= 1:
-            # unresolvable problem (we should not have resolved in intra conflicts)
+            # unresolvable problem, url should be unique (see intra conflicts handling)
             # log? FIXME
             continue
 
+        # take only dataframes resolved buy eida routing service, if any:
         for dfr in resolve_via_eida_rs(cha_df, eida_rs_urls, net, sta, loc, band, inst):
-            new_cha_df.append(dfr)
+            new_channels.append(dfr)
 
     channels = pd.concat(
-        [channels[~channels.index.isin(indices2discard)]] + new_cha_df,
+        [channels.drop(list(indices2discard), errors='ignore')] + new_channels,
         ignore_index=True
     )
 

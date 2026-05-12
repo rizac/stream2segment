@@ -10,7 +10,7 @@ import pytest
 from click.termui import progressbar
 
 from stream2segment.download.url import (read_url, URLError, socket, HTTPError)
-from stream2segment.io.utils import Nop, get_progressbar
+from stream2segment.io.utils import NoOp, get_progressbar
 from stream2segment.io.db import secure_dburl
 
 
@@ -109,7 +109,7 @@ def test_secure_dburl(input, expected_result):
 
 # IF RUNNING WITH ECLIPSE, UNCOMMENT THE LINE BELOW:
 # @pytest.mark.skip(reason="fails if run from within n eclipse because of cryptic bytes vs string propblem")
-@patch("stream2segment.io.cli.Nop", side_effect=lambda *a, **v: Nop(*a, **v))
+@patch("stream2segment.io.cli.Nop", side_effect=lambda *a, **v: NoOp(*a, **v))
 @patch("stream2segment.io.cli.click_progressbar", side_effect=lambda *a, **v: progressbar(*a, **v))
 def test_progressbar(mock_pbar, mock_nop):
     '''this test has problems with eclipse'''

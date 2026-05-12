@@ -18,7 +18,8 @@ class BadParam(Exception):
 
 
 def ascii_decorate(string, frame=None):
-    """Decorate the string with a frame in Unicode decoration characters,
+    """
+    Decorate the string with a frame in Unicode decoration characters,
     and returns the decorated string
 
     :param string: a single- or multi-line string
@@ -51,13 +52,12 @@ def ascii_decorate(string, frame=None):
     )
 
 
-class Nop:
-    """Dummy class (no-op), used to yield a contextmanager where each method
-    is no-op. Used in `get_progressbar`
+class NoOp:
+    """
+    No-op placeholder object. Used as a drop-in contextmanager with arbitrary
+    attributes and methods that do nothing
     """
     # https://stackoverflow.com/a/24946360
-    def __init__(self, *a, **kw):
-        pass
 
     @staticmethod
     def __nop(*args, **kw):
@@ -69,7 +69,8 @@ class Nop:
 
 @contextmanager
 def get_progressbar(length, **kw):
-    """Wrapper around `click.progressbar` (to be used in a `with` statement),
+    """
+    Wrapper around `click.progressbar` (to be used in a `with` statement),
     if `length>0` and the argument 'iterable' is not provided, return a No-op object
     still usable in a with statement. Example
     ```
@@ -79,11 +80,11 @@ def get_progressbar(length, **kw):
     ```
     """
     if not length and 'iterable' not in kw:
-        yield Nop(**kw)
+        yield NoOp(**kw)
     else:
         # some custom setup if missing:
         # (note that progressbar characters render differently across OSs:
-        # after some attempts, I found out the best for mac - which is the
+        # after some attempts, I found out the best for Mac - which is the
         # default - and Ubuntu):
         is_linux = sys.platform.startswith('linux')
         kw.setdefault('fill_char', "▮" if is_linux else "●")
