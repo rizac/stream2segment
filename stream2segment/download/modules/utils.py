@@ -95,13 +95,13 @@ def fdsn_url(
 
     split_url = urlsplit(url)
     if not split_url.scheme:
-        raise ValueError('url starts with no scheme, e.g. "https://")')
+        raise ValueError('missing URL scheme (e.g. "https://")')
 
     if not split_url.netloc:
-        raise ValueError('url has no valid domain, e.g. "geofon.gfz.de"')
+        raise ValueError('missing URL domain (e.g. "geofon.gfz.de")')
 
     if split_url.fragment:
-        raise ValueError(f'Invalid fragment (#{split_url.fragment}) in url')
+        raise ValueError(f'unsupported URL fragment (#{split_url.fragment})')
 
     path = split_url.path  # the query string is in split_url.query
 
@@ -111,31 +111,31 @@ def fdsn_url(
     )
 
     if not reg:
-        raise ValueError('url has no path "fdsnws/<service>/<majorversion>/<method>')
+        raise ValueError('URL path does not match "fdsnws/<service>/<majorversion>/<method>')
 
     service = reg.group('service')
     if service not in services:
-        raise ValueError(f"Invalid service in url: {service}")
+        raise ValueError(f"invalid URL service: {service}")
 
     majorversion = reg.group('majorversion')
     try:
         float(majorversion)
     except ValueError:
-        raise ValueError(f"Invalid major version in url: {majorversion}")
+        raise ValueError(f"invalid URL major version: {majorversion}")
 
     method = reg.group('method')
     if method not in methods:
-        raise ValueError(f"Invalid method in url: {method}")
+        raise ValueError(f"invalid URL method: {method}")
 
     if new_service is None:
         new_service = service
     elif new_service not in services:
-        raise ValueError(f'Invalid argument service: {new_service}')
+        raise ValueError(f'invalid service: {new_service}')
 
     if new_method is None:
         new_method = method
     elif new_method not in methods:
-        raise ValueError(f'Invalid argument method: {new_method}')
+        raise ValueError(f'invalid method: {new_method}')
 
     if new_query_string is None:
         new_query_string = split_url.query

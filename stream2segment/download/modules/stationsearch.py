@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 from stream2segment.download.modules.utils import NothingToDownload, FailedDownload
-from stream2segment.io.db.models import Event, Segment
+from stream2segment.io.db.models import Event, Channel, Segment
 from stream2segment.io.utils import get_progressbar
 from stream2segment.download.modules.events import (
     lat_col as ev_lat_col, lon_col as ev_lon_col, mag_col as mag_col,
@@ -38,7 +38,8 @@ def merge_events_stations(
     tttable,
     show_progress=False
 ):
-    """Merge `events_df` and `channels_df` by returning a new dataframe
+    """
+    Merge `events_df` and `channels_df` by returning a new dataframe
     representing all channels within a specific search radius. *Each row of the
     returned data frame is basically a segment to be potentially donwloaded*.
     The returned dataframe will be the same as `channels_df` with one or more
@@ -71,6 +72,7 @@ def merge_events_stations(
             events[ev_time_col],
             events[ev_depth_col]
         ):
+            pbar.update(1)
 
             l2d = locations2degrees(
                 channels[ch_lat_col], channels[ch_lon_col], ev_lat, ev_lon
@@ -88,28 +90,22 @@ def merge_events_stations(
             if max_radius is not None:
                 condition &= (l2d <= max_radius)
 
-            pbar.update(1)
-            matching_items = condition.sum()
-            if matching_items == 0:
+            chs = channels[condition]
+            if chs.empty:
                 continue
-            if matching_items < len(channels):
-                channels = channels[condition]
-                l2d = l2d[condition]
 
-            cha_df = channels.copy()
-            cha_df["event_distance_deg"] = l2d
+            chs["event_distance_deg"] = l2d[condition]
             # add scalar broadcasted to all elements:
-            cha_df[ev_id_col] = ev_id
-            cha_df["_.event_depth._"] = [ev_depth] * len(cha_df)
-            cha_df["_.event_time._"] = [ev_time] * len(cha_df)
-            ret.append(cha_df)
+            chs[ev_id_col] = ev_id
+            chs[ch_id_col] = chs[Channel.id.key]
+            chs["_.event_depth._"] = ev_depth
+            chs["_.event_time._"] = ev_time
+            ret.append(chs)
 
     # create total segments dataframe:
     # first check we have data:
     if not ret:
-        raise NothingToDownload(
-            "No segments to process (no station within events search area)"
-        )
+        raise NothingToDownload("No station within events search area")
     # now concat:
     ret = pd.concat(ret, axis=0, ignore_index=True, copy=True)
 
@@ -176,27 +172,10 @@ def merge_events_stations(
 
 
 def locations2degrees(lat1, lon1, lat2, lon2):
-    """Same as ObsPy `locations2degree` but works with numpy arrays.
-
-    From the doc:
-    Convenience function to calculate the great circle distance between two
-    points on a spherical Earth.
-
-    This method uses the Vincenty formula in the special case of a spherical
-    Earth. For more accurate values use the geodesic distance calculations of
-    geopy (https://github.com/geopy/geopy).
-
-    :param lat1: (numpy numeric array). Latitude(s) of point 1 in degrees
-    :param lon1: (numpy numeric array). Longitude(s) of point 1 in degrees
-    :param lat2: (numpy numeric array). Latitude(s) of point 2 in degrees
-    :param lon2: (numpy numeric array). Longitude(s) of point 2 in degrees
-
-    :return: Distance in degrees as a numpy numeric array.
     """
-    # (Note: this function, exactly this one, is now in obspy, thanks to a PR
-    # we issued long ago. We still have it here because prefer to decouple
-    # ObsPy from the download package
-
+    Vectorized replacement of legacy ObsPy `locations2degree`, still kept here to
+    avoid importing ObsPy in the download package
+    """
     # Convert to radians.
     lat1 = np.radians(np.asarray(lat1))
     lat2 = np.radians(np.asarray(lat2))
@@ -217,7 +196,8 @@ def locations2degrees(lat1, lon1, lat2, lon2):
 
 
 def get_search_radia(search_radius, magnitudes):
-    """Return two iterables denoting the minima and maxima radia for
+    """
+    Return two iterables denoting the minima and maxima radia for
     stations search. Any element of the iterables might be None to indicate:
     no restriction for that element
     """
@@ -231,7 +211,8 @@ def get_search_radia(search_radius, magnitudes):
 
 
 def get_mag_dependent_radius(mag, minmag, maxmag, minmag_radius, maxmag_radius):
-    """From a given magnitude, return the max radius/radia (in degrees).
+    """
+    From a given magnitude, return the max radius/radia (in degrees).
     Given minmag_radius and maxmag_radius and minmag and maxmag, this
     function returns D from the f below:
 

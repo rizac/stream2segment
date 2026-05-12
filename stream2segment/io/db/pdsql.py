@@ -182,9 +182,9 @@ def set_pkeys(dfr: pd.DataFrame, engine: Engine, table_model: type[DeclarativeBa
     if dfr.empty:
         if id_col not in dfr.columns:
             dfr[id_col] = pd.Series(dtype=int)
-        return dfr
-    id_max = get_col_max(engine, table_model.__table__.c[id_col]) + 1
-    dfr[id_col] = np.arange(id_max, id_max + len(dfr), dtype=int)
+    else:
+        id_max = get_col_max(engine, table_model.__table__.c[id_col]) + 1
+        dfr[id_col] = np.arange(id_max, id_max + len(dfr), dtype=int)
     return dfr
 
 
@@ -193,14 +193,14 @@ def insert_df(
     engine: Engine,
     table_model: type[DeclarativeBase],
     chunksize=5000,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
+) -> pd.DataFrame:
     """
     Insert dfr to the given table model. The primary key column of the table must be
     an auto-increment (sequential) integer (int or Int64). The column must be already
     supplied (see `set_pkeys`)
     """
     if dfr.empty:
-        return dfr, dfr.head(0)
+        return dfr
 
     stmt = [insert(table_model)]
     start = 0
@@ -214,13 +214,11 @@ def insert_df(
             ids_failed.update(set(r[id_col] for r in rows) - ids_inserted)
         start += chunksize
 
-    failed = pd.DataFrame(columns=dfr.columns, data=[])
     if len(ids_failed):
         failed_mask = dfr[id_col].isin(ids_failed)
-        failed = dfr[failed_mask]
         dfr = dfr[~failed_mask]
 
-    return dfr, failed
+    return dfr
 
 
 def fetch_df(engine, select_stmt: Select, chunksize=5000) -> Iterable[pd.DataFrame]:
@@ -284,13 +282,16 @@ def iter_rows(dataframe: pd.DataFrame, columns=None) -> Iterable[dict]:
     columns = []
     for col, series in dataframe.items():
         columns.append(str(col))
+
+        mask = pd.isna(series)
+        is_na = mask.any()
+
         if pd.api.types.is_datetime64_dtype(series):
             d = series.dt.to_pydatetime()
         else:
-           d = series.values.astype(object, copy=False)
+           d = series.values.astype(object, copy=is_na)
 
-        mask = pd.isna(d)
-        if mask.any():
+        if is_na:
             d[mask] = None
 
         data_list.append(d)

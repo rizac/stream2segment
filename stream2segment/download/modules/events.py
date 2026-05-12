@@ -71,12 +71,16 @@ def get_events(
 
     events[url_col] = events[url_col].astype("category")
     ws_id_col = Event.webservice_id.key
-    sync_webservice_ids_with_db(events, engine, merge_on=ws_id_col)
+    sync_webservice_urls_and_assign_ids(events, engine, ids_column_name=ws_id_col)
     wsid_na = pd.isna(events[ws_id_col])
     if wsid_na.any():
-        logger.warning(
-            f"Discarding {wsid_na.sum()} event(s) (associated URL not saved to DB)"
-        )
+        msg = f"Discarding {wsid_na.sum()} event(s) (associated URL not saved to DB)"
+        if wsid_na.all():
+            raise FailedDownload(msg)
+        logger.warning(msg)
+        events.drop(wsid_na.index, inplace=True)
+    events[ws_id_col] = events[ws_id_col].astype(int)
+
     events = save_events(
         events,
         engine,
@@ -86,6 +90,11 @@ def get_events(
         time_tol_sec=event_overlap_tolerance['time'],
         on_event_conflict=on_event_conflict
     )
+
+    if events.empty:
+        raise FailedDownload(
+            'No events left after failing to save them'
+        )
 
     return events[[
         Event.id.key,
@@ -308,8 +317,8 @@ def _split_request(evt_query_args: dict):
         }
 
 
-def sync_webservice_ids_with_db(
-    dfr: pd.DataFrame, engine, merge_on:str
+def sync_webservice_urls_and_assign_ids(
+    dfr: pd.DataFrame, engine, ids_column_name:str
 ) -> pd.DataFrame:
 
     if not pd.api.types.is_categorical_dtype(dfr[url_col]):
@@ -325,24 +334,15 @@ def sync_webservice_ids_with_db(
     )
 
     to_insert = set_pkeys(ws_df[ws_df[id_col].isna()], engine, WebService)
-    inserted, failed = insert_df(to_insert, engine, WebService)
+    inserted = insert_df(to_insert, engine, WebService)
     if not inserted.empty:
         ws_df[id_col] = inserted[id_col]  # assignment is index aligned
-    # for safety:
-    ws_df[id_col] = ws_df[id_col].astype(int)
 
-    if not failed.empty:
-        logger.warning(
-            f"Discarding {len(failed):,} "
-            f"WebService URL(s) (error while inserting to DB)"
-        )
-
-    # avoid conflicts (remove merge_on column, if any):
-    dfr.drop(columns=[merge_on], errors="ignore", inplace=True)
-
+    # for safety remove merge_on column, if any:
+    dfr.drop(columns=[ids_column_name], errors="ignore", inplace=True)
     # now assign:
     return dfr.merge(
-        ws_df.rename(columns={id_col: merge_on}), on=url_col, how="left"
+        ws_df.rename(columns={id_col: ids_column_name}), on=url_col, how="left"
     )
 
 
@@ -372,37 +372,37 @@ def save_events(
 
     cmp_cols_round = [_ + _round_suf for _ in [lat_col, lon_col, depth_col, time_col]]
 
-    drop_ids = []
+    drop_indices = []
 
     for _, ev_df in events[events.duplicated(cmp_cols_round)].groupby(cmp_cols_round):
-        _drop_ids = []
+        drop_ids = []
         if ev_df[magtype_col].nunique(dropna=True) == 1:
             # same mag type, take first index that has max mag:
-            _drop_ids.extend(
+            drop_ids.extend(
                 ev_df.index.difference([ev_df[mag_col].idxmax()])
             )
         elif on_event_conflict == 'discard':
-            _drop_ids.extend(ev_df.index)
+            drop_ids.extend(ev_df.index)
         elif on_event_conflict != 'keep':
             for ma_type in on_event_conflict.split(','):
                 mask = ev_df[magtype_col].str.lower() == ma_type.strip().lower()
                 if mask.any():
-                    _drop_ids.extend(
+                    drop_ids.extend(
                         ev_df.index.difference([mask.idxmax()])  # take first true
                     )
                     break
             else:
                 # no break loop hit:
-                _drop_ids.extend(ev_df.index)
-        if _drop_ids:
-            logger.warning(f"Discarding {len(_drop_ids)} overlapping events: "
-                           f"{to_urls(ev_df.loc[_drop_ids])}")
-            drop_ids.extend(_drop_ids)
+                drop_ids.extend(ev_df.index)
+        if drop_ids:
+            logger.warning(f"Discarding {len(drop_ids)} overlapping events: "
+                           f"{to_urls(ev_df.loc[drop_ids])}")
+            drop_indices.extend(drop_ids)
 
 
-    if drop_ids:
-        logger.info(f"{len(drop_ids):,} overlapping event(s) discarded")
-        events = events[~events.index.isin(drop_ids)]
+    if drop_indices:
+        logger.info(f"{len(drop_indices):,} overlapping event(s) discarded")
+        events.drop(list(drop_indices), errors='ignore', inplace=True)
 
     id_col = Event.id.key
 
@@ -437,12 +437,8 @@ def save_events(
         saved_events[time_col + _round_suf] = round(
             saved_events[time_col].dt.timestamp, time_tol_sec
         )
-
         events = events.merge(
-            saved_events,
-            how='left',
-            on=cmp_cols_round,
-            suffixes=('', _suf)
+            saved_events, how='left', on=cmp_cols_round, suffixes=('', _suf)
         )
         on_db = events[id_col + _suf].notna()
         mismatches = on_db & (
@@ -465,19 +461,25 @@ def save_events(
     events.drop(columns=cmp_cols_round, inplace=True)
 
     to_insert = set_pkeys(events[events[id_col].isna()], engine, Event)
-    inserted, failed = insert_df(to_insert, engine, Event)
-    if not failed.empty:
+    inserted = insert_df(to_insert, engine, Event)
+
+    if not inserted.empty:
+        events[id_col] = inserted[id_col]  # assignment is index aligned
+
+    id_na = events[id_col].isna()
+    if id_na.any():
         logger.warning(
-            f"{len(failed)} events(s) discarded (error while inserting to DB)\n" +
-            failed.to_string(
+            f"{id_na.sum():,} "
+            f"events(s) discarded (likely error while inserting to DB)\n" +
+            events[id_na].to_string(
                 max_rows=30, index=False, na_rep='', show_dimensions=True
             )
         )
-    if not inserted.empty:
-        if not inserted.empty:
-            events[id_col] = inserted[id_col]  # assignment is index aligned
+        events.dropna(subset=[id_col], inplace=True)
+
     # for safety:
-    events[id_col] = events[id_col].astype(int)
+    if not events.empty:
+        events[id_col] = events[id_col].astype(int)
 
     return events
 

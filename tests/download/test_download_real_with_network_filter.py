@@ -89,7 +89,7 @@ def test_real_run_old_buggy_network_filter(
         ]
     )
     assert result.exit_code == 0
-    assert 'Nothing to download:' in result.output
+    assert 'No station within' in result.output
     num_channels = get_row_count(db.engine, Channel)
     num_events = get_row_count(db.engine, Event)
 
@@ -101,18 +101,18 @@ def test_real_run_old_buggy_network_filter(
         ]
     )
     assert result.exit_code == 0
-    assert 'Nothing to download:' in result.output
+    assert 'No station within' in result.output
     # nothing new has been written:
     assert num_channels == get_row_count(db.engine, Channel)
     assert num_events == get_row_count(db.engine, Event)
 
     result = CliRunner().invoke(
         cli, [
-            'download', '-c', str(cfg_file), '--dburl', db.url, '-ds', 'iris'
+            'download', '-c', str(cfg_file), '--dburl', db.url, '-ds', 'iris', '-ds', 'eida',
         ]
     )
     assert result.exit_code == 0
-    assert 'Nothing to download: custom message' in result.output
+    assert 'No station within' in result.output
     # nothing new has been written:
     assert num_channels < get_row_count(db.engine, Channel)
     assert num_events == get_row_count(db.engine, Event)

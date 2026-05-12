@@ -14,12 +14,12 @@ import pandas as pd
 from obspy.signal.evrespwrapper import Channel
 from pandas.core.dtypes.common import is_categorical_dtype
 
-from stream2segment.download.modules.events import sync_webservice_ids_with_db
+from stream2segment.download.modules.events import sync_webservice_urls_and_assign_ids
 from stream2segment.io.utils import get_progressbar
 from stream2segment.io.db.pdsql import (
     insert_df, apply_table_dtypes, fetch_df, get_col_max, select, Engine, set_pkeys
 )
-from stream2segment.io.db.models import Channel, WebService, Segment
+from stream2segment.io.db.models import Channel, WebService
 from stream2segment.download.url import read_url
 from stream2segment.download.modules.utils import (
     fdsn_url, fdsn_url_qs, fdsn_response_text_to_df, FailedDownload, NothingToDownload
@@ -83,64 +83,61 @@ def get_channels(
     if min_sample_rate is not None and min_sample_rate > 0:
         filter_funcs[Channel.sample_rate.key] = lambda s: s >= min_sample_rate
 
-    cha_df = download_channels(
+    channels = download_channels(
         cha_urls,
         filter_funcs=filter_funcs,
         timeout=download_timeout,
         show_progress=show_progress,
         restricted_download=restricted_download,
     )
-    if cha_df.empty:
+    if channels.empty:
         raise NothingToDownload(
             'No channel downloaded. Possible reasons: no internet connection, '
             'all channels filtered out. See log for details'
         )
 
-    num_downloaded_channels = len(cha_df)
+    categorical_columns = [
+        net_col, sta_col, loc_col, band_col, inst_col, orient_col, url_col
+    ]
+    for c in categorical_columns:
+        channels[c] = channels[c].astype('str').astype('category')
 
-    cha_df = resolve_inter_conflicts(cha_df, eida_rs_urls)
-    if cha_df.empty:
+    num_downloaded_channels = len(channels)
+
+    channels = resolve_inter_conflicts(channels, eida_rs_urls)
+    if channels.empty:
         raise FailedDownload('No channels left after dropping conflicts')
 
     ws_id_col = Channel.data_webservice_id.key
-    cha_df = sync_webservice_ids_with_db(cha_df, engine, merge_on=ws_id_col)
-    wsid_na = pd.isna(cha_df[ws_id_col])
+    channels = sync_webservice_urls_and_assign_ids(channels, engine, ids_column_name=ws_id_col)
+    wsid_na = pd.isna(channels[ws_id_col])
     if wsid_na.any():
-        logger.warning(
-            f"{wsid_na.sum()} channel(s) discarded (associated URL not saved to DB)\n" +
-            cha_df[wsid_na].to_string(
-                max_rows=30, index=False, na_rep='', show_dimensions=True
-            )
-        )
-        cha_df = cha_df[~wsid_na].copy()
+        msg = f"Discarding {wsid_na.sum()} channel(s) (associated URL not saved to DB)"
+        if wsid_na.all():
+            raise FailedDownload(msg)
+        logger.warning(msg)
+        channels.drop(wsid_na.index, inplace=True)
+    channels[ws_id_col] = channels[ws_id_col].astype(int)
 
-    if cha_df.empty:
-        raise FailedDownload(
-            'No channels left after failing to save channel webservices'
-        )
-    cha_df = save_channels(engine, cha_df)
-    if cha_df.empty:
+    channels = save_channels(engine, channels)
+    if channels.empty:
         raise FailedDownload(
             'No channels left after failing to save them'
         )
 
     logger.info(
-        f'Working with {len(cha_df):,} station channel(s) '
+        f'Working with {len(channels):,} station channel(s) '
         f'(downloaded: {num_downloaded_channels:,})'
     )
 
-    # convert to categorical type (for safety):
-    for c in (
-        net_col, sta_col, loc_col, band_col, inst_col, orient_col, url_col
-    ):
-        if not is_categorical_dtype(cha_df[c]):
-            cha_df[c] = cha_df[c].astype('str').astype('category')
-
-    cha_df.rename(columns={Channel.id.key: Segment.channel_id.key}, inplace=True)
+    for c in categorical_columns:  # for safety
+        if not is_categorical_dtype(channels[c]):
+            channels[c] = channels[c].astype('str').astype('category')
+    # channels[ws_id_col] = channels[ws_id_col].astype(int).astype('category')
 
     # return a copy of relevant columns only:
-    return cha_df[[
-        Segment.channel_id.key,
+    return channels[[
+        Channel.id.key,
         net_col,
         sta_col,
         loc_col,
@@ -245,13 +242,25 @@ def get_channel_urls(
                 service_url = 'https://service.iris.edu/fdsnws/station/1/query'
             parsed_urls.append((service_url, params))
 
-
+    override_params = dict(level='channel', format='text')
     for url, params in parsed_urls:
         try:
-            for url, params in check_and_yield_fdsn_urls(url, params):
-                yield fdsn_url_qs(url, **params, level='channel', format='text')
+            fdsn_station_url = fdsn_url(url, new_service='station', new_method='query')
+            if params.get('net', None) not in {'*', None}:
+                # response likely no too big, proceed
+                yield fdsn_url_qs(
+                    fdsn_station_url, **{**params, **override_params}
+                )
+            else:
+                # response likely too big, split by network size:
+                for new_url, new_params in split_url_by_network_quantiles(
+                    fdsn_station_url, params
+                ):
+                    yield fdsn_url_qs(
+                        new_url, **{**new_params, **override_params}
+                    )
         except ValueError as v_err:
-            logger.warning(f"Error from {url}: {v_err}")
+            logger.warning(f"{url}: {v_err}")
 
 
 def get_eida_rs_response(
@@ -285,18 +294,10 @@ def split_times(start: datetime, end: datetime, interval_years=5):
         cur = nxt
 
 
-def check_and_yield_fdsn_urls(url, params):
+def split_url_by_network_quantiles(fdsn_station_url, params):
     """
 
     """
-    try:
-        fdsn_station_url = fdsn_url(url, new_service='station', new_method='query')
-    except ValueError as e:
-        raise ValueError("Invalid FDSN URL")
-
-    if params['net'] != '*' and params['net'] is not None:
-        yield fdsn_station_url, params
-        return
     # no network specified, query might take long (even for short time bounds).
     # get all networks and perform n subsets queries
     rows = []
@@ -311,7 +312,7 @@ def check_and_yield_fdsn_urls(url, params):
         df = pd.DataFrame(rows, columns=['net', 'count'])
         # convert count to numeric (should be int, but we set NaN as #station mean):
         df['count'] = pd.to_numeric(df['count'], errors='coerce')
-        df.loc[pd.isna(df['count']), 'count'] = df['count'].mean()
+        df.loc[pd.isna(df['count']), 'count'] = int(df['count'].mean().round())
         df['count'] = df['count'].astype(int)
         n = 5 # number of split requests
         # cumulative sum of counts (running total)
@@ -401,7 +402,6 @@ def download_channels(
     if channels_dfs:  # pd.concat complains about empty list
         # save urls and set them as categorical
         cha_df = pd.concat(channels_dfs, axis=0, ignore_index=True, copy=False)
-        cha_df[url_col] = cha_df[url_col].astype('category')
 
         if not cha_df.empty:
             # sort by rank col and reset index so that we can see with the index which
@@ -528,31 +528,29 @@ def resolve_inter_conflicts(
     """
     channels.reset_index(drop=True, inplace=True)
     grp_cols = [net_col, sta_col, loc_col, band_col, inst_col, start_col]
-    indices2discard = set()
+    drop_indices = set()
     new_channels = []
 
-    for (net, sta, loc, band, inst, start), cha_df in channels.groupby(grp_cols):
+    for (net, sta, loc, band, inst, start), chs in channels.groupby(grp_cols):
 
-        for o in pd.unique(cha_df[orient_col]):
-            if not clip_overlapping_end_times(cha_df[cha_df[orient_col] == o]).empty:
+        if chs[url_col].nunique(dropna=False) == 1:
+            continue
+
+        for o in pd.unique(chs[orient_col]):
+            if not clip_overlapping_end_times(chs[chs[orient_col] == o]).empty:
                 break  # overlapping time ranges: break and handle it below
         else:
             # no overlapping time ranges: next loop
             continue
 
         # handle overlapping times. Regardless of the outcome, drop current df:
-        indices2discard.update(cha_df.index)
-        if cha_df[url_col].nunique(dropna=False) <= 1:
-            # unresolvable problem, url should be unique (see intra conflicts handling)
-            # log? FIXME
-            continue
-
+        drop_indices.update(chs.index)
         # take only dataframes resolved buy eida routing service, if any:
-        for dfr in resolve_via_eida_rs(cha_df, eida_rs_urls, net, sta, loc, band, inst):
+        for dfr in resolve_via_eida_rs(chs, eida_rs_urls, net, sta, loc, band, inst):
             new_channels.append(dfr)
 
     channels = pd.concat(
-        [channels.drop(list(indices2discard), errors='ignore')] + new_channels,
+        [channels.drop(list(drop_indices), errors='ignore')] + new_channels,
         ignore_index=True
     )
 
@@ -569,8 +567,8 @@ def resolve_via_eida_rs(
     inst: str
 ) -> Iterable[pd.DataFrame]:
 
-    min_start=channels[start_col].min()
-    max_end=channels[end_col].max()
+    min_start = channels[start_col].min()
+    max_end = channels[end_col].max()
 
     eida_rs_json = get_eida_rs_response(
         eida_rs_urls,
@@ -633,7 +631,7 @@ def save_channels(engine: Engine, channels: pd.DataFrame):
     # depth_col = Channel.depth.key
     id_col = Channel.id.key
     ws_id_col = Channel.data_webservice_id.key
-    depth_col = Channel.depth.key
+
     uc_cols = [
         net_col,
         sta_col,
@@ -660,16 +658,13 @@ def save_channels(engine: Engine, channels: pd.DataFrame):
         Channel.start_time,
         # Channel.depth,
         Channel.data_webservice_id
-    ).where(
-        (Channel.latitude >= channels[lat_col].min()) &
-        (Channel.latitude <= channels[lat_col].max()) &
-        (Channel.longitude <= channels[lon_col].min()) &
-        (Channel.longitude >= channels[lon_col].max()) &
-        (Channel.data_webservice_id.isin_(pd.unique(channels[ws_id_col]))) &
-        (Channel.band_code.isin_(channels[band_col].cat.categories)) &
-        (Channel.instrument_code_col.isin_(channels[inst_col].cat.categories)) &
-        (Channel.orientation_code.isin_(channels[orient_col].cat.categories)) &
-        (Channel.start_time <= get_col_max(engine, Channel.start_time))
+    ).where(  # avoid stations, they could be too many ...
+        Channel.network_code.in_(channels[net_col].cat.categories) &
+        Channel.location_code.in_(channels[loc_col].cat.categories) &
+        Channel.band_code.in_(channels[band_col].cat.categories) &
+        Channel.instrument_code.in_(channels[inst_col].cat.categories) &
+        Channel.orientation_code.in_(channels[orient_col].cat.categories) &
+        (Channel.start_time <= channels[start_col].max())
     )
 
     channels[id_col] = pd.Series(pd.NA, index = channels.index, dtype = "Int64")
@@ -679,12 +674,14 @@ def save_channels(engine: Engine, channels: pd.DataFrame):
             saved_channels, how='left', on=uc_cols, suffixes = ('', _suf)
         )
         on_db = channels[id_col + _suf].notna()
+        ws_id_mismatch =  (channels[ws_id_col] != channels[ws_id_col + _suf])
         mismatches = on_db & (
             (channels[lat_col] != channels[lat_col + _suf]) |
             (channels[lon_col] != channels[lon_col + _suf]) |
-            (channels[ws_id_col] != channels[ws_id_col + _suf]) # |
-            # (channels[depth_col] != channels[depth_col + _suf])
+            ws_id_mismatch
         )
+        channels.loc[on_db & ws_id_mismatch, url_col] = None  # flag for later
+
         if mismatches.any():
             # write to dataframe and log FIXME log!
             channels.loc[mismatches, lat_col] = channels.loc[mismatches, lat_col + _suf]
@@ -699,18 +696,40 @@ def save_channels(engine: Engine, channels: pd.DataFrame):
             columns=[c for c in channels.columns if c.endswith(_suf)], inplace=True
         )
 
+    # if I changed webservice id, I must reset also urls, which has categorical dtype:
+    url_na = channels[url_col].isna()
+    if url_na.any():
+        ws_ids = channels[url_na][ws_id_col].unique()
+        with engine.connect() as conn:
+            result = conn.execute(select(WebService.id, WebService.url).where(
+                WebService.id.in_(ws_ids)
+            ))
+        mapping = {row[0]: row[1] for row in result}
+        new_values = set(mapping.values()) - set(channels[url_col].cat.categories)
+        if new_values:
+            channels[url_col] = channels[url_col].cat.add_categories(list(new_values))
+        channels.loc[url_na, url_col] = channels.loc[url_na, ws_id_col].map(mapping)
+        # for safety:
+        channels.dropna(subset=[url_col], inplace=True)
+
     to_insert = set_pkeys(channels[channels[id_col].isna()], engine, Channel)
-    inserted, failed = insert_df(to_insert, engine, Channel)
-    if not failed.empty:
+    inserted = insert_df(to_insert, engine, Channel)
+    if not inserted.empty:
+        channels[id_col] = inserted[id_col]  # assignment is index aligned
+
+    id_na = channels[id_col].isna()
+    if id_na.any():
         logger.warning(
-            f"{len(failed)} channel(s) discarded (error while inserting to DB)\n" +
-            failed.to_string(
+            f"{id_na.sum():,} "
+            f"channel(s) discarded (likely error while inserting to DB)\n" +
+            channels[id_na].to_string(
                 max_rows=30, index=False, na_rep='', show_dimensions=True
             )
         )
-    if not inserted.empty:
-        channels[id_col] = inserted[id_col]  # assignment is index aligned
+        channels.dropna(subset=[id_col], inplace=True)
+
     # for safety:
-    channels[id_col] = channels[id_col].astype(int)
+    if not channels.empty:
+        channels[id_col] = channels[id_col].astype(int)
 
     return channels
