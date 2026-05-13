@@ -1,6 +1,7 @@
 """
 Utilities for interaction between pandas DataFrames, optimized for our workflow
 """
+# :date: Jul 17, 2016
 from collections.abc import Iterable, Sequence
 
 import numpy as np
@@ -21,13 +22,14 @@ def apply_table_dtypes(
     table: type[DeclarativeBase], dataframe, drop_non_nullable=True
 ):
     """
-    Applies the ORM table data types on the given dataframe, converting data as necessary.
-    Columns whose names mismatch between table and dataframe are not modified.
-    For ints and bools with NaN / None, the array dtype is converted to `object`.
+    Applies the ORM table data types on the given dataframe, converting data as
+    necessary. Columns whose names mismatch between table and dataframe are not
+    modified. For ints and bools with NaN / None, the array dtype is converted to
+    `object`.
 
     :param table: an ORM model class
     :param dataframe: the Data frame
-    :param drop_non_nullable: if True (the deault), drop rows that have NaN / NULL
+    :param drop_non_nullable: if True (the default), drop rows that have NaN / NULL
         values for columns that are non-nullable
     """
     table_cols = [c for c in table.__table__.c if c.name in dataframe.columns]  # noqa
@@ -76,7 +78,10 @@ def apply_table_dtypes(
                 )
                 # Reset back `None`s:
                 dataframe.loc[invalid, col_name] = None
-        elif isinstance(sql_type, Integer) and not pd.api.types.is_integer_dtype(df_col):
+        elif (
+            isinstance(sql_type, Integer) and
+            not pd.api.types.is_integer_dtype(df_col)
+        ):
             # int is stricter than bool, and does not coerce invalid values, So:
             try:
                 dataframe[col_name] = df_col.astype(int, copy=False)
@@ -136,17 +141,13 @@ def sync_pkey(
 ):
     """
     Synchronize the primary key `id_col` using the related `table_model` and
-    `uc_cols` to match existing db rows. Return `dfr` with an `id_col` set
-    (replacing entirely the existing dataframe `id_col`, if any) of type int.
-    The returned dataframe will also have an attribute `dfr.attrs[id_col+"_max"]`
-    denoting the current maximum of `id_col` on the db: consequently, dataframe
-    rows whose `id_col` value is greater than that maximum **ARE NOT YET INSERTED
-    ON THE DATABASE**: the id was assigned to be safely used in insert operation.
+    `unique_cols` to match fetched db rows with dataframe rows.
+    Return `dfr` with an `id_col` set (replacing entirely the existing dataframe
+    `id_col`, if any) of type int or Int64 (supporting NaN).
 
-    :param and unique_cols: list of strings denoting the unique constraint columns,
+    :param unique_cols: list of strings denoting the unique constraint columns,
         i.e. the columns that must be unique for each row and can then be used to
-        match equal rows. They should be relatively few and of type integer for better
-        performance
+        match equal rows
     """
     columns = table_model.__table__.c  # columns collection
     pkey_col = [col.name for col in table_model.__table__.primary_key.columns][0]
@@ -177,6 +178,12 @@ def sync_pkey(
 
 
 def set_pkeys(dfr: pd.DataFrame, engine: Engine, table_model: type[DeclarativeBase]):
+    """
+    Set the primary key column of the given table model on the passed dataframe,
+    setting a new series of sequential integers, starting with the current max on the
+    DB +1. The primary key column of the table will be set on the given dataframe as a
+    series of type int, replacing the old column, if any
+    """
     id_col = [col.name for col in table_model.__table__.primary_key.columns][0]
     # empty case: just add id_col for compatibility with pd ops (e.g. concat, merge):
     if dfr.empty:

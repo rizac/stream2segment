@@ -176,7 +176,7 @@ def download_and_save(
 
     sql_insert_ok = [insert(Segment), insert(MiniSeed)]
     rows_ok = []
-    sql_insert_skip = [create_insert_statement(SkippedSegment)]
+    sql_insert_skip = [insert(SkippedSegment)]
     rows_skip = []
 
     written_ok = 0
@@ -208,7 +208,9 @@ def download_and_save(
                             )
                             if len(rows_skip) >= db_bufsize:
                                 written_skipped += sum(
-                                    1 for _ in execute_sql(engine, sql_insert_skip, rows_skip)
+                                    1 for _ in execute_sql(
+                                        engine, sql_insert_skip, rows_skip
+                                    )
                                 )
                                 rows_skip.clear()
 
@@ -518,52 +520,47 @@ class DownloadStats:
 
     def __init__(self, url_domains: Iterable[str]):
         self._stats = {}
-        self._codes = {_.value: url.responses[_] for _ in url.responses}
-        self._unknown_code = max(self._codes) + 1
-        self._codes[self._unknown_code] = 'Download not performed'
-        self._codes[MiniSeedErrorCode.BAD_DATA.value] = 'Corrupted MiniSeed'
-        self._codes[
+        self._status_msg = {_.value: url.responses[_] for _ in url.responses}
+        self._status_msg[MiniSeedErrorCode.BAD_DATA.value] = 'Corrupted MiniSeed'
+        self._status_msg[
             MiniSeedErrorCode.OUT_OF_TIME_BOUNDS.value
         ] = 'MiniSeed time range mismatch'
+        self._unknown_code = max(self._status_msg) + 1
+        self._status_msg[self._unknown_code] = 'No available info'
 
         for u in url_domains:
             self._stats[u] = {}
 
     def increment(self, url_domain, status_code, count=1):
-        try:
-            if status_code is None:
-                code = self._unknown_code
-            else:
-                code = int(status_code)
-                if code not in self._codes:
-                    return
-        except ValueError:
-            return
 
         row = self._stats.get(url_domain)
         if row is None:
             return
+        code = self._status_msg.get(status_code, self._unknown_code)
+
+        if code == self._unknown_code and status_code is not None:
+            try:
+                code =  self._status_msg.get(int(status_code), None)
+            except (TypeError, ValueError):
+                pass
 
         row[code] = row.get(code, 0) + count
 
     @property
-    def all_url_domains(self):
-        return self._stats.keys()
-
-    @property
-    def all_codes(self) -> list:
+    def status_codes(self) -> list:
         statuses = {s for statuses in self._stats.values() for s in statuses}
         ok_statuses = {s for s in statuses if 200 <= s < 300}
         err_statuses = statuses - ok_statuses
         return sorted(ok_statuses) + sorted(err_statuses)
 
     def to_dataframe(self) -> pd.DataFrame:
-        df = pd.DataFrame.from_dict(self._stats, orient="index")
+        df = pd.DataFrame.from_dict(self._stats, orient="index").fillna(0).astype(int)
         df = df.reindex(
             index=sorted(self._stats.keys()),
-            columns=[self._codes[c] for c in self.all_codes],
-            fill_value=0
-        ).astype(int)
+            columns=self.status_codes
+        ).rename(
+            columns={c: self._status_msg[c] for c in self.status_codes},
+        )
         df["Total"] = df.sum(axis=1)
         df.loc["Total"] = df.sum(axis=0)
         df.loc["Total", "Total"] = df.iloc[:-1, :-1].values.sum()
