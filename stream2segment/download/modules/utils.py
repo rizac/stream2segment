@@ -4,7 +4,7 @@ Utilities for the download routine
 # date Nov 25, 2016
 import re
 import psutil
-from io import StringIO
+from io import StringIO, BytesIO
 from datetime import datetime, date
 import logging
 from typing import Literal
@@ -49,18 +49,19 @@ class IdOnceLogFilter(logging.Filter):
         return True
 
 
-def fdsn_response_text_to_df(response: str):
+def fdsn_response_text_to_df(response: bytes | str):
     """
     Convert a response content obtained from a FDSN webservice with format=text
     into a pandas DataFrame of type str (no casting performed)
     """
     return pd.read_csv(
-        StringIO(response),
+        StringIO(response) if isinstance(response, str) else BytesIO(response),
         sep='|',
         header=None,
         comment='#',
         dtype=str,
         keep_default_na=False,
+        encoding="utf-8",
         na_values=[
             '#N/A', '#NA', '-NaN', '-nan', '<NA>', 'N/A',
             'NA', 'NULL', 'NaN', 'n/a', 'nan', 'null'

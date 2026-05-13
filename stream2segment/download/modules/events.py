@@ -11,6 +11,7 @@ from typing import Literal
 import numpy as np
 import pandas as pd
 from obspy.geodetics import kilometers2degrees
+from pandas import CategoricalDtype
 from sqlalchemy import Engine, select
 
 from stream2segment.io.utils import get_progressbar
@@ -20,7 +21,7 @@ from stream2segment.io.db.pdsql import (
 from stream2segment.io.db.models import Event, WebService
 from stream2segment.download.url import read_url, CustomResponseCode
 from stream2segment.download.modules.utils import (
-    fdsn_url_qs, fdsn_response_text_to_df, FailedDownload, NothingToDownload
+    fdsn_url_qs, fdsn_response_text_to_df, FailedDownload, NothingToDownload, fdsn_url
 )
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
@@ -69,10 +70,13 @@ def get_events(
     if events.empty:
         raise NothingToDownload('No valid event downloaded or read from file')
 
-    events[url_col] = events[url_col].astype("category")
+    if not pd.api.types.is_categorical_dtype(events[url_col]):
+        events[url_col] = events[url_col].astype("category")
     ws_id_col = Event.webservice_id.key
     rows = len(events)
-    sync_webservice_urls_and_assign_ids(events, engine, ids_column_name=ws_id_col)
+    events = sync_webservice_urls_and_assign_ids(
+        events, engine, ids_column_name=ws_id_col
+    )
     events.dropna(subset=[ws_id_col], inplace=True)
     if events.empty:
         raise FailedDownload("No events left after failed DB URLs insertion")
@@ -121,18 +125,26 @@ def download_events(
     :param url: a valid url, a mappings string, or a local file (fdsn 'text'
         formatted)
     """
-    for url in urls:
-        if is_local_file(url):
+    harmonized_urls = {
+        url_file_prefix + u if is_local_file(u) else fdsn_url(EVENTWS_MAPPING.get(u, u))
+        for u in urls
+    }
+    cat_type = CategoricalDtype(categories=list(harmonized_urls))
+
+    for url in harmonized_urls:
+        if url.startswith(url_file_prefix):
             try:
-                yield read_events_file(url)
+                dfr = read_events_file(url.removeprefix(url_file_prefix))
+                dfr[url_col] = pd.Series(url, index=dfr.index, dtype=cat_type)
             except Exception as exc:
                 raise FailedDownload(f"Error reading file {repr(url)}: {exc}")
         else:
-            url = EVENTWS_MAPPING.get(url, url)
             try:
-                yield from download_events_from_url(
+                for dfr in download_events_from_url(
                     url, evt_query_args, start, end, timeout, show_progress
-                )
+                ):
+                    dfr[url_col] = pd.Series(url, index=dfr.index, dtype=cat_type)
+                    yield dfr
             except Exception as exc:
                 raise FailedDownload(f"Error downloading from {url}: {exc}")
 
@@ -187,7 +199,7 @@ def read_events_file(file_path: str) -> pd.DataFrame:
 
 
 def download_events_from_url(
-    base_url,
+    base_fdsn_url,
     evt_query_args,
     start: datetime,
     end: datetime,
@@ -202,6 +214,7 @@ def download_events_from_url(
         evt_query_args.pop(key, None)
     evt_query_args['start'] = start
     evt_query_args['end'] = end
+    evt_query_args['format'] = 'text'
 
     request_too_large_codes = {413, 504, 503, CustomResponseCode.TIMEOUT_ERROR}
 
@@ -214,7 +227,7 @@ def download_events_from_url(
 
         while downloads:
             evt_query_args = downloads.pop(0)
-            url = fdsn_url_qs(base_url, **evt_query_args)
+            url = fdsn_url_qs(base_fdsn_url, **evt_query_args)
             response = read_url(url, timeout)
 
             if response.is_ok:
@@ -227,8 +240,12 @@ def download_events_from_url(
                         raise Exception("No data (Http code 204)")  # fallback below
                     yield fdsn_event_response_text_to_df(response.data)
                 except Exception as exc:
-                    logger.warning(f"Error downloading from {url}: {exc}")
+                    logger.warning(f"Unable to read data downloaded from {url}: {exc}")
             elif response.status_code not in request_too_large_codes:
+                logger.warning(
+                    f"Unable to download data from {url}: "
+                    f"{response.data}"
+                )
                 logger.warning(f"Error downloading from {url}: {response.data}")
             else:
                 downloads.extend(_split_request(evt_query_args))
@@ -246,7 +263,7 @@ def fdsn_event_response_text_to_df(response: str):
         # EventID|Time|Latitude|Longitude|Depth/km|Author|Catalog|Contributor|
         # ContributorID|MagType|Magnitude|MagAuthor|EventLocationName|EventType
         columns = {
-            dframe.columns[0]: Event.event_id.key,
+            dframe.columns[0]: Event.eventid.key,
             dframe.columns[1]: time_col,
             dframe.columns[2]: lat_col,
             dframe.columns[3]: lon_col,
@@ -364,19 +381,26 @@ def save_events(
 
     def round(series, abs_tol):
         epsilon = np.finfo(float).eps  # (for safety instead of 0)
-        return series if abs_tol <= epsilon else (series / abs_tol).round().astype(int)
+        if abs_tol <= epsilon:
+            return series
+        if pd.api.types.is_datetime64_any_dtype(series):
+            series = series.astype("datetime64[ms]").astype("int64")
+            abs_tol *= 10 ** 3
+        return (series / abs_tol).round().astype("int64")
 
     # first check equal events in the current dataframe:
     events[lat_col + _round_suf] = round(events[lat_col], kilometers2degrees(lat_tol_km))
     events[lon_col + _round_suf] = round(events[lon_col], kilometers2degrees(lon_tol_km))
     events[depth_col + _round_suf] = round(events[depth_col], depth_tol_km)
-    events[time_col + _round_suf] = round(events[time_col].dt.timestamp, time_tol_sec)
+    events[time_col + _round_suf] = round(events[time_col], time_tol_sec)
 
     cmp_cols_round = [_ + _round_suf for _ in [lat_col, lon_col, depth_col, time_col]]
 
     drop_indices = []
 
-    for _, ev_df in events[events.duplicated(cmp_cols_round)].groupby(cmp_cols_round):
+    for _, ev_df in events[events.duplicated(cmp_cols_round, keep=False)].groupby(
+        cmp_cols_round
+    ):
         drop_ids = []
         if ev_df[magtype_col].nunique(dropna=True) == 1:
             # same mag type, take first index that has max mag:
@@ -437,7 +461,7 @@ def save_events(
             saved_events[depth_col], depth_tol_km
         )
         saved_events[time_col + _round_suf] = round(
-            saved_events[time_col].dt.timestamp, time_tol_sec
+            saved_events[time_col], time_tol_sec
         )
         events = events.merge(
             saved_events, how='left', on=cmp_cols_round, suffixes=('', _suf)

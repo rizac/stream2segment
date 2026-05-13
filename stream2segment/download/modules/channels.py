@@ -110,7 +110,9 @@ def get_channels(
 
     ws_id_col = Channel.data_webservice_id.key
     rows = len(channels)
-    channels = sync_webservice_urls_and_assign_ids(channels, engine, ids_column_name=ws_id_col)
+    channels = sync_webservice_urls_and_assign_ids(
+        channels, engine, ids_column_name=ws_id_col
+    )
     channels.dropna(subset=[ws_id_col], inplace=True)
     if channels.empty:
         raise FailedDownload("No channels left after failed DB URLs insertion")
@@ -362,16 +364,12 @@ def download_channels(
                     f"{response.data}"
                 )
                 continue
-            elif response.status_code == 204:
-                logger.warning(
-                    f"Unable to download data from {response.request}: "
-                    f"no data"
-                )
-                continue
 
             try:
+                if response.status_code == 204:
+                    raise Exception('No data (HTTP code 204)')
                 dframe = fdsn_channel_response_text_to_df(
-                    response.data.decode('utf8'), filter_funcs
+                    response.data, filter_funcs
                 )
             except Exception as e:
                 logger.warning(
