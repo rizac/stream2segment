@@ -506,10 +506,10 @@ def get_db_select_statement(events) -> Select:
         mag_col: Event.magnitude,
         time_col: Event.time,
     }.items():
-        if events[name].max().notna():
-            conditions.append(col <= events[lat_col].max())
-        if events[name].min().notna():
-            conditions.append(col >= events[lat_col].min())
+        if pd.notna(events[name].max()):
+            conditions.append(col <= events[name].max())
+        if pd.notna(events[name].min()):
+            conditions.append(col >= events[name].min())
 
     select_stmt = select(
         Event.id, Event.latitude, Event.longitude, Event.time, Event.depth_km,
