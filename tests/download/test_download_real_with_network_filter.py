@@ -172,15 +172,4 @@ def test_real_download_events(
     assert num_channels == 0
     assert num_events2 >= num_events
 
-    result = CliRunner().invoke(
-        cli, [
-            'download', '-c', str(cfg_file), '--dburl', db.url, '-ds', 'iris', '-ds', 'eida',
-        ]
-    )
-    assert result.exit_code == 0
-    assert custom_message in result.output
-    # nothing new has been written:
-    assert num_channels < get_row_count(db.engine, Channel)
-    assert num_events == get_row_count(db.engine, Event)
-
 

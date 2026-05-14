@@ -12,11 +12,11 @@ import numpy as np
 import pandas as pd
 from obspy.geodetics import kilometers2degrees
 from pandas import CategoricalDtype
-from sqlalchemy import Engine, select
+from sqlalchemy import and_, Select
 
 from stream2segment.io.utils import get_progressbar
 from stream2segment.io.db.pdsql import (
-    apply_table_dtypes, fetch_df, insert_df, sync_pkey, set_pkeys
+    apply_table_dtypes, fetch_df, insert_df, sync_pkey, set_pkeys, select, Engine
 )
 from stream2segment.io.db.models import Event, WebService
 from stream2segment.download.url import read_url, CustomResponseCode
@@ -432,20 +432,7 @@ def save_events(
 
     id_col = Event.id.key
 
-    select_stmt = select(
-        Event.id, Event.latitude, Event.longitude, Event.time, Event.depth_km,
-    ).where(
-        (Event.latitude >= events[lat_col].min()) &
-        (Event.latitude <= events[lat_col].max()) &
-        (Event.longitude >= events[lon_col].min()) &
-        (Event.longitude <= events[lon_col].max()) &
-        (Event.time >= events[time_col].min()) &
-        (Event.time <= events[time_col].max()) &
-        (Event.depth_km >= events[depth_col].min()) &
-        (Event.depth_km <= events[depth_col].max()) &
-        (Event.magnitude >= events[mag_col].min()) &
-        (Event.magnitude <= events[mag_col].max())
-    )
+    select_stmt = get_db_select_statement(events)
 
     events[id_col] = pd.Series(pd.NA, index=events.index, dtype="Int64")
     _suf = '_.db._'
@@ -468,10 +455,10 @@ def save_events(
         )
         on_db = events[id_col + _suf].notna()
         mismatches = on_db & (
-            (events[lat_col + _round_suf] != events[lat_col + _round_suf + _suf]) |
-            (events[lon_col + _round_suf] != events[lon_col + _round_suf + _suf]) |
-            (events[depth_col + _round_suf] != events[depth_col + _round_suf + _suf]) |
-            (events[time_col + _round_suf] != events[time_col + _round_suf + _suf])
+            (events[lat_col] != events[lat_col + _suf]) |
+            (events[lon_col] != events[lon_col + _suf]) |
+            (events[depth_col] != events[depth_col + _suf]) |
+            (events[time_col] != events[time_col + _suf])
         )
         if mismatches.any():
             # write to dataframe and log FIXME log!
@@ -510,6 +497,28 @@ def save_events(
     return events
 
 
+def get_db_select_statement(events) -> Select:
+    conditions = []
+    for name, col in {
+        lat_col: Event.latitude,
+        lon_col: Event.longitude,
+        depth_col: Event.depth_km,
+        mag_col: Event.magnitude,
+        time_col: Event.time,
+    }.items():
+        if events[name].max().notna():
+            conditions.append(col <= events[lat_col].max())
+        if events[name].min().notna():
+            conditions.append(col >= events[lat_col].min())
+
+    select_stmt = select(
+        Event.id, Event.latitude, Event.longitude, Event.time, Event.depth_km,
+    )
+    if conditions:
+        select_stmt = select_stmt.where(and_(*conditions))
+    return select_stmt
+
+
 def to_urls(dfr:pd.DataFrame, max_rows=3):
     ret = []
     _i = 0
@@ -518,7 +527,7 @@ def to_urls(dfr:pd.DataFrame, max_rows=3):
     for row in dfr.itertuples(index=True):
         url = getattr(row, url_col, None)
         ev_id = getattr(row, Event.eventid.key, None)
-        if url is None and ev_id is None:
+        if url is None or ev_id is None:
             line = (
                 f'event #{row.Index + 1} ('
                 f'mag: {getattr(row, mag_col, "N/A")}, '

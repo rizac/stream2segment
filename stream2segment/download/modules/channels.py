@@ -11,13 +11,12 @@ from multiprocessing.pool import ThreadPool
 from urllib.request import urlopen
 
 import pandas as pd
-from obspy.signal.evrespwrapper import Channel
-from pandas.core.dtypes.common import is_categorical_dtype
+from sqlalchemy import and_, Select
 
 from stream2segment.download.modules.events import sync_webservice_urls_and_assign_ids
 from stream2segment.io.utils import get_progressbar
 from stream2segment.io.db.pdsql import (
-    insert_df, apply_table_dtypes, fetch_df, get_col_max, select, Engine, set_pkeys
+    insert_df, apply_table_dtypes, fetch_df, select, Engine, set_pkeys
 )
 from stream2segment.io.db.models import Channel, WebService
 from stream2segment.download.url import read_url
@@ -135,7 +134,7 @@ def get_channels(
     )
 
     for c in categorical_columns:  # for safety
-        if not is_categorical_dtype(channels[c]):
+        if not pd.api.types.is_categorical_dtype(channels[c]):
             channels[c] = channels[c].astype('str').astype('category')
     # channels[ws_id_col] = channels[ws_id_col].astype(int).astype('category')
 
@@ -645,27 +644,7 @@ def save_channels(engine: Engine, channels: pd.DataFrame):
         # lon_col
     ]
 
-    select_stmt = select(
-        Channel.id,
-        Channel.network_code,
-        Channel.station_code,
-        Channel.location_code,
-        Channel.band_code,
-        Channel.instrument_code,
-        Channel.orientation_code,
-        Channel.latitude,
-        Channel.longitude,
-        Channel.start_time,
-        # Channel.depth,
-        Channel.data_webservice_id
-    ).where(  # avoid stations, they could be too many ...
-        Channel.network_code.in_(channels[net_col].cat.categories) &
-        Channel.location_code.in_(channels[loc_col].cat.categories) &
-        Channel.band_code.in_(channels[band_col].cat.categories) &
-        Channel.instrument_code.in_(channels[inst_col].cat.categories) &
-        Channel.orientation_code.in_(channels[orient_col].cat.categories) &
-        (Channel.start_time <= channels[start_col].max())
-    )
+    select_stmt = get_db_select_statement(channels)
 
     channels[id_col] = pd.Series(pd.NA, index = channels.index, dtype = "Int64")
     _suf = '_.db._'
@@ -733,3 +712,39 @@ def save_channels(engine: Engine, channels: pd.DataFrame):
         channels[id_col] = channels[id_col].astype(int)
 
     return channels
+
+
+def get_db_select_statement(channels) -> Select:
+    conditions = []
+    if channels[start_col].max().notna():
+        conditions.append(Channel.start_time <= channels[start_col].max())
+    for name, col in {
+        net_col: Channel.network_code,
+        sta_col: Channel.stationn_code,
+        loc_col: Channel.location_code,
+        band_col: Channel.band_code,
+        inst_col: Channel.instrument_code,
+        orient_col: Channel.orientation_code,
+    }.items():
+        if pd.api.types.is_categorical_dtype(channels[name]):
+            categories = channels[name].cat.categories
+            if 0 < len(categories) <= 250:
+                conditions.append(col.in_(categories.tolist()))
+
+    select_stmt = select(
+        Channel.id,
+        Channel.network_code,
+        Channel.station_code,
+        Channel.location_code,
+        Channel.band_code,
+        Channel.instrument_code,
+        Channel.orientation_code,
+        Channel.latitude,
+        Channel.longitude,
+        Channel.start_time,
+        # Channel.depth,
+        Channel.data_webservice_id
+    )
+    if conditions:
+        select_stmt = select_stmt.where(and_(*conditions))
+    return select_stmt
