@@ -7,9 +7,9 @@ from unittest.mock import patch
 
 import pandas as pd
 from stream2segment.cli import cli
-from stream2segment.io.db.models import Segment, DownloadRun, Channel
+from stream2segment.io.db.models import Segment
 
-from stream2segment.download.modules.mseedlite import unpack
+from stream2segment.download.mseedlite import unpack
 from stream2segment.io.db.pdsql import insertdf, updatedf, dbquery2df
 
 # Old test in test_downloads, when there was the "only" option for the update_metadata

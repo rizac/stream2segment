@@ -17,10 +17,10 @@ import pandas as pd
 import pytest
 
 from stream2segment.download.db.models import Event, Segment, Download, Station, Channel
-from stream2segment.download.modules.events import get_events_df
+from stream2segment.download.events import get_events_df
 from stream2segment.download.modules.datacenters import get_stations_urls
-from stream2segment.download.modules.channels import get_channels_df
-from stream2segment.download.modules.stationsearch import merge_events_stations
+from stream2segment.download.channels import get_channels_df
+from stream2segment.download.stationsearch import merge_events_stations
 from stream2segment.download.url import URLError, HTTPError, responses
 from stream2segment.resources import get_templates_fpath
 from stream2segment.io import yaml_load

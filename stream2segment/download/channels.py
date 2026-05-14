@@ -13,14 +13,14 @@ from urllib.request import urlopen
 import pandas as pd
 from sqlalchemy import and_, Select
 
-from stream2segment.download.modules.events import sync_webservice_urls_and_assign_ids
+from stream2segment.download.events import sync_webservice_urls_and_assign_ids
 from stream2segment.io.utils import get_progressbar
 from stream2segment.io.db.pdsql import (
     insert_df, apply_table_dtypes, fetch_df, select, Engine, set_pkeys
 )
 from stream2segment.io.db.models import Channel, WebService
 from stream2segment.download.url import read_url
-from stream2segment.download.modules.utils import (
+from stream2segment.download.utils import (
     fdsn_url, fdsn_url_qs, fdsn_response_text_to_df, FailedDownload, NothingToDownload
 )
 

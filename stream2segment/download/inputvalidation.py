@@ -11,8 +11,8 @@ from typing import Any
 
 import yaml
 from numpy import inf
-from stream2segment.download.modules.utils import fdsn_url
-from stream2segment.download.modules.events import EVENTWS_MAPPING
+from stream2segment.download.utils import fdsn_url
+from stream2segment.download.events import EVENTWS_MAPPING
 from stream2segment.io.utils import BadParam
 from stream2segment.io.db import (create_engine, resolve_db_path, s2s_db_version)
 from stream2segment.resources import get_ttable_fpath

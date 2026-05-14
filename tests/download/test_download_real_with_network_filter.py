@@ -6,9 +6,8 @@ Created on Feb 4, 2016
 import sys
 
 from click.testing import CliRunner
-from sqlalchemy.testing.plugin.plugin_base import FixtureFunctions
 
-from stream2segment.download.modules.utils import NothingToDownload
+from stream2segment.download.utils import NothingToDownload
 from io import StringIO
 from unittest.mock import patch
 import socket
@@ -116,6 +115,60 @@ def test_real_download_channels(
     # nothing new has been written:
     assert num_channels < get_row_count(db.engine, Channel)
     assert num_events == get_row_count(db.engine, Event)
+
+
+@pytest.mark.skipif(no_connection(), reason="no internet connection")
+@pytest.mark.skipif(sys.version_info < (3,7), reason="requires python3.7+")
+@patch(download_save_segments_path)
+@patch(get_events_path)
+# @patch(patches.get_post_data)  # FIXME REMOVE?
+def test_download_channels_adarray(
+    mock_get_events_df, mock_download_save_segments,
+    # fixtures:
+    db, log_capture, test_data_dir
+):
+    """This tess _ADARRAY private network"""
+    if db.is_postgres:
+        # THIS TEST IS JUST ENOUGH WITH ONE DB (USE SQLITE BECAUSE POSTGRES MIGHT NOT BE
+        # SETUP FOR TESTS)
+        return
+
+    ws_id = 1
+    with db.engine.begin() as conn:
+        conn.execute(
+            WebService.__table__.insert(),
+            {'url': 'http://www.isc.ac.uk/fdsnws/event/1/query', 'ws_id': ws_id}
+        )
+
+    # mock just one event downloaded. The event below is a RELa event (we took  the
+    # 1st one only):
+    d = pd.read_csv(StringIO("""event_id,time,latitude,longitude,depth_km,author,catalog,contributor,contributor_id,mag_type,magnitude,mag_author,event_location_name,event_type,webservice_id,id
+750359 P,2000-01-03T18:28:35,42.2585,2.5413,6.9,MDD,ISC,ISC,1750359 P,mb,4.3,MDD,yrenees,,1,1"""), sep=',')
+    d['time'] = pd.to_datetime(d['time'])
+    d['event_type'] = d['event_type'].astype(str)
+    d['webservice_id'].at[0] = ws_id
+
+    mock_get_events_df.return_value = d
+
+    # mock download save segments: raise NothingToDownload to speed up things:
+    custom_message = 'custom message!'
+    def func_(*a, **kw):
+        raise NothingToDownload(custom_message)
+    mock_download_save_segments.side_effect = func_
+
+    cfg_file = test_data_dir / "download-network-filter.yaml"
+
+    result = CliRunner().invoke(
+        cli, [
+            'download', '-c', str(cfg_file), '--dburl', db.url,
+            '--net', "_ADARRAY", '--sta', 'A*,B*', '--data_url', 'eida'
+        ]
+    )
+    assert result.exit_code == 0
+    assert 'custom message' in result.output
+    num_channels = get_row_count(db.engine, Channel)
+    num_events = get_row_count(db.engine, Event)
+    assert num_channels > 0
 
 
 @pytest.mark.skipif(no_connection(), reason="no internet connection")

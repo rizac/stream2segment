@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 from obspy.core.stream import read, Stream
 
-from stream2segment.download.modules.mseedlite import unpack, _FIXHEAD_LEN, MSeedError, Input
+from stream2segment.download.mseedlite import unpack, _FIXHEAD_LEN, MSeedError, Input
 
 
 @pytest.fixture

@@ -18,17 +18,17 @@ import psutil
 from sqlalchemy import Engine
 
 from stream2segment.download import url
-from stream2segment.download.modules.channels import url_col, orient_col, net_col, \
+from stream2segment.download.channels import url_col, orient_col, net_col, \
     sta_col, loc_col, band_col, inst_col
-from stream2segment.download.modules.mseedlite import MSeedError, Input
-from stream2segment.download.modules.stationsearch import atime_col, dist_col, \
+from stream2segment.download.mseedlite import MSeedError, Input
+from stream2segment.download.stationsearch import atime_col, dist_col, \
     ev_id_col, ch_id_col
 from stream2segment.io.utils import get_progressbar
 from stream2segment.io.db.pdsql import (
     sync_pkey, get_row_count, get_col_max, insert, execute_sql
 )
 from stream2segment.io.db.models import Segment, Channel, MiniSeed, SkippedSegment
-from stream2segment.download.modules.utils import (
+from stream2segment.download.utils import (
     fdsn_url_qs, IdOnceLogFilter, fdsn_url, FailedDownload
 )
 from stream2segment.download.url import (

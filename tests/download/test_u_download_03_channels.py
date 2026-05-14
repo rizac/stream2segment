@@ -15,9 +15,9 @@ from unittest.mock import Mock, patch, MagicMock
 import pytest
 
 from stream2segment.download.db.models import Download, Station, Channel, WebService
-from stream2segment.download.modules.events import get_events_df
+from stream2segment.download.events import get_events_df
 from stream2segment.download.modules.datacenters import get_stations_urls
-from stream2segment.download.modules.channels import get_channels_df
+from stream2segment.download.channels import get_channels_df
 from stream2segment.download.exc import FailedDownload
 from stream2segment.io.db.pdsql import dbquery2df
 from stream2segment.download.url import URLError, HTTPError, responses

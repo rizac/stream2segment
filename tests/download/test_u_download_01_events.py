@@ -16,13 +16,13 @@ import pandas as pd
 import pytest
 
 from stream2segment.download.db.models import Event, Download, WebService
-from stream2segment.download.modules.events import (get_events_df,
-                                                    _get_freq_mag_distrib,
-                                                    islocalfile as o_islocalfile,
-                                                    ERR_FETCH_FDSN,
-                                                    ERR_READ_FDSN,
-                                                    ERR_FETCH, ERR_FETCH_NODATA)
-from stream2segment.download.modules.utils import fdsn_url
+from stream2segment.download.events import (get_events_df,
+                                            _get_freq_mag_distrib,
+                                            islocalfile as o_islocalfile,
+                                            ERR_FETCH_FDSN,
+                                            ERR_READ_FDSN,
+                                            ERR_FETCH, ERR_FETCH_NODATA)
+from stream2segment.download.utils import fdsn_url
 from stream2segment.download.exc import FailedDownload, NothingToDownload
 from stream2segment.download.url import URLError, HTTPError, responses
 from stream2segment.resources import get_templates_fpath

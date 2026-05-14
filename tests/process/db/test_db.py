@@ -16,7 +16,7 @@ from sqlalchemy.orm.exc import FlushError
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm.session import object_session
 
-from stream2segment.download.modules.xml import compress
+from stream2segment.download.xml import compress
 from stream2segment.process.db.models import Event, WebService, Channel, Station, \
     DataCenter, Segment, Class, Download, ClassLabelling
 from stream2segment.io.db.models import withdata, MINISEED_READ_ERROR_CODE

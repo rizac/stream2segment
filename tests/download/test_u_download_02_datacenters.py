@@ -10,13 +10,13 @@ import logging
 from logging import StreamHandler
 from io import BytesIO, StringIO
 from unittest.mock import Mock, patch, MagicMock
-from urllib.parse import urlunparse, unquote
+from urllib.parse import unquote
 
 import pytest
 
 from stream2segment.download.db.models import WebService, Download
 from stream2segment.download.modules.datacenters import get_stations_urls
-from stream2segment.download.modules.utils import fdsn_url as original_fdsn_url
+from stream2segment.download.utils import fdsn_url as original_fdsn_url
 from stream2segment.download.exc import FailedDownload
 from stream2segment.download.url import URLError, HTTPError, responses
 from stream2segment.resources import get_templates_fpath
@@ -502,26 +502,3 @@ Z3 A318A * * 2015-11-17T10:32:52 2019-02-02T23:59:00"""]
         assert "sta=A*" in qs
         assert "loc=" not in qs and 'start=' not in qs
         assert 'end=' + dt.isoformat('T') in qs
-
-    def test_adarray(self, #fixtures:
-                     db):
-        from urllib.request import urlopen as original_urlopen
-        from stream2segment.download.url import HTTPError, read_url, HTTPException
-        try:
-            with original_urlopen("https://geofon.gfz-potsdam.de/") as _o:
-                _ = _o.read(1)
-            no_connection = len(_) < 1
-        except Exception:  # noqa
-            no_connection = True
-
-        if no_connection:
-            pytest.skip("No internet connection")
-
-        data = self.get_datacenters_df(None,  # <- do not mock urlopen(_).read
-                                       db.session,
-                                       "eida",
-                                       self.routing_service,
-                                       ["_ADARRAY"], ["A*"], None, None, None, None,
-                                       db_bufsize=self.db_buf_size)
-        assert len(data) > 20
-

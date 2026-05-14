@@ -12,7 +12,7 @@ from stream2segment.io.db.models import (
     WebService, Segment, Channel, StationXML, Event, QuakeML
 )
 from stream2segment.download.url import read_urls, get_host, responses
-from stream2segment.download.modules.utils import (
+from stream2segment.download.utils import (
     IdOnceLogFilter, fdsn_url_qs, fdsn_url
 )
 

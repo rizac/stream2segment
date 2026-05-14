@@ -18,16 +18,16 @@ import pytest
 from obspy.core.stream import read
 
 from stream2segment.download.db.models import Segment, Download, Station, Channel
-from stream2segment.download.modules.events import get_events_df
+from stream2segment.download.events import get_events_df
 from stream2segment.download.modules.datacenters import get_stations_urls
-from stream2segment.download.modules.channels import get_channels_df, chaid2mseedid_dict
-from stream2segment.download.modules.stationsearch import merge_events_stations
-from stream2segment.download.modules.segments import prepare_for_download, \
+from stream2segment.download.channels import get_channels_df, chaid2mseedid_dict
+from stream2segment.download.stationsearch import merge_events_stations
+from stream2segment.download.segments import prepare_for_download, \
     download_save_segments, DcDataselectManager, get_counts, SEG, get_download_iterator
-from stream2segment.download.modules.utils import Authorizer
+from stream2segment.download.utils import Authorizer
 from stream2segment.io.db.pdsql import dbquery2df, insertdf, updatedf
-from stream2segment.download.modules.utils import s2scodes
-from stream2segment.download.modules.mseedlite import unpack
+from stream2segment.download.utils import s2scodes
+from stream2segment.download.mseedlite import unpack
 from stream2segment.download.url import URLError, HTTPError, responses
 from stream2segment.resources import get_templates_fpath
 from stream2segment.io import yaml_load

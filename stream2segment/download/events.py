@@ -20,7 +20,7 @@ from stream2segment.io.db.pdsql import (
 )
 from stream2segment.io.db.models import Event, WebService
 from stream2segment.download.url import read_url, CustomResponseCode
-from stream2segment.download.modules.utils import (
+from stream2segment.download.utils import (
     fdsn_url_qs, fdsn_response_text_to_df, FailedDownload, NothingToDownload, fdsn_url
 )
 

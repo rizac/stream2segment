@@ -26,7 +26,7 @@ from stream2segment.io.inputvalidation import (
 )
 from stream2segment.download.db import get_session  # FIXME handle sessions refactor!
 from stream2segment.io.db.models import Download, Segment, Station, WebService
-from stream2segment.download.modules.utils import DownloadStats
+from stream2segment.download.utils import DownloadStats
 
 
 def summary(dburl, download_indices=None, download_ids=None, outfile=None):

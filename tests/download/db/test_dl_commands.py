@@ -13,7 +13,7 @@ from click.testing import CliRunner
 from stream2segment.cli import cli
 from stream2segment.download.db.models import (Event, Station, WebService, Segment,
                                                Channel, Download, DataCenter)
-from stream2segment.download.modules.utils import s2scodes
+from stream2segment.download.utils import s2scodes
 
 
 class patches:

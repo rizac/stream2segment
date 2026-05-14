@@ -22,10 +22,10 @@ from stream2segment.download.main import get_events_df, get_stations_urls, \
     download_save_segments, save_stationxml
 from stream2segment.download.log import configlog4download
 from stream2segment.io import Fdsnws
-from stream2segment.io.db.models import Segment, DownloadRun, Channel
+from stream2segment.io.db.models import Segment
 from stream2segment.io.db.pdsql import dbquery2df, insertdf, updatedf
-from stream2segment.download.modules.utils import s2scodes
-from stream2segment.download.modules.mseedlite import unpack
+from stream2segment.download.utils import s2scodes
+from stream2segment.download.mseedlite import unpack
 from stream2segment.download.url import URLError, HTTPError, responses
 from stream2segment.resources import get_templates_fpath
 

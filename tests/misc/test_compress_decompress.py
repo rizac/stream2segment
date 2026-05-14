@@ -6,7 +6,7 @@ Created on Sep 14, 2017
 import os
 from itertools import product
 
-from stream2segment.download.modules.xml import compress
+from stream2segment.download.xml import compress
 from stream2segment.process.db.models import decompress
 
 

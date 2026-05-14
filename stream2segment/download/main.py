@@ -19,14 +19,14 @@ from stream2segment.io.db.pdsql import (
 )
 from stream2segment.io.db import models
 from stream2segment.download.inputvalidation import extract_download_args
-from stream2segment.download.modules.utils import NothingToDownload, FailedDownload
-from stream2segment.download.modules.events import get_events
-from stream2segment.download.modules.channels import get_channels
-from stream2segment.download.modules.stationsearch import merge_events_stations
-from stream2segment.download.modules.segments import (
+from stream2segment.download.utils import NothingToDownload, FailedDownload
+from stream2segment.download.events import get_events
+from stream2segment.download.channels import get_channels
+from stream2segment.download.stationsearch import merge_events_stations
+from stream2segment.download.segments import (
     prepare_for_download, download_and_save
 )
-from stream2segment.download.modules.xml import save_stationxml, save_quakeml
+from stream2segment.download.xml import save_stationxml, save_quakeml
 from stream2segment.resources import get_resource_abspath
 
 

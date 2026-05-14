@@ -9,14 +9,14 @@ import logging
 import numpy as np
 import pandas as pd
 
-from stream2segment.download.modules.utils import NothingToDownload, FailedDownload
+from stream2segment.download.utils import NothingToDownload, FailedDownload
 from stream2segment.io.db.models import Event, Channel, Segment
 from stream2segment.io.utils import get_progressbar
-from stream2segment.download.modules.events import (
+from stream2segment.download.events import (
     lat_col as ev_lat_col, lon_col as ev_lon_col, mag_col as mag_col,
     depth_col as ev_depth_col, time_col as ev_time_col,
 )
-from stream2segment.download.modules.channels import (
+from stream2segment.download.channels import (
     lat_col as ch_lat_col, lon_col as ch_lon_col, net_col, sta_col, loc_col,
     start_col, end_col, band_col, inst_col, orient_col, url_col
 )

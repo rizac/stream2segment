@@ -14,12 +14,12 @@ import numpy as np
 import pandas as pd
 from obspy.geodetics.base import locations2degrees as obspyloc2deg
 
-from stream2segment.download.modules.stationsearch import (
+from stream2segment.download.stationsearch import (
     locations2degrees as s2sloc2deg, get_mag_dependent_radius
 )
-from stream2segment.download.modules.utils import (s2scodes, DownloadStats,
-                                                   HTTPCodesCounter, logwarn_dataframe,
-                                                   strconvert, strptime)
+from stream2segment.download.utils import (s2scodes, DownloadStats,
+                                           HTTPCodesCounter, logwarn_dataframe,
+                                           strconvert, strptime)
 
 
 def test_strptime():

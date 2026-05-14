@@ -8,12 +8,11 @@ import pytest
 from urllib.request import Request
 
 from stream2segment.download.exc import FailedDownload
-from stream2segment.download.modules.events import events_df_list
+from stream2segment.download.events import events_df_list
 from stream2segment.download.url import read_urls, read_url
 
 
 def no_connection():
-    from stream2segment.download.url import HTTPError
     try:
         data, err, code = read_url("https://geofon.gfz-potsdam.de/")
         return err is not None  # or isinstance(err, HTTPError)

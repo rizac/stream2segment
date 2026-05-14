@@ -7,7 +7,6 @@ Created on Feb 14, 2017
 import os
 import json
 import re
-import sys
 from datetime import datetime, timedelta
 from unittest.mock import patch
 import pytest
@@ -17,7 +16,7 @@ from stream2segment.cli import cli
 from stream2segment.download.db.models import (Event, Station, WebService, Segment,
                                                Channel, Download, DataCenter)
 from stream2segment.io.utils import ascii_decorate
-from stream2segment.download.modules.utils import s2scodes
+from stream2segment.download.utils import s2scodes
 
 
 def readfile(outfile):
