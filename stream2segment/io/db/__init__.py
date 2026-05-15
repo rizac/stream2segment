@@ -4,9 +4,8 @@ from os.path import isabs, abspath, join
 from typing import Literal
 
 from sqlalchemy.exc import ProgrammingError, OperationalError, SQLAlchemyError
-from sqlalchemy.engine import create_engine as sa_create_engine
-from sqlalchemy import inspect
-from sqlalchemy import text, __version__ as __sa_version__
+from sqlalchemy.engine import Engine, create_engine as sa_create_engine
+from sqlalchemy import text, __version__ as __sa_version__, inspect
 
 
 sqlalchemy_version = float(".".join(__sa_version__.split('.')[0:2]))  # https://stackoverflow.com/a/75634238
@@ -19,7 +18,7 @@ sqlalchemy_version = float(".".join(__sa_version__.split('.')[0:2]))  # https://
 #     from sqlalchemy.ext.declarative import declarative_base  # noqa
 
 
-def create_engine(dbpath: str, check_db_existence=True, **kwargs):
+def create_engine(dbpath: str, check_db_existence=True, **kwargs) -> Engine:
     """
     Wrapper around SQLAlchemy create_engine. Returns an Engine for IO DB operations
 
@@ -33,7 +32,7 @@ def create_engine(dbpath: str, check_db_existence=True, **kwargs):
         get_session(dbpath, ..., echo=True, connect_args={'connect_timeout': 10})
         ```
         For info see:
-        https://docs.sqlalchemy.org/en/14/core/engines.html#sqlalchemy.create_engine.params.connect_args
+        <https://docs.sqlalchemy.org/en/14/core/engines.html#sqlalchemy.create_engine.params.connect_args>
     """
     try:
         # set max timeout if not set
@@ -60,6 +59,12 @@ def create_engine(dbpath: str, check_db_existence=True, **kwargs):
     return engine
 
 
+def close_engine(engine: Engine):
+    """close the engine, this function is implemented for easy patching in tests"""
+    if engine is not None:
+        engine.dispose()
+
+
 class DbNotFound(Exception):
     pass
 
@@ -82,7 +87,7 @@ def get_dbname(db_url: str):
     return db_url[db_url.rfind('/') + 1:]
 
 
-def database_exists(engine):
+def database_exists(engine: Engine):
     """Return true if the database exists. Works for Postgres, MySQL, SQLite.
 
     :param engine: SQLAlchemy engine or string denoting a database URL.

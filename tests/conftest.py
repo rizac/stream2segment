@@ -1,31 +1,30 @@
 """
 Basic conftest.py defining fixtures to be accessed during tests
-
-Created on 3 May 2018
-
-@author: riccardo
 """
+# Created on 3 May 2018
+import sys
 import os
 from collections import namedtuple
 from io import BytesIO, StringIO
-import traceback
+import urllib
 import uuid
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 
+from stream2segment.download.url import read_url as original_read_url
 import yaml
 
 import pytest
-import pandas as pd
-from obspy.core.stream import read as read_stream
-from obspy.core.inventory.inventory import read_inventory
 
-from click.testing import CliRunner
+# import pandas as pd
+# from obspy.core.stream import read as read_stream
+# from obspy.core.inventory.inventory import read_inventory
+# from click.testing import CliRunner
 
 from stream2segment.io.db import is_postgres, is_sqlite
 
-from stream2segment.traveltimes.ttloader import TTTable
+# from stream2segment.traveltimes.ttloader import TTTable
 
 
 # https://docs.pytest.org/en/3.0.0/parametrize.html#basic-pytest-generate-tests-example
@@ -45,42 +44,26 @@ def pytest_addoption(parser):
         )
     )
 
-@pytest.fixture
-def log_capture():
-    stream = StringIO()
-
-    from stream2segment.download.main  import create_log_handlers as _create_log_handlers
-
-    def fake_create_log_handlers(*args, **kwargs):
-        handlers = _create_log_handlers("", True)  # <- no file
-        import logging
-        db_streamer = logging.StreamHandler(stream)
-        # same setting as in _configure_logging:
-        db_streamer.setLevel(logging.INFO)  # do not print debug, print others
-        db_streamer.setFormatter(logging.Formatter('[%(levelname).1s]  %(message)s'))
-        handlers.append(db_streamer)
-        return handlers
-
-    with patch("stream2segment.download.main.create_log_handlers", fake_create_log_handlers):
-        yield stream
-
-
-def db_urls(config):
-    urls = ["sqlite:///:memory:"]
-    urls.extend(config.getoption("--dburl"))
-    return urls
+def pytest_generate_tests(metafunc):
+    """parametrize all tests with db in it with all URLs given in the command line"""
+    if "db" in metafunc.fixturenames:
+        urls = ["sqlite:///:memory:"]
+        urls.extend(metafunc.config.getoption("--dburl"))
+        metafunc.parametrize("db_url", urls)
 
 
 @pytest.fixture
 def db(db_url):
-
-    from stream2segment.download.inputvalidation import get_engine
-    from stream2segment.download.main import close_engine
-    engine = get_engine(db_url)
+    """
+    Creates a db connection that persists during the whole test and return
+    an object with db info such as url, engine, is_postgres and is_sqlite
+    """
+    from stream2segment.io.db import create_engine, close_engine
+    engine = create_engine(db_url)
 
     with (
-        patch("stream2segment.download.inputvalidation.get_engine", return_value=engine),
-        patch("stream2segment.download.main.close_engine")
+        patch("stream2segment.io.db.create_engine", return_value=engine),
+        patch("stream2segment.io.db.close_engine")
     ):
            yield namedtuple(
                 "DB", ["url", "engine", "is_postgres", "is_sqlite"]
@@ -89,36 +72,75 @@ def db(db_url):
     close_engine(engine)
 
 
-def pytest_generate_tests(metafunc):
-    """parametrize all tests with db in it with all URLs given in the command line"""
-    if "db" in metafunc.fixturenames:
-        metafunc.parametrize("db_url", db_urls(metafunc.config))
+@pytest.fixture
+def log_capture():
+    stream = StringIO()
+
+    # from stream2segment.download.main import create_log_handlers as _create_log_handlers
+
+    def fake_create_log_handlers(*args, **kwargs):
+        # handlers = _create_log_handlers("", True)  # <- no file
+        handlers = []
+        import logging
+        db_streamer = logging.StreamHandler(stream)
+        # same setting as in _configure_logging:
+        db_streamer.setLevel(logging.INFO)  # do not print debug, print others
+        db_streamer.setFormatter(logging.Formatter('[%(levelname).1s]  %(message)s'))
+        handlers.append(db_streamer)
+
+        stdout_streamer = logging.StreamHandler(sys.stdout)
+        stdout_streamer.setFormatter(logging.Formatter('%(message)s'))
+        # configure the levels we want to print (20: info, 40: error, 50: critical)
+        stdout_streamer.addFilter(
+            lambda rec: rec.levelno in {logging.INFO, logging.ERROR, logging.CRITICAL}
+        )
+
+        return handlers
+
+    with patch("stream2segment.io.utils.create_log_handlers", fake_create_log_handlers):
+        yield stream
 
 
-_PDOPT = {_: pd.get_option(_) for _ in ['display.max_colwidth']}
+@pytest.fixture
+def online_only():
+    try:
+        urllib.request.urlopen("https://example.com", timeout=2)
+    except Exception:
+        pytest.skip("no internet connection")
 
 
-def pytest_sessionstart(session):  # pylint: disable=unused-argument
-    """
-    Called after the Session object has been created and
-    before performing collection and entering the run test loop.
-    """
+@pytest.fixture
+def read_url():
+    original_read_url = read_url
+    try:
+        urllib.request.urlopen("https://example.com", timeout=2)
+    except Exception:
+        pytest.skip("no internet connection")
 
-    # https://stackoverflow.com/a/35394239
-    pd.set_option('display.max_colwidth', 500)  # do not set to -1: it messes
-    # alignement. Also, pandas 1.0+ wants None
-
-
-def pytest_sessionfinish(session,  # pylint: disable=unused-argument
-                         exitstatus):  # pylint: disable=unused-argument
-    """
-    Called after whole test run finished, right before
-    returning the exit status to the system.
-    """
-    # we shouldn;t care about restoring pandas stuff because pytest exit to
-    # the system. However:
-    for k, v in _PDOPT.items():
-        pd.set_option(k, v)
+# _PDOPT = {_: pd.get_option(_) for _ in ['display.max_colwidth']}
+#
+#
+# def pytest_sessionstart(session):  # pylint: disable=unused-argument
+#     """
+#     Called after the Session object has been created and
+#     before performing collection and entering the run test loop.
+#     """
+#
+#     # https://stackoverflow.com/a/35394239
+#     pd.set_option('display.max_colwidth', 500)  # do not set to -1: it messes
+#     # alignement. Also, pandas 1.0+ wants None
+#
+#
+# def pytest_sessionfinish(session,  # pylint: disable=unused-argument
+#                          exitstatus):  # pylint: disable=unused-argument
+#     """
+#     Called after whole test run finished, right before
+#     returning the exit status to the system.
+#     """
+#     # we shouldn;t care about restoring pandas stuff because pytest exit to
+#     # the system. However:
+#     for k, v in _PDOPT.items():
+#         pd.set_option(k, v)
 
 
 @pytest.fixture(scope="session")

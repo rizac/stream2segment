@@ -238,7 +238,12 @@ def download_events_from_url(
                 try:
                     if response.status_code == 204:
                         raise Exception("No data (Http code 204)")  # fallback below
-                    yield fdsn_event_response_text_to_df(response.data)
+                    dframe = fdsn_event_response_text_to_df(response.data)
+                    if dframe.empty:
+                        raise Exception(
+                            'No rows left after type conversion and filtering'
+                        )
+                    yield dframe
                 except Exception as exc:
                     logger.warning(f"Unable to read data downloaded from {url}: {exc}")
             elif response.status_code not in request_too_large_codes:
@@ -257,30 +262,29 @@ def fdsn_event_response_text_to_df(response: str):
     Convert a response content obtained from a FDSN event webservice with format=text
     into a pandas DataFrame with proper dtypes associated to the SQL mapped class
     """
-    dframe = fdsn_response_text_to_df(response)
+    # EventID|Time|Latitude|Longitude|Depth/km|Author|Catalog|Contributor|
+    # ContributorID|MagType|Magnitude|MagAuthor|EventLocationName|EventType
+    columns = {
+        0: Event.eventid.key,
+        1: time_col,
+        2: lat_col,
+        3: lon_col,
+        4: depth_col,
+        # skip Author (Rarely used, memory-intensive text field)
+        # dframe.columns[6]: Event.catalog.key,
+        # skip Contributor (Rarely used, memory-intensive text field)
+        # skip ContributorID (Rarely used, memory-intensive text field)
+        9: magtype_col,
+        10: mag_col
+        # skip MagAuthor (Rarely used, memory-intensive text field)
+        # skip EventLocationName (Rarely used, memory-intensive text field)
+        # skip EventType (Rarely used, memory-intensive text field)
+    }
+    dframe = fdsn_response_text_to_df(
+        response, usecols=list(columns.keys()), names=list(columns.values())
+    )
 
     if not dframe.empty:
-        # EventID|Time|Latitude|Longitude|Depth/km|Author|Catalog|Contributor|
-        # ContributorID|MagType|Magnitude|MagAuthor|EventLocationName|EventType
-        columns = {
-            dframe.columns[0]: Event.eventid.key,
-            dframe.columns[1]: time_col,
-            dframe.columns[2]: lat_col,
-            dframe.columns[3]: lon_col,
-            dframe.columns[4]: depth_col,
-            # skip Author (Rarely used, memory-intensive text field)
-            # dframe.columns[6]: Event.catalog.key,
-            # skip Contributor (Rarely used, memory-intensive text field)
-            # skip ContributorID (Rarely used, memory-intensive text field)
-            dframe.columns[9]: magtype_col,
-            dframe.columns[10]: mag_col
-            # skip MagAuthor (Rarely used, memory-intensive text field)
-            # skip EventLocationName (Rarely used, memory-intensive text field)
-            # skip EventType (Rarely used, memory-intensive text field)
-        }
-
-        # rename and set order:
-        dframe = dframe.rename(columns=columns)[list(columns.values())]
         dframe = apply_table_dtypes(Event, dframe, drop_non_nullable=True)
 
     return dframe

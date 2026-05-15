@@ -3,6 +3,8 @@ Command line interface (cli) utilities
 """
 
 import sys
+import logging
+from logging import Logger
 from contextlib import contextmanager
 from itertools import chain
 
@@ -96,8 +98,40 @@ def get_progressbar(length, **kw):
             yield pbar
 
 
+def create_log_handlers(
+    logger: Logger, logfile_path='', verbose=False
+) -> list[logging.Handler]:
+    """
+    Configure the logger for download
+    """
+    # https://docs.python.org/2/howto/logging.html#optimization:  # FIXME really needed?
+    logging._srcfile = None  # noqa
+    logging.logThreads = 0
+    logging.logProcesses = 0
+
+    logger.setLevel(logging.INFO)  # necessary to forward to handlers
+
+    handlers = []
+    if logfile_path:
+        db_streamer = logging.FileHandler(logfile_path, mode='w+')
+        db_streamer.setLevel(logging.INFO)  # do not print debug, print others
+        db_streamer.setFormatter(logging.Formatter('[%(levelname).1s]  %(message)s'))
+        handlers.append(db_streamer)
+
+    if verbose:
+        stdout_streamer = logging.StreamHandler(sys.stdout)
+        stdout_streamer.setFormatter(logging.Formatter('%(message)s'))
+        # configure the levels we want to print (20: info, 40: error, 50: critical)
+        stdout_streamer.addFilter(
+            lambda rec: rec.levelno in {logging.INFO, logging.ERROR, logging.CRITICAL}
+        )
+        handlers.append(stdout_streamer)
+
+    return handlers
+
+
 @contextmanager
-def start_logging(logger, handlers):
+def start_logging(logger: Logger, handlers):
     for h in handlers:
         logger.addHandler(h)
     try:

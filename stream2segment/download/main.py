@@ -13,11 +13,11 @@ import psutil
 import yaml
 from sqlalchemy import Engine
 
-from stream2segment.io.utils import start_logging
+from stream2segment.io.utils import start_logging, create_log_handlers
 from stream2segment.io.db.pdsql import (
     get_col_max, execute_sql, insert
 )
-from stream2segment.io.db import models
+from stream2segment.io.db import models, close_engine
 from stream2segment.download.inputvalidation import extract_download_args
 from stream2segment.download.utils import NothingToDownload, FailedDownload
 from stream2segment.download.events import get_events
@@ -121,42 +121,6 @@ def download(
         pass
 
     return ret
-
-
-def close_engine(engine: Engine):
-    """close the engine, this function is implemented for easy patching in tests"""
-    if engine is not None:
-        engine.dispose()
-
-
-def create_log_handlers(logfile_path='', verbose=False) -> list[logging.Handler]:
-    """
-    Configure the logger for download
-    """
-    # https://docs.python.org/2/howto/logging.html#optimization:  # FIXME really needed?
-    logging._srcfile = None  # noqa
-    logging.logThreads = 0
-    logging.logProcesses = 0
-
-    logger.setLevel(logging.INFO)  # necessary to forward to handlers
-
-    handlers = []
-    if logfile_path:
-        db_streamer = logging.FileHandler(logfile_path, mode='w+')
-        db_streamer.setLevel(logging.INFO)  # do not print debug, print others
-        db_streamer.setFormatter(logging.Formatter('[%(levelname).1s]  %(message)s'))
-        handlers.append(db_streamer)
-
-    if verbose:
-        stdout_streamer = logging.StreamHandler(sys.stdout)
-        stdout_streamer.setFormatter(logging.Formatter('%(message)s'))
-        # configure the levels we want to print (20: info, 40: error, 50: critical)
-        stdout_streamer.addFilter(
-            lambda rec: rec.levelno in {logging.INFO, logging.ERROR, logging.CRITICAL}
-        )
-        handlers.append(stdout_streamer)
-
-    return handlers
 
 
 def _download(

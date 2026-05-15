@@ -49,23 +49,28 @@ class IdOnceLogFilter(logging.Filter):
         return True
 
 
-def fdsn_response_text_to_df(response: bytes | str):
+def fdsn_response_text_to_df(response: bytes | str, **csv_kwargs) -> pd.DataFrame:
     """
     Convert a response content obtained from a FDSN webservice with format=text
     into a pandas DataFrame of type str (no casting performed)
     """
-    return pd.read_csv(
-        StringIO(response) if isinstance(response, str) else BytesIO(response),
+    params = dict(
         sep='|',
         header=None,
         comment='#',
         dtype=str,
         keep_default_na=False,
         encoding="utf-8",
-        na_values=[
+        na_values=[  # cannot set '' otherwise location is cast as float FIXME?
             '#N/A', '#NA', '-NaN', '-nan', '<NA>', 'N/A',
             'NA', 'NULL', 'NaN', 'n/a', 'nan', 'null'
         ]
+    )
+    params |= csv_kwargs
+
+    return pd.read_csv(
+        StringIO(response) if isinstance(response, str) else BytesIO(response),
+        **params
     )
 
 

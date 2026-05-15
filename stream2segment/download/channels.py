@@ -317,11 +317,17 @@ def split_url_by_network_quantiles(fdsn_station_url, params):
         df['count'] = pd.to_numeric(df['count'], errors='coerce')
         df.loc[pd.isna(df['count']), 'count'] = int(df['count'].mean().round())
         df['count'] = df['count'].astype(int)
-        n = 5 # number of split requests
         # cumulative sum of counts (running total)
         c = df['count'].cumsum()
         # total sum of counts
         t = df['count'].sum()
+        stations_per_request = 1000
+        if t <= stations_per_request:
+            yield fdsn_station_url, params
+            return
+        # max num of stations per download is 1000:
+        n = int(t / stations_per_request)  # number of split requests
+        # (i.e., how many I need to have ~ 1000 stations requested each time)
         # map cumulative proportion to chunk index [0, n-1]
         df['chunk'] = (c / t * n).astype(int).clip(upper=n - 1)
         for _, df_ in df.groupby('chunk'):
@@ -370,6 +376,8 @@ def download_channels(
                 dframe = fdsn_channel_response_text_to_df(
                     response.data, filter_funcs
                 )
+                if dframe.empty:
+                    raise Exception('No rows left after type conversion and filtering')
             except Exception as e:
                 logger.warning(
                     f"Unable to read data downloaded from {response.request}: {e}"
@@ -422,66 +430,71 @@ def fdsn_channel_response_text_to_df(
     level=channel and  format=text into a pandas DataFrame
     with proper dtypes associated to the SQL mapped class
     """
-    dframe = fdsn_response_text_to_df(response)
 
-    if not dframe.empty:
-        # Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|
-        # Azimuth|Dip|SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|
-        # StartTime|EndTime`
-        columns = {
-            dframe.columns[0]: net_col,
-            dframe.columns[1]: sta_col,
-            dframe.columns[2]: loc_col,
-            dframe.columns[3]: "channel_code",
-            dframe.columns[4]: lat_col,
-            dframe.columns[5]: lon_col,
-            dframe.columns[6]: Channel.elevation.key,
-            dframe.columns[7]: Channel.depth.key,
-            dframe.columns[8]: Channel.azimuth.key,
-            dframe.columns[9]: Channel.dip.key,
-            # skip sensor_description and instrument attrs below:
-            # dframe.columns[11]: "scale",
-            # dframe.columns[12]: "scale_freq",
-            # dframe.columns[13]: "scale_units",
-            dframe.columns[14]: Channel.sample_rate.key,
-            dframe.columns[15]: Channel.start_time.key,
-            dframe.columns[16]: end_col
-        }
+    # Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|
+    # Azimuth|Dip|SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|
+    # StartTime|EndTime`
+    columns = {
+        0: net_col,
+        1: sta_col,
+        2: loc_col,
+        3: "channel_code",
+        4: lat_col,
+        5: lon_col,
+        6: Channel.elevation.key,
+        7: Channel.depth.key,
+        8: Channel.azimuth.key,
+        9: Channel.dip.key,
+        # skip sensor_description and instrument attrs below:
+        # 11: "scale",
+        # 12: "scale_freq",
+        # 13: "scale_units",
+        14: Channel.sample_rate.key,
+        15: Channel.start_time.key,
+        16: end_col
+    }
 
-        # rename round and set order:
-        dframe = dframe.rename(columns=columns)[list(columns.values())]
-        dframe[start_col] = to_datetime(dframe[start_col])
-        dframe[end_col] = to_datetime(dframe[end_col], end_time_replacement)
-        dframe[lat_col] = to_latlon(dframe[lat_col])
-        dframe[lon_col] = to_latlon(dframe[lon_col])
-        # fir safety:
-        dframe[Channel.sample_rate.key] = dframe[Channel.sample_rate.key].astype(float)
-        # dframe = dframe[dframe[[start_col, end_col]].notna().all(axis=1)]
-        dframe[
-            [band_col, inst_col, orient_col]
-        ] = dframe.pop("channel_code").str.extract(r"(.)(.)(.)")
+    dframe = fdsn_response_text_to_df(
+        response, usecols=list(columns.keys()), names=list(columns.values())
+    )
 
-        # filter out
-        for key, func in filter_func.items():
-            dframe = dframe[func(dframe[key])]
-            if dframe.empty:
-                return dframe
+    if dframe.empty:
+        return dframe
 
-        if not dframe.empty:
-            dframe = apply_table_dtypes(Channel, dframe, drop_non_nullable=True)
+    # cast and work with non-sql columns:
+    dframe[end_col] = pd.to_datetime(dframe[end_col], errors='coerce')
+    dframe[end_col].fillna(end_time_replacement)
+    dframe[
+        [band_col, inst_col, orient_col]
+    ] = dframe.pop("channel_code").str.extract(r"(.)(.)(.)")
+
+    # apply data types now (e.g., we might filter sample_rate it needs to be float)
+    dframe = apply_table_dtypes(Channel, dframe, drop_non_nullable=True)
+    if dframe.empty:
+        return dframe
+
+    # filter out
+    for key, func in filter_func.items():
+        dframe = dframe[func(dframe[key])]
+        if dframe.empty:
+            return dframe
+
+    dframe[start_col] = dframe[start_col].dt.round('s')
+    dframe[end_col] = dframe[end_col].dt.round('s')
+    dframe[lat_col] = dframe[lat_col].round(6)
+    dframe[lon_col] = dframe[lon_col].round(6)
 
     return dframe
 
 
-def to_datetime(series: pd.Series, fillna=None):
-    ret = pd.to_datetime(series, errors='coerce')
-    if fillna is not None:
-        ret.fillna(fillna, inplace=True)
-    return ret.dt.round('s')
-
-
-def to_latlon(series: pd.Series):
-    return pd.to_numeric(series, errors='coerce').round(6)
+# def to_datetime(series: pd.Series, fillna=None):
+#     if fillna is not None:
+#         series.fillna(fillna, inplace=True)
+#     return series.dt.round('s')
+#
+#
+# def to_latlon(series: pd.Series):
+#     return series.round(6)
 
 
 def resolve_intra_conflicts(fdsn_df: pd.DataFrame, url:str) -> pd.DataFrame:
