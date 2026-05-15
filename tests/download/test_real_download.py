@@ -13,7 +13,8 @@ from unittest.mock import patch
 import pandas as pd
 
 from stream2segment.cli import cli
-from stream2segment.io.db.models import WebService, Event, Channel
+from stream2segment.io.db.models import WebService, Event, Channel, Segment, StationXML, \
+    QuakeML, SkippedSegment
 from stream2segment.io.db.pdsql import get_row_count
 
 
@@ -147,68 +148,6 @@ def test_real_download_channels(
 
 @patch(download_save_segments_path)
 @patch(get_events_path)
-def test_real_download_segments(
-    mock_get_events_df, mock_download_save_segments,
-    # fixtures:
-    online_only, db, log_capture, test_data_dir
-):
-    """This tess a REAL download to test iris (split request over liong time range)
-     and segments download
-    """
-    if db.is_postgres:
-        # THIS TEST IS JUST ENOUGH WITH ONE DB (USE SQLITE BECAUSE POSTGRES MIGHT NOT BE
-        # SETUP FOR TESTS)
-        return
-
-    mock_get_events_df.return_value = pd.DataFrame([{
-        'time': datetime.fromisoformat('2000-01-03T18:28:35'),
-        'mag_type': 'mb',
-        'magnitude': 4.3,
-        'latitude': 42.2585,
-        'longitude': 2.5413,
-        'depth_km': 6.9,
-        'id': 1,  # random number, needs only to be present
-        'webservice_id': 1  # same as above
-    }])
-
-    # mock download save segments: raise NothingToDownload to speed up things:
-    custom_message = 'custom message!'
-
-    def func_(*a, **kw):
-        raise NothingToDownload(custom_message)
-
-    mock_download_save_segments.side_effect = func_
-
-    cfg_file = test_data_dir / "download-network-filter.yaml"
-
-    def mocked_read_url(url, *args, **kwargs):
-        if "/dataselect/" in url:
-            return Response("custom 500", 500, url)
-        else:
-            return original_read_url(url, *args, **kwargs)
-
-    mock_read_url.side_effect=mocked_read_url
-
-    try:
-        result = CliRunner().invoke(
-            cli, [
-                'download', '-c', str(cfg_file), '--dburl', db.url, '-ds', 'iris',
-                '--start', '1999-12-31T18:28:35', '--start', '2000-12-31T18:28:35',
-                '-t', '-0.1', '0.1'
-            ]
-        )
-        assert result.exit_code == 0
-        assert custom_message in result.output
-
-    finally:
-        mock_read_url.side_effect = original_read_url
-    # nothing new has been written:
-    # assert num_channels < get_row_count(db.engine, Channel)
-    # assert num_events == get_row_count(db.engine, Event)
-
-
-@patch(download_save_segments_path)
-@patch(get_events_path)
 # @patch(patches.get_post_data)  # FIXME REMOVE?
 def test_download_channels_adarray(
     mock_get_events_df, mock_download_save_segments,
@@ -251,3 +190,183 @@ def test_download_channels_adarray(
     num_channels = get_row_count(db.engine, Channel)
     num_events = get_row_count(db.engine, Event)
     assert num_channels > 0
+
+
+@patch(download_save_segments_path)
+@patch(get_events_path)
+def test_download_channels_all(
+    mock_get_events_df, mock_download_save_segments,
+    # fixtures:
+    online_only, db, log_capture, test_data_dir
+):
+    """This tess _ADARRAY private network"""
+    if db.is_postgres:
+        # THIS TEST IS JUST ENOUGH WITH ONE DB (USE SQLITE BECAUSE POSTGRES MIGHT NOT BE
+        # SETUP FOR TESTS)
+        return
+
+    mock_get_events_df.return_value = pd.DataFrame([{
+        'time': datetime.fromisoformat('2000-01-03T18:28:35'),
+        'mag_type': 'mb',
+        'magnitude': 4.3,
+        'latitude': 42.2585,
+        'longitude': 2.5413,
+        'depth_km': 6.9,
+        'id': 1,  # random number, needs only to be present
+        'webservice_id': 1  # same as above
+    }])
+
+    # mock download save segments: raise NothingToDownload to speed up things:
+    custom_message = 'custom message!'
+    def func_(*a, **kw):
+        raise NothingToDownload(custom_message)
+    mock_download_save_segments.side_effect = func_
+
+    cfg_file = test_data_dir / "download-network-filter.yaml"
+
+    result = CliRunner().invoke(
+        cli, [
+            'download', '-c', str(cfg_file), '--dburl', db.url,
+            '--data_url', 'eida', '--data_url', 'iris'
+        ]
+    )
+    assert result.exit_code == 0
+    assert 'custom message' in result.output
+    num_channels = get_row_count(db.engine, Channel)
+    num_events = get_row_count(db.engine, Event)
+    assert num_channels > 0
+
+
+def test_real_download_segments(
+    # fixtures:
+    online_only, db, log_capture, test_data_dir
+):
+    """This tess a REAL download to test iris (split request over liong time range)
+     and segments download
+    """
+    if db.is_postgres:
+        # THIS TEST IS JUST ENOUGH WITH ONE DB (USE SQLITE BECAUSE POSTGRES MIGHT NOT BE
+        # SETUP FOR TESTS)
+        return
+
+    cfg_file = test_data_dir / "download-network-filter.yaml"
+
+    def mocked_read_url(url, *args, **kwargs):
+        if "/dataselect/" in url:
+            return Response("custom 500", 500, url)
+        else:
+            return original_read_url(url, *args, **kwargs)
+
+    mock_read_url.side_effect=mocked_read_url
+
+    try:
+        result = CliRunner().invoke(
+            cli, [
+                'download', '-c', str(cfg_file), '--dburl', db.url,
+                '--data_url', 'iris',
+                '--events_url', 'www.seismicportal.eu/fdsnws/event/1/query',
+                '--minmag', '4', '--maxmag', '5',
+                '--net', 'CAVN,CAVN,CAVN,CFON,CLLI,MAHO',
+                '--start', '2000-01-01T00:00:00', '--end', '2000-12-31T23:59:59',
+                '--time_window', '0.1', '0.2'
+            ]
+        )
+        assert result.exit_code == 0
+        num_segments = get_row_count(db.engine, Segment)
+        num_stations = get_row_count(db.engine, StationXML)
+        num_events = get_row_count(db.engine, QuakeML)
+        assert num_segments == num_stations == num_events == 0
+
+        result = CliRunner().invoke(
+            cli, [
+                'download', '-c', str(cfg_file), '--dburl', db.url,
+                '--data_url', 'iris',
+                '--events_url', 'www.seismicportal.eu/fdsnws/event/1/query',
+                '--minmag', '4', '--maxmag', '5',
+                '--net', '*',
+                '--sta', 'CAVN,CAVN,CAVN,CFON,CLLI,MAHO',
+                '--start', '2000-01-01T00:00:00', '--end', '2000-12-31T23:59:59',
+                '--time_window', '0.1', '0.2'
+            ]
+        )
+        assert result.exit_code == 0
+        num_segments = get_row_count(db.engine, Segment)
+        num_skip_segments = get_row_count(db.engine, SkippedSegment)
+        num_stations = get_row_count(db.engine, StationXML)
+        num_events = get_row_count(db.engine, QuakeML)
+        assert num_segments == num_stations == num_events == num_skip_segments == 0
+
+        mock_read_url.side_effect = original_read_url
+        result = CliRunner().invoke(
+            cli, [
+                'download', '-c', str(cfg_file), '--dburl', db.url,
+                '--data_url', 'iris',
+                '--events_url', 'www.seismicportal.eu/fdsnws/event/1/query',
+                '--minmag', '4', '--maxmag', '5',
+                '--quakeml',
+                '--net', '*',
+                '--sta', 'CAVN,CAVN,CAVN,CFON,CLLI,MAHO',
+                '--start', '2000-01-01T00:00:00', '--end', '2000-12-31T23:59:59',
+                '--time_window', '0.1', '0.2'
+            ]
+        )
+        assert result.exit_code == 0
+        num_segments2 = get_row_count(db.engine, Segment)
+        num_skipped_segments2 = get_row_count(db.engine, SkippedSegment)
+        num_stations2 = get_row_count(db.engine, StationXML)
+        num_events2 = get_row_count(db.engine, QuakeML)
+        assert num_skipped_segments2 > 0
+        assert num_segments2 == num_stations2 == num_events2 == 0
+
+        mock_read_url.side_effect = original_read_url
+        result = CliRunner().invoke(
+            cli, [
+                'download', '-c', str(cfg_file), '--dburl', db.url,
+                '--data_url', 'iris',
+                '--events_url', 'www.seismicportal.eu/fdsnws/event/1/query',
+                '--minmag', '4', '--maxmag', '5',
+                '--quakeml',
+                '--net', '*',
+                '--sta', 'CAVN,CAVN,CAVN,CFON,CLLI,MAHO',
+                '--start', '2000-01-01T00:00:00', '--end', '2000-12-31T23:59:59',
+                '--time_window', '0.1', '0.2'
+            ]
+        )
+        assert result.exit_code == 0
+        assert 'no new segments' in result.output.lower()
+        num_segments2 = get_row_count(db.engine, Segment)
+        num_skipped_segments2 = get_row_count(db.engine, SkippedSegment)
+        num_stations2 = get_row_count(db.engine, StationXML)
+        num_events2 = get_row_count(db.engine, QuakeML)
+        # assert num_skipped_segments2 > 0
+        assert num_segments2 == num_stations2 == num_events2 == 0
+
+        result = CliRunner().invoke(
+            cli, [
+                'download', '-c', str(cfg_file), '--dburl', db.url,
+                '--data_url', 'iris',
+                '--events_url', 'www.seismicportal.eu/fdsnws/event/1/query',
+                '--minmag', '3', '--maxmag', '4',
+                '--quakeml',
+                '--net', '*',
+                '--sta', 'CAVN,CAVN,CAVN,CFON,CLLI,MAHO',
+                '--start', '2000-01-01T00:00:00', '--end', '2000-12-31T23:59:59',
+                '--time_window', '0.1', '0.2'
+            ]
+        )
+        assert result.exit_code == 0
+        assert 'no segments' in result.output.lower()
+        num_segments2 = get_row_count(db.engine, Segment)
+        num_skipped_segments2 = get_row_count(db.engine, SkippedSegment)
+        num_stations2 = get_row_count(db.engine, StationXML)
+        num_events2 = get_row_count(db.engine, QuakeML)
+        # assert num_skipped_segments2 > 0
+        assert num_segments2 == num_stations2 == num_events2 == 0
+
+    finally:
+        mock_read_url.side_effect = original_read_url
+    # nothing new has been written:
+    # assert num_channels < get_row_count(db.engine, Channel)
+    # assert num_events == get_row_count(db.engine, Event)
+
+

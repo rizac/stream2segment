@@ -3,6 +3,7 @@ Http requests with multi-threading
 """
 # :date: Apr 15, 2017
 from collections import deque
+from collections.abc import Iterable
 from dataclasses import dataclass
 from threading import Condition, current_thread, main_thread, Lock, Event
 import signal
@@ -202,14 +203,12 @@ def read_urls(
     unordered=True,
     credentials=None,
     **kwargs
-):
+) -> Iterable[Response]:
     """
-    Download data (optionally asynchronously) from different urls. Specifically
-    designed for large downloads, handles concurrency (`threading.Pool`) globally
-    and per URL-domain, stopping at specific errors iteratively received.
-
-    For each item `obj` of iterable, this function yields the tuple
-    `(obj: [Any], response [Response])`
+    Download data (optionally asynchronously) from different urls, yielding
+    Response objects. Specifically designed for large downloads, handles concurrency
+    (`threading.Pool`) globally and per URL-domain, stopping at specific errors
+    iteratively received.
 
     :param iterable: an iterable strings (URLs) or `Request` objects
     :param max_global_concurrency: integer or None (the default) denoting the max
@@ -315,13 +314,14 @@ def read_urls(
                 hostname_limiter = limiters.setdefault(
                     domain, DynamicLimiter(max_concurrency)
                 )
-                hostname_limiter.acquire()
-                try:
-                    resp = read_url(url, blocksize, decode, timeout, opener, **kwargs)
-                finally:
-                    hostname_limiter.release()
 
-                return domain, resp
+            hostname_limiter.acquire()
+            try:
+                resp = read_url(url, blocksize, decode, timeout, opener, **kwargs)
+            finally:
+                hostname_limiter.release()
+
+            return domain, resp
 
         last_n_errors = {}
 
@@ -334,7 +334,7 @@ def read_urls(
             domain, response = resp_tuple
 
             if 200 <= response.status_code < 300:
-                yield resp_tuple
+                yield response
                 if domain in last_n_errors:
                     resp_queue = last_n_errors[domain]
                     while len(resp_queue):
@@ -343,7 +343,7 @@ def read_urls(
 
             # error response. Append to queue:
             resp_queue = last_n_errors.setdefault(domain, deque(maxlen=error_limit))
-            resp_queue.appendleft(resp_tuple)
+            resp_queue.appendleft(response)
 
             if len(resp_queue) < consecutive_error_limit:
                 # threshold not yet reached, go on:
@@ -371,8 +371,8 @@ def read_urls(
         for domain, resp_queue in last_n_errors.items():
             if domain in aborted_download_domains:
                 continue
-            for obj, response in resp_queue:
-                yield obj, response
+            for response in resp_queue:
+                yield response
 
     finally:
         if t_pool is not None:
@@ -430,9 +430,10 @@ class DynamicLimiter:
 
     def acquire(self):
         with self.cond:
-            while self.active >= self.limit:
+            while 0 < self.limit <= self.active:
                 self.cond.wait()
-            self.active += 1
+            if self.limit > 0:
+                self.active += 1
 
     def release(self):
         with self.cond:

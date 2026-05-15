@@ -21,8 +21,9 @@ class clickutils:  # noqa
     """Container for all `click` related stuff to be used here"""
 
     @staticmethod
-    def valid_dburl_or_download_yamlpath(value, param_name='dburl'):
-        """Return the database path from 'value': 'value' can be a file (in that
+    def valid_dburl_or_download_yamlpath(value, param_names=('dburl', 'db_url')):
+        """
+        Return the database path from 'value': 'value' can be a file (in that
         case is assumed to be a YAML file with the `param_name` key in it, which
         must denote a db path) or the database path otherwise
         """
@@ -34,10 +35,18 @@ class clickutils:  # noqa
                     yaml_dict = yaml.safe_load(_)
             except Exception:
                 raise ValueError('file exists but can not be read as YAML')
-            try:
-                return resolve_db_path(yaml_dict[param_name], dirname(value))
-            except KeyError:
-                raise ValueError(f'{param_name} not found in YAML file {value}')
+            p_names = [ p  for p in param_names if p in yaml_dict ]
+            if len(p_names) == 0:
+                raise ValueError(
+                    f'No param. name {" or ".join(p_names)} '
+                    f'found in YAML file {value}'
+                )
+            elif len(p_names) > 1:
+                raise ValueError(
+                    f'Parameter name conflict {", ".join(p_names)} '
+                    f'in YAML file {value}'
+                )
+            return resolve_db_path(yaml_dict[p_names[0]], dirname(value))
         return value
 
     # shorthand string for event-related download params:
@@ -435,28 +444,29 @@ def copy_example_files(outpath, prompt=True, *filenames):
               help="The path to the configuration file in yaml format "
                    "(https://learn.getgrav.org/advanced/yaml).",
               type=clickutils.ExistingPath, required=True)
-@click.option('-d', '--dburl', is_eager=True)
-@click.option('-ev', '--events_url', '--catalog', '--eventws')
-@click.option('-s', '--start', '--starttime', "starttime", metavar='DATE or DATETIME')
-@click.option('-e', '--end', '--endtime', 'endtime', metavar='DATE or DATETIME', )
-@click.option('-n', '--network', '--networks', '--net', 'network')
-@click.option('-z', '--station', '--stations', '--sta', 'station')
-@click.option('-l', '--location', '--locations', '--loc', 'location')
-@click.option('-k', '--channel', '--channels', '--cha', 'channel')
-@click.option('-msr', '--min-sample-rate', type=float)
-@click.option('-ds', '--data_url', '--dataselect', '--dataws', multiple=True)
-@click.option('-t', '--time-window', '--segment_window', nargs=2, type=float)
-@click.option('-i', '--stationxml', is_flag=True, default=None)
-@click.option('-minlat', '--minlatitude', type=float,
+@click.option('-d', '--dburl', '--db_url', is_eager=True)
+@click.option('--events_url', '--catalog', '--eventsurl', '--eventws')
+@click.option('-s', '--start', '--starttime', "starttime", metavar='ISO DATE or DATETIME')
+@click.option('-e', '--end', '--endtime', 'endtime', metavar='ISO DATE or DATETIME')
+@click.option('--network', '--networks', '--net', 'network')
+@click.option('--station', '--stations', '--sta', 'station')
+@click.option('--location', '--locations', '--loc', 'location')
+@click.option('--channel', '--channels', '--cha', 'channel')
+@click.option('--min-sample-rate', type=float)
+@click.option('--data_url', '--dataselect', '--dataurl', '--dataws', multiple=True)
+@click.option('--time_window', '--segment_window', nargs=2, type=float)
+@click.option('--stationxml', is_flag=True, default=None)
+@click.option('--quakeml', is_flag=True, default=None)
+@click.option('--minlatitude', '--minlat', type=float,
               help=clickutils.EQA + " Limit to events with a latitude larger "
                                     "than or equal to the specified minimum")
-@click.option('-maxlat', '--maxlatitude', type=float,
+@click.option('--maxlatitude', '--maxlat', type=float,
               help=clickutils.EQA + " Limit to events with a latitude smaller "
                                     "than or equal to the specified maximum")
-@click.option('-minlon', '--minlongitude', type=float,
+@click.option('--minlongitude', '--minlon', type=float,
               help=clickutils.EQA + " Limit to events with a longitude larger "
                                     "than or equal to the specified minimum")
-@click.option('-maxlon', '--maxlongitude', type=float,
+@click.option('--maxlongitude', '--maxlon', type=float,
               help=clickutils.EQA + " Limit to events with a longitude smaller "
                                     "than or equal to the specified maximum")
 @click.option('--mindepth', type=float,
@@ -465,15 +475,15 @@ def copy_example_files(outpath, prompt=True, *filenames):
 @click.option('--maxdepth', type=float,
               help=clickutils.EQA + " Limit to events with depth less than the "
                                     "specified maximum")
-@click.option('-minmag', '--minmagnitude', type=float,
+@click.option('--minmagnitude', '--minmag', type=float,
               help=clickutils.EQA + " Limit to events with a magnitude larger "
                                     "than the specified minimum")
-@click.option('-maxmag', '--maxmagnitude', type=float,
+@click.option('--maxmagnitude', '--maxmag', type=float,
               help=clickutils.EQA + " Limit to events with a magnitude smaller "
                                     "than the specified maximum")
 def download(config, dburl, events_url, starttime, endtime, network,  # noqa
              station, location, channel, min_sample_rate,  # noqa
-             data_url, time_window,  stationxml,  # noqa
+             data_url, time_window,  stationxml, quakeml,  # noqa
              minlatitude, maxlatitude, minlongitude,  # noqa
              maxlongitude, mindepth, maxdepth, minmagnitude,  # noqa
              maxmagnitude):  # noqa

@@ -136,7 +136,6 @@ def sync_pkey(
     engine: Engine,
     table_model: type[DeclarativeBase],
     unique_cols: list[str],
-    select_where=None,
     chunksize=5000
 ):
     """
@@ -153,8 +152,6 @@ def sync_pkey(
     pkey_col = [col.name for col in table_model.__table__.primary_key.columns][0]
     col_names = [pkey_col] + list(unique_cols)
     stmt = select(*(columns[c] for c in col_names))
-    if select_where is not None:
-        stmt = stmt.where(select_where)
     # set column nullable int type (for now):
     dfr[pkey_col] = pd.Series(pd.NA, index = dfr.index, dtype="Int64")
 

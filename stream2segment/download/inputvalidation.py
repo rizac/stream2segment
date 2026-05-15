@@ -71,7 +71,7 @@ def extract_download_args(
             configfile=config_file_path
         )
 
-        params = ('dburl',)
+        params = ('db_url', 'dburl')
         val = get_param(params, config, override_params)
         kwargs['engine'] = get_engine(
             resolve_db_path(val, dirname(config_file_path))
@@ -543,19 +543,19 @@ def valid_fdsn(url, is_eventws, configfile=None):
             (not is_eventws and url.lower() in ('eida', 'iris')):
         return url.lower()
 
-    if is_eventws:
-        if configfile is None:
-            fpath = url
-        else:
-            fpath = abspath(join(dirname(configfile), url))
-        if os.path.isfile(fpath):
-            return fpath
-        else:
-            raise ValueError('Invalid file path, check typos')
     try:
         return fdsn_url(url)
     except Exception:
-        raise ValueError('Invalid FDSN url or file path, check typos')
+        if is_eventws:
+            if configfile is None:
+                fpath = url
+            else:
+                fpath = abspath(join(dirname(configfile), url))
+            if os.path.isfile(fpath):
+                return fpath
+            else:
+                raise ValueError('Invalid FDSN url or file path, check typos')
+        raise ValueError('Invalid FDSN url, check typos')
 
 
 def valid_search_radius(search_radius):

@@ -78,9 +78,9 @@ def fdsn_url(
     url: str,
     *,
     new_service: Literal['station', 'dataselect', 'event'] | None = None,
-    new_method: Literal['query', 'queryauth', 'auth', 'version', 'application.wadl'] | None = None,   # noqa
+    new_method: Literal['query', 'queryauth', 'auth', 'version', 'application.wadl'] | None = None,
     new_query_string: str | None = None
-):
+):  # noqa
     """
     Check the validity of the given FDSN URL, raising ValueError if invalid, returning
     unchanged or modified according to the arguments.
@@ -100,8 +100,13 @@ def fdsn_url(
     methods = {'query', 'queryauth', 'auth', 'version', 'application.wadl'}
 
     split_url = urlsplit(url)
-    if not split_url.scheme:
-        raise ValueError('missing URL scheme (e.g. "https://")')
+    scheme = new_scheme = split_url.scheme or ''
+    if not scheme:
+        if url.startswith('www.'):
+            split_url = urlsplit(f'https://{url}')
+            new_scheme = split_url.scheme
+        if not new_scheme:
+            raise ValueError('missing URL scheme (e.g. "https://")')
 
     if not split_url.netloc:
         raise ValueError('missing URL domain (e.g. "geofon.gfz.de")')
@@ -117,7 +122,9 @@ def fdsn_url(
     )
 
     if not reg:
-        raise ValueError('URL path does not match "fdsnws/<service>/<majorversion>/<method>')
+        raise ValueError(
+            'URL path does not match "fdsnws/<service>/<majorversion>/<method>'
+        )
 
     service = reg.group('service')
     if service not in services:
@@ -147,12 +154,15 @@ def fdsn_url(
         new_query_string = split_url.query
 
     if (
+        new_scheme != scheme or
         new_service != service or
         new_method != method or
         new_query_string != split_url.query
     ):
         new_path = f'/fdsnws/{new_service}/{majorversion}/{new_method}'
-        new_parsed = split_url._replace(path=new_path, query=new_query_string)
+        new_parsed = split_url._replace(
+            scheme=new_scheme, path=new_path, query=new_query_string
+        )
         url = urlunsplit(new_parsed)
 
     return url
@@ -171,9 +181,9 @@ def fdsn_url_qs(base_url: str, **query_args):
         `isoformat()` method (parameters `start` /`starttime`, `end` / `endtime` that
         are expected to be `datetime`s). Parameters net, sta, loc, cha (and their
         long-name variants, e.g. network) will be ignored if '*'
-        Duplicates (e.g. 'mag', 'magnitude') are not checked for and will be both encoded,
-        whether the encoded URL is valid depends on the server, but in principle it
-        should be invalid
+        Duplicates (e.g. 'mag', 'magnitude') are not checked for and will be both
+        encoded, whether the encoded URL is valid depends on the server, but in
+        principle it should be invalid
     """
     qs = {}
     # date and time params:
@@ -195,7 +205,8 @@ def fdsn_url_qs(base_url: str, **query_args):
         if v is None or (k in c_params and v.strip() == '*'):
             continue
         if k in d_params and isinstance(v, (date, datetime)):
-            if isinstance(v, date):
+            if not isinstance(v, datetime):
+                # do not check if it's date, cause a detime is also a date!
                 v = datetime(v.year, v.month, v.day)
             v = v.isoformat('T')
             safe_chars.update(set('-:') & set(v))  # don't encode ":-" if in v

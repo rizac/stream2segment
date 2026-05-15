@@ -32,12 +32,13 @@ endtime: 2016-12-25T00:00:00
 # The events list, returned by the URL or in the supplied file, must be in FDSN format
 # (https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=15).
 # You can also type these shortcut strings instead of URLs:
-# 'emsc':  'http://www.seismicportal.eu/fdsnws/event/1/query'
-# 'isc':   'http://www.isc.ac.uk/fdsnws/event/1/query'
-# 'iris':  'http://service.iris.edu/fdsnws/event/1/query'
-# 'ncedc': 'http://service.ncedc.org/fdsnws/event/1/query'
-# 'scedc': 'http://service.scedc.caltech.edu/fdsnws/event/1/query'
-# 'usgs':  'http://earthquake.usgs.gov/fdsnws/event/1/query'
+#  'emsc':  'https://www.seismicportal.eu/fdsnws/event/1/query',
+#  'isc':   'https://www.isc.ac.uk/fdsnws/event/1/query',
+#  'iris':  'https://service.iris.edu/fdsnws/event/1/query',
+#  'ncedc': 'https://service.ncedc.org/fdsnws/event/1/query',
+#  'scedc': 'https://service.scedc.caltech.edu/fdsnws/event/1/query',
+#  'usgs':  'https://earthquake.usgs.gov/fdsnws/event/1/query',
+#  'geofon': 'https://geofon.gfz.de/fdsnws/event/1/query'
 events_url: 'https://seismicportal.eu/fdsnws/event/1/query'
 
 # NOTE: all event parameters below are ignored if missing, empty, null, or

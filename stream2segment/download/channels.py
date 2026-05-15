@@ -315,8 +315,10 @@ def split_url_by_network_quantiles(fdsn_station_url, params):
         df = pd.DataFrame(rows, columns=['net', 'count'])
         # convert count to numeric (should be int, but we set NaN as #station mean):
         df['count'] = pd.to_numeric(df['count'], errors='coerce')
-        df.loc[pd.isna(df['count']), 'count'] = int(df['count'].mean().round())
+        df.loc[pd.isna(df['count']), 'count'] = int(df['count'].median().round())
         df['count'] = df['count'].astype(int)
+        # group by net and sum counts
+        df = df.groupby('net', as_index=False)['count'].sum()
         # cumulative sum of counts (running total)
         c = df['count'].cumsum()
         # total sum of counts
@@ -462,8 +464,9 @@ def fdsn_channel_response_text_to_df(
         return dframe
 
     # cast and work with non-sql columns:
-    dframe[end_col] = pd.to_datetime(dframe[end_col], errors='coerce')
-    dframe[end_col].fillna(end_time_replacement)
+    dframe[end_col] = pd.to_datetime(dframe[end_col], errors='coerce').fillna(
+        end_time_replacement
+    )
     dframe[
         [band_col, inst_col, orient_col]
     ] = dframe.pop("channel_code").str.extract(r"(.)(.)(.)")
@@ -540,6 +543,9 @@ def resolve_inter_conflicts(
     """
     channels.reset_index(drop=True, inplace=True)
     grp_cols = [net_col, sta_col, loc_col, band_col, inst_col, start_col]
+    # for safety:
+    channels = channels.drop_duplicates(subset=grp_cols + [orient_col], keep='first')
+    # move on:
     drop_indices = set()
     new_channels = []
 
@@ -656,6 +662,9 @@ def save_channels(engine: Engine, channels: pd.DataFrame):
         # lat_col,
         # lon_col
     ]
+
+    # for safety, let's drop duplicates that might still be there
+    channels = channels.drop_duplicates(subset=uc_cols, keep='first')
 
     select_stmt = get_db_select_statement(channels)
 

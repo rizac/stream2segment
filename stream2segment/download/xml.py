@@ -37,14 +37,15 @@ def save_stationxml(
         select(
             Channel.network_code,
             Channel.station_code,
-            Segment.webservice_id,
+            Channel.data_webservice_id,
             WebService.url
         )
-        .join(WebService, Segment.webservice_id == WebService.id)
-        .join(Segment, Segment.channel_id == Channel.id)
-        .where(Segment.stationxml_id.is_(None))
+        .join(WebService, Channel.data_webservice_id == WebService.id)
+        .join(Segment, Segment.channel_id == Channel.id)  # inner join
+        .where(Channel.stationxml_id.is_(None))
         .distinct()
     )
+    # (inner join # inner join -> filters out no-segment channels)
 
     log_once_filter: Optional[IdOnceLogFilter] = None  # lazily created if needed
     downloaded, saved, errors = 0, 0, 0

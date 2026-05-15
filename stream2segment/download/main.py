@@ -13,7 +13,8 @@ import psutil
 import yaml
 from sqlalchemy import Engine
 
-from stream2segment.io.utils import start_logging, create_log_handlers
+from stream2segment.io.utils import start_logging, create_log_handlers, BadParam, \
+    ascii_decorate
 from stream2segment.io.db.pdsql import (
     get_col_max, execute_sql, insert
 )
@@ -33,6 +34,7 @@ from stream2segment.resources import get_resource_abspath
 # make the logger refer to the parent of this package (`rfind` below. For info:
 # https://docs.python.org/3/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__[:__name__.rfind('.')])
+logger.setLevel(logging.INFO)  # not strictly necessary, but we want to avoid debug
 
 
 def download(
@@ -73,6 +75,7 @@ def download(
     config = {}
 
     if verbose:
+        print(ascii_decorate("Stream2segment download"))
         print(f"Configuration file: {config_file}")
         if override_params:
             print(
@@ -93,14 +96,20 @@ def download(
               "(if the download ends with no errors, the file will be deleted "
               "and its content written to the database)")
 
+    try:
+        config, kwargs = extract_download_args(config_file, **override_params)
+    except BadParam as bpar:
+        raise bpar from None
+
     with start_logging(logger, create_log_handlers(log_file_path, verbose)):
         try:
-            config, kwargs = extract_download_args(config_file, **override_params)
             engine = kwargs['engine']
             stime = time.time()
             d_stats = _download(isterminal=verbose, **kwargs)
-            logger.info(f"Completed in {timedelta(seconds=round((time.time()) - stime))}")
-
+            logger.info(
+                f"Completed in {timedelta(seconds=round((time.time()) - stime))}"
+            )
+            d_stats = d_stats.to_dict()
         except NothingToDownload as nothing_to_download_exc:
             logger.info(f'Nothing to download: {nothing_to_download_exc}')
         except FailedDownload as failed_download_exc:
@@ -164,8 +173,10 @@ def _download(
             percent = process.memory_percent()
             logger.warning("(%.1f%% memory used)", percent)
 
-    log_step_header("Fetching events", 1)
+    # FIXME in events and channels, warn if i constantly get 4xx (failed download?)
+    #  or 5xx (please retry alter?)
 
+    log_step_header("Downloading events", 1)
     events = get_events(
         engine=engine,
         urls=events_url,
@@ -177,11 +188,11 @@ def _download(
         on_event_conflict=advanced_settings['on_event_conflict'],
         show_progress=isterminal
     )
+    logger.info(f'Working with {len(events):,} event(s)')
 
     # Get datacenters, store them in the db, returns the dc instances
     # (db rows) correctly added
-    log_step_header("Fetching channels urls", 2)
-
+    log_step_header("Downloading station channels", 2)
     channels = get_channels(
         engine=engine,
         datacenter_urls=data_url,
@@ -197,11 +208,9 @@ def _download(
         download_timeout=text_download_timeout,
         show_progress=isterminal
     )
+    logger.info(f'Working with {len(channels):,} channel(s)')
 
-    log_step_header(
-        f"Finding nearby stations for each event",
-        3
-    )
+    log_step_header(f"Finding nearby stations for each event",3)
     # merge vents and stations (might raise FailedDownload):
     segments = merge_events_stations(
         events=events,
@@ -220,19 +229,16 @@ def _download(
     )
     # raises NothingToDownload
     segments = prepare_for_download(
-        engine=engine,
-        segments=segments,
-        restricted_download=credentials is not None
+        engine=engine, segments=segments, restricted_download=credentials is not None
     )
 
     # prepare_for_download raises a NothingToDownload if there is no
     # data, so if we are here segments is not empty
     log_step_header(
-        f"Downloading {len(segments):,} segments and saving to db " +
+        f"Downloading {len(segments):,} segments " +
         '(no credentials, open data only)' if credentials is None else '',
         5
     )
-
     d_stats = download_and_save(
         engine=engine,
         segments=segments,
@@ -252,14 +258,13 @@ def _download(
 
     if stationxml:
         log_step_header("Downloading Stations (StationXML)", 6)
-        n_downloaded, n_saved, n_errors = \
-            save_stationxml(
-                engine=engine,
-                max_download_concurrency=max_download_concurrency,
-                download_timeout=data_download_timeout,
-                download_blocksize=download_blocksize,
-                show_progress=isterminal
-            )
+        n_downloaded, n_saved, n_errors = save_stationxml(
+            engine=engine,
+            max_download_concurrency=max_download_concurrency,
+            download_timeout=data_download_timeout,
+            download_blocksize=download_blocksize,
+            show_progress=isterminal
+        )
         logger.info(
             f"** Stations StationXML download summary **\n"
             f"- downloaded     {n_downloaded:,} \n"
@@ -268,14 +273,13 @@ def _download(
         )
     if quakeml:
         log_step_header("Downloading Events (QuakeML)", 7)
-        n_downloaded, n_saved, n_errors = \
-            save_quakeml(
-                engine=engine,
-                max_download_concurrency=max_download_concurrency,
-                download_timeout=data_download_timeout,
-                download_blocksize=download_blocksize,
-                show_progress=isterminal
-            )
+        n_downloaded, n_saved, n_errors = save_quakeml(
+            engine=engine,
+            max_download_concurrency=max_download_concurrency,
+            download_timeout=data_download_timeout,
+            download_blocksize=download_blocksize,
+            show_progress=isterminal
+        )
         logger.info(
             f"** Events QuakeML download summary **\n"
             f"- downloaded     {n_downloaded:,} \n"

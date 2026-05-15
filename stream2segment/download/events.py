@@ -6,6 +6,7 @@ from collections.abc import Iterable
 from datetime import timedelta, datetime
 import logging
 from itertools import product
+from pathlib import Path
 from typing import Literal
 
 import numpy as np
@@ -19,7 +20,7 @@ from stream2segment.io.db.pdsql import (
     apply_table_dtypes, fetch_df, insert_df, sync_pkey, set_pkeys, select, Engine
 )
 from stream2segment.io.db.models import Event, WebService
-from stream2segment.download.url import read_url, CustomResponseCode
+from stream2segment.download.url import read_url, CustomResponseCode, Response
 from stream2segment.download.utils import (
     fdsn_url_qs, fdsn_response_text_to_df, FailedDownload, NothingToDownload, fdsn_url
 )
@@ -39,12 +40,13 @@ magtype_col = Event.mag_type.key
 
 
 EVENTWS_MAPPING = {
-    'emsc':  'http://www.seismicportal.eu/fdsnws/event/1/query',
-    'isc':   'http://www.isc.ac.uk/fdsnws/event/1/query',
-    'iris':  'http://service.iris.edu/fdsnws/event/1/query',
-    'ncedc': 'http://service.ncedc.org/fdsnws/event/1/query',
-    'scedc': 'http://service.scedc.caltech.edu/fdsnws/event/1/query',
-    'usgs':  'http://earthquake.usgs.gov/fdsnws/event/1/query',
+    'emsc':  'https://www.seismicportal.eu/fdsnws/event/1/query',
+    'isc':   'https://www.isc.ac.uk/fdsnws/event/1/query',
+    'iris':  'https://service.iris.edu/fdsnws/event/1/query',
+    'ncedc': 'https://service.ncedc.org/fdsnws/event/1/query',
+    'scedc': 'https://service.scedc.caltech.edu/fdsnws/event/1/query',
+    'usgs':  'https://earthquake.usgs.gov/fdsnws/event/1/query',
+    'geofon': 'https://geofon.gfz.de/fdsnws/event/1/query'
 }
 
 
@@ -62,7 +64,7 @@ def get_events(
 ) -> pd.DataFrame:
     """Return the event data frame from the given url or local file"""
 
-    dfr_iter = download_events(
+    dfr_iter = download_or_read_events(
         urls, evt_query_args, start, end, download_timeout, show_progress
     )
     # pd_df_list surely not empty (otherwise we raised FailedDownload)
@@ -112,18 +114,16 @@ def get_events(
     ]]
 
 
-def download_events(
+def download_or_read_events(
     urls: Iterable[str],
     evt_query_args: dict,
     start: datetime,
     end: datetime,
     timeout=120,
     show_progress=False
-):
-    """Return a list of pandas dataframe(s) from the event url or file
-
-    :param url: a valid url, a mappings string, or a local file (fdsn 'text'
-        formatted)
+) -> Iterable[pd.DataFrame]:
+    """
+    Yield pandas dataframe(s) from the event url or file
     """
     harmonized_urls = {
         url_file_prefix + u if is_local_file(u) else fdsn_url(EVENTWS_MAPPING.get(u, u))
@@ -133,79 +133,111 @@ def download_events(
 
     for url in harmonized_urls:
         if url.startswith(url_file_prefix):
-            try:
-                dfr = read_events_file(url.removeprefix(url_file_prefix))
-                dfr[url_col] = pd.Series(url, index=dfr.index, dtype=cat_type)
-            except Exception as exc:
-                raise FailedDownload(f"Error reading file {repr(url)}: {exc}")
+            iterable = [Path(url.removeprefix(url_file_prefix))]
         else:
-            try:
-                for dfr in download_events_from_url(
-                    url, evt_query_args, start, end, timeout, show_progress
-                ):
-                    dfr[url_col] = pd.Series(url, index=dfr.index, dtype=cat_type)
-                    yield dfr
-            except Exception as exc:
-                raise FailedDownload(f"Error downloading from {url}: {exc}")
-
-
-def read_events_file(file_path: str) -> pd.DataFrame:
-
-    with open(file_path, "r") as f:
-        first_line = f.readline()
-
-    pipe_count = first_line.count("|")
-    comma_count = first_line.count(",")
-    semi_count = first_line.count(";")
-
-    sep = "|" if first_line.count("|") > first_line.count(",") else ","
-
-    if pipe_count > semi_count >= comma_count:
-        with open(file_path, "r") as f:
-            return fdsn_event_response_text_to_df(f.read())
-        return pd.read_csv(file_path, sep=sep, comment="#", header=None)
-
-    dfr = pd.read_csv(
-        file_path, comment="#", sep="," if comma_count >= semi_count else ";"
-    )
-    # restore "normal" fdsn dataframe
-    # EventID|Time|Latitude|Longitude|Depth/km|Author|Catalog|Contributor|
-    # ContributorID|MagType|Magnitude|MagAuthor|EventLocationName|EventType
-
-    col_names = {
-        # ("id", "event_id", "eventid",  "evt_id"): Event.id.key,
-        ("time",): time_col,
-        ("latitude", "lat"): lat_col,
-        ("longitude", "lon"): lon_col,
-        ("depth_km", "depth"): depth_col,
-        ("magnitude", "mag"): mag_col,
-        ("mag_type", "magtype"): magtype_col,
-    }
-    rename = {}
-
-    dfr_columns = set(dfr.columns)
-    for names, sql_col_name in col_names.items():
-        keys = set(names) & dfr_columns
-        if not keys:
-            raise FailedDownload(f"No column named {names[0]} in {file_path}")
-        elif len(keys) != 1 and names[0] != 'id':
-            raise FailedDownload(
-                f"Conflict: Multiple column named {names} in {file_path}"
+            iterable = download_events(
+                url, evt_query_args, start, end, timeout, show_progress
             )
-        rename[list(keys)[0]] = sql_col_name
 
-    dfr = dfr.rename(columns=rename)[list(rename.values())]
+        for obj in iterable:
+            url = None
+            data = obj
+            if isinstance(obj, Response):  # is s Response object
+                url = fdsn_url(obj.request, new_query_string="")  # FIXME unnecessary fdsn_url check
+                data = obj.data
+            try:
+                dfr = read_events(data)
+                if dfr.empty:
+                    raise Exception(
+                        'No rows left after type conversion and filtering'
+                    )
+                dfr[url_col] = pd.Series(url, index=dfr.index, dtype=cat_type)
+                yield dfr
+            except Exception as exc:
+                if url is None:  # file passed, stop download
+                    raise FailedDownload(exc)
+                else:
+                    logger.warning(f"Unable to read data downloaded from {url}: {exc}")
+
+
+def read_events(content: str | Path) -> pd.DataFrame:
+
+    sep = ','
+    if isinstance(content, Path):  # file path
+        if not content.is_file():
+            raise Exception('file does not exists')
+
+        with open(content, "r") as f:
+            first_line = f.readline()
+        if not first_line:
+            raise Exception('file empty')
+
+        pipe_count = first_line.count("|")
+        comma_count = first_line.count(",")
+        semi_count = first_line.count(";")
+
+        if pipe_count <= 1 and comma_count <= 1 and semi_count <= 1:
+            raise Exception('file not in CSV format')
+
+        if pipe_count > comma_count:
+            if pipe_count > semi_count:
+                sep = "|"
+        elif semi_count > comma_count:
+            sep = ';'
+
+        if sep == '|':
+            with open(content, "rb") as f:
+                content = f.read()
+
+    if isinstance(content, (str, bytes)):
+        if not content:
+            raise Exception("no data")
+        dfr = fdsn_event_response_text_to_df(content)
+        if dfr.empty:
+            return dfr
+    else:
+        dfr = pd.read_csv(content, comment="#", sep=sep)
+        if dfr.empty:
+            return dfr
+        # restore "normal" fdsn dataframe
+        # EventID|Time|Latitude|Longitude|Depth/km|Author|Catalog|Contributor|
+        # ContributorID|MagType|Magnitude|MagAuthor|EventLocationName|EventType
+
+        col_names = {
+            # ("id", "event_id", "eventid",  "evt_id"): Event.id.key,
+            ("time",): time_col,
+            ("latitude", "lat"): lat_col,
+            ("longitude", "lon"): lon_col,
+            ("depth_km", "depth"): depth_col,
+            ("magnitude", "mag"): mag_col,
+            ("mag_type", "magtype"): magtype_col,
+        }
+        rename = {}
+
+        dfr_columns = set(dfr.columns)
+        for names, sql_col_name in col_names.items():
+            keys = set(names) & dfr_columns
+            if not keys:
+                raise Exception(f"No column named {names[0]} in {content}")
+            elif len(keys) != 1 and names[0] != 'id':
+                raise Exception(
+                    f"Conflict: Multiple column named {names} in {content}"
+                )
+            rename[list(keys)[0]] = sql_col_name
+
+        dfr = dfr.rename(columns=rename)[list(rename.values())]
+
     return apply_table_dtypes(Event, dfr, drop_non_nullable=True)
 
 
-def download_events_from_url(
+def download_events(
     base_fdsn_url,
     evt_query_args,
     start: datetime,
     end: datetime,
     timeout,
     show_progress=False
-):
+) -> Iterable[Response]:
     """Yield an iterator of tuples (url, data), where both are strings denoting
     the URL and the corresponding response body. The returned iterator has
     length > 1 if the request was too large and had to be split
@@ -238,12 +270,7 @@ def download_events_from_url(
                 try:
                     if response.status_code == 204:
                         raise Exception("No data (Http code 204)")  # fallback below
-                    dframe = fdsn_event_response_text_to_df(response.data)
-                    if dframe.empty:
-                        raise Exception(
-                            'No rows left after type conversion and filtering'
-                        )
-                    yield dframe
+                    yield response
                 except Exception as exc:
                     logger.warning(f"Unable to read data downloaded from {url}: {exc}")
             elif response.status_code not in request_too_large_codes:

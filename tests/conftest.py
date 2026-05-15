@@ -90,10 +90,12 @@ def log_capture():
 
         stdout_streamer = logging.StreamHandler(sys.stdout)
         stdout_streamer.setFormatter(logging.Formatter('%(message)s'))
+        stdout_streamer.setLevel(logging.INFO)  # do not print debug, print others
         # configure the levels we want to print (20: info, 40: error, 50: critical)
         stdout_streamer.addFilter(
             lambda rec: rec.levelno in {logging.INFO, logging.ERROR, logging.CRITICAL}
         )
+        handlers.append(stdout_streamer)
 
         return handlers
 

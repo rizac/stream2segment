@@ -1,7 +1,6 @@
 """
-Command line interface (cli) utilities
+Utilities for I/O operations
 """
-
 import sys
 import logging
 from logging import Logger
@@ -82,7 +81,7 @@ def get_progressbar(length, **kw):
     ```
     """
     if not length and 'iterable' not in kw:
-        yield NoOp(**kw)
+        yield NoOp()
     else:
         # some custom setup if missing:
         # (note that progressbar characters render differently across OSs:
@@ -99,7 +98,7 @@ def get_progressbar(length, **kw):
 
 
 def create_log_handlers(
-    logger: Logger, logfile_path='', verbose=False
+    logfile_path='', verbose=False
 ) -> list[logging.Handler]:
     """
     Configure the logger for download
@@ -108,8 +107,6 @@ def create_log_handlers(
     logging._srcfile = None  # noqa
     logging.logThreads = 0
     logging.logProcesses = 0
-
-    logger.setLevel(logging.INFO)  # necessary to forward to handlers
 
     handlers = []
     if logfile_path:
@@ -121,6 +118,7 @@ def create_log_handlers(
     if verbose:
         stdout_streamer = logging.StreamHandler(sys.stdout)
         stdout_streamer.setFormatter(logging.Formatter('%(message)s'))
+        stdout_streamer.setLevel(logging.INFO)  # do not print debug, print others
         # configure the levels we want to print (20: info, 40: error, 50: critical)
         stdout_streamer.addFilter(
             lambda rec: rec.levelno in {logging.INFO, logging.ERROR, logging.CRITICAL}
@@ -131,7 +129,7 @@ def create_log_handlers(
 
 
 @contextmanager
-def start_logging(logger: Logger, handlers):
+def start_logging(logger: Logger, handlers: list[logging.Handler]):
     for h in handlers:
         logger.addHandler(h)
     try:

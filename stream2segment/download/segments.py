@@ -18,21 +18,23 @@ import psutil
 from sqlalchemy import Engine
 
 from stream2segment.download import url
-from stream2segment.download.channels import url_col, orient_col, net_col, \
-    sta_col, loc_col, band_col, inst_col
+from stream2segment.download.channels import (
+    url_col, orient_col, net_col, sta_col, loc_col, band_col, inst_col
+)
 from stream2segment.download.mseedlite import MSeedError, Input
-from stream2segment.download.stationsearch import atime_col, dist_col, \
-    ev_id_col, ch_id_col
+from stream2segment.download.stationsearch import (
+    atime_col, dist_col, ev_id_col, ch_id_col
+)
 from stream2segment.io.utils import get_progressbar
 from stream2segment.io.db.pdsql import (
-    sync_pkey, get_row_count, get_col_max, insert, execute_sql
+    sync_pkey, get_row_count, get_col_max, insert, execute_sql, fetch_df, select
 )
-from stream2segment.io.db.models import Segment, Channel, MiniSeed, SkippedSegment
+from stream2segment.io.db.models import Segment, MiniSeed, SkippedSegment
 from stream2segment.download.utils import (
-    fdsn_url_qs, IdOnceLogFilter, fdsn_url, FailedDownload
+    fdsn_url_qs, IdOnceLogFilter, fdsn_url, FailedDownload, NothingToDownload
 )
 from stream2segment.download.url import (
-    get_host, read_urls, Response, read_url
+    get_host, read_urls, Response, read_url, responses
 )
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
@@ -56,7 +58,6 @@ def prepare_for_download(
         [ev_id_col, ch_id_col],
             chunksize=min(1000, len(segments))
         )
-        # max_id = segments_with_pkeys.attrs.pop(f'{Segment.id.key}_max')
         already_saved = segments[Segment.id.key].motna()
         if already_saved.any():
             logger.info(
@@ -65,27 +66,45 @@ def prepare_for_download(
             segments = segments[~already_saved]
             segments.pop(Segment.id.key)
 
-    if get_row_count(engine, SkippedSegment) > 0:
-        # Put ids for segments to be saved in a tmp column:
-        # segments = segments.rename(columns={Segment.id.key: 'segment.id'})
+    if get_row_count(engine, SkippedSegment) > 0 and not segments.empty:
 
-        # find segments to retry from NoDataSegment table
-        where_clause = (SkippedSegment.download_code != 204)
-        if not restricted_download:
-            where_clause = None
-        segments = sync_pkey(
-            segments,
-            engine,
-            SkippedSegment,
-            [SkippedSegment.event_id.key, SkippedSegment.channel_id.key],
-            where_clause,
-            chunksize=min(1000, len(segments))
+        # segments = sync_pkey(
+        #     segments,
+        #     engine,
+        #     SkippedSegment,
+        #     [SkippedSegment.event_id.key, SkippedSegment.channel_id.key],
+        #     chunksize=min(1000, len(segments))
+        # )
+        _suf = '_.db._'
+        select_stmt = select(
+            SkippedSegment.id,
+            SkippedSegment.download_code,
+            SkippedSegment.event_id,
+            SkippedSegment.channel_id
         )
-        segments[already_skipped_col] =  segments[SkippedSegment.id.key].motna()
+        cmp_cols = [SkippedSegment.channel_id.key, SkippedSegment.event_id.key]
+        id_col = SkippedSegment.id.key
+        dl_col  = SkippedSegment.download_code.key
+        segments[id_col] = pd.Series(pd.NA, index=segments.index, dtype='Int64')
+        segments[dl_col] = pd.Series(pd.NA, index=segments.index, dtype='Int64')
+        for skipped_segments in fetch_df(engine, select_stmt):
+            segments = segments.merge(
+                skipped_segments, how='left', on=cmp_cols, suffixes=('', _suf)
+            )
+            segments[id_col] = segments[id_col].fillna(segments[id_col + _suf])
+            segments[dl_col] = segments[dl_col].fillna(segments[dl_col + _suf])
+
+        mask = segments[id_col].notna()
+        if restricted_download:
+            # with restricted download (credentials), retry also 204, as sometimes that
+            # is the code returned when we request restricted data with no credentials
+            mask &= (segments[dl_col] != 204)
+        segments = segments[~mask]
         segments.pop(SkippedSegment.id.key)
-    # segments['_.new._'] = segments[NoDataSegment.id.key.isna()].astype(bool)
-    # segments.pop(NoDataSegment.id.key)
-    # segments = segments.rename(columns={SkippedSegment.id.key: "skipped_segment.id"})
+
+    if segments.empty:
+        raise NothingToDownload('No new segments to be downloaded')
+
     return segments
 
 
@@ -170,8 +189,9 @@ def download_and_save(
         def not_already_skipped(idx, segs):
             return not segs.at[idx, already_skipped_col]
 
-    skipped_segment_codes = set(MiniSeedErrorCode) | {204}
+    skipped_segment_codes = set(m.value for m in MiniSeedErrorCode) | {204}
 
+    skipped_segments_current_id = get_col_max(engine, SkippedSegment.id)
     segments_current_id = get_col_max(engine, Segment.id)
 
     sql_insert_ok = [insert(Segment), insert(MiniSeed)]
@@ -199,11 +219,13 @@ def download_and_save(
 
                     if response.status_code in skipped_segment_codes:
                         if not_already_skipped(idx, segments):
+                            skipped_segments_current_id += 1
                             rows_skip.append(
                                 prepare_skipped_segment_to_insert(
+                                    skipped_segments_current_id,
                                     segments,
                                     idx,
-                                    MiniSeedErrorCode(response.status_code)
+                                    response.status_code
                                 )
                             )
                             if len(rows_skip) >= db_bufsize:
@@ -237,10 +259,15 @@ def download_and_save(
                             id_once_filter = IdOnceLogFilter()
                             logger.addFilter(id_once_filter)
 
+
+                        err_msg = responses.get(
+                            response.status_code,
+                            str(response.data)
+                        )
+                        if response.status_code < 600:
+                            err_msg += f' (HTTP code: {response.status_code})'
                         logger.warning(
-                            f"Error class (code): {response.data} "
-                            f"({response.status_code}), "
-                            f"URL: {response.request}",
+                            f"{err_msg}, URL: {response.request}",
                             extra={'ID': (url_domain, response.status_code)}
                         )
 
@@ -267,7 +294,8 @@ def download_and_save(
                         ]
                     max_download_concurrency //= 2
                     # stop for a while to avoid stressing URL domains
-                    time.sleep(30)
+                    if not segments.empty:
+                        time.sleep(30)
     finally:
         if len(rows_ok):
             written_ok += sum(
@@ -284,6 +312,11 @@ def download_and_save(
     return stats
 
 
+class MiniSeedErrorCode(IntEnum):
+    BAD_DATA = -201
+    OUT_OF_TIME_BOUNDS = -202
+
+
 def download(
     segments: pd.DataFrame,
     time_window: tuple[float, float],
@@ -292,18 +325,9 @@ def download(
     download_timeout,
     download_blocksize
 ):
-    """Download segments and yields results
-
-    :param dataframes: iterable of dataframes, one dataframe per request, one row
-        per requested waveform. Moreover, each dataframe row is assumed to refer to the
-        same data center (base URL) and have the same time span (start end)
     """
-
-    # FIXME REMOVE
-    # def openerfunc(dframe):
-    #     """Return a Opener (or None) from the given dataframe. An Opener is the
-    #     object needed to download restricted data"""
-    #     return dc_dataselect_manager.opener(dframe[SEG.DCID].iloc[0])
+    Download segments and yields results
+    """
 
     grp_cols = [
         ev_id_col, net_col, sta_col, loc_col, band_col, inst_col
@@ -318,8 +342,8 @@ def download(
         dc_url = dfr[url_col].iloc[0]
         a_time = dfr[atime_col].iloc[0].to_pydatetime()
         # start and end (round down and round up to nearest second):
-        req_start = (a_time + noise_w).replace(microsecond=0),
-        req_end = (a_time + signal_w + timedelta(seconds=1)).replace(microsecond=0),
+        req_start = (a_time + noise_w).replace(microsecond=0)
+        req_end = (a_time + signal_w + timedelta(seconds=1)).replace(microsecond=0)
         params = {
             'start': req_start,
             'end': req_end,
@@ -328,12 +352,15 @@ def download(
             'loc': loc or None,
             'cha': ",".join(f'{band}{inst}{o}' for o in dfr[orient_col]),
         }
-        _url = fdsn_url_qs(dc_url, **params)
-        requests_cache[_url] = {
+
+        url_with_query = fdsn_url_qs(dc_url, **params)
+        url_req_cache = {
             f'{net}.{sta}.{loc}.{band}{inst}{o}': i
-            for i, o in zip(dfr.index, dfr[Channel.orientation_code])
-        } | {'request_start': req_start, 'request_end': req_end}
-        return _url
+            for i, o in zip(dfr.index, dfr[orient_col])
+        }
+        url_req_cache |= {'_.request_start': req_start, '_.request_end': req_end}
+        requests_cache[url_with_query] = url_req_cache
+        return url_with_query
 
     for response in read_urls(
         (get_request(*params, dfr) for (params, dfr) in dataframes),  # noqa
@@ -346,8 +373,8 @@ def download(
         credentials=user_passwords
     ):
         req_cache: dict = requests_cache.pop(response.request)
-        req_start = req_cache.pop('start')
-        req_end = req_cache.pop('end')
+        req_start = req_cache.pop('_.request_start')
+        req_end = req_cache.pop('_.request_end')
 
         if not response.is_ok or response.status_code == 204:
             for idx in req_cache.values():
@@ -459,19 +486,17 @@ def unpack_miniseed(
 
 
 def prepare_skipped_segment_to_insert(
-    segments: pd.DataFrame, idx: int, code: MiniSeedErrorCode
+    db_id: int, segments: pd.DataFrame, idx: int, code: int
 ) -> dict:
     return {
-        SkippedSegment.id.key: int(
-            segments.at[idx, SkippedSegment.id.key]
-        ),
+        SkippedSegment.id.key: db_id,
         SkippedSegment.channel_id.key: int(
-            segments.at[idx, SkippedSegment.channelid.key]
+            segments.at[idx, SkippedSegment.channel_id.key]
         ),
         SkippedSegment.event_id.key: int(
             segments.at[idx, SkippedSegment.event_id.key]
         ),
-        SkippedSegment.download_code.key: int(code.value)
+        SkippedSegment.download_code.key: code
     }
 
 
@@ -500,11 +525,6 @@ def prepare_segment_to_insert(
         )),
         MiniSeed.data.key: mseed_data,
     }
-
-
-class MiniSeedErrorCode(IntEnum):
-    BAD_DATA = -201
-    OUT_OF_TIME_BOUNDS = -202
 
 # responses[CustomResponseCode.BAD_DATA] = \
 #     "MiniSeed data is corrupted"
@@ -536,15 +556,18 @@ class DownloadStats:
         row = self._stats.get(url_domain)
         if row is None:
             return
-        code = self._status_msg.get(status_code, self._unknown_code)
 
-        if code == self._unknown_code and status_code is not None:
-            try:
-                code =  self._status_msg.get(int(status_code), None)
-            except (TypeError, ValueError):
-                pass
+        if status_code is None:
+            real_code = self._unknown_code
+        else:
+            real_code = status_code
+            if real_code not in self._status_msg:
+                try:
+                    _ = self._status_msg[int(real_code)]
+                except (TypeError, ValueError, KeyError):
+                    real_code = self._unknown_code
 
-        row[code] = row.get(code, 0) + count
+        row[real_code] = row.get(real_code, 0) + count
 
     @property
     def status_codes(self) -> list:
@@ -568,7 +591,7 @@ class DownloadStats:
         df.columns.name='Download message:'
         return df
 
-    def to_dict(self):
+    def to_dict(self) -> dict:
         """"""
         return self.to_dataframe().to_dict(orient='index')
 
