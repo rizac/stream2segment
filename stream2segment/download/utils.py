@@ -79,20 +79,18 @@ def fdsn_url(
     *,
     new_service: Literal['station', 'dataselect', 'event'] | None = None,
     new_method: Literal['query', 'queryauth', 'auth', 'version', 'application.wadl'] | None = None,
-    new_query_string: str | None = None
-):  # noqa
+):
     """
     Check the validity of the given FDSN URL, raising ValueError if invalid, returning
     unchanged or modified according to the arguments.
 
-    :param url: a valid FDSN url, with or without query string (path suffix after '?')
+    :param url: a valid FDSN url, with or without query string (path suffix after '?').
+        If scheme is missing, but URL starts withg "www.", then "https://" is prefixed
+        in the returned URL. Otherwise, if scheme is missing, raise ValueError.
     :param new_service: the new service. None will leave the service of `url`. Must be
         a string in ('station', 'dataselect', 'event')
     :param new_method: the new method, None will leave the url method. Must be a string
         in ('query', 'queryauth', 'auth', 'version', 'application.wadl')
-    :param new_query_string: if None (the default) keeps the same query string (e.g.
-        "?net=AB&lat=39"), if present. Otherwise, set the new query string ("" means
-        removing the string entirely, as well as the leading "? character)
 
     :return: a valid FDSN URL
     """
@@ -150,19 +148,13 @@ def fdsn_url(
     elif new_method not in methods:
         raise ValueError(f'invalid method: {new_method}')
 
-    if new_query_string is None:
-        new_query_string = split_url.query
-
     if (
         new_scheme != scheme or
         new_service != service or
-        new_method != method or
-        new_query_string != split_url.query
+        new_method != method
     ):
         new_path = f'/fdsnws/{new_service}/{majorversion}/{new_method}'
-        new_parsed = split_url._replace(
-            scheme=new_scheme, path=new_path, query=new_query_string
-        )
+        new_parsed = split_url._replace(scheme=new_scheme, path=new_path)
         url = urlunsplit(new_parsed)
 
     return url
@@ -171,10 +163,13 @@ def fdsn_url(
 def fdsn_url_qs(base_url: str, **query_args):
     """
     Build a valid FDSN URL with a query string from a base URL and a dictionary of
-    parameters. If `query_args` is empty, the original `base_url` is returned unchanged.
+    parameters. If `query_args` is empty, the original `base_url` is returned without
+    its query string, if any.
 
     :param base_url: the base FDSN URL. Its well-formation is not checked for here
-        (See `fdsn_url`)
+        (See `fdsn_url`). If a query string is present, it will be replaced.
+        As such, with no query_args provided, this method effectively removes the query
+        string from `base_url`
     :param query_args: the query string to append to the base FDSN URL, in form of dict.
         dict keys (param names) mapped to None will be skipped (not appended), any other
         value will be encoded using its `str` representation or using their
@@ -206,7 +201,7 @@ def fdsn_url_qs(base_url: str, **query_args):
             continue
         if k in d_params and isinstance(v, (date, datetime)):
             if not isinstance(v, datetime):
-                # do not check if it's date, cause a detime is also a date!
+                # do not check if it's date, cause a datetime is also a date!
                 v = datetime(v.year, v.month, v.day)
             v = v.isoformat('T')
             safe_chars.update(set('-:') & set(v))  # don't encode ":-" if in v
@@ -219,9 +214,10 @@ def fdsn_url_qs(base_url: str, **query_args):
 
         qs[k] = v
 
-    if not qs:
-        return base_url
-    return f'{base_url}?{urlencode(qs, safe="".join(safe_chars))}'
+    query = ""
+    if qs:
+        query = urlencode(qs, safe="".join(safe_chars))
+    return urlunsplit(urlsplit(base_url)._replace(query=query))
 
 
 class QuitDownload(Exception):

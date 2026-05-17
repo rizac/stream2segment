@@ -22,7 +22,7 @@ from stream2segment.download.channels import (
 )
 
 atime_col = "arrival_time"
-dist_col = Segment.event_distance_deg.key
+dist_col = Segment.event_distance_km.key
 ev_id_col = Segment.event_id.key
 ch_id_col = Segment.channel_id.key
 
@@ -40,19 +40,15 @@ def merge_events_stations(
 ):
     """
     Merge `events_df` and `channels_df` by returning a new dataframe
-    representing all channels within a specific search radius. *Each row of the
-    returned data frame is basically a segment to be potentially donwloaded*.
-    The returned dataframe will be the same as `channels_df` with one or more
-    rows repeated (some channels might be in the search radius of several
-    events), plus a column "event_id" (`Segment.event_id`) representing the
-    event associated to that channel and two columns 'event_distance_deg',
-    'time' (representing the *event* time) and 'depth_km' (representing the
-    event depth in km)
+    representing all channels within a specific search radius
 
     :param channels: pandas DataFrame resulting from `get_channels_df`
     :param events: pandas DataFrame resulting from `get_events_df`
     """
     ret = []
+    dist_deg_col = "event_distance_deg"
+    ev_time_col_tmp = "_.event_time._"
+    ev_depth_col_tmp = "_.event_depth._"
 
     with get_progressbar(len(events) if show_progress else 0) as pbar:
 
@@ -94,12 +90,12 @@ def merge_events_stations(
             if chs.empty:
                 continue
 
-            chs["event_distance_deg"] = l2d[condition]
+            chs[dist_deg_col] = l2d[condition]
             # add scalar broadcasted to all elements:
             chs[ev_id_col] = ev_id
             chs[ch_id_col] = chs[Channel.id.key]
-            chs["_.event_depth._"] = ev_depth
-            chs["_.event_time._"] = ev_time
+            chs[ev_depth_col_tmp] = ev_depth
+            chs[ev_time_col_tmp] = ev_time
             ret.append(chs)
 
     # create total segments dataframe:
@@ -107,7 +103,7 @@ def merge_events_stations(
     if not ret:
         raise NothingToDownload("No station within events search area")
     # now concat:
-    ret = pd.concat(ret, axis=0, ignore_index=True, copy=True)
+    ret = pd.concat(ret, axis=0, ignore_index=True)
 
     # check categorical dtypes are preserved (for safety):
     for c in [
@@ -117,12 +113,12 @@ def merge_events_stations(
             ret[c] = ret[c].astype('category')
 
     # compute travel times. Doing it on a single array is much faster
-    source_depths = ret.pop("_.event_depth._").values
-    distances = ret["event_distance_deg"].values
+    source_depths = ret.pop(ev_depth_col_tmp).values
+    distances = ret[dist_deg_col].values
     traveltimes = tttable(source_depths, 0, distances)
     # event_times = np.array(event_times, dtype='datetime64[us]')  # or "M8[us]"
-    event_times = ret.pop("_.event_time._")
-    if not pd.api.types.is_datetime64_any_dtype:  # safety check? FIXME: needed?
+    event_times = ret.pop(ev_time_col_tmp)
+    if not pd.api.types.is_datetime64_any_dtype(event_times):  # safety check
         event_times = pd.to_datetime(event_times)
     # now to compute arrival times: event_times + traveltimes does not work
     # (we cannot sum np.datetime64 and np.float). Convert traveltimes to
@@ -141,11 +137,12 @@ def merge_events_stations(
             raise FailedDownload("No segments to process (all travel times NaN)")
         else:
             logger.info(
-                f"{old_len - len(ret):,} of {old_len:,} segments discarded (travel times NaN)"
+                f"{old_len - len(ret):,} of {old_len:,} "
+                f"segments discarded (travel times NaN)"
             )
 
     # convert to event_distance_km:
-    degrees = ret.pop('event_distance_deg')
+    degrees = ret.pop(dist_deg_col)
     _overflow = degrees > 180
     if _overflow.any():
         degrees[_overflow] =  360 - degrees[_overflow]

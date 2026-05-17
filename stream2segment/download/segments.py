@@ -4,6 +4,7 @@ Segments download functions
 # :date: Dec 3, 2017
 from __future__ import annotations
 
+from collections import namedtuple
 from collections.abc import Iterable
 from datetime import timedelta, datetime
 import logging
@@ -27,7 +28,7 @@ from stream2segment.download.stationsearch import (
 )
 from stream2segment.io.utils import get_progressbar
 from stream2segment.io.db.pdsql import (
-    sync_pkey, get_row_count, get_col_max, insert, execute_sql, fetch_df, select
+    sync_pkey, get_row_count, get_col_max, insert, executemany, fetch_df, select
 )
 from stream2segment.io.db.models import Segment, MiniSeed, SkippedSegment
 from stream2segment.download.utils import (
@@ -230,7 +231,7 @@ def download_and_save(
                             )
                             if len(rows_skip) >= db_bufsize:
                                 written_skipped += sum(
-                                    1 for _ in execute_sql(
+                                    1 for _ in executemany(
                                         engine, sql_insert_skip, rows_skip
                                     )
                                 )
@@ -241,12 +242,12 @@ def download_and_save(
                         segments_current_id += 1
                         rows_ok.append(
                             prepare_segment_to_insert(
-                                segments_current_id, segments, idx, *response.data  # noqa
+                                segments_current_id, segments, idx, response.data  # noqa
                             )
                         )
                         if len(rows_ok) >= db_bufsize:
                             written_ok += sum(
-                                1 for _ in execute_sql(engine, sql_insert_ok, rows_ok)
+                                1 for _ in executemany(engine, sql_insert_ok, rows_ok)
                             )
                             rows_ok.clear()
 
@@ -299,11 +300,11 @@ def download_and_save(
     finally:
         if len(rows_ok):
             written_ok += sum(
-                1 for _ in execute_sql(engine, sql_insert_ok, rows_ok)
+                1 for _ in executemany(engine, sql_insert_ok, rows_ok)
             )
         if len(rows_skip):
             written_skipped += sum(
-                1 for _ in execute_sql(engine, sql_insert_skip, rows_skip)
+                1 for _ in executemany(engine, sql_insert_skip, rows_skip)
             )
 
     if id_once_filter is not None:
@@ -324,11 +325,10 @@ def download(
     max_download_concurrency: int,
     download_timeout,
     download_blocksize
-):
+) -> Iterable[tuple[int, Response]]:
     """
     Download segments and yields results
     """
-
     grp_cols = [
         ev_id_col, net_col, sta_col, loc_col, band_col, inst_col
     ]
@@ -365,9 +365,6 @@ def download(
     for response in read_urls(
         (get_request(*params, dfr) for (params, dfr) in dataframes),  # noqa
         max_concurrency=max_download_concurrency,
-        #max_global_concurrency=max_thread_workers,
-        #max_workers_d=max_workers_d,
-        #max_concurrency=max_workers_d,
         timeout=download_timeout,
         blocksize=download_blocksize,
         credentials=user_passwords
@@ -381,10 +378,10 @@ def download(
                 yield idx, response
             continue
 
-        for seed_id, data in unpack_miniseed(response.data, set(req_cache.keys())):
-            idx = req_cache[seed_id]  # dataframe index value
+        for m_seed in unpack_miniseed(response.data, set(req_cache.keys())):
+            idx = req_cache[m_seed.seed_id]  # dataframe index value
 
-            if data is None:
+            if m_seed.data is None:
                 yield idx, Response(
                     None,
                     SkippedSegment.BAD_DATA,
@@ -392,14 +389,8 @@ def download(
                 )
                 continue
 
-            (mseed_data, fsamp, start, end, maxgap) = data
-
-            # check time bounds:
-            # start = start.replace(microsecond=0)
-            # end = (end + timedelta(seconds=1)).replace(microsecond=0)
-
             # we want at least something before and after the arrival time:
-            if start >= req_end or end <= req_start:
+            if m_seed.start >= req_end or m_seed.end <= req_start:
                 yield idx, Response(
                     None,
                     SkippedSegment.OUT_OF_TIME_BOUNDS,
@@ -408,13 +399,17 @@ def download(
                 continue
 
             yield idx, Response(
-                data, response.status_code, response.request
+                m_seed, response.status_code, response.request
             )
 
+unpacked_miniseed = namedtuple(
+    'unpacked_miniseed',
+    ['seed_id', 'data', 'start', 'end', 'fsamp', 'maxgap']
+)
 
 def unpack_miniseed(
     data: bytes, expected_seed_ids: set[str]
-) -> Iterable[tuple[str, tuple | None]]:
+) -> Iterable[unpacked_miniseed]:
     """
     Unpack data into its "traces" (time series). Returns an iterable of MiniSeedInfo
     """
@@ -422,17 +417,18 @@ def unpack_miniseed(
     stream = BytesIO(data)
     try:
         for rec in Input(stream):
-            try:
-                seed_id = (
-                    b"%s.%s.%s.%s" %
-                    (rec.net.strip(), rec.sta.strip(), rec.loc.strip(), rec.cha.strip())
-                ).decode('utf8')
-                if seed_id in unpacked_records:
-                    unpacked_records[seed_id].append(rec)
-            except UnicodeDecodeError as exc:
-                # invalidate all miniseed. though harsh, it allows us to track problems
-                unpacked_records = {_:[] for _ in expected_seed_ids}
-                break
+            seed_id = (
+                f'{rec.net.strip()}.'
+                f'{rec.sta.strip()}.'
+                f'{rec.loc.strip()}.'
+                f'{rec.cha.strip()}'
+            )
+            if seed_id in unpacked_records:
+                unpacked_records[seed_id].append(rec)
+    except UnicodeDecodeError as exc:
+        # invalidate all miniseed. though harsh, it allows us to track problems
+        unpacked_records = {_: [] for _ in expected_seed_ids}
+
     finally:
         stream.close()
 
@@ -462,24 +458,30 @@ def unpack_miniseed(
                 if i > 0:
                     gap_ratio = (
                         (record.begin_time - records[i-1].end_time).total_seconds()
-                        * fsamp - 1
+                        * fsamp # - 1
                     )
                     max_gap_ratios.append(gap_ratio)
                 # if abs(curr_max_gap_ratio) > abs(max_gap_overlap_ratio):
                 #     max_gap_overlap_ratio = curr_max_gap_ratio
 
-            yield (
-                seed_id, (
-                    bytesio.getvalue(),
-                    fsamp,
-                    records[0].begin_time,
-                    records[-1].end_time,
-                    max(max_gap_ratios)
-                )
+            yield unpacked_miniseed(
+                seed_id=seed_id,
+                data=bytesio.getvalue(),
+                start=records[0].begin_time,
+                end=records[-1].end_time,
+                fsamp=fsamp,
+                maxgap=max(max_gap_ratios)
             )
 
         except MSeedError as _:
-            yield seed_id, None
+            yield unpacked_miniseed(
+                seed_id=seed_id,
+                data=None,
+                start=None,
+                end=None,
+                fsamp=None,
+                maxgap=None
+            )
 
         finally:
             bytesio.close()
@@ -501,7 +503,7 @@ def prepare_skipped_segment_to_insert(
 
 
 def prepare_segment_to_insert(
-    db_id: int, segments: pd.DataFrame, idx: int, mseed_data, fsamp, start, end, maxgap
+    db_id: int, segments: pd.DataFrame, idx: int, m_seed: unpacked_miniseed
 ) -> dict:
 
     arrival_time = segments.at[idx, atime_col]
@@ -513,17 +515,18 @@ def prepare_segment_to_insert(
         # Segment.webservice_id.key: int(segments.at[idx, Segment.webservice_id.key]),
         ev_id_col: int(segments.at[idx, ev_id_col]),
         ch_id_col: int(segments.at[idx, ch_id_col]),
-        Segment.noise_window_sec.key: int(round(
-            (start - arrival_time).total_seconds()
+        Segment.noise_window_s.key: int(round(
+            (m_seed.start - arrival_time).total_seconds()
         )),
-        Segment.signal_window_sec.key: int(round(
-            (end - arrival_time).total_seconds()
+        Segment.signal_window_s.key: int(round(
+            (m_seed.end - arrival_time).total_seconds()
         )),
         Segment.gap_score_percent.key: int(min(
-            100 * maxgap, 10000
-            # 100000 because we want smallint. Also, high values provide no relevant info
+            100 * m_seed.maxgap, 10000
+            # 100000 because we want smallint. Also, high values provide no relevant
+            # info
         )),
-        MiniSeed.data.key: mseed_data,
+        MiniSeed.data.key: m_seed.data,
     }
 
 # responses[CustomResponseCode.BAD_DATA] = \
@@ -570,7 +573,7 @@ class DownloadStats:
         row[real_code] = row.get(real_code, 0) + count
 
     @property
-    def status_codes(self) -> list:
+    def _status_codes(self) -> list:
         statuses = {s for statuses in self._stats.values() for s in statuses}
         ok_statuses = {s for s in statuses if 200 <= s < 300}
         err_statuses = statuses - ok_statuses
@@ -579,10 +582,9 @@ class DownloadStats:
     def to_dataframe(self) -> pd.DataFrame:
         df = pd.DataFrame.from_dict(self._stats, orient="index").fillna(0).astype(int)
         df = df.reindex(
-            index=sorted(self._stats.keys()),
-            columns=self.status_codes
+            index=sorted(self._stats.keys()), columns=self._status_codes
         ).rename(
-            columns={c: self._status_msg[c] for c in self.status_codes},
+            columns={c: self._status_msg[c] for c in self._status_codes},
         )
         df["Total"] = df.sum(axis=1)
         df.loc["Total"] = df.sum(axis=0)
@@ -600,6 +602,9 @@ class DownloadStats:
         Return the empty string if this object is empty
         """
         df = self.to_dataframe()
+        df = df.rename(
+            columns={c: "\n".join(c.split()) for c in df.columns},
+        )
         return df.to_string(
             index=True,
             header=True,
@@ -619,29 +624,3 @@ def compute_db_buf_size(
     usable_mb = min(available_mb * max_mem_fraction, hard_cap_mb)
 
     return max(1, int(usable_mb // item_avg_size_mb))
-
-
-
-# def check_suspiciously_duplicated_segment(segments_df):
-#     """Check for suspiciously duplicated segments, i.e. different ids
-#     but same (channel_id, request_start, request_end). These segments stem from distinct
-#     events with very close spatio-temporal coordinates.
-#     This function simply logs a message if any such duplicated segment is found,
-#     it does NOT modify segments_df
-#     """
-#     seg_dupes_mask = segments_df.duplicated(subset=[SEG.CHAID, SEG.REQSTART,
-#                                                     SEG.REQEND],
-#                                             keep=False)
-#     if seg_dupes_mask.any():
-#         seg_dupes = segments_df[seg_dupes_mask]
-#         msg = ("%d suspiciously duplicated segments found: this is most likely\n"
-#                "due to events with different ids\n"
-#                "but same (or very close) latitude, longitude, depth and time.")
-#         logger.info(msg, len(seg_dupes))
-#         seg_dupes_sorted = seg_dupes.sort_values(by=[SEG.CHAID, SEG.REQSTART,
-#                                                      SEG.REQEND])
-#         logwarn_dataframe(seg_dupes_sorted, "Suspicious duplicated segments",
-#                           [SEG.CHAID, SEG.REQSTART, SEG.REQEND, SEG.EVID],
-#                           max_row_count=100)
-#
-#

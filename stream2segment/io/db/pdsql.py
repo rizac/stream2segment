@@ -213,7 +213,7 @@ def insert_df(
     id_col = [col.name for col in table_model.__table__.primary_key.columns][0]
     while start < len(dfr):
         rows = list(iter_rows(dfr[start: start + chunksize]))
-        ids_inserted = set(r[id_col] for r in execute_sql(engine, stmt, rows))
+        ids_inserted = set(r[id_col] for r in executemany(engine, stmt, rows))
         if len(ids_inserted) < len(rows):
             ids_failed.update(set(r[id_col] for r in rows) - ids_inserted)
         start += chunksize
@@ -239,14 +239,14 @@ def fetch_df(engine, select_stmt: Select, chunksize=5000) -> Iterable[pd.DataFra
             yield pd.DataFrame(rows, columns=result.keys())
 
 
-def execute_sql(
+def executemany(
     engine: Engine, statement: Sequence[UpdateBase], data: Sequence[dict]
 ) -> Iterable[dict]:
     with engine.begin() as conn:  # noqa
-        yield from _execute_sql(conn, statement, data)
+        yield from _executemany(conn, statement, data)
 
 
-def _execute_sql(
+def _executemany(
     conn, statement: Sequence[UpdateBase], data: Sequence[dict]
 ) -> Iterable[dict]:
     # use a stack for recursion. start_index will be set on failure

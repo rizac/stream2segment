@@ -16,7 +16,7 @@ from sqlalchemy import Engine
 from stream2segment.io.utils import start_logging, create_log_handlers, BadParam, \
     ascii_decorate
 from stream2segment.io.db.pdsql import (
-    get_col_max, execute_sql, insert
+    get_col_max, executemany, insert
 )
 from stream2segment.io.db import models, close_engine
 from stream2segment.download.inputvalidation import extract_download_args
@@ -314,7 +314,7 @@ def save_download_run(engine, config: dict, log_file_path: str, d_stats: dict) -
 
     download_id = get_col_max(engine, models.DownloadRun.id) + 1
     _ = list(  # list will consume the iterable `execute_sql` FIXME better?
-        execute_sql(
+        executemany(
             engine,
             [insert(models.DownloadRun)],
             [dict(

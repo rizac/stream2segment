@@ -91,9 +91,12 @@ def get_channels(
     )
     if channels.empty:
         raise NothingToDownload(
-            'No channel downloaded. Possible reasons: no internet connection, '
-            'all channels filtered out. See log for details'
+            'No channels downloaded. Possible reasons: '
+            'no channels found according to your config., web service down, '
+            'no internet connection. See log for details'
         )
+    logger.info(f"{len(channels)} channel(s) downloaded; "
+                f"checking duplicates, conflicts, and saving")
 
     categorical_columns = [
         net_col, sta_col, loc_col, band_col, inst_col, orient_col, url_col
@@ -127,11 +130,6 @@ def get_channels(
         raise FailedDownload(
             'No channels left after failed DB insertion'
         )
-
-    logger.info(
-        f'Working with {len(channels):,} station channel(s) '
-        f'(downloaded: {num_downloaded_channels:,})'
-    )
 
     for c in categorical_columns:  # for safety
         if not pd.api.types.is_categorical_dtype(channels[c]):
@@ -389,18 +387,20 @@ def download_channels(
 
             # replace full url with the future dataselect url
             if restricted_download:
-                datasel_url = fdsn_url(
-                    response.request,
-                    new_service='dataselect',
-                    new_method='queryauth',
-                    new_query_string=""
+                datasel_url = fdsn_url_qs(  # <- basically, remove query from final URL
+                    fdsn_url(
+                        response.request,
+                        new_service='dataselect',
+                        new_method='queryauth'
+                    )
                 )
             else:
-                datasel_url = fdsn_url(
-                    response.request,
-                    new_service='dataselect',
-                    new_method='query',
-                    new_query_string=""
+                datasel_url = fdsn_url_qs(  # <- basically, remove query from final URL
+                    fdsn_url(
+                        response.request,
+                        new_service='dataselect',
+                        new_method='query'
+                    )
                 )
             dframe[url_col] = datasel_url
             # station_urls.add(station_url)

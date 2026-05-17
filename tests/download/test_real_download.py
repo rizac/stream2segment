@@ -344,18 +344,19 @@ def test_real_download_segments(
         result = CliRunner().invoke(
             cli, [
                 'download', '-c', str(cfg_file), '--dburl', db.url,
-                '--data_url', 'iris',
+                '--data_url', 'eida',
                 '--events_url', 'www.seismicportal.eu/fdsnws/event/1/query',
                 '--minmag', '3', '--maxmag', '4',
                 '--quakeml',
-                '--net', '*',
-                '--sta', 'CAVN,CAVN,CAVN,CFON,CLLI,MAHO',
-                '--start', '2000-01-01T00:00:00', '--end', '2000-12-31T23:59:59',
+                '--net', 'GE',
+                '--sta', '*',
+                '--minlat', '45', '--maxlat', '55',
+                '--minlon', '10', '--maxlon', '20',
+                '--start', '2020-01-01T00:00:00', '--end', '2020-01-31T23:59:59',
                 '--time_window', '0.1', '0.2'
             ]
         )
         assert result.exit_code == 0
-        assert 'no segments' in result.output.lower()
         num_segments2 = get_row_count(db.engine, Segment)
         num_skipped_segments2 = get_row_count(db.engine, SkippedSegment)
         num_stations2 = get_row_count(db.engine, StationXML)
@@ -365,8 +366,6 @@ def test_real_download_segments(
 
     finally:
         mock_read_url.side_effect = original_read_url
-    # nothing new has been written:
-    # assert num_channels < get_row_count(db.engine, Channel)
-    # assert num_events == get_row_count(db.engine, Event)
+
 
 

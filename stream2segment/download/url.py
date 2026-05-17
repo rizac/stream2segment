@@ -102,7 +102,7 @@ class Response:
     - request: The request (URL string or Request object) generating the Response
     """
 
-    data: str | bytes | dict
+    data: str | bytes | dict | object
     status_code: int
     request: str | Request
 

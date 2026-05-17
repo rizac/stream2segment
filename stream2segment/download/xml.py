@@ -3,10 +3,13 @@ StationsXML download
 """
 import logging
 from typing import Optional
+import pandas as pd
+from sqlalchemy.exc import IntegrityError
 
+from stream2segment.download.channels import url_col, net_col, sta_col
 from stream2segment.io.utils import get_progressbar
 from stream2segment.io.db.pdsql import (
-    Engine, execute_sql, get_col_max, insert, update, select
+    Engine, executemany, get_col_max, insert, update, select, fetch_df, get_row_count
 )
 from stream2segment.io.db.models import (
     WebService, Segment, Channel, StationXML, Event, QuakeML
@@ -15,7 +18,7 @@ from stream2segment.download.url import read_urls, get_host, responses
 from stream2segment.download.utils import (
     IdOnceLogFilter, fdsn_url_qs, fdsn_url
 )
-
+from sqlalchemy import func, exists
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__)
@@ -33,56 +36,78 @@ def save_stationxml(
     if max_download_concurrency is None:
         max_download_concurrency = 4
 
+    staxml_id_col = Channel.stationxml_id.key
     stmt = (
         select(
             Channel.network_code,
             Channel.station_code,
             Channel.data_webservice_id,
-            WebService.url
+            func.max(Channel.stationxml_id).label(staxml_id_col),
+            WebService.url,
         )
-        .join(WebService, Channel.data_webservice_id == WebService.id)
-        .join(Segment, Segment.channel_id == Channel.id)  # inner join
-        .where(Channel.stationxml_id.is_(None))
-        .distinct()
+        .join(WebService, WebService.id == Channel.data_webservice_id)
+        .join(Segment, Segment.channel_id == Channel.id)  # <- inner join (*)
+        .group_by(
+            Channel.network_code,
+            Channel.station_code,
+            Channel.data_webservice_id,
+        )
+        .having(Channel.stationxml_id.is_(None))
     )
-    # (inner join # inner join -> filters out no-segment channels)
+    # (*) only channels with at least one matching Segment row are included
 
-    log_once_filter: Optional[IdOnceLogFilter] = None  # lazily created if needed
     downloaded, saved, errors = 0, 0, 0
 
     with engine.connect() as conn:
-        rows = conn.execute(stmt).fetchall()
+        total = conn.execute(
+            select(func.count()).select_from(stmt.subquery())
+        ).scalar_one()
+        if total < 1:
+            return downloaded, saved, errors
 
-    insert_stmt = insert(StationXML)
-    stationxml_id = get_col_max(engine, StationXML.id)
-    cache: dict[str, tuple[str, str, int]] = {}
+    log_once_filter: Optional[IdOnceLogFilter] = None  # lazily created if needed
 
-    if len(rows) > 0:
+    # with engine.connect() as conn:
+    #     rows = conn.execute(stmt).fetchall()
 
-        downloaded = len(rows)
+    db_stationxml_id = get_col_max(engine, StationXML.id)
+    cache: dict[str, tuple[str, str, int, int | None]] = {}
+    ws_id_col = Channel.data_webservice_id.key
 
-        def url_builder(net, sta, ws_id, ws_url):
-            """build url (str) from each item yielded by the previous iterable"""
-            url = fdsn_url_qs(
-                fdsn_url(ws_url, new_service='station'),
-                net=net, sta=sta, level='response'
+    def url_builder(net, sta, ws_id, ws_url, sta_id):
+        """build url (str) from each item yielded by the previous iterable"""
+        url = fdsn_url_qs(
+            fdsn_url(ws_url, new_service='station'),
+            net=net, sta=sta, level='response'
+        )
+        cache.setdefault(url, (net, sta, ws_id, None if pd.isna(sta_id) else sta_id))
+        return url
+
+    with (
+        get_progressbar(total if show_progress else 0) as pbar, engine.begin() as conn  # noqa
+    ):
+
+        for dfr in fetch_df(engine, stmt):
+            dfr[url_col] = dfr[url_col].astype('category')
+            dfr[staxml_id_col] = dfr[staxml_id_col].astype('Int64')  # int with Nulls
+
+            rows = zip(
+                dfr[net_col],
+                dfr[sta_col],
+                dfr[ws_id_col],
+                dfr[url_col],
+                dfr[staxml_id_col]
             )
-            cache.setdefault(url, (net, sta, ws_id))
-            return url
 
-        with (get_progressbar(len(rows) if show_progress else 0) as pbar):
-
-            reader = read_urls(
+            for response in read_urls(
                 (url_builder(*row) for row in rows),
                 max_concurrency=max_download_concurrency,
                 timeout=download_timeout,
                 blocksize=download_blocksize
-            )
-
-            for response in reader:
+            ):
                 pbar.update(1)
                 url = response.request
-                if not response.is_ok or response.status == 204:
+                if not response.is_ok or response.status_code == 204:
                     if log_once_filter is None:  # create lazily
                         log_once_filter = IdOnceLogFilter()
                         logger.addFilter(log_once_filter)
@@ -96,29 +121,40 @@ def save_stationxml(
                         url,msg, extra={'ID': (get_host(url), msg)}
                     )
                 else:
+                    if url not in cache:
+                        # log wanr?
+                        continue
+                    (net, sta, ws_id, sta_id) = cache.pop(url)
                     try:
-                        (net, sta, ws_id) = cache.pop(url)
-                        stationxml_id += 1
-                        update_stmt = update(
-                            Channel
-                        ).where(
-                            (Channel.network_code==net) &
-                            (Channel.station_code==sta) &
-                            (Channel.webservice_id==ws_id)
-                        ).values({
-                            Channel.stationxml_id: stationxml_id
-                        })
-                        saved += sum(
-                            1 for _ in execute_sql(
-                                engine,
-                                [insert_stmt, update_stmt],
-                                [{
-                                    'data': response.data,
-                                    'id': stationxml_id
-                                }]
+                        with conn.begin_nested() as conn_nested:
+                            if sta_id is not None:
+                                conn.execute(
+                                    update(StationXML).where(
+                                        (StationXML.id==sta_id)
+                                    ).values({
+                                        StationXML.data: response.data
+                                    })
+                                )
+                            else:
+                                db_stationxml_id += 1
+                                sta_id = db_stationxml_id
+                                conn.execute(insert(StationXML), {
+                                    'id': sta_id, 'data': response.data
+                                })
+
+                            conn.execute(
+                                update(  # update_channel_fk
+                                    Channel
+                                ).where(
+                                    Channel.network_code == net,
+                                    Channel.station_code == sta,
+                                    Channel.data_webservice_id == ws_id
+                                ).values({
+                                    Channel.stationxml_id: sta_id
+                                })
                             )
-                        )
-                    except Exception:
+                            saved += 1
+                    except IntegrityError as e:
                         pass
 
         if log_once_filter is not None:
@@ -180,7 +216,7 @@ def save_quakeml(
         for response in reader:
             pbar.update(1)
             url = response.request
-            if not response.is_ok or response.status == 204:
+            if not response.is_ok or response.status_code == 204:
                 if log_once_filter is None:  # create lazily
                     log_once_filter = IdOnceLogFilter()
                     logger.addFilter(log_once_filter)
@@ -197,7 +233,7 @@ def save_quakeml(
                 try:
                     db_ev_id = cache.pop(url)
                     saved += sum(
-                        1 for _ in execute_sql(
+                        1 for _ in executemany(
                             engine,
                             [insert_stmt],
                             [{

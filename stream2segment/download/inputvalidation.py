@@ -235,7 +235,7 @@ def get_param(
     """
     Get the value of the given param from either `cfg` or `override_params`, raising
     in case of conflicts or missing parameter. The returned value is assured to be in
-    `cfg`, keyed by its primary name (`param[0]`). As such, `cfg` might also be modified
+    `cfg`, keyed by its primary name (`param[0]`). As such, `cfg` might be modified
     inplace
     """
     param = params[0]
@@ -243,27 +243,34 @@ def get_param(
     p1 = [p for p in params if p in cfg]
     p2 = [p for p in params if p in override_params]
 
-    if len(p1) + len(p2) == 0:
-        if default is not None:
-            cfg[param] = default
-            return default
-        raise ValueError(f"parameter not found")
+    if len(p1) == len(p2) == 0:
+        if default is None:
+            raise ValueError(f"parameter not found")
+        val = default
+    elif len(p1) > 1 or len(p2) > 1:
+        raise ValueError(
+            f"names conflict ({', '.join(p1 + p2)}), please use {repr(param)}"
+        )
 
-    if len(p1) > 1 or len(p2) > 1:
-        p_names = ", ".join(p for p in p1 + p2 if p != param)
-        raise ValueError(f"names conflict ({p_names}), please use {repr(param)}")
-
-    if len(p2) == 1:
+        # if len(p2) == 1:  # FIXME REMOVE
+        #     val = override_params[p2[0]]
+        #     if p1:
+        #         cfg.pop(p1[0])
+        #     cfg[param] = val
+        # else:
+        #     val = cfg[p1[0]]
+        #     if p1[0] != param:
+        #         cfg.pop(p1[0])
+        #         cfg[param] = val
+    elif p2:
         val = override_params[p2[0]]
-        if p1:
-            cfg.pop(p1[0])
-        cfg[param] = val
     else:
-        val = cfg[p1[0]]
-        if p1[0] != param:
-            cfg.pop(p1[0])
-            cfg[param] = val
+        p = p1[0]
+        val = cfg[p]
+        if p != param:
+            cfg.pop(p, None)
 
+    cfg[param] = val
     return val
 
 

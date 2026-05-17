@@ -64,13 +64,17 @@ def get_events(
 ) -> pd.DataFrame:
     """Return the event data frame from the given url or local file"""
 
-    dfr_iter = download_or_read_events(
+    events = download_or_read_events(
         urls, evt_query_args, start, end, download_timeout, show_progress
     )
-    # pd_df_list surely not empty (otherwise we raised FailedDownload)
-    events = pd.concat(dfr_iter, axis=0, ignore_index=True, copy=False)
     if events.empty:
-        raise NothingToDownload('No valid event downloaded or read from file')
+        raise NothingToDownload(
+            'No events downloaded. Possible reasons: '
+            'no events found according to your config., web service down, '
+            'no internet connection. See log for details'
+        )
+    logger.info(f"{len(events)} events downloaded; "
+                f"checking duplicates, conflicts, and saving")
 
     if not pd.api.types.is_categorical_dtype(events[url_col]):
         events[url_col] = events[url_col].astype("category")
@@ -121,7 +125,7 @@ def download_or_read_events(
     end: datetime,
     timeout=120,
     show_progress=False
-) -> Iterable[pd.DataFrame]:
+) -> pd.DataFrame:
     """
     Yield pandas dataframe(s) from the event url or file
     """
@@ -130,6 +134,7 @@ def download_or_read_events(
         for u in urls
     }
     cat_type = CategoricalDtype(categories=list(harmonized_urls))
+    events = []
 
     for url in harmonized_urls:
         if url.startswith(url_file_prefix):
@@ -143,7 +148,7 @@ def download_or_read_events(
             url = None
             data = obj
             if isinstance(obj, Response):  # is s Response object
-                url = fdsn_url(obj.request, new_query_string="")  # FIXME unnecessary fdsn_url check
+                url = fdsn_url_qs(obj.request)  # basically remove query string
                 data = obj.data
             try:
                 dfr = read_events(data)
@@ -152,12 +157,71 @@ def download_or_read_events(
                         'No rows left after type conversion and filtering'
                     )
                 dfr[url_col] = pd.Series(url, index=dfr.index, dtype=cat_type)
-                yield dfr
+                events.append(dfr)
             except Exception as exc:
                 if url is None:  # file passed, stop download
                     raise FailedDownload(exc)
                 else:
                     logger.warning(f"Unable to read data downloaded from {url}: {exc}")
+
+    ret = pd.DataFrame()
+    if events:
+        ret = pd.concat(events, axis=0, ignore_index=True, copy=False)
+    return ret
+
+
+def download_events(
+    base_fdsn_url,
+    evt_query_args,
+    start: datetime,
+    end: datetime,
+    timeout,
+    show_progress=False
+) -> Iterable[Response]:
+    """Yield an iterator of tuples (url, data), where both are strings denoting
+    the URL and the corresponding response body. The returned iterator has
+    length > 1 if the request was too large and had to be split
+    """
+    for key in ['start', 'end', 'starttime', 'endtime']:
+        evt_query_args.pop(key, None)
+    evt_query_args['start'] = start
+    evt_query_args['end'] = end
+    evt_query_args['format'] = 'text'
+
+    request_too_large_codes = {413, 504, 503, CustomResponseCode.TIMEOUT_ERROR}
+
+    total = 1000000  # 10000 set arbitrarily high (max request should be ~= 200:
+    # 0.1 min mag step and 6 month min time step, then cannot be more than 100 * 200)
+    step = total
+    done = 0
+    with get_progressbar(0 if not show_progress else total) as pbar:
+        downloads = [evt_query_args]
+
+        while downloads:
+            evt_query_args = downloads.pop(0)
+            url = fdsn_url_qs(base_fdsn_url, **evt_query_args)
+            response = read_url(url, timeout)
+
+            if response.is_ok:
+                if len(downloads) == 0:
+                    step =  total - done
+                pbar.update(step)
+                done += 1
+                try:
+                    if response.status_code == 204:
+                        raise Exception("No data (Http code 204)")  # fallback below
+                    yield response
+                except Exception as exc:
+                    logger.warning(f"Unable to read data downloaded from {url}: {exc}")
+            elif response.status_code not in request_too_large_codes:
+                logger.warning(
+                    f"Unable to download data from {url}: "
+                    f"{response.data}"
+                )
+                logger.warning(f"Error downloading from {url}: {response.data}")
+            else:
+                downloads.extend(_split_request(evt_query_args))
+                step = (total - done) // len(downloads)
 
 
 def read_events(content: str | Path) -> pd.DataFrame:
@@ -228,60 +292,6 @@ def read_events(content: str | Path) -> pd.DataFrame:
         dfr = dfr.rename(columns=rename)[list(rename.values())]
 
     return apply_table_dtypes(Event, dfr, drop_non_nullable=True)
-
-
-def download_events(
-    base_fdsn_url,
-    evt_query_args,
-    start: datetime,
-    end: datetime,
-    timeout,
-    show_progress=False
-) -> Iterable[Response]:
-    """Yield an iterator of tuples (url, data), where both are strings denoting
-    the URL and the corresponding response body. The returned iterator has
-    length > 1 if the request was too large and had to be split
-    """
-    for key in ['start', 'end', 'starttime', 'endtime']:
-        evt_query_args.pop(key, None)
-    evt_query_args['start'] = start
-    evt_query_args['end'] = end
-    evt_query_args['format'] = 'text'
-
-    request_too_large_codes = {413, 504, 503, CustomResponseCode.TIMEOUT_ERROR}
-
-    total = 1000000  # 10000 set arbitrarily high (max request should be ~= 200:
-    # 0.1 min mag step and 6 month min time step, then cannot be more than 100 * 200)
-    step = total
-    done = 0
-    with get_progressbar(0 if not show_progress else total) as pbar:
-        downloads = [evt_query_args]
-
-        while downloads:
-            evt_query_args = downloads.pop(0)
-            url = fdsn_url_qs(base_fdsn_url, **evt_query_args)
-            response = read_url(url, timeout)
-
-            if response.is_ok:
-                if len(downloads) == 0:
-                    step =  total - done
-                pbar.update(step)
-                done += 1
-                try:
-                    if response.status_code == 204:
-                        raise Exception("No data (Http code 204)")  # fallback below
-                    yield response
-                except Exception as exc:
-                    logger.warning(f"Unable to read data downloaded from {url}: {exc}")
-            elif response.status_code not in request_too_large_codes:
-                logger.warning(
-                    f"Unable to download data from {url}: "
-                    f"{response.data}"
-                )
-                logger.warning(f"Error downloading from {url}: {response.data}")
-            else:
-                downloads.extend(_split_request(evt_query_args))
-                step = (total - done) // len(downloads)
 
 
 def fdsn_event_response_text_to_df(response: str):
@@ -407,6 +417,9 @@ def save_events(
     show_progress=False
 ):
     events.reset_index(drop=True, inplace=True)
+    uc_cols = [lat_col, lon_col, depth_col, time_col]
+    # for safety:
+    events.drop_duplicates(uc_cols + [mag_col, magtype_col], inplace=True)
 
     _round_suf = "_.round._"
 
@@ -425,7 +438,7 @@ def save_events(
     events[depth_col + _round_suf] = round(events[depth_col], depth_tol_km)
     events[time_col + _round_suf] = round(events[time_col], time_tol_sec)
 
-    cmp_cols_round = [_ + _round_suf for _ in [lat_col, lon_col, depth_col, time_col]]
+    cmp_cols_round = [_ + _round_suf for _ in uc_cols]
 
     drop_indices = []
 
