@@ -19,8 +19,7 @@ import pandas as pd
 from stream2segment.cli import cli
 from stream2segment.io.db.models import WebService, Event, Channel, Segment, StationXML, \
     QuakeML, SkippedSegment
-from stream2segment.io.db.pdsql import get_row_count
-
+from stream2segment.io.db.pdsql import get_row_count, fetch_df
 
 # DEFINE PATHS GLOBALLY (SO IN CASE OF REFACTORING, WE CHANGE STR HERE ONCE):
 download_save_segments_path = 'stream2segment.download.main.download_and_save'
@@ -372,36 +371,22 @@ def test_real_download_segments(
     assert (count.segment == count.stationxml == count.quakeml == 0)
     assert mock_download_segments_read_urls.called
 
-    # same as above, we check that we print "no new segments" in result.output
-    mock_download_segments_read_urls.side_effect = original_read_urls
+    # now adjust the config to get some real data:
+    cli_options = [
+        'download', '-c', str(cfg_file), '--dburl', db.url,
+        '--data_url', 'eida',
+        '--events_url', 'www.seismicportal.eu/fdsnws/event/1/query',
+        '--minmag', '3', '--maxmag', '4',
+        '--quakeml',
+        '--net', 'GE',
+        '--sta', 'STU, PSZ,MORC,KMBO',
+        '--minlat', '45', '--maxlat', '55',
+        '--minlon', '10', '--maxlon', '20',
+        '--start', '2020-01-01T00:00:00', '--end', '2020-01-31T23:59:59',
+        '--time_window', '0.1', '0.2'
+    ]
     mock_download_segments_read_urls.reset_mock()
     result = CliRunner().invoke(cli, cli_options)
-    assert result.exit_code == 0
-    assert 'no new segments' in result.output.lower()
-    prev_count = count
-    count = count_from_db(db.engine)
-    assert count.event == prev_count.event
-    assert count.channel == prev_count.channel
-    assert count.skipped_segment == prev_count.skipped_segment
-    assert (count.segment == count.stationxml == count.quakeml == 0)
-    assert not mock_download_segments_read_urls.called  # NOTE: NOT CALLED!
-
-    # now adjust the config to get some real data:
-    result = CliRunner().invoke(
-        cli, [
-            'download', '-c', str(cfg_file), '--dburl', db.url,
-            '--data_url', 'eida',
-            '--events_url', 'www.seismicportal.eu/fdsnws/event/1/query',
-            '--minmag', '3', '--maxmag', '4',
-            '--quakeml',
-            '--net', 'GE',
-            '--sta', 'STU, PSZ,MORC,KMBO',
-            '--minlat', '45', '--maxlat', '55',
-            '--minlon', '10', '--maxlon', '20',
-            '--start', '2020-01-01T00:00:00', '--end', '2020-01-31T23:59:59',
-            '--time_window', '0.1', '0.2'
-        ]
-    )
     assert result.exit_code == 0
     prev_count = count
     count = count_from_db(db.engine)
@@ -419,5 +404,29 @@ def test_real_download_segments(
         result = conn.execute(stmt).scalar_one_or_none()
     assert b"<?xml " in result  # check it is not compressed
 
+    # same as before, we check that nothing is downloaded again:
+    mock_download_segments_read_urls.reset_mock()
+    result = CliRunner().invoke(cli, cli_options)
+    assert result.exit_code == 0
+    prev_count = count
+    count = count_from_db(db.engine)
+    assert count.event == prev_count.event
+    assert count.channel == prev_count.channel
+    assert count.skipped_segment == prev_count.skipped_segment
+    assert count.segment == prev_count.segment
+    assert count.stationxml == prev_count.stationxml
+    assert count.quakeml == prev_count.quakeml
+    assert 'no new segments' in result.output.lower()
+    assert not mock_download_segments_read_urls.called  # NOTE: NOT CALLED!
 
+    # get channels with stationxm_id, set to null one stationxml id
+    # and check that we have 1 stationxml more. Also delete one quakeml from db
+    # so that we will download 1 stationxml and 1 quakeml
+
+    stas = pd.concat(list(
+        fetch_df(db.engine, select(Channel).where(Channel.stationxml_id.is_not(None))))
+    )
+    quakeml_ids = pd.concat(list(
+        fetch_df(db.engine, select(QuakeML.id)))
+    )
 

@@ -59,10 +59,10 @@ def prepare_for_download(
         [ev_id_col, ch_id_col],
             chunksize=min(1000, len(segments))
         )
-        already_saved = segments[Segment.id.key].motna()
+        already_saved = segments[Segment.id.key].notna()
         if already_saved.any():
             logger.info(
-                f"Discarding {already_saved.sum():, } already downloaded segments"
+                f"Discarding {already_saved.sum():,} already downloaded segments"
             )
             segments = segments[~already_saved]
             segments.pop(Segment.id.key)
