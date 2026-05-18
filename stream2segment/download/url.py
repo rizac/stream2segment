@@ -2,7 +2,6 @@
 Http requests with multi-threading
 """
 # :date: Apr 15, 2017
-from collections import deque
 from collections.abc import Iterable
 from dataclasses import dataclass
 from threading import Condition, current_thread, main_thread, Lock, Event
@@ -332,6 +331,8 @@ def read_urls(
             if resp_tuple is None:
                 continue
             domain, response = resp_tuple
+            if domain in aborted_download_domains:
+                continue
 
             if 200 <= response.status_code < 300:
                 yield response
@@ -342,8 +343,8 @@ def read_urls(
                 continue
 
             # error response. Append to queue:
-            resp_queue = last_n_errors.setdefault(domain, deque(maxlen=error_limit))
-            resp_queue.appendleft(response)
+            resp_queue = last_n_errors.setdefault(domain, [])
+            resp_queue.append(response)
 
             if len(resp_queue) < consecutive_error_limit:
                 # threshold not yet reached, go on:

@@ -12,9 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 
-from stream2segment.download.url import read_url as original_read_url
 import yaml
-
 import pytest
 
 # import pandas as pd
@@ -82,6 +80,8 @@ def log_capture():
         # handlers = _create_log_handlers("", True)  # <- no file
         handlers = []
         import logging
+        stream.seek(0)
+        stream.truncate(0)
         db_streamer = logging.StreamHandler(stream)
         # same setting as in _configure_logging:
         db_streamer.setLevel(logging.INFO)  # do not print debug, print others

@@ -1,10 +1,12 @@
 """
 Real download test scenarios
 """
+from collections import namedtuple
 # Feb 4, 2016
 from datetime import datetime
 
 from click.testing import CliRunner
+from sqlalchemy import select
 
 from stream2segment.download.url import (
     Response, read_url as original_read_url, read_urls as original_read_urls
@@ -240,6 +242,26 @@ def test_download_channels_all(
     num_events = get_row_count(db.engine, Event)
     assert num_channels > 0
 
+Count = namedtuple('count', [
+    'segment',
+    'skipped_segment',
+    'channel',
+    'event',
+    'quakeml',
+    'stationxml'
+])
+
+
+def count_from_db(engine):
+    return Count(
+        get_row_count(engine, Segment),
+        get_row_count(engine, SkippedSegment),
+        get_row_count(engine, Channel),
+        get_row_count(engine, Event),
+        get_row_count(engine, QuakeML),
+        get_row_count(engine, StationXML)
+    )
+
 @patch("stream2segment.download.segments.read_urls")
 def test_real_download_segments(
     mock_download_segments_read_urls,
@@ -269,18 +291,20 @@ def test_real_download_segments(
         '--events_url', 'www.seismicportal.eu/fdsnws/event/1/query',
         '--minmag', '4', '--maxmag', '5',
         '--net', 'CAVN,CAVN,CAVN,CFON,CLLI,MAHO',
+        '--quakeml',
         '--start', '2000-01-01T00:00:00', '--end', '2000-12-31T23:59:59',
         '--time_window', '0.1', '0.2'
     ]
     result = CliRunner().invoke(cli, cli_options)
     assert result.exit_code == 0
-    num_segments = get_row_count(db.engine, Segment)
-    num_stations = get_row_count(db.engine, StationXML)
-    num_events = get_row_count(db.engine, QuakeML)
-    assert num_segments == num_stations == num_events == 0
+    count = count_from_db(db.engine)
+    assert (count.segment == count.skipped_segment == count.stationxml ==
+            count.quakeml == count.channel == 0)
+    assert count.event > 0
     assert not mock_download_segments_read_urls.called
 
-    # All 4xx errors, see if we have our conditions and download logic working:
+    # Widen stations , so we get some channel. Mock download timeout to basically
+    # avoid downloading data for now, whilst testing repeated error type
     ################
     def mocked_download_segments_read_urls(iterable, **kwargs):
         """test read_urls conditions and retry logic by lowering settings default"""
@@ -297,102 +321,72 @@ def test_real_download_segments(
         '--events_url', 'www.seismicportal.eu/fdsnws/event/1/query',
         '--minmag', '4', '--maxmag', '5',
         '--net', '*',
+        '--quakeml',
         '--sta', 'CAVN,CAVN,CAVN,CFON,CLLI,MAHO',
         '--start', '2000-01-01T00:00:00', '--end', '2000-12-31T23:59:59',
         '--time_window', '0.1', '0.2'
     ]
     result = CliRunner().invoke(cli, cli_options)
     assert result.exit_code == 0
-    num_segments = get_row_count(db.engine, Segment)
-    num_channels = get_row_count(db.engine, Channel)
-    num_skip_segments = get_row_count(db.engine, SkippedSegment)
-    num_stations = get_row_count(db.engine, StationXML)
-    num_events = get_row_count(db.engine, QuakeML)
-    assert num_segments == num_stations == num_events == 0
-    assert num_channels > 1
-    assert num_skip_segments > 1
+    prev_count = count
+    count = count_from_db(db.engine)
+    assert count.event == prev_count.event
+    assert count.channel > 0
+    assert (count.segment == count.skipped_segment == count.stationxml ==
+            count.quakeml == 0)
     assert mock_download_segments_read_urls.called
 
-    # Same config, with real download (no mocked 4xx, we should have all No data found):
-    ################
+    # same as before, but we want to see qhat happens with rpeated error
+    # and our logic of retry and cache (lower some settings):
+    def mocked_download_segments_read_urls(iterable, **kwargs):
+        """test read_urls conditions and retry logic by lowering settings default"""
+        kwargs['timeout'] = 0.0001
+        kwargs['consecutive_error_limit'] = 1
+        kwargs['error_limit'] = 2
+        # use lists cause is easier to debug:
+        return original_read_urls(list(u for u in iterable), **kwargs)
+    mock_download_segments_read_urls.side_effect = mocked_download_segments_read_urls
+    mock_download_segments_read_urls.reset_mock()
+    result = CliRunner().invoke(cli, cli_options)
+    assert result.exit_code == 0
+    assert 'download not performed for' in result.output.lower()
+    prev_count = count
+    count = count_from_db(db.engine)
+    assert count.event == prev_count.event
+    assert count.channel  == prev_count.channel
+    assert (count.segment == count.skipped_segment == count.stationxml ==
+            count.quakeml == 0)
+    assert mock_download_segments_read_urls.called
+
+    # Same as before, but read_url behaves normally. We will get all 204 No content
     mock_download_segments_read_urls.side_effect = original_read_urls
     mock_download_segments_read_urls.reset_mock()
     result = CliRunner().invoke(cli, cli_options)
     assert result.exit_code == 0
-    num_segments = get_row_count(db.engine, Segment)
-    num_channels = get_row_count(db.engine, Channel)
-    num_skip_segments = get_row_count(db.engine, SkippedSegment)
-    num_stations = get_row_count(db.engine, StationXML)
-    num_events = get_row_count(db.engine, QuakeML)
-    assert num_segments == num_stations == num_events == 0
-    assert num_channels > 1
-    assert num_skip_segments > 1
+    assert 'no content' in result.output.lower()
+    prev_count = count
+    count = count_from_db(db.engine)
+    assert count.event == prev_count.event
+    assert count.channel == prev_count.channel
+    assert count.skipped_segment > 0
+    assert (count.segment == count.stationxml == count.quakeml == 0)
     assert mock_download_segments_read_urls.called
 
-    # Same download as above (thus, nothing to download)
-    ####################################################
+    # same as above, we check that we print "no new segments" in result.output
+    mock_download_segments_read_urls.side_effect = original_read_urls
     mock_download_segments_read_urls.reset_mock()
     result = CliRunner().invoke(cli, cli_options)
     assert result.exit_code == 0
-    # everything as before:
-    assert num_segments == get_row_count(db.engine, Segment)
-    assert num_channels == get_row_count(db.engine, Channel)
-    assert num_skip_segments == get_row_count(db.engine, SkippedSegment)
-    assert num_stations == get_row_count(db.engine, StationXML)
-    assert num_events == get_row_count(db.engine, QuakeML)
-    # but now we called read urls (previously not called):
-    assert not mock_download_segments_read_urls.called
-
-
-
-    # TO TEST HERE BLEOW!
-
-
-    # No data found:
-    mock_download_segments_read_urls.reset_mock()
-    result = CliRunner().invoke(
-        cli, [
-            'download', '-c', str(cfg_file), '--dburl', db.url,
-            '--data_url', 'iris',
-            '--events_url', 'www.seismicportal.eu/fdsnws/event/1/query',
-            '--minmag', '4', '--maxmag', '5',
-            '--quakeml',
-            '--net', '*',
-            '--sta', 'CAVN,CAVN,CAVN,CFON,CLLI,MAHO',
-            '--start', '2000-01-01T00:00:00', '--end', '2000-12-31T23:59:59',
-            '--time_window', '0.1', '0.2'
-        ]
-    )
-    assert result.exit_code == 0
-    num_segments2 = get_row_count(db.engine, Segment)
-    num_skipped_segments2 = get_row_count(db.engine, SkippedSegment)
-    num_stations2 = get_row_count(db.engine, StationXML)
-    num_events2 = get_row_count(db.engine, QuakeML)
-    assert num_skipped_segments2 > 0
-    assert num_segments2 == num_stations2 == num_events2 == 0
-
-    result = CliRunner().invoke(
-        cli, [
-            'download', '-c', str(cfg_file), '--dburl', db.url,
-            '--data_url', 'iris',
-            '--events_url', 'www.seismicportal.eu/fdsnws/event/1/query',
-            '--minmag', '4', '--maxmag', '5',
-            '--quakeml',
-            '--net', '*',
-            '--sta', 'CAVN,CAVN,CAVN,CFON,CLLI,MAHO',
-            '--start', '2000-01-01T00:00:00', '--end', '2000-12-31T23:59:59',
-            '--time_window', '0.1', '0.2'
-        ]
-    )
-    assert result.exit_code == 0
     assert 'no new segments' in result.output.lower()
-    num_segments2 = get_row_count(db.engine, Segment)
-    num_skipped_segments2 = get_row_count(db.engine, SkippedSegment)
-    num_stations2 = get_row_count(db.engine, StationXML)
-    num_events2 = get_row_count(db.engine, QuakeML)
-    # assert num_skipped_segments2 > 0
-    assert num_segments2 == num_stations2 == num_events2 == 0
+    prev_count = count
+    count = count_from_db(db.engine)
+    assert count.event == prev_count.event
+    assert count.channel == prev_count.channel
+    assert count.skipped_segment == prev_count.skipped_segment
+    assert (count.segment == count.stationxml == count.quakeml == 0)
+    assert not mock_download_segments_read_urls.called  # NOTE: NOT CALLED!
 
+    # now adjust the config to get some real data:
     result = CliRunner().invoke(
         cli, [
             'download', '-c', str(cfg_file), '--dburl', db.url,
@@ -409,14 +403,21 @@ def test_real_download_segments(
         ]
     )
     assert result.exit_code == 0
-    num_segments3 = get_row_count(db.engine, Segment)
-    num_skipped_segments3 = get_row_count(db.engine, SkippedSegment)
-    num_stations3 = get_row_count(db.engine, StationXML)
-    num_events3 = get_row_count(db.engine, QuakeML)
-    # assert num_skipped_segments2 > 0
-    assert num_segments3 == num_stations3 == num_events3 == 0
+    prev_count = count
+    count = count_from_db(db.engine)
+    assert count.event > prev_count.event
+    assert count.channel > prev_count.channel
+    assert count.skipped_segment == prev_count.skipped_segment
+    assert count.segment > 0
+    assert count.stationxml > 0
+    assert count.quakeml > 0
+    assert mock_download_segments_read_urls.called
 
-
+    # test compressed binary function for reading
+    stmt = select(StationXML.data).limit(1)
+    with db.engine.connect() as conn:
+        result = conn.execute(stmt).scalar_one_or_none()
+    assert b"<?xml " in result  # check it is not compressed
 
 
 

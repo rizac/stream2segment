@@ -527,15 +527,6 @@ def prepare_segment_to_insert(
         MiniSeed.data.key: m_seed.data,
     }
 
-# responses[CustomResponseCode.BAD_DATA] = \
-#     "MiniSeed data is corrupted"
-# responses[CustomResponseCode.OUT_OF_TIME_BOUNDS] = \
-#     "MiniSeed time window is outside the requested time window"
-# responses[200] += '. Data successfully downloaded'
-# responses[CustomResponseCode.NOT_DOWNLOADED] = \
-#     ('Data not downloaded (e.g., download suspended after '
-#      'repeated failures from the same domain)')
-
 
 class DownloadStats:
 
@@ -596,13 +587,11 @@ class DownloadStats:
         return self.to_dataframe().to_dict(orient='index')
 
     def __str__(self):
-        """Print a nicely formatted table with the statistics of the download.
+        """
+        Print a nicely formatted table with the statistics of the download.
         Return the empty string if this object is empty
         """
         df = self.to_dataframe()
-        df = df.rename(
-            columns={c: "\n".join(c.split()) for c in df.columns},
-        )
         return df.to_string(
             index=True,
             header=True,
