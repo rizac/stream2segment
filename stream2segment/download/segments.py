@@ -295,13 +295,11 @@ def download_and_save(
                         ]
                     max_download_concurrency //= 2
                     # stop for a while to avoid stressing URL domains
-                    if not segments.empty:
-                        time.sleep(30)
+                    # if not segments.empty:
+                    #     time.sleep(30)
     finally:
         if len(rows_ok):
-            written_ok += sum(
-                1 for _ in executemany(engine, sql_insert_ok, rows_ok)
-            )
+            written_ok += sum(1 for _ in executemany(engine, sql_insert_ok, rows_ok))
         if len(rows_skip):
             written_skipped += sum(
                 1 for _ in executemany(engine, sql_insert_skip, rows_skip)

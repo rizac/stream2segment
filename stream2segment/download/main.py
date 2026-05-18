@@ -76,7 +76,7 @@ def download(
 
     if verbose:
         print(ascii_decorate("Stream2segment download"))
-        print(f"Configuration file: {config_file}")
+        print(f"\nConfiguration file: {config_file}")
         if override_params:
             print(
                 f'(explicitly overwritten parameter(s): '
@@ -92,8 +92,8 @@ def download(
 
     if log_file_path and verbose:
         # this is not going to the logger (and not saved to db):
-        print(f"Log file: '{log_file_path}'\n"
-              "(if the download ends with no errors, the file will be deleted "
+        print(f"\nLog file: '{log_file_path}")
+        print("(if the download ends with no errors, the file will be deleted "
               "and its content written to the database)")
 
     try:
@@ -107,7 +107,7 @@ def download(
             stime = time.time()
             d_stats = _download(isterminal=verbose, **kwargs)
             logger.info(
-                f"Completed in {timedelta(seconds=round((time.time()) - stime))}"
+                f"\nCompleted in {timedelta(seconds=round((time.time()) - stime))}"
             )
             d_stats = d_stats.to_dict()
         except NothingToDownload as nothing_to_download_exc:
@@ -219,13 +219,13 @@ def _download(
         tttable=tt_table,
         show_progress=isterminal
     )
+    logger.info(f'Working with {len(segments):,} segment(s)')
 
     del events  # help gc?
     del channels  # help gc?
 
     log_step_header(
-        f"{len(segments):,} segments found. Checking already downloaded segments",
-        4
+        f"Checking already downloaded segments",4
     )
     # raises NothingToDownload
     segments = prepare_for_download(
@@ -251,14 +251,16 @@ def _download(
     )
     del segments  # help gc?
     logger.info("")
-    logger.info(("** Segments download summary **\n"
-                 "Number of segments per data center url (row) and response "
-                 "type (column):\n%s") %
-                str(d_stats) or "Nothing to show")
+    stats_str = str(d_stats) or "Nothing to show"
+    logger.info(
+        "** Segments download summary **\n"
+        "Number of segments per data center url (row) and download result (column):\n"
+        f"{stats_str}"
+    )
 
     if stationxml:
         log_step_header("Downloading Stations (StationXML)", 6)
-        n_downloaded, n_saved, n_errors = save_stationxml(
+        s_stats = save_stationxml(
             engine=engine,
             max_download_concurrency=max_download_concurrency,
             download_timeout=data_download_timeout,
@@ -266,14 +268,11 @@ def _download(
             show_progress=isterminal
         )
         logger.info(
-            f"** Stations StationXML download summary **\n"
-            f"- downloaded     {n_downloaded:,} \n"
-            f"- saved          {n_saved:,}\n"
-            f"- not downloaded {n_errors:,} (empty data, download error)"
+            f"** Stations StationXML download summary **\n{str(s_stats)}"
         )
     if quakeml:
         log_step_header("Downloading Events (QuakeML)", 7)
-        n_downloaded, n_saved, n_errors = save_quakeml(
+        e_stats = save_quakeml(
             engine=engine,
             max_download_concurrency=max_download_concurrency,
             download_timeout=data_download_timeout,
@@ -281,10 +280,7 @@ def _download(
             show_progress=isterminal
         )
         logger.info(
-            f"** Events QuakeML download summary **\n"
-            f"- downloaded     {n_downloaded:,} \n"
-            f"- saved          {n_saved:,}\n"
-            f"- not downloaded {n_errors:,} (empty data, download error)"
+            f"** Events QuakeML download summary **\n{str(e_stats)}"
         )
     return d_stats
 

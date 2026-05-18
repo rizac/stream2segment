@@ -136,7 +136,7 @@ def merge_events_stations(
         if ret.empty:
             raise FailedDownload("No segments to process (all travel times NaN)")
         else:
-            logger.info(
+            logger.warning(
                 f"{old_len - len(ret):,} of {old_len:,} "
                 f"segments discarded (travel times NaN)"
             )
