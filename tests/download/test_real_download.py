@@ -6,7 +6,8 @@ from collections import namedtuple
 from datetime import datetime
 
 from click.testing import CliRunner
-from sqlalchemy import select
+from sqlalchemy import select, update, delete
+from sqlalchemy.exc import IntegrityError
 
 from stream2segment.download.url import (
     Response, read_url as original_read_url, read_urls as original_read_urls
@@ -267,9 +268,7 @@ def test_real_download_segments(
     # fixtures:
     online_only, db, log_capture, test_data_dir
 ):
-    """This tess a REAL download to test iris (split request over liong time range)
-     and segments download
-    """
+    """This segments download test"""
     if db.is_postgres:
         # THIS TEST IS JUST ENOUGH WITH ONE DB (USE SQLITE BECAUSE POSTGRES MIGHT NOT BE
         # SETUP FOR TESTS)
@@ -302,14 +301,12 @@ def test_real_download_segments(
     assert count.event > 0
     assert not mock_download_segments_read_urls.called
 
-    # Widen stations , so we get some channel. Mock download timeout to basically
-    # avoid downloading data for now, whilst testing repeated error type
+    # Widen the stations range to get some channel. Mock read_urls to test a
+    # repeat "same error" type whilst keeping the other default args
     ################
     def mocked_download_segments_read_urls(iterable, **kwargs):
-        """test read_urls conditions and retry logic by lowering settings default"""
-        kwargs['timeout'] = 0.0001
-        # kwargs['max_concurrency'] = 1
-        # kwargs['error_limit'] = 2
+        """forward the original read_urls after changing some args"""
+        kwargs['timeout'] = 0.00001
         # use lists cause is easier to debug:
         return original_read_urls(list(u for u in iterable), **kwargs)
     mock_download_segments_read_urls.side_effect = mocked_download_segments_read_urls
@@ -335,11 +332,11 @@ def test_real_download_segments(
             count.quakeml == 0)
     assert mock_download_segments_read_urls.called
 
-    # same as before, but we want to see qhat happens with rpeated error
-    # and our logic of retry and cache (lower some settings):
+    # same as before, but lower to the bare minimum the retry settings, to execute
+    # read_urls code paths not yet hit:
     def mocked_download_segments_read_urls(iterable, **kwargs):
-        """test read_urls conditions and retry logic by lowering settings default"""
-        kwargs['timeout'] = 0.0001
+        """forward the original read_urls after changing some args"""
+        kwargs['timeout'] = 0.00001
         kwargs['consecutive_error_limit'] = 1
         kwargs['error_limit'] = 2
         # use lists cause is easier to debug:
@@ -357,7 +354,7 @@ def test_real_download_segments(
             count.quakeml == 0)
     assert mock_download_segments_read_urls.called
 
-    # Same as before, but read_url behaves normally. We will get all 204 No content
+    # Same as before, but read_urls behaves normally. We will get all 204 No content
     mock_download_segments_read_urls.side_effect = original_read_urls
     mock_download_segments_read_urls.reset_mock()
     result = CliRunner().invoke(cli, cli_options)
@@ -371,7 +368,7 @@ def test_real_download_segments(
     assert (count.segment == count.stationxml == count.quakeml == 0)
     assert mock_download_segments_read_urls.called
 
-    # now adjust the config to get some real data:
+    # now adjust the config to get some real segments (Http 200):
     cli_options = [
         'download', '-c', str(cfg_file), '--dburl', db.url,
         '--data_url', 'eida',
@@ -398,7 +395,7 @@ def test_real_download_segments(
     assert count.quakeml > 0
     assert mock_download_segments_read_urls.called
 
-    # test compressed binary function for reading
+    # test compressed binary function in models.py also when reading back:
     stmt = select(StationXML.data).limit(1)
     with db.engine.connect() as conn:
         result = conn.execute(stmt).scalar_one_or_none()
@@ -423,10 +420,52 @@ def test_real_download_segments(
     # and check that we have 1 stationxml more. Also delete one quakeml from db
     # so that we will download 1 stationxml and 1 quakeml
 
-    stas = pd.concat(list(
-        fetch_df(db.engine, select(Channel).where(Channel.stationxml_id.is_not(None))))
-    )
-    quakeml_ids = pd.concat(list(
-        fetch_df(db.engine, select(QuakeML.id)))
-    )
+    # get cha ids and quakeml ids:
+    with db.engine.connect() as conn:
+        channel_ids = conn.execute(
+            select(Channel.id).where(Channel.stationxml_id.is_not(None))
+        ).scalars().all()
+        quakeml_ids = conn.execute(select(QuakeML.id)).scalars().all()
 
+    with db.engine.begin() as conn:
+        with conn.begin_nested():
+            try:
+                conn.execute(update(Channel).where(
+                    Channel.id == list(channel_ids)[0]
+                ).values({'stationxml_id': None}))
+                conn.execute(delete(QuakeML).where(QuakeML.id == list(quakeml_ids)[0]))
+            except IntegrityError as e:
+                raise
+
+    # recompute cha ids and quakeml ids:
+    with db.engine.connect() as conn:
+        channel_ids = conn.execute(
+            select(Channel.id).where(Channel.stationxml_id.is_not(None))
+        ).scalars().all()
+        quakeml_ids = conn.execute(select(QuakeML.id)).scalars().all()
+
+
+    # same as before, we check that nothing is downloaded again:
+    mock_download_segments_read_urls.reset_mock()
+    result = CliRunner().invoke(cli, cli_options)
+    assert result.exit_code == 0
+    prev_count = count
+    count = count_from_db(db.engine)
+    assert count.event == prev_count.event
+    assert count.channel == prev_count.channel
+    assert count.skipped_segment == prev_count.skipped_segment
+    assert count.segment == prev_count.segment
+    assert count.stationxml == prev_count.stationxml
+    assert count.quakeml == prev_count.quakeml
+    assert 'no new segments' in result.output.lower()
+    assert not mock_download_segments_read_urls.called  # NOTE: NOT CALLED!
+
+    # recompute cha ids and quakeml ids:
+    with db.engine.connect() as conn:
+        channel_ids2 = conn.execute(
+            select(Channel.id).where(Channel.stationxml_id.is_not(None))
+        ).scalars().all()
+        quakeml_ids2 = conn.execute(select(QuakeML.id)).scalars().all()
+
+    assert len(set(channel_ids2) - set(channel_ids)) == 1
+    assert len(set(quakeml_ids2) - set(quakeml_ids)) == 1
