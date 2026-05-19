@@ -109,7 +109,6 @@ def download(
             logger.info(
                 f"\nCompleted in {timedelta(seconds=round((time.time()) - stime))}"
             )
-            d_stats = d_stats.to_dict()
         except NothingToDownload as nothing_to_download_exc:
             logger.info(f'Nothing to download: {nothing_to_download_exc}')
         except FailedDownload as failed_download_exc:
@@ -151,7 +150,7 @@ def _download(
     advanced_settings: dict,
     credentials: tuple[str, str] | bytes | None,
     isterminal=False
-):
+) -> dict:
     """Download waveforms related to events to a specific path.
 
     :raise: :class:`FailedDownload` exceptions
@@ -168,7 +167,9 @@ def _download(
 
     # custom function for logging.info different steps:
     def log_step_header(text, step_num:int):
-        logger.info(f"\nSTEP {step_num} of {max_steps}: {text}")
+        # prefix = f'STEP {step_num} of {max_steps}:'
+        prefix = '|' + ("●" * step_num) + ("○" * (max_steps - step_num)) + '|'
+        logger.info(f"\n{prefix} {text}")
         if process is not None:
             percent = process.memory_percent()
             logger.warning("(%.1f%% memory used)", percent)
@@ -227,39 +228,54 @@ def _download(
     log_step_header(
         f"Checking already downloaded segments",4
     )
-    # raises NothingToDownload
-    segments = prepare_for_download(
-        engine=engine, segments=segments, restricted_download=credentials is not None
-    )
+    # raises NothingToDownload, but store variable because if we have stationxml or quakeml
+    # we want to check those as well and potentially download them (imagine a failed previous
+    # attempt, and one wants just to update XMLs)
+    skip_download_msg = ""
+    try:
+        segments = prepare_for_download(
+            engine=engine, segments=segments, restricted_download=credentials is not None
+        )
+    except NothingToDownload as e:
+        # raise only if stationxml and quakeml are False
+        if not stationxml and not quakeml:
+            raise e
+        else:
+            skip_download_msg = f'Skipping: {str(e)}'
 
     # prepare_for_download raises a NothingToDownload if there is no
     # data, so if we are here segments is not empty
     log_step_header(
+        skip_download_msg or
         f"Downloading {len(segments):,} segments " +
         '(no credentials, open data only)' if credentials is None else '',
         5
     )
-    d_stats = download_and_save(
-        engine=engine,
-        segments=segments,
-        time_window=time_window,
-        credentials=credentials,
-        max_download_concurrency=max_download_concurrency,
-        download_timeout=data_download_timeout,
-        download_blocksize=download_blocksize,
-        show_progress=isterminal
-    )
-    del segments  # help gc?
-    logger.info("")
-    stats_str = str(d_stats) or "Nothing to show"
-    logger.info(
-        "** Segments download summary **\n"
-        "Number of segments per data center url (row) and download result (column):\n"
-        f"{stats_str}"
-    )
+
+    download_stats = {}
+    if not skip_download_msg:
+        d_stats = download_and_save(
+            engine=engine,
+            segments=segments,
+            time_window=time_window,
+            credentials=credentials,
+            max_download_concurrency=max_download_concurrency,
+            download_timeout=data_download_timeout,
+            download_blocksize=download_blocksize,
+            show_progress=isterminal
+        )
+        del segments  # help gc?
+        # logger.info("")
+        stats_str = str(d_stats) or "Nothing to show"
+        logger.info(
+            "** Segments (miniSEED) download summary **\n"
+            "Number of segments per data center url (row) and download status (column):\n"
+            f"{stats_str}"
+        )
+        download_stats = d_stats.to_dict()
 
     if stationxml:
-        log_step_header("Downloading Stations (StationXML)", 6)
+        log_step_header("Downloading Stations", 6)
         s_stats = save_stationxml(
             engine=engine,
             max_download_concurrency=max_download_concurrency,
@@ -268,10 +284,10 @@ def _download(
             show_progress=isterminal
         )
         logger.info(
-            f"** Stations StationXML download summary **\n{str(s_stats)}"
+            f"** Stations (StationXML) download summary **\n{str(s_stats)}"
         )
     if quakeml:
-        log_step_header("Downloading Events (QuakeML)", 7)
+        log_step_header("Downloading Events", 7)
         e_stats = save_quakeml(
             engine=engine,
             max_download_concurrency=max_download_concurrency,
@@ -280,9 +296,9 @@ def _download(
             show_progress=isterminal
         )
         logger.info(
-            f"** Events QuakeML download summary **\n{str(e_stats)}"
+            f"** Events (QuakeML) download summary **\n{str(e_stats)}"
         )
-    return d_stats
+    return download_stats
 
 
 def save_download_run(engine, config: dict, log_file_path: str, d_stats: dict) -> int:

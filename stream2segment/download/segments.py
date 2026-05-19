@@ -104,9 +104,12 @@ def prepare_for_download(
         segments.pop(SkippedSegment.id.key)
 
     if segments.empty:
-        raise NothingToDownload('No new segments to be downloaded')
+        raise NothingToDownload(_nothing_to_download_msg)
 
     return segments
+
+# used for testing
+_nothing_to_download_msg = 'all segments already downloaded'
 
 
 def download_and_save(

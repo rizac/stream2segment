@@ -91,7 +91,6 @@ def get_channels(
     )
     if channels.empty:
         raise NothingToDownload(
-            'No channels downloaded. Possible reasons: '
             'no channels found according to your config., web service down, '
             'no internet connection. See log for details'
         )

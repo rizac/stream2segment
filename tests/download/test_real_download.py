@@ -9,17 +9,17 @@ from click.testing import CliRunner
 from sqlalchemy import select, update, delete
 from sqlalchemy.exc import IntegrityError
 
-from stream2segment.download.url import (
-    Response, read_url as original_read_url, read_urls as original_read_urls
-)
+from stream2segment.download.url import read_urls as original_read_urls
+from stream2segment.download.segments import _nothing_to_download_msg  # noqa
 from stream2segment.download.utils import NothingToDownload
 from unittest.mock import patch
 
 import pandas as pd
 
 from stream2segment.cli import cli
-from stream2segment.io.db.models import WebService, Event, Channel, Segment, StationXML, \
-    QuakeML, SkippedSegment
+from stream2segment.io.db.models import (
+    WebService, Event, Channel, Segment, StationXML, QuakeML, SkippedSegment
+)
 from stream2segment.io.db.pdsql import get_row_count, fetch_df
 
 # DEFINE PATHS GLOBALLY (SO IN CASE OF REFACTORING, WE CHANGE STR HERE ONCE):
@@ -413,7 +413,7 @@ def test_real_download_segments(
     assert count.segment == prev_count.segment
     assert count.stationxml == prev_count.stationxml
     assert count.quakeml == prev_count.quakeml
-    assert 'no new segments' in result.output.lower()
+    assert _nothing_to_download_msg in result.output
     assert not mock_download_segments_read_urls.called  # NOTE: NOT CALLED!
 
     # get channels with stationxm_id, set to null one stationxml id
@@ -422,18 +422,20 @@ def test_real_download_segments(
 
     # get cha ids and quakeml ids:
     with db.engine.connect() as conn:
-        channel_ids = conn.execute(
+        channel_ids_0 = conn.execute(
             select(Channel.id).where(Channel.stationxml_id.is_not(None))
         ).scalars().all()
-        quakeml_ids = conn.execute(select(QuakeML.id)).scalars().all()
+        quakeml_ids_0 = conn.execute(select(QuakeML.id)).scalars().all()
 
     with db.engine.begin() as conn:
         with conn.begin_nested():
             try:
                 conn.execute(update(Channel).where(
-                    Channel.id == list(channel_ids)[0]
+                    Channel.id == list(channel_ids_0)[0]
                 ).values({'stationxml_id': None}))
-                conn.execute(delete(QuakeML).where(QuakeML.id == list(quakeml_ids)[0]))
+                conn.execute(delete(QuakeML).where(
+                    QuakeML.id == list(quakeml_ids_0)[0]
+                ))
             except IntegrityError as e:
                 raise
 
@@ -457,7 +459,7 @@ def test_real_download_segments(
     assert count.segment == prev_count.segment
     assert count.stationxml == prev_count.stationxml
     assert count.quakeml == prev_count.quakeml
-    assert 'no new segments' in result.output.lower()
+    assert _nothing_to_download_msg in result.output
     assert not mock_download_segments_read_urls.called  # NOTE: NOT CALLED!
 
     # recompute cha ids and quakeml ids:

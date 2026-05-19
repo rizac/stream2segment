@@ -69,7 +69,6 @@ def get_events(
     )
     if events.empty:
         raise NothingToDownload(
-            'No events downloaded. Possible reasons: '
             'no events found according to your config., web service down, '
             'no internet connection. See log for details'
         )

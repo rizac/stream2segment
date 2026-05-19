@@ -177,9 +177,8 @@ def sync_pkey(
 def set_pkeys(dfr: pd.DataFrame, engine: Engine, table_model: type[DeclarativeBase]):
     """
     Set the primary key column of the given table model on the passed dataframe,
-    setting a new series of sequential integers, starting with the current max on the
-    DB +1. The primary key column of the table will be set on the given dataframe as a
-    series of type int, replacing the old column, if any
+    replacing or creating a new column named as the table primary key and composed of
+    sequential, non-null integers, starting with the current max on the DB table + 1
     """
     id_col = [col.name for col in table_model.__table__.primary_key.columns][0]
     # empty case: just add id_col for compatibility with pd ops (e.g. concat, merge):
@@ -200,8 +199,10 @@ def insert_df(
 ) -> pd.DataFrame:
     """
     Insert dfr to the given table model. The primary key column of the table must be
-    an auto-increment (sequential) integer (int or Int64). The column must be already
-    supplied (see `set_pkeys`)
+    an auto-increment (sequential) integer (int or Int64), and the relative column must
+    be supplied on the passed DataFrame (see `set_pkeys`). Null primary keys are allowed
+    but risky in that the relative dataframe row will most likely be inserted
+    with an auto incremented ID which will be unknown without additional DB queries
     """
     if dfr.empty:
         return dfr
@@ -226,6 +227,11 @@ def insert_df(
 
 
 def fetch_df(engine, select_stmt: Select, chunksize=5000) -> Iterable[pd.DataFrame]:
+    """
+    Fetch a dataframe from a select statement, yielding chunks of the table as
+    Iterable of dataframes. For small data, you can do:
+    dataframe = pd.concat(list(fetch_df(engine, select_stmt)))
+    """
     # columns = [c['name'] for c in query.column_descriptions]
     select_stmt = select_stmt.execution_options(stream_results=True)
 
@@ -242,32 +248,31 @@ def fetch_df(engine, select_stmt: Select, chunksize=5000) -> Iterable[pd.DataFra
 def executemany(
     engine: Engine, statement: Sequence[UpdateBase], data: Sequence[dict]
 ) -> Iterable[dict]:
+    """
+    Execute a SQL `executemany` by running the given statement(s) on each dict
+    passed in the given data
+    """
     with engine.begin() as conn:  # noqa
-        yield from _executemany(conn, statement, data)
 
+        # use a stack for recursion. start_index will be set on failure
+        stack = [data]
 
-def _executemany(
-    conn, statement: Sequence[UpdateBase], data: Sequence[dict]
-) -> Iterable[dict]:
-    # use a stack for recursion. start_index will be set on failure
-    stack = [data]
+        while stack:
+            chunk = stack.pop()
+            if len(chunk) == 0:
+                continue
 
-    while stack:
-        chunk = stack.pop()
-        if len(chunk) == 0:
-            continue
-
-        try:
-            with conn.begin_nested():  # SAVEPOINT
-                for stmt in statement:
-                    conn.execute(stmt, chunk)
-            yield from chunk
-        except IntegrityError as e:
-            # rollback of this chunk happens automatically
-            if len(chunk) > 1:
-                mid = len(chunk) // 2
-                stack.append(chunk[mid:])
-                stack.append(chunk[:mid])
+            try:
+                with conn.begin_nested():  # SAVEPOINT
+                    for stmt in statement:
+                        conn.execute(stmt, chunk)
+                yield from chunk
+            except IntegrityError as e:
+                # rollback of this chunk happens automatically
+                if len(chunk) > 1:
+                    mid = len(chunk) // 2
+                    stack.append(chunk[mid:])
+                    stack.append(chunk[:mid])
 
 
 def iter_rows(dataframe: pd.DataFrame, columns=None) -> Iterable[dict]:
