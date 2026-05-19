@@ -22,7 +22,7 @@ from stream2segment.download.url import read_urls, get_host, responses, Response
 from stream2segment.download.utils import (
     IdOnceLogFilter, fdsn_url_qs, fdsn_url
 )
-from sqlalchemy import func, exists, Select
+from sqlalchemy import func, exists, Select, case
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__)
@@ -44,16 +44,18 @@ def save_stationxml(
             Channel.station_code,
             Channel.data_webservice_id,
             func.max(Channel.stationxml_id).label(staxml_id_col),
-            WebService.url,
-        )
-        .join(WebService, WebService.id == Channel.data_webservice_id)
-        .join(Segment, Segment.channel_id == Channel.id)  # <- inner join (*)
-        .group_by(
+            WebService.url
+        ).join(
+            WebService, WebService.id == Channel.data_webservice_id
+        ).join(
+            Segment, Segment.channel_id == Channel.id  # (*) inner join
+        ).group_by(
             Channel.network_code,
             Channel.station_code,
             Channel.data_webservice_id,
+        ).having(
+            func.sum(case((Channel.stationxml_id.is_(None), 1), else_=0)) > 0
         )
-        .having(Channel.stationxml_id.is_(None))
     )
     # (*) only channels with at least one matching Segment row are included
 
