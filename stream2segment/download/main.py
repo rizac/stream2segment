@@ -168,7 +168,7 @@ def _download(
     # custom function for logging.info different steps:
     def log_step_header(text, step_num:int):
         # prefix = f'STEP {step_num} of {max_steps}:'
-        prefix = '|' + ("●" * step_num) + ("○" * (max_steps - step_num)) + '|'
+        prefix = '(' + ("●" * step_num) + ("○" * (max_steps - step_num)) + ')'
         logger.info(f"\n{prefix} {text}")
         if process is not None:
             percent = process.memory_percent()

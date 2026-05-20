@@ -26,10 +26,9 @@ def create_engine(dbpath: str, check_db_existence=True, **kwargs) -> Engine:
     :param check_db_existence: True by default, will raise a :class:`DbNotFound` if the
         database does not exist
     :param kwargs: optional keyword argument values for the
-        `create_engine` method. E.g., let's provide two engine arguments,
-        `echo` and `connect_args`:
+        `create_engine` method. E.g., providing `echo` and `connect_args`:
         ```
-        get_session(dbpath, ..., echo=True, connect_args={'connect_timeout': 10})
+        create_engine(dbpath, ..., echo=True, connect_args={'connect_timeout': 10})
         ```
         For info see:
         <https://docs.sqlalchemy.org/en/14/core/engines.html#sqlalchemy.create_engine.params.connect_args>
@@ -92,19 +91,17 @@ def database_exists(engine: Engine):
 
     :param engine: SQLAlchemy engine or string denoting a database URL.
     """
-    # We adopt a quick and dirt solution from https://stackoverflow.com/a/3670000
-    # slightly modified because although they claimed it does, it doesn't work for sqlite
-    # (a db is created if it does not exist). For a more sophisticated solution, see:
-    # https://sqlalchemy-utils.readthedocs.io/en/latest/_modules/sqlalchemy_utils/functions/database.html#database_exists
+    # For details, see https://stackoverflow.com/a/3670000
 
     db_url = str(engine.url)
     if is_sqlite(db_url):
+        # Apparently, 'select 1' below creates a db if it does not exist. Check first:
         file_path = db_url.removeprefix(sqlite_prefix)
         if file_path != sqlite_in_memory_path and not os.path.isfile(file_path):
             return False
 
     try:
-        with engine.begin() as conn:
+        with engine.connect() as conn:  # noqa
             conn.execute(text('SELECT 1'))
             return True
     except (ProgrammingError, OperationalError) as _:

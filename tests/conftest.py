@@ -42,10 +42,12 @@ def pytest_addoption(parser):
         )
     )
 
+_in_mem_sqlite = "sqlite:///:memory:"
+
 def pytest_generate_tests(metafunc):
     """parametrize all tests with db in it with all URLs given in the command line"""
     if "db" in metafunc.fixturenames:
-        urls = ["sqlite:///:memory:"]
+        urls = [_in_mem_sqlite]
         urls.extend(metafunc.config.getoption("--dburl"))
         metafunc.parametrize("db_url", urls)
 
@@ -57,7 +59,17 @@ def db(db_url):
     an object with db info such as url, engine, is_postgres and is_sqlite
     """
     from stream2segment.io.db import create_engine, close_engine
-    engine = create_engine(db_url)
+    if db_url == _in_mem_sqlite:
+        # and multi thread for sqlite
+        from sqlalchemy.pool import StaticPool
+        # <https://docs.sqlalchemy.org/en/21/dialects/sqlite.html#using-a-memory-database-in-multiple-threads>  # noqa
+        engine = create_engine(
+            db_url,
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+    else:
+        engine = create_engine(db_url)
 
     with (
         patch("stream2segment.io.db.create_engine", return_value=engine),

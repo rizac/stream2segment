@@ -282,7 +282,13 @@ def get_eida_rs_response(
         )
         response = read_url(url, decode='utf8')
         if response.is_ok:
-            return json.loads(response.data)
+            try:
+                return json.loads(response.data)
+            except json.decoder.JSONDecodeError:
+                logger.warning(
+                    f"Skipping malformed JSON data from {response.request_url}"
+                )
+                pass
     return {}
 
 
@@ -363,20 +369,15 @@ def download_channels(
         for idx, response in t_pool.imap_unordered(_urlread, enumerate(urls)):
             pbar.update(1)
             if not response.is_ok:
-                logger.warning(
-                    f"Unable to download data from {response.request}: "
-                    f"{response.data}"
-                )
+                logger.warning(str(response))
                 continue
 
             try:
-                if response.status_code == 204:
-                    raise Exception('No data (HTTP code 204)')
                 dframe = fdsn_channel_response_text_to_df(
                     response.data, filter_funcs
                 )
                 if dframe.empty:
-                    raise Exception('No rows left after type conversion and filtering')
+                    raise Exception('no rows left after type conversion and filtering')
             except Exception as e:
                 logger.warning(
                     f"Unable to read data downloaded from {response.request}: {e}"

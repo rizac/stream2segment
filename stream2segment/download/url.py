@@ -107,7 +107,46 @@ class Response:
 
     @property
     def is_ok(self):
-        return 200 <= self.status_code <= 299
+        return self.status_code == 200 and self.data
+
+    @property
+    def request_url(self) -> str:
+        url = self.request
+        if isinstance(self.request, Request):
+            url = self.request.full_url
+        return url
+
+    def __str__(self):
+        if self.is_ok:
+            return f'Download successfully completed from {self.request_url}'
+
+        status_message = None
+        if self.status_code in responses:
+            status_message = (
+                f'status message: {responses[self.status_code]}, '
+                f'code {self.status_code}'
+            )
+        if 200 <= self.status_code <= 299 or not self.data:
+            if status_message is None:
+                status_message = 'status message unknown'
+            return (
+                f'Download completed but data not usable ({status_message}) '
+                f'from {self.request_url}'
+            )
+        if status_message is None:
+            if isinstance(self.data, str):
+                status_message = self.data
+            else:
+                status_message = f'status message unknown'
+        return f'Download failed ({status_message}) from {self.request_url}'
+
+    def __repr__(self):
+        return (
+            f'{self.__class__.__name__}('
+            f'status_code={self.status_code}, '
+            f'request={self.request!r}, '
+            f'data={type(self.data).__name__})'
+        )
 
 
 def read_url(

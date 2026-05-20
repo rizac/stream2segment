@@ -202,25 +202,18 @@ def download_events(
             response = read_url(url, timeout)
 
             if response.is_ok:
-                if len(downloads) == 0:
-                    step =  total - done
-                pbar.update(step)
-                done += 1
-                try:
-                    if response.status_code == 204:
-                        raise Exception("No data (Http code 204)")  # fallback below
-                    yield response
-                except Exception as exc:
-                    logger.warning(f"Unable to read data downloaded from {url}: {exc}")
+                yield response
             elif response.status_code not in request_too_large_codes:
-                logger.warning(
-                    f"Unable to download data from {url}: "
-                    f"{response.data}"
-                )
-                logger.warning(f"Error downloading from {url}: {response.data}")
+                logger.warning(str(response))
             else:
                 downloads.extend(_split_request(evt_query_args))
                 step = (total - done) // len(downloads)
+                continue
+
+            if len(downloads) == 0:
+                step = total - done
+            pbar.update(step)
+            done += 1
 
 
 def read_events(content: str | Path) -> pd.DataFrame:

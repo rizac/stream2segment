@@ -276,7 +276,7 @@ def download_xml(
             for response in reader:
                 pbar.update(1)
                 url = response.request
-                if not response.is_ok or response.status_code == 204:
+                if not response.is_ok:
                     if log_once_filter is None:  # create lazily
                         log_once_filter = IdOnceLogFilter()
                         logger.addFilter(log_once_filter)
@@ -284,9 +284,9 @@ def download_xml(
                             f"{err_log_caption}\n"
                             "(shown once per (URL domain, error type) combination)"
                         )
-                    msg = responses.get(response.status_code, "Unknown error")  # FIXME ONCE PER MKDULE ERROR!
                     logger.warning(
-                        url,msg, extra={'ID': (get_host(url), msg)}
+                        str(response),
+                        extra={'ID': (get_host(url), response.status_code)}
                     )
                     yield None
                 else:

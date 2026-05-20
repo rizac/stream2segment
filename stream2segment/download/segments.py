@@ -149,16 +149,22 @@ def download_and_save(
                     data=credentials
                 )
                 response = read_url(req)
-                if not response.is_ok or not response.data:
+                if not response.is_ok:
+                    logger.warning(str(response))
                     if 'queryauth' in url:
-                        segments = segments[segments[url_col] != url]
-                    logger.warning(
-                        f'Could not get user password via token from {req.full_url}')
+                        rem = segments[url_col] == url
+                        if rem.any():
+                            logger.warning(
+                                f'Discarding {rem.sum():,} segment(s) '
+                                f'(error acquiring credentials from their URL domain)'
+                            )
+                            segments = segments[segments[url_col] != url]
                     continue
                 data = response.data
                 if ':' not in data:
-                    raise ValueError('Invalid user and password returned. '
-                                     'This could be a data-center bug')
+                    raise ValueError(
+                        f'Invalid user and password from {req.full_url}. '
+                        'This could be a data-center bug')
                 else:
                     user_pass = tuple(data.split(':'))
             else:
@@ -240,7 +246,7 @@ def download_and_save(
                                 )
                                 rows_skip.clear()
 
-                    elif response.is_ok:  # status code in [200, 300[, not 204
+                    elif response.is_ok:
 
                         segments_current_id += 1
                         rows_ok.append(
@@ -263,15 +269,8 @@ def download_and_save(
                             id_once_filter = IdOnceLogFilter()
                             logger.addFilter(id_once_filter)
 
-
-                        err_msg = responses.get(
-                            response.status_code,
-                            str(response.data)
-                        )
-                        if response.status_code < 600:
-                            err_msg += f' (HTTP code: {response.status_code})'
                         logger.warning(
-                            f"{err_msg}, URL: {response.request}",
+                            str(response),
                             extra={'ID': (url_domain, response.status_code)}
                         )
 
@@ -374,7 +373,7 @@ def download(
         req_start = req_cache.pop('_.request_start')
         req_end = req_cache.pop('_.request_end')
 
-        if not response.is_ok or response.status_code == 204:
+        if not response.is_ok:
             for idx in req_cache.values():
                 yield idx, response
             continue
