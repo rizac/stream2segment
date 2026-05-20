@@ -236,12 +236,9 @@ def fetch_df(engine, select_stmt: Select, chunksize=5000) -> Iterable[pd.DataFra
     select_stmt = select_stmt.execution_options(stream_results=True)
 
     with engine.connect() as conn:
-        result = conn.execute(select_stmt).yield_per(chunksize)
+        result = conn.execute(select_stmt)  # .yield_per(chunksize)
 
-        while True:
-            rows = result.fetchmany(chunksize)
-            if not rows:
-                break
+        while rows := result.fetchmany(chunksize):
             yield pd.DataFrame(rows, columns=result.keys())
 
 
