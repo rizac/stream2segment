@@ -78,19 +78,18 @@ def get_events(
     if not pd.api.types.is_categorical_dtype(events[url_col]):
         events[url_col] = events[url_col].astype("category")
     ws_id_col = Event.webservice_id.key
-    rows = len(events)
     events = sync_webservice_urls_and_assign_ids(
         events, engine, ids_column_name=ws_id_col
     )
-    events.dropna(subset=[ws_id_col], inplace=True)
-    if events.empty:
-        raise FailedDownload("No events left after failed DB URLs insertion")
-    elif rows > len(events):
+    rem = events[ws_id_col].isna() & events[url_col].notna()
+    if rem.any():
+        events = events[~rem]
+        if events.empty:
+            raise FailedDownload("No events left after failed DB URLs insertion")
         logger.warning(
-            f"Discarding {rows - len(events)} events(s) "
-            f"(associated URL not saved to DB)"
+            f"Discarding {rem.sum()} events(s) (associated URL not saved to DB)"
         )
-    events[ws_id_col] = events[ws_id_col].astype(int)
+    events[ws_id_col] = events[ws_id_col].astype('Int64')  # there might be Nones
 
     events = save_events(
         events,
@@ -128,11 +127,17 @@ def download_or_read_events(
     """
     Yield pandas dataframe(s) from the event url or file
     """
-    harmonized_urls = {
-        url_file_prefix + u if is_local_file(u) else fdsn_url(EVENTWS_MAPPING.get(u, u))
-        for u in urls
-    }
-    cat_type = CategoricalDtype(categories=list(harmonized_urls))
+    harmonized_urls = set()
+    url_categories = set()
+    for u in urls:
+        if is_local_file(u):
+            url = url_file_prefix + u
+        else:
+            url = fdsn_url(EVENTWS_MAPPING.get(u, u))
+            url_categories.add(url)
+        harmonized_urls.add(url)
+
+    cat_type = CategoricalDtype(categories=list(url_categories))
     events = []
 
     for url in harmonized_urls:
@@ -409,6 +414,8 @@ def save_events(
     show_progress=False
 ):
     events.reset_index(drop=True, inplace=True)
+    num_events = len(events)
+
     uc_cols = [lat_col, lon_col, depth_col, time_col]
     # for safety:
     events.drop_duplicates(uc_cols + [mag_col, magtype_col], inplace=True)
@@ -432,23 +439,23 @@ def save_events(
 
     cmp_cols_round = [_ + _round_suf for _ in uc_cols]
 
-    drop_indices = []
+    # if events share same coordinates and mag type, take the largest magnitude:
+    idx = events.groupby(cmp_cols_round + [magtype_col])[mag_col].idxmax()
+    events = events.loc[idx]
 
-    for _, ev_df in events[events.duplicated(cmp_cols_round, keep=False)].groupby(
-        cmp_cols_round
-    ):
-        drop_ids = []
-        if ev_df[magtype_col].nunique(dropna=True) == 1:
-            # same mag type, take first index that has max mag:
-            drop_ids.extend(
-                ev_df.index.difference([ev_df[mag_col].idxmax()])
-            )
-        elif on_event_conflict == 'discard':
-            drop_ids.extend(ev_df.index)
-        elif on_event_conflict != 'keep':
-            for ma_type in on_event_conflict.split(','):
+    if on_event_conflict == 'discard':
+        events.drop_duplicates(cmp_cols_round, keep=False, inplace=True)
+
+    if on_event_conflict != 'keep':
+        preferred_mag_types = on_event_conflict.split(',')
+        drop_indices = []
+        for _, ev_df in events[events.duplicated(cmp_cols_round, keep=False)].groupby(
+            cmp_cols_round
+        ):
+            drop_ids = []
+            for ma_type in preferred_mag_types:
                 mask = ev_df[magtype_col].str.lower() == ma_type.strip().lower()
-                if mask.any():
+                if mask.sum() == 1:
                     drop_ids.extend(
                         ev_df.index.difference([mask.idxmax()])  # take first true
                     )
@@ -456,15 +463,18 @@ def save_events(
             else:
                 # no break loop hit:
                 drop_ids.extend(ev_df.index)
-        if drop_ids:
-            logger.warning(f"Discarding {len(drop_ids)} overlapping events: "
-                           f"{to_urls(ev_df.loc[drop_ids])}")
-            drop_indices.extend(drop_ids)
 
+            if drop_ids:
+                logger.warning(f"Discarding {len(drop_ids)} overlapping events: "
+                               f"{to_urls(ev_df.loc[drop_ids])}")
+                drop_indices.extend(drop_ids)
 
-    if drop_indices:
-        logger.info(f"{len(drop_indices):,} overlapping event(s) discarded")
-        events.drop(list(drop_indices), errors='ignore', inplace=True)
+        if drop_indices:
+            events.drop(list(drop_indices), errors='ignore', inplace=True)
+
+    if len(events) < num_events:
+        dropped = num_events - len(events)
+        logger.info(f"{dropped:,} overlapping event(s) discarded")
 
     id_col = Event.id.key
 

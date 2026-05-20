@@ -445,7 +445,7 @@ def copy_example_files(outpath, prompt=True, *filenames):
                    "(https://learn.getgrav.org/advanced/yaml).",
               type=clickutils.ExistingPath, required=True)
 @click.option('-d', '--dburl', '--db_url', is_eager=True)
-@click.option('--events_url', '--catalog', '--eventsurl', '--eventws')
+@click.option('--events_url', '--catalog', '--event_url', '--eventws')
 @click.option('-s', '--start', '--starttime', "starttime", metavar='ISO DATE or DATETIME')
 @click.option('-e', '--end', '--endtime', 'endtime', metavar='ISO DATE or DATETIME')
 @click.option('--network', '--networks', '--net', 'network')

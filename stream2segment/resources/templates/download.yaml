@@ -10,14 +10,14 @@
 # suggest sqlite for small to medium data or enough system RAM (as a rule of thumb:
 # less than a million segments, and/or more than 8GB of RAM) and postgres otherwise.
 # For info see: http://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls
-dburl: 'sqlite:///<local_file_path>'  # or, e.g.: postgresql://<user>:<password>@<host>/<dbname>
+db_url: 'sqlite:///<local_file_path>'  # or, e.g.: postgresql://<user>:<password>@<host>/<dbname>
 
-# Download events (and data) on or after the specified time. Type an ISO-formatted
+# Download events and data on or after the specified time. Type an ISO-formatted
 # date, date-time string, or an integer in days, where 0 is the start of the current day.
 # E.g., starttime: -1 and endtime: 0 means: fetch events occurred yesterday
 starttime: 2006-01-01T00:00:00
 
-# Download events (and data) on or before the specified time. Type an ISO-formatted
+# Download events and data on or before the specified time. Type an ISO-formatted
 # date, date-time string, or an integer in days, where 0 is the start of the current day.
 # E.g., starttime: -1 and endtime: 0 means: fetch events occurred yesterday
 endtime: 2016-12-25T00:00:00
@@ -89,24 +89,15 @@ quakeml: false
 # Stations / Channels: https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.2.pdf#page=11
 # ====================
 
-# NOTE: the station URL(s) are configurable in `data_url` (see below). If multiple URLs
-# return the same station code, the program will attempt to resolve them
-# (for eida nodes using routing_service_url in advanced_settings or from already saved
-# stations). In case of unresolved conflicts, the station will be discarded and all its
-# available waveforms not downloaded (check log messages for details).
+# NOTE: the station URL(s) are inferred from their counterparts provided in `data_url`
+# (see below)
 
-# Limit the search to the specified channels (if missing, defaults to '*', i.e. fetch all
-# channels). You can also filter out specific channels by placing the negation character
-# "!" in front of them. Being non-standard FDSN syntax, the negation is applied after the
-# data is downloaded. Pay attention to inconsistencies, e.g. "!B*,BHZ" will first fetch
-# all channels "BHZ" and then remove all channels starting with "B" ("!B*").
-# Implementation details: You can also specify a YAML sequence of strings instead of
-# comma-separated strings. E.g., these are equivalent:
-# channels: "A,B"
-# cha: [ "A" , "B" ]
-# channel:
-#  - "A"
-#  - "B"
+# Limit the search to the specified channels. Special characters are * (=any sequence
+# of characters, the default), ? (any single character) and ! (negates the remaining
+# expression. ! is non-standard FDSN and applied after fetching all channels, so pay
+# attention to inconsistencies, e.g. "!B*,BHZ" means "no channel" (fetch all channels
+# "BHZ" and then remove all channels starting with "B"). If you provide a YAML sequence,
+# all items will be comma-concatenated into a single FDSN string
 channel:
  - "HH?"
  - 'HN?'
@@ -121,9 +112,8 @@ station: '*'
 # Limit the search to the specified locations (see 'channel' parameter for details)
 location: '*'
 
-# Limit the search to channels with at least the following sample rate (in Hz).
-# The relative segments will most likely (but not always) match the channel sample rate.
-# Set to 0 or negative number to ignore the sampling rate
+# Limit the search to channels with nominal sample rate larger than or equal the
+# specified value (in rare cases the real segment sample rate might differ):
 min_sample_rate: 60
 
 # Download stationxml. Set to false only if you simply need raw unprocessed waveform
@@ -200,9 +190,9 @@ advanced_settings:
   # depending on the data center. Use low values (1–2) to reduce server load and improve
   # reliability, especially for restricted data or after repeated errors.
   max_concurrent_downloads: null
-  # Routing service used to fetch EIDA nodes and relative network/stations. If list of
-  # URLs, then each url will be queried in the given order, stopping when the first one
-  # provides valid data
+  # Routing service used to fetch EIDA nodes and relative network/stations, and resolve
+  # naming conflicts if needed. If list of URLs, then each url will be queried in the
+  # given order, stopping when the first one provides valid data
   routing_service_url:
     - "https://www.orfeus-eu.org/eidaws/routing/1/query"
     - "https://geofon.gfz.de/eidaws/routing/1/query"

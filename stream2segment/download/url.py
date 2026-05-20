@@ -118,7 +118,7 @@ class Response:
 
     def __str__(self):
         if self.is_ok:
-            return f'Download successfully completed from {self.request_url}'
+            return f'Data successfully downloaded from {self.request_url}'
 
         status_message = None
         if self.status_code in responses:
@@ -130,15 +130,14 @@ class Response:
             if status_message is None:
                 status_message = 'status message unknown'
             return (
-                f'Download completed but data not usable ({status_message}) '
-                f'from {self.request_url}'
+                f'Invalid data ({status_message}) downloaded from {self.request_url}'
             )
         if status_message is None:
             if isinstance(self.data, str):
                 status_message = self.data
             else:
                 status_message = f'status message unknown'
-        return f'Download failed ({status_message}) from {self.request_url}'
+        return f'Failed download ({status_message}) from {self.request_url}'
 
     def __repr__(self):
         return (

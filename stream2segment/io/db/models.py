@@ -108,7 +108,7 @@ class Event(Base):  # noqa
     __tablename__ = 'event'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    webservice_id = Column(Integer, ForeignKey(WebService.id), nullable=False)
+    webservice_id = Column(Integer, ForeignKey(WebService.id), nullable=True)
     eventid = Column(String, nullable=True)
     time = Column(DateTime, nullable=False, index=True)
     latitude = Column(Float, nullable=False, index=True)

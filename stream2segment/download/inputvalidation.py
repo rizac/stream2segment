@@ -43,7 +43,7 @@ def extract_download_args(
             val = [val]
         kwargs['data_url'] = [valid_fdsn(url, is_eventws=False) for url in val]
 
-        params = ('events_url', 'eventws')
+        params = ('events_url', 'eventws', 'event_url')
         val = get_param(params, config, override_params)
         if isinstance(val, str):  # backward compatibility
             val = [val]

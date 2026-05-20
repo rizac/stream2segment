@@ -46,12 +46,9 @@ def save_stationxml(
             func.max(Channel.stationxml_id).label(staxml_id_col),
             # WebService.url
         ).
-        # join(WebService, WebService.id == Channel.data_webservice_id).
-        # join(
-        #     Segment, Segment.channel_id == Channel.id  # (*) inner join
-        # ).
         where(
             exists(
+                # select(1) is hust a convention, e.g. *, Event also work
                 select(1).where(Segment.channel_id == Channel.id)
             )
         ).
@@ -67,21 +64,19 @@ def save_stationxml(
     total, downloaded, saved = 0, 0, 0
     db_stationxml_id = get_col_max(engine, StationXML.id)
     cache: dict[str, tuple[str, str, int, int | None]] = {}
-    ws_urls = {}
     ws_id_col = Channel.data_webservice_id.key
+    # query all webservice ids and urls in one shot (also avoids to query it inside
+    # url_iterator, which is run in a worker thread and might cause problems):
+    ws_stmt = select(WebService.id, WebService.url).where(
+        WebService.url.contains("/dataselect/") | WebService.url.contains("/station/")
+    )
+    with engine.connect() as conn:
+        ws_urls = dict(conn.execute(ws_stmt).all())  # noqa
 
     def url_iterator(dfr: pd.DataFrame) -> Iterable[str]:
         """build url (str) from each item yielded by the previous iterable"""
         dfr[staxml_id_col] = dfr[staxml_id_col].astype('Int64')  # int with Nulls
         dfr[ws_id_col] = dfr[ws_id_col].astype('category')
-        ws_not_seen = set(dfr[ws_id_col].cat.categories) - set(ws_urls.keys())
-        if ws_not_seen:
-            with engine.connect() as conn:  # noqa
-                result = conn.execute(select(WebService.id, WebService.url).where(
-                    WebService.id.in_(ws_not_seen))
-                )
-                for ws_id, ws_url in result:
-                    ws_urls[ws_id] = ws_url
 
         for net, sta, ws_id, sta_id in zip(
             dfr[net_col],
@@ -94,8 +89,14 @@ def save_stationxml(
                     fdsn_url(ws_urls[ws_id], new_service='station'),
                     net=net, sta=sta, level='response'
                 )
+                # note use Python objects because we might insert those values to DB:
                 cache.setdefault(
-                    url_, (net, sta, ws_id, None if pd.isna(sta_id) else sta_id)
+                    url_, (
+                        str(net),
+                        str(sta),
+                        int(ws_id),
+                        None if pd.isna(sta_id) else int(sta_id)
+                    )
                 )
                 yield url_
 
@@ -172,27 +173,33 @@ def save_quakeml(
         )
         # .join(WebService, Event.webservice_id == WebService.id)
         .join(Segment, Segment.event_id == Event.id)  # (*) inner join
-        .where(~exists().where(QuakeML.id == Event.id))
-        .distinct()
+        .where(
+            exists(
+                # select(1) is hust a convention, e.g. *, Event also work
+                select(1).where(Segment.event_id == Event.id)
+            ),
+            ~exists().where(QuakeML.id == Event.id)
+        )
+        # .distinct()
     )
     # (*) only channels with at least one matching Segment row are included
 
     total, downloaded, saved = 0, 0, 0
     cache: dict[str, int] = {}
-    ws_urls = {}
     ws_id_col = Event.webservice_id.key
+    # query all webservice ids and urls in one shot (also avoids to query it inside
+    # url_iterator, which is run in a worker thread and might cause problems):
+    ws_stmt = select(WebService.id, WebService.url).where(
+        ~WebService.url.contains("/dataselect/"),
+        ~WebService.url.contains("/station/"),
+    )
+    with engine.connect() as conn:
+        ws_urls = dict(conn.execute(ws_stmt).all())  # noqa
+
 
     def url_iterator(dfr: pd.DataFrame) -> Iterable[str]:
         """build url (str) from each item yielded by the previous iterable"""
         dfr[ws_id_col] = dfr[ws_id_col].astype('category')
-        ws_not_seen = set(dfr[ws_id_col].cat.categories) - set(ws_urls.keys())
-        if ws_not_seen:
-            with engine.connect() as conn:  # noqa
-                result = conn.execute(select(WebService.id, WebService.url).where(
-                    WebService.id.in_(ws_not_seen))
-                )
-                for ws_id, ws_url in result:
-                    ws_urls[ws_id] = ws_url
 
         for db_ev_id, cat_ev_id, ws_id in zip(
             dfr[Event.id.key],
@@ -201,7 +208,8 @@ def save_quakeml(
         ):
             if ws_id in ws_urls:
                 url_ = fdsn_url_qs(ws_urls[ws_id], eventid=cat_ev_id, format='xml')
-                cache.setdefault(url_, db_ev_id)
+                # Note use Python objects in cache as we might insert those values to DB
+                cache.setdefault(url_, int(db_ev_id))
                 yield url_
 
     with engine.begin() as conn:  # noqa
@@ -249,7 +257,7 @@ def download_xml(
     download_blocksize,
     show_progress=False
 ) -> Iterable[Response | None]:
-    """Save QuakeML data. stations_df must not be empty (not checked here)"""
+    """Download XML data"""
     if max_download_concurrency is None:
         max_download_concurrency = 4
 
