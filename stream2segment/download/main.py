@@ -19,7 +19,7 @@ from stream2segment.io.db.pdsql import (
     get_col_max, executemany, insert
 )
 from stream2segment.io.db import models, close_engine
-from stream2segment.download.inputvalidation import extract_download_args
+from stream2segment.download.inputvalidation import load_input
 from stream2segment.download.utils import NothingToDownload, FailedDownload
 from stream2segment.download.events import get_events
 from stream2segment.download.channels import get_channels
@@ -97,7 +97,7 @@ def download(
               "and its content written to the database)")
 
     try:
-        config, kwargs = extract_download_args(config_file, **override_params)
+        config, kwargs = load_input(config_file, **override_params)
     except BadParam as bpar:
         raise bpar from None
 

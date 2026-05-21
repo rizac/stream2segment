@@ -28,6 +28,7 @@ download_save_segments_path = 'stream2segment.download.main.download_and_save'
 get_channels_path = 'stream2segment.download.main.get_channels'
 get_events_path = 'stream2segment.download.main.get_events'
 read_url_path = "stream2segment.download.url.read_url"
+load_input_path = 'stream2segment.download.main.load_input'
 
 
 # # WE PATCH THIS AT THE BEGINNING, TO BE SURE WE INTERCEPT ALL READ_URLS
@@ -101,18 +102,31 @@ def test_real_download_events(
     evts.loc[[1,2], Event.time.key] = (
         evts.at[0, Event.time.key] + timedelta(seconds=0.1)
     )
-    evts.at[2, Event.mag_type.key] = 'fake_mag_type'
+    evts.at[2, Event.mag_type.key] = 'preferred_magtype'
+    evts.at[2, Event.mag_type.key] = 'some_other_magtype'
 
     cat_file = tmp_path / 'events.csv'
     evts.to_csv(cat_file, index=False)
-    cli_args.extend(['--events_url', str(cat_file.resolve())])
-    result = CliRunner().invoke(cli, cli_args)
-    assert result.exit_code == 0
-    assert custom_message in result.output
-    num_channels2 = get_row_count(db.engine, Channel)
-    num_events2 = get_row_count(db.engine, Event)
-    assert num_channels2 == 0
-    assert num_events2 == num_events
+
+    from stream2segment.download.inputvalidation import load_input as original_load_input
+    for on_event_conflict in ['discard', 'preferred_magtype,mw', 'keep']:
+
+        with patch(load_input_path) as _:
+
+            def mock_load_input(*args, **kwargs):
+                config, kwargs = original_load_input(*args, **kwargs)
+                kwargs['advanced_settings']['on_event_conflict'] = on_event_conflict
+                return config, kwargs
+            _.side_effect = mock_load_input
+
+            cli_args.extend(['--events_url', str(cat_file.resolve())])
+            result = CliRunner().invoke(cli, cli_args)
+            assert result.exit_code == 0
+            assert custom_message in result.output
+            num_channels2 = get_row_count(db.engine, Channel)
+            num_events2 = get_row_count(db.engine, Event)
+            assert num_channels2 == 0
+            assert num_events2 == num_events
 
 
 

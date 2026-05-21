@@ -47,7 +47,7 @@ def apply_table_dtypes(
         # the type the dataframe column should have
         if (
             isinstance(sql_type, DateTime) and not
-            pd.api.types.is_datetime64_any_dtype(df_col)
+            pd.api.types.is_datetime64_dtype(df_col)
         ):
             if issubclass(df_col.dtype.type, np.number):
                 format_ = 's'

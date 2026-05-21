@@ -167,9 +167,7 @@ def save_quakeml(
     """Save QuakeML data. stations_df must not be empty (not checked here)"""
     stmt = (
         select(
-            Event.id,
-            Event.eventid,
-            Event.webservice_id
+            Event.id, Event.eventid, Event.webservice_id
         )
         # .join(WebService, Event.webservice_id == WebService.id)
         .join(Segment, Segment.event_id == Event.id)  # (*) inner join

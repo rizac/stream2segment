@@ -19,11 +19,13 @@ from stream2segment.resources import get_ttable_fpath
 from stream2segment.traveltimes.ttloader import TTTable
 
 
-def extract_download_args(
+def load_input(
     config_file_path: str, **override_params
 ) -> tuple[dict, dict]:
     """
-    Load config for download, returning a clean config and a kwargs dict for the
+    Load config for download, returning the tuple
+    (config, kwargs)
+    denoting the clean config and a kwargs dict for the
     download routine. Raise BadParm
     """
     kwargs = {}
