@@ -13,7 +13,9 @@ from urllib.request import urlopen
 import pandas as pd
 from sqlalchemy import and_, Select
 
-from stream2segment.download.events import sync_webservice_urls_and_assign_ids
+from stream2segment.download.events import (
+    sync_webservice_urls_and_assign_ids, insert_id_col_na_values_to_db
+)
 from stream2segment.io.utils import get_progressbar
 from stream2segment.io.db.pdsql import (
     insert_df, apply_table_dtypes, fetch_df, select, Engine, set_pkeys
@@ -126,9 +128,7 @@ def get_channels(
 
     channels = save_channels(engine, channels)
     if channels.empty:
-        raise FailedDownload(
-            'No channels left after failed DB insertion'
-        )
+        raise FailedDownload('No channels left after failed DB insertion')
 
     for c in categorical_columns:  # for safety
         if not pd.api.types.is_categorical_dtype(channels[c]):
@@ -315,17 +315,17 @@ def split_url_by_network_quantiles(fdsn_station_url, params):
             for line in r:
                 split_line = line.decode().strip().split('|')
                 rows.append((split_line[0].strip(), split_line[-1].strip()))
-        df = pd.DataFrame(rows, columns=['net', 'count'])
+        dfr = pd.DataFrame(rows, columns=['net', 'count'])
         # convert count to numeric (should be int, but we set NaN as #station mean):
-        df['count'] = pd.to_numeric(df['count'], errors='coerce')
-        df.loc[pd.isna(df['count']), 'count'] = int(df['count'].median().round())
-        df['count'] = df['count'].astype(int)
+        dfr['count'] = pd.to_numeric(dfr['count'], errors='coerce')
+        dfr.loc[pd.isna(dfr['count']), 'count'] = int(dfr['count'].median().round())
+        dfr['count'] = dfr['count'].astype(int)
         # group by net and sum counts
-        df = df.groupby('net', as_index=False)['count'].sum()
+        dfr = dfr.groupby('net', as_index=False)['count'].sum()
         # cumulative sum of counts (running total)
-        c = df['count'].cumsum()
+        c = dfr['count'].cumsum()
         # total sum of counts
-        t = df['count'].sum()
+        t = dfr['count'].sum()
         stations_per_request = 1000
         if t <= stations_per_request:
             yield fdsn_station_url, params
@@ -334,8 +334,8 @@ def split_url_by_network_quantiles(fdsn_station_url, params):
         n = int(t / stations_per_request)  # number of split requests
         # (i.e., how many I need to have ~ 1000 stations requested each time)
         # map cumulative proportion to chunk index [0, n-1]
-        df['chunk'] = (c / t * n).astype(int).clip(upper=n - 1)
-        for _, df_ in df.groupby('chunk'):
+        dfr['chunk'] = (c / t * n).astype(int).clip(upper=n - 1)
+        for _, df_ in dfr.groupby('chunk'):
             _params = dict(params)
             _params['net'] = ",".join(sorted(set(df_['net'])))
             yield fdsn_station_url, _params
@@ -363,7 +363,7 @@ def download_channels(
 
     urls = list(fdsn_station_urls)
 
-    channels_dfs = []
+    ch_list = []
     # station_urls = set()
     with get_progressbar(len(urls) if show_progress else 0) as pbar:
         for idx, response in t_pool.imap_unordered(_urlread, enumerate(urls)):
@@ -404,24 +404,24 @@ def download_channels(
                 )
             dframe[url_col] = datasel_url
             # station_urls.add(station_url)
-            channels_dfs.append(resolve_intra_conflicts(dframe, response.request))
+            ch_list.append(resolve_intra_conflicts(dframe, response.request))
 
     # build two dataframes which we will concatenate afterward
-    cha_df = pd.DataFrame()
-    if channels_dfs:  # pd.concat complains about empty list
+    channels = pd.DataFrame()
+    if ch_list:  # pd.concat complains about empty list
         # save urls and set them as categorical
-        cha_df = pd.concat(channels_dfs, axis=0, ignore_index=True, copy=False)
+        channels = pd.concat(ch_list, axis=0, ignore_index=True, copy=False)
 
-        if not cha_df.empty:
+        if not channels.empty:
             # sort by rank col and reset index so that we can see with the index which
             # urls have priority in case of conflicts:
-            cha_df.index.name = '._index._'
-            cha_df = (
-                cha_df.sort_values(by=[rank_col, cha_df.index.name], ascending=True).
+            channels.index.name = '._index._'
+            channels = (
+                channels.sort_values(by=[rank_col, channels.index.name], ascending=True).
                 drop(columns=rank_col).reset_index(drop=True)
             )
 
-    return cha_df
+    return channels
 
 
 def fdsn_channel_response_text_to_df(
@@ -456,48 +456,38 @@ def fdsn_channel_response_text_to_df(
         16: end_col
     }
 
-    dframe = fdsn_response_text_to_df(
+    dfr = fdsn_response_text_to_df(
         response, usecols=list(columns.keys()), names=list(columns.values())
     )
 
-    if dframe.empty:
-        return dframe
+    if dfr.empty:
+        return dfr
 
     # cast and work with non-sql columns:
-    dframe[end_col] = pd.to_datetime(dframe[end_col], errors='coerce').fillna(
+    dfr[end_col] = pd.to_datetime(dfr[end_col], errors='coerce').fillna(
         end_time_replacement
     )
-    dframe[
+    dfr[
         [band_col, inst_col, orient_col]
-    ] = dframe.pop("channel_code").str.extract(r"(.)(.)(.)")
+    ] = dfr.pop("channel_code").str.extract(r"(.)(.)(.)")
 
     # apply data types now (e.g., we might filter sample_rate it needs to be float)
-    dframe = apply_table_dtypes(Channel, dframe, drop_non_nullable=True)
-    if dframe.empty:
-        return dframe
+    dfr = apply_table_dtypes(Channel, dfr, drop_non_nullable=True)
+    if dfr.empty:
+        return dfr
 
     # filter out
     for key, func in filter_func.items():
-        dframe = dframe[func(dframe[key])]
-        if dframe.empty:
-            return dframe
+        dfr = dfr[func(dfr[key])]
+        if dfr.empty:
+            return dfr
 
-    dframe[start_col] = dframe[start_col].dt.round('s')
-    dframe[end_col] = dframe[end_col].dt.round('s')
-    dframe[lat_col] = dframe[lat_col].round(6)
-    dframe[lon_col] = dframe[lon_col].round(6)
+    dfr[start_col] = dfr[start_col].dt.round('s')
+    dfr[end_col] = dfr[end_col].dt.round('s')
+    dfr[lat_col] = dfr[lat_col].round(6)
+    dfr[lon_col] = dfr[lon_col].round(6)
 
-    return dframe
-
-
-# def to_datetime(series: pd.Series, fillna=None):
-#     if fillna is not None:
-#         series.fillna(fillna, inplace=True)
-#     return series.dt.round('s')
-#
-#
-# def to_latlon(series: pd.Series):
-#     return series.round(6)
+    return dfr
 
 
 def resolve_intra_conflicts(fdsn_df: pd.DataFrame, url:str) -> pd.DataFrame:
@@ -676,19 +666,19 @@ def save_channels(engine: Engine, channels: pd.DataFrame):
         )
         on_db = channels[id_col + _suf].notna()
         ws_id_mismatch =  (channels[ws_id_col] != channels[ws_id_col + _suf])
-        mismatches = on_db & (
+        mismatch = on_db & (
             (channels[lat_col] != channels[lat_col + _suf]) |
             (channels[lon_col] != channels[lon_col + _suf]) |
             ws_id_mismatch
         )
         channels.loc[on_db & ws_id_mismatch, url_col] = None  # flag for later
 
-        if mismatches.any():
+        if mismatch.any():
             # write to dataframe and log FIXME log!
-            channels.loc[mismatches, lat_col] = channels.loc[mismatches, lat_col + _suf]
-            channels.loc[mismatches, lon_col] = channels.loc[mismatches, lon_col + _suf]
-            channels.loc[mismatches, ws_id_col] = (
-                channels.loc[mismatches, ws_id_col + _suf]
+            channels.loc[mismatch, lat_col] = channels.loc[mismatch, lat_col + _suf]
+            channels.loc[mismatch, lon_col] = channels.loc[mismatch, lon_col + _suf]
+            channels.loc[mismatch, ws_id_col] = (
+                channels.loc[mismatch, ws_id_col + _suf]
             )
         channels[id_col] = channels[id_col].fillna(
             channels[id_col + _suf]
@@ -713,25 +703,9 @@ def save_channels(engine: Engine, channels: pd.DataFrame):
         # for safety:
         channels.dropna(subset=[url_col], inplace=True)
 
-    to_insert = set_pkeys(channels[channels[id_col].isna()], engine, Channel)
-    inserted = insert_df(to_insert, engine, Channel)
-    if not inserted.empty:
-        channels[id_col] = inserted[id_col]  # assignment is index aligned
-
-    id_na = channels[id_col].isna()
-    if id_na.any():
-        logger.warning(
-            f"{id_na.sum():,} "
-            f"channel(s) discarded (likely error while inserting to DB)\n" +
-            channels[id_na].to_string(
-                max_rows=30, index=False, na_rep='', show_dimensions=True
-            )
-        )
-        channels.dropna(subset=[id_col], inplace=True)
-
-    # for safety:
-    if not channels.empty:
-        channels[id_col] = channels[id_col].astype(int)
+    channels = insert_id_col_na_values_to_db(
+        engine, channels, id_col, 'channel'
+    )
 
     return channels
 

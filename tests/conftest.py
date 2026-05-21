@@ -22,6 +22,12 @@ import pytest
 
 from stream2segment.io.db import is_postgres, is_sqlite
 
+download_create_engine_path = 'stream2segment.download.inputvalidation.create_engine'
+download_close_engine_path = 'stream2segment.download.main.close_engine'
+
+from stream2segment.download.inputvalidation import create_engine as original_create_engine
+from stream2segment.download.main import close_engine as original_close_engine
+
 # from stream2segment.traveltimes.ttloader import TTTable
 
 
@@ -58,28 +64,27 @@ def db(db_url):
     Creates a db connection that persists during the whole test and return
     an object with db info such as url, engine, is_postgres and is_sqlite
     """
-    from stream2segment.io.db import create_engine, close_engine
     if db_url == _in_mem_sqlite:
         # and multi thread for sqlite
         from sqlalchemy.pool import StaticPool
         # <https://docs.sqlalchemy.org/en/21/dialects/sqlite.html#using-a-memory-database-in-multiple-threads>  # noqa
-        engine = create_engine(
+        engine = original_create_engine(
             db_url,
             connect_args={"check_same_thread": False},
             poolclass=StaticPool,
         )
     else:
-        engine = create_engine(db_url)
+        engine = original_create_engine(db_url)
 
     with (
-        patch("stream2segment.io.db.create_engine", return_value=engine),
-        patch("stream2segment.io.db.close_engine")
+        patch(download_create_engine_path, return_value=engine),
+        patch(download_close_engine_path)
     ):
            yield namedtuple(
                 "DB", ["url", "engine", "is_postgres", "is_sqlite"]
             )(db_url, engine, is_postgres(db_url), is_sqlite(db_url))
 
-    close_engine(engine)
+    original_close_engine(engine)
 
 
 @pytest.fixture
