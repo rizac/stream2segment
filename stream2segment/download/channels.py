@@ -93,11 +93,14 @@ def get_channels(
     )
     if channels.empty:
         raise NothingToDownload(
-            'no channels found according to your config., web service down, '
-            'no internet connection. See log for details'
+            f'no channels downloaded; check your configuration, '
+            'web services status, your internet connection. See log for details'
         )
-    logger.info(f"{len(channels)} channel(s) downloaded; "
-                f"checking duplicates, conflicts, and saving")
+    else:
+        logger.info(
+            f"{len(channels)} channel(s) downloaded; "
+            f"checking duplicates, conflicts, and saving"
+        )
 
     categorical_columns = [
         net_col, sta_col, loc_col, band_col, inst_col, orient_col, url_col
@@ -108,32 +111,34 @@ def get_channels(
     num_downloaded_channels = len(channels)
 
     channels = resolve_inter_conflicts(channels, eida_rs_urls)
-    if channels.empty:
-        raise FailedDownload('No channels left after dropping conflicts')
 
-    ws_id_col = Channel.data_webservice_id.key
-    rows = len(channels)
-    channels = sync_webservice_urls_and_assign_ids(
-        channels, engine, ids_column_name=ws_id_col
-    )
-    channels.dropna(subset=[ws_id_col], inplace=True)
-    if channels.empty:
-        raise FailedDownload("No channels left after failed DB URLs insertion")
-    elif rows > len(channels):
-        logger.warning(
-            f"Discarding {rows-len(channels)} channel(s) "
-            f"(associated URL not saved to DB)"
+    if not channels.empty:
+
+        ws_id_col = Channel.data_webservice_id.key
+        rows = len(channels)
+        channels = sync_webservice_urls_and_assign_ids(
+            channels, engine, ids_column_name=ws_id_col
         )
-    channels[ws_id_col] = channels[ws_id_col].astype(int)
+        channels.dropna(subset=[ws_id_col], inplace=True)
+        if rows > len(channels):
+            logger.warning(
+                f"Discarding {rows-len(channels)} channel(s) "
+                f"(associated URL not saved to DB)"
+            )
 
-    channels = save_channels(engine, channels)
+        if not channels.empty:
+            channels[ws_id_col] = channels[ws_id_col].astype(int)
+            channels = save_channels(engine, channels)
+
     if channels.empty:
-        raise FailedDownload('No channels left after failed DB insertion')
+        raise FailedDownload(
+            'No channels saved; this is likely due to a Database I/O error. '
+            'See log for details'
+        )
 
     for c in categorical_columns:  # for safety
         if not pd.api.types.is_categorical_dtype(channels[c]):
             channels[c] = channels[c].astype('str').astype('category')
-    # channels[ws_id_col] = channels[ws_id_col].astype(int).astype('category')
 
     # return a copy of relevant columns only:
     return channels[[

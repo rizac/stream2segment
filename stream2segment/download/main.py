@@ -109,10 +109,10 @@ def download(
             logger.info(
                 f"\nCompleted in {timedelta(seconds=round((time.time()) - stime))}"
             )
-        except NothingToDownload as nothing_to_download_exc:
-            logger.info(f'Nothing to download: {nothing_to_download_exc}')
-        except FailedDownload as failed_download_exc:
-            logger.error(f'Download failed: {failed_download_exc}')
+        except NothingToDownload as ntd_exc:
+            logger.info(f'No data to process: {str(ntd_exc).lower()}')
+        except FailedDownload as fd_exc:
+            logger.error(f'Download failed: {str(fd_exc).lower()}')
             ret = 1
         except:  # noqa
             logger.critical("Download aborted", exc_info=True)
@@ -151,10 +151,8 @@ def _download(
     credentials: tuple[str, str] | bytes | None,
     isterminal=False
 ) -> dict:
-    """Download waveforms related to events to a specific path.
+    """Download waveforms related to events to a specific path"""
 
-    :raise: :class:`FailedDownload` exceptions
-    """
     max_download_concurrency = advanced_settings['max_concurrent_downloads']
     download_blocksize = advanced_settings['download_blocksize']
     tt_table = advanced_settings['traveltimes_model']

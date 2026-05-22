@@ -69,11 +69,14 @@ def get_events(
     )
     if events.empty:
         raise NothingToDownload(
-            'no events found according to your config., web service down, '
-            'no internet connection. See log for details'
+            f'no events downloaded; check your configuration, '
+            'web services status, your internet connection. See log for details'
         )
-    logger.info(f"{len(events)} events downloaded; "
-                f"checking duplicates, conflicts, and saving")
+    else:
+        logger.info(
+            f"{len(events)} event(s) downloaded; "
+            f"checking duplicates, conflicts, and saving"
+        )
 
     if not pd.api.types.is_categorical_dtype(events[url_col]):
         events[url_col] = events[url_col].astype("category")
@@ -84,26 +87,27 @@ def get_events(
     rem = events[ws_id_col].isna() & events[url_col].notna()
     if rem.any():
         events = events[~rem]
-        if events.empty:
-            raise FailedDownload("No events left after failed DB URLs insertion")
         logger.warning(
             f"Discarding {rem.sum()} events(s) (associated URL not saved to DB)"
         )
-    events[ws_id_col] = events[ws_id_col].astype('Int64')  # there might be Nones
 
-    events = save_events(
-        events,
-        engine,
-        lat_tol_km=event_overlap_tolerance['lat'],
-        lon_tol_km=event_overlap_tolerance['lon'],
-        depth_tol_km=event_overlap_tolerance['depth'],
-        time_tol_sec=event_overlap_tolerance['time'],
-        on_event_conflict=on_event_conflict
-    )
+    if not events.empty:
+        events[ws_id_col] = events[ws_id_col].astype('Int64')  # there might be Nones
+
+        events = save_events(
+            events,
+            engine,
+            lat_tol_km=event_overlap_tolerance['lat'],
+            lon_tol_km=event_overlap_tolerance['lon'],
+            depth_tol_km=event_overlap_tolerance['depth'],
+            time_tol_sec=event_overlap_tolerance['time'],
+            on_event_conflict=on_event_conflict
+        )
 
     if events.empty:
         raise FailedDownload(
-            'No events left after failing to save them'
+            'No events saved; this is likely due to a Database I/O error. '
+            'See log for details'
         )
 
     return events[[
@@ -150,21 +154,26 @@ def download_or_read_events(
 
         for obj in iterable:
             url = None
+            file = None
             data = obj
             if isinstance(obj, Response):  # is s Response object
                 url = fdsn_url_qs(obj.request)  # basically remove query string
                 data = obj.data
+                file = None
             try:
-                dfr = read_events(data)
+                file = data
+                url = None
+                dfr = read_events(file)
                 if dfr.empty:
                     raise Exception(
-                        'No rows left after type conversion and filtering'
+                        'all rows discarded due to errors '
+                        'in type conversion and filtering'
                     )
                 dfr[url_col] = pd.Series(url, index=dfr.index, dtype=cat_type)
                 events.append(dfr)
             except Exception as exc:
-                if url is None:  # file passed, stop download
-                    raise FailedDownload(exc)
+                if file is not None:  # file passed, stop download
+                    raise FailedDownload(f"{file}: {exc}")
                 else:
                     logger.warning(f"Unable to read data downloaded from {url}: {exc}")
 
@@ -193,6 +202,7 @@ def download_events(
     evt_query_args['format'] = 'text'
 
     request_too_large_codes = {413, 504, 503, CustomResponseCode.TIMEOUT_ERROR}
+    split_request = False  # flag denoting when we split the firt time
 
     total = 1000000  # 10000 set arbitrarily high (max request should be ~= 200:
     # 0.1 min mag step and 6 month min time step, then cannot be more than 100 * 200)
@@ -211,7 +221,16 @@ def download_events(
             elif response.status_code not in request_too_large_codes:
                 logger.warning(str(response))
             else:
-                downloads.extend(_split_request(evt_query_args))
+                if not split_request:
+                    logger.warning('Request too large; splitting into smaller chunks')
+                    split_request = True
+                try:
+                    downloads.extend(_split_request(evt_query_args))
+                except RecursionError:
+                    FailedDownload(
+                        "Recursion limit reached, cannot split request bounds further. "
+                        "Narrow down your events search or try again later"
+                    )
                 step = (total - done) // len(downloads)
                 continue
 
@@ -358,9 +377,7 @@ def _split_request(evt_query_args: dict):
         times = [start, mid, end]
 
     if len(mags) < 3 and len(times) < 3:
-        raise FailedDownload(
-            "Maximum recursion reached, cannot split request bounds further"
-        )
+        raise RecursionError("Recursion limit reached")  # <- message is likely useless
 
     for (m1, m2), (t1, t2) in product(
         zip(mags[:-1], mags[1:]),
@@ -548,12 +565,9 @@ def insert_id_col_na_values_to_db(
         )
         dfr.dropna(subset=[id_col], inplace=True)
 
-    if dfr.empty:
-        raise FailedDownload(f"No {item_name}s could be saved to DB. "
-                             f"check log for details")
-
-    # for safety:
-    dfr[id_col] = dfr[id_col].astype(int)
+    if not dfr.empty:
+        # for safety:
+        dfr[id_col] = dfr[id_col].astype(int)
 
     return dfr
 
