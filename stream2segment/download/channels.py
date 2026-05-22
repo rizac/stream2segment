@@ -23,7 +23,7 @@ from stream2segment.io.db.pdsql import (
 from stream2segment.io.db.models import Channel, WebService
 from stream2segment.download.url import read_url
 from stream2segment.download.utils import (
-    fdsn_url, fdsn_url_qs, fdsn_response_text_to_df, FailedDownload, NothingToDownload
+    fdsn_url, fdsn_url_qs, fdsn_response_text_to_df, FailedDownload, NoSegmentsToDownload
 )
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
@@ -92,7 +92,7 @@ def get_channels(
         restricted_download=restricted_download,
     )
     if channels.empty:
-        raise NothingToDownload(
+        raise NoSegmentsToDownload(
             f'no channels downloaded; check your configuration, '
             'web services status, your internet connection. See log for details'
         )

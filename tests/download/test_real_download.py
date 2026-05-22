@@ -12,7 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from stream2segment.download.url import read_urls as original_read_urls
 from stream2segment.download.segments import _nothing_to_download_msg  # noqa
 from stream2segment.download.stationsearch import _no_station_found_within_search_area_msg  # noqa
-from stream2segment.download.utils import NothingToDownload
+from stream2segment.download.utils import NoSegmentsToDownload
 from unittest.mock import patch
 
 import pandas as pd
@@ -59,7 +59,7 @@ def test_real_download_events(
     # mock download save segments: raise NothingToDownload to speed up things:
     custom_message = 'custom message!'
     def func_(*a, **kw):
-        raise NothingToDownload(custom_message)
+        raise NoSegmentsToDownload(custom_message)
     mock_get_channels_df.side_effect = func_
 
     cfg_file = test_data_dir / "download-network-filter.yaml"
@@ -121,7 +121,10 @@ def test_real_download_events(
 
             cli_args.extend(['--events_url', str(cat_file.resolve())])
             result = CliRunner().invoke(cli, cli_args)
-            assert result.exit_code == 0
+            if on_event_conflict == 'discard':
+                assert result.exit_code == 1
+            else:
+                assert result.exit_code == 0
             assert custom_message in result.output
             num_channels2 = get_row_count(db.engine, Channel)
             num_events2 = get_row_count(db.engine, Event)
@@ -160,7 +163,7 @@ def test_real_download_channels(
     # mock download save segments: raise NothingToDownload to speed up things:
     custom_message = 'custom message!'
     def func_(*a, **kw):
-        raise NothingToDownload(custom_message)
+        raise NoSegmentsToDownload(custom_message)
     mock_download_save_segments.side_effect = func_
 
     cfg_file = test_data_dir / "download-network-filter.yaml"
@@ -220,7 +223,7 @@ def test_download_channels_adarray(
     # mock download save segments: raise NothingToDownload to speed up things:
     custom_message = 'custom message!'
     def func_(*a, **kw):
-        raise NothingToDownload(custom_message)
+        raise NoSegmentsToDownload(custom_message)
     mock_download_save_segments.side_effect = func_
 
     cfg_file = test_data_dir / "download-network-filter.yaml"
@@ -265,7 +268,7 @@ def test_download_channels_all(
     # mock download save segments: raise NothingToDownload to speed up things:
     custom_message = 'custom message!'
     def func_(*a, **kw):
-        raise NothingToDownload(custom_message)
+        raise NoSegmentsToDownload(custom_message)
     mock_download_save_segments.side_effect = func_
 
     cfg_file = test_data_dir / "download-network-filter.yaml"

@@ -224,7 +224,7 @@ class QuitDownload(Exception):
     """Base abstract-like Exception denoting a quit download action"""
 
 
-class NothingToDownload(QuitDownload):
+class NoSegmentsToDownload(QuitDownload):
     """Exception that should be raised whenever the download process has no
     segments to download according to the user's settings (no error). See
     `download.main.py` for details

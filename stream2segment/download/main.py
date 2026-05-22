@@ -20,7 +20,7 @@ from stream2segment.io.db.pdsql import (
 )
 from stream2segment.io.db import models, close_engine
 from stream2segment.download.inputvalidation import load_input
-from stream2segment.download.utils import NothingToDownload, FailedDownload
+from stream2segment.download.utils import NoSegmentsToDownload, FailedDownload
 from stream2segment.download.events import get_events
 from stream2segment.download.channels import get_channels
 from stream2segment.download.stationsearch import merge_events_stations
@@ -109,10 +109,10 @@ def download(
             logger.info(
                 f"\nCompleted in {timedelta(seconds=round((time.time()) - stime))}"
             )
-        except NothingToDownload as ntd_exc:
-            logger.info(f'No data to process: {str(ntd_exc).lower()}')
+        except NoSegmentsToDownload as ntd_exc:
+            logger.info(f'No segments to download; {str(ntd_exc).lower()}')
         except FailedDownload as fd_exc:
-            logger.error(f'Download failed: {str(fd_exc).lower()}')
+            logger.error(f'Download failed; {str(fd_exc).lower()}')
             ret = 1
         except:  # noqa
             logger.critical("Download aborted", exc_info=True)
@@ -234,7 +234,7 @@ def _download(
         segments = prepare_for_download(
             engine=engine, segments=segments, restricted_download=credentials is not None
         )
-    except NothingToDownload as e:
+    except NoSegmentsToDownload as e:
         # raise only if stationxml and quakeml are False
         if not stationxml and not quakeml:
             raise e

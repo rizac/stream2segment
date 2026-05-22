@@ -22,7 +22,7 @@ from stream2segment.io.db.pdsql import (
 from stream2segment.io.db.models import Event, WebService
 from stream2segment.download.url import read_url, CustomResponseCode, Response
 from stream2segment.download.utils import (
-    fdsn_url_qs, fdsn_response_text_to_df, FailedDownload, NothingToDownload, fdsn_url
+    fdsn_url_qs, fdsn_response_text_to_df, FailedDownload, NoSegmentsToDownload, fdsn_url
 )
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
@@ -68,7 +68,7 @@ def get_events(
         urls, evt_query_args, start, end, download_timeout, show_progress
     )
     if events.empty:
-        raise NothingToDownload(
+        raise NoSegmentsToDownload(
             f'no events downloaded; check your configuration, '
             'web services status, your internet connection. See log for details'
         )
@@ -463,7 +463,7 @@ def save_events(
     if on_event_conflict == 'discard':
         events.drop_duplicates(cmp_cols_round, keep=False, inplace=True)
 
-    if on_event_conflict != 'keep':
+    elif on_event_conflict != 'keep':
         preferred_mag_types = on_event_conflict.split(',')
         drop_indices = []
         for _, ev_df in events[events.duplicated(cmp_cols_round, keep=False)].groupby(
@@ -493,54 +493,61 @@ def save_events(
         dropped = num_events - len(events)
         logger.info(f"{dropped:,} downloaded overlapping event(s) discarded")
 
+    if events.empty:
+        raise NoSegmentsToDownload('All downloaded events overlap: discarded')
+
     id_col = Event.id.key
 
-    if not events.empty:
-        select_stmt = get_db_select_statement(events)
+    # check values on db and assign their spatio temporal coords and ids,
+    select_stmt = get_db_select_statement(events)
 
-        events[id_col] = pd.Series(pd.NA, index=events.index, dtype="Int64")
-        _suf = '_.db._'
+    events[id_col] = pd.Series(pd.NA, index=events.index, dtype="Int64")
+    _suf = '_.db._'
 
-        for saved_events in fetch_df(engine, select_stmt):
-            saved_events[lat_col + _round_suf] = round(
-                saved_events[lat_col], kilometers2degrees(lat_tol_km)
-            )
-            saved_events[lon_col + _round_suf] = round(
-                saved_events[lon_col], kilometers2degrees(lon_tol_km)
-            )
-            saved_events[depth_col + _round_suf] = round(
-                saved_events[depth_col], depth_tol_km
-            )
-            saved_events[time_col + _round_suf] = round(
-                saved_events[time_col], time_tol_sec
-            )
-            events = events.merge(
-                saved_events, how='left', on=cmp_cols_round, suffixes=('', _suf)
-            )
-            on_db = events[id_col + _suf].notna()
-            mismatch = on_db & (
-                (events[lat_col] != events[lat_col + _suf]) |
-                (events[lon_col] != events[lon_col + _suf]) |
-                (events[depth_col] != events[depth_col + _suf]) |
-                (events[time_col] != events[time_col + _suf])
-            )
-            if mismatch.any():
-                # write to dataframe and log FIXME log?
-                events.loc[mismatch, lat_col] = events.loc[mismatch, lat_col + _suf]
-                events.loc[mismatch, lon_col] = events.loc[mismatch, lon_col + _suf]
-                events.loc[mismatch, depth_col] = events.loc[mismatch, depth_col + _suf]
-                events.loc[mismatch, time_col] = events.loc[mismatch, time_col + _suf]
+    for saved_events in fetch_df(engine, select_stmt):
+        saved_events[lat_col + _round_suf] = round(
+            saved_events[lat_col], kilometers2degrees(lat_tol_km)
+        )
+        saved_events[lon_col + _round_suf] = round(
+            saved_events[lon_col], kilometers2degrees(lon_tol_km)
+        )
+        saved_events[depth_col + _round_suf] = round(
+            saved_events[depth_col], depth_tol_km
+        )
+        saved_events[time_col + _round_suf] = round(
+            saved_events[time_col], time_tol_sec
+        )
+        events = events.merge(
+            saved_events, how='left', on=cmp_cols_round, suffixes=('', _suf)
+        )
 
-            events[id_col] = events[id_col].fillna(events[id_col + _suf])
-            events.drop(
-                columns=[c for c in events.columns if c.endswith(_suf)], inplace=True
-            )
-        events.drop(columns=cmp_cols_round, inplace=True)
+        # mismatch events are those with very similar coordinates to some already
+        # saved event. We find them by checking that id_col is notna (already saved)
+        # and the coordinates (lat_col downloaded one, lat_col + _suf saved one, and
+        # so on) are not equal:
+        mismatch = events[id_col + _suf].notna() & (
+            (events[lat_col] != events[lat_col + _suf]) |
+            (events[lon_col] != events[lon_col + _suf]) |
+            (events[depth_col] != events[depth_col + _suf]) |
+            (events[time_col] != events[time_col + _suf])
+        )
+        if mismatch.any():
+            # write to dataframe and log FIXME log?
+            events.loc[mismatch, lat_col] = events.loc[mismatch, lat_col + _suf]
+            events.loc[mismatch, lon_col] = events.loc[mismatch, lon_col + _suf]
+            events.loc[mismatch, depth_col] = events.loc[mismatch, depth_col + _suf]
+            events.loc[mismatch, time_col] = events.loc[mismatch, time_col + _suf]
 
-    if events.empty:
-        raise NothingToDownload('All downloaded events were overlapping')
+        events[id_col] = events[id_col].fillna(events[id_col + _suf])
+        events.drop(
+            columns=[c for c in events.columns if c.endswith(_suf)], inplace=True
+        )
+    events.drop(columns=cmp_cols_round, inplace=True)
 
     events = insert_id_col_na_values_to_db(engine, events, id_col, 'event')
+
+    if not events.empty:
+        events.drop_duplicates(id_col, keep='first', inplace=True) # for safety
 
     return events
 

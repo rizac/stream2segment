@@ -32,7 +32,7 @@ from stream2segment.io.db.pdsql import (
 )
 from stream2segment.io.db.models import Segment, MiniSeed, SkippedSegment
 from stream2segment.download.utils import (
-    fdsn_url_qs, IdOnceLogFilter, fdsn_url, FailedDownload, NothingToDownload
+    fdsn_url_qs, IdOnceLogFilter, fdsn_url, FailedDownload, NoSegmentsToDownload
 )
 from stream2segment.download.url import (
     get_host, read_urls, Response, read_url, responses
@@ -104,7 +104,7 @@ def prepare_for_download(
         segments.pop(SkippedSegment.id.key)
 
     if segments.empty:
-        raise NothingToDownload(_nothing_to_download_msg)
+        raise NoSegmentsToDownload(_nothing_to_download_msg)
 
     return segments
 

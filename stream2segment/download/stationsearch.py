@@ -9,7 +9,7 @@ import logging
 import numpy as np
 import pandas as pd
 
-from stream2segment.download.utils import NothingToDownload, FailedDownload
+from stream2segment.download.utils import NoSegmentsToDownload, FailedDownload
 from stream2segment.io.db.models import Event, Channel, Segment
 from stream2segment.io.utils import get_progressbar
 from stream2segment.download.events import (
@@ -101,7 +101,7 @@ def merge_events_stations(
     # create total segments dataframe:
     # first check we have data:
     if not ret:
-        raise NothingToDownload("No stations found within events search area")
+        raise NoSegmentsToDownload("No stations found within events search area")
     # now concat:
     ret = pd.concat(ret, axis=0, ignore_index=True)
 
