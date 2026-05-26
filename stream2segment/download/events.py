@@ -38,7 +38,7 @@ time_col = Event.time.key
 url_col = WebService.url.key
 magtype_col = Event.mag_type.key
 
-
+# catalog shortcuts (remember to keep the download.yml doc in sync with this list):
 EVENTWS_MAPPING = {
     'emsc':  'https://www.seismicportal.eu/fdsnws/event/1/query',
     'isc':   'https://www.isc.ac.uk/fdsnws/event/1/query',
@@ -57,7 +57,7 @@ def get_events(
     evt_query_args: dict,
     start: datetime,
     end: datetime,
-    download_timeout,
+    download_timeout: int,
     event_overlap_tolerance: dict,
     on_event_conflict: Literal["keep", "discard"] | str = "keep",
     show_progress=True,
@@ -298,10 +298,10 @@ def read_events(content: str | Path) -> pd.DataFrame:
         for names, sql_col_name in col_names.items():
             keys = set(names) & dfr_columns
             if not keys:
-                raise Exception(f"No column named {names[0]} in {content}")
+                raise Exception(f"No column named {repr(names[0])} event catalog")
             elif len(keys) != 1 and names[0] != 'id':
                 raise Exception(
-                    f"Conflict: Multiple column named {names} in {content}"
+                    f"Conflict: Multiple column(s) for {repr(names)} in event catalog"
                 )
             rename[list(keys)[0]] = sql_col_name
 

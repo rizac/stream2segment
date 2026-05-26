@@ -39,7 +39,8 @@ def get_host(url: str | Request, default_scheme="https://") -> str:
 
 
 def _get_opener(base_url, user, password):
-    """Return an opener to be used for downloading data with a given user and password.
+    """
+    Return an opener to be used for downloading data with a given user and password.
     All arguments should be strings. For info see:
 
 
@@ -89,7 +90,7 @@ class Response:
     """
     Lightweight data class representing a Response object with two arguments:
 
-    - data (`bytes` or `str` or `Exception`) is the response content, usually bytes or,
+    - data (any object, usually `bytes` or `str`) is the response content.
       if data read was decoded, `str`. If an exception was raised, data is the
       exception object (with __traceback__, __context__ and __cause__
       all set to None for performance reason). `data` can also be manually set to
@@ -101,7 +102,7 @@ class Response:
     - request: The request (URL string or Request object) generating the Response
     """
 
-    data: str | bytes | dict | object
+    data: object
     status_code: int
     request: str | Request
 
@@ -120,32 +121,16 @@ class Response:
         if self.is_ok:
             return f'Data successfully downloaded from {self.request_url}'
 
-        status_message = None
+        msg = "unknown cause"
         if self.status_code in responses:
-            status_message = (
-                f'status message: {responses[self.status_code]}, '
-                f'code {self.status_code}'
-            )
-        if 200 <= self.status_code <= 299 or not self.data:
-            if status_message is None:
-                status_message = 'status message unknown'
-            return (
-                f'Invalid data ({status_message}) downloaded from {self.request_url}'
-            )
-        if status_message is None:
-            if isinstance(self.data, str):
-                status_message = self.data
-            else:
-                status_message = f'status message unknown'
-        return f'Failed download ({status_message}) from {self.request_url}'
+            msg = responses[self.status_code].lower()
+            if self.status_code in builtin_responses:
+                msg += f' (http code {self.status_code})'
+
+        return f'Download unsuccessful, {msg}. Source: {self.request_url}'
 
     def __repr__(self):
-        return (
-            f'{self.__class__.__name__}('
-            f'status_code={self.status_code}, '
-            f'request={self.request!r}, '
-            f'data={type(self.data).__name__})'
-        )
+        return f'{self.__class__.__name__}({self.status_code}, {self.request!r})'
 
 
 def read_url(
