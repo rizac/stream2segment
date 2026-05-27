@@ -25,7 +25,7 @@ import numpy as np
 from sqlalchemy import select, func
 import yaml
 from obspy.core.event import Event
-from obspy import Stream, Inventory
+from obspy import Stream, Inventory, read, read_events
 from obspy.geodetics import locations2degrees, degrees2kilometers
 
 from stream2segment.io.db import secure_dburl, create_engine
@@ -299,6 +299,25 @@ def imap(
         with engine.connect() as conn:
             total = conn.execute(stmt_count).scalar_one()
 
+
+    with start_logging(logger, create_log_handlers(logfile, verbose)):
+        try:
+            stime = time.time()
+
+            if not multi_process:
+                stream_grouped(
+                    engine, stmt, chunksize)
+
+            logger.info(
+                f"Completed in {timedelta(seconds=round((time.time()) - stime))}"
+            )
+        except KeyboardInterrupt:
+            logger.critical("Aborted by user")  # see comment above
+            raise
+        except:  # noqa
+            logger.critical("Process aborted", exc_info=True)  # see comment above
+            raise
+
     # seg_ids = fetch_segments_ids(dburl, segments_selection)
 
     with start_processing(logfile, verbose):
@@ -446,7 +465,7 @@ def _valid_pyfunc(pyfunc):
 
 
 
-def build_select(where_conditions=None):
+def build_select(where_conditions=None, orderby=False):
     """
     Minimal, portable SELECT.
 
@@ -475,64 +494,145 @@ def build_select(where_conditions=None):
     if where_conditions:
         stmt = exprquery(stmt, where_conditions)  # FIXME
 
-    # ALWAYS ORDERED (required for deterministic streaming + grouping)
-    stmt = stmt.order_by(
-        Channel.network_code,
-        Channel.station_code,
-        Channel.location_code,
-        Channel.band_code,
-        Channel.instrument_code,
-        Segment.id,
-    )
+    if orderby:
+        # ALWAYS ORDERED (required for deterministic streaming + grouping)
+        stmt = stmt.order_by(
+            Channel.network_code,
+            Channel.station_code,
+            Channel.location_code,
+            Channel.band_code,
+            Channel.instrument_code,
+            Segment.id,
+        )
 
     return stmt
 
 
-def stream_grouped(engine, stmt, chunksize):
-    """
-    Yields COMPLETE orientation groups safely,
-    even if groups span multiple DB fetch chunks.
-    """
+def stream_grouped(engine, where_condition, chunksize):
 
-    current_key = None
     buffer = []
 
-    def key_of(row):
-        return (
-            row.Channel.network_code,
-            row.Channel.station_code,
-            row.Channel.location_code,
-            row.Channel.band_code,
-            row.Channel.instrument_code,
-        )
+    stmt = build_select(where_condition, orderby=True)
 
     with engine.connect() as conn:
+
         result = conn.execution_options(stream_results=True).execute(stmt)
 
         while True:
+
             chunk = result.fetchmany(chunksize)
+
             if not chunk:
                 break
 
-            for row in chunk:
-                k = key_of(row)
+            buffer.extend(chunk)
 
-                # first row
-                if current_key is None:
-                    current_key = k
+            # find start index of trailing incomplete group
+            split_idx = len(buffer)
 
-                # group boundary detected
-                if k != current_key:
-                    yield buffer   # FULL group guaranteed
-                    buffer = []
-                    current_key = k
+            while (
+                split_idx > 1 and
+                same_group(buffer[split_idx - 1], buffer[split_idx - 2])
+            ):
+                split_idx -= 1
 
-                buffer.append(row)
+            # whole buffer belongs to same group
+            if split_idx == 1:
+                continue
 
-        # flush last group
+            # yield only complete groups
+            yield buffer[:split_idx - 1]
+
+            # keep trailing incomplete group
+            buffer = buffer[split_idx - 1:]
+
+        # flush final group
         if buffer:
             yield buffer
 
+
+def same_group(a, b):
+    return (
+        a.network_code == b.network_code and
+        a.station_code == b.station_code and
+        a.location_code == b.location_code and
+        a.band_code == b.band_code and
+        a.instrument_code == b.instrument_code
+    )
+
+
+# CONVERT DB ROWS -> pyfunc ARGUMENTS
+# THIS is what multiprocessing consumes
+
+
+_inventory_cache = {}
+
+
+def build_pyfunc_args(group_rows, config):
+    """
+    return:
+        (
+            segment: Stream,
+            station: Inventory,
+            event: Event,
+            metadata: SegmentMetadata,
+            config: dict
+        )
+    """
+
+    first = group_rows[0]
+
+    inventory = None
+
+    stationxml_id = first.stationxml_id
+
+    if stationxml_id is not None:
+        inventory = _inventory_cache.get(stationxml_id)
+        if inventory is None:
+            inventory = read(first.stationxml, format='STATIONXML')
+            _inventory_cache[stationxml_id] = inventory
+
+    stream = Stream()
+    for row in group_rows:
+        stream += read(row.mseed.data, format='MSEED')
+    start_time = stream[0].stats.starttime
+
+    event_dc = Event(
+        group_rows[0].event.longitude,
+        group_rows[0].event.latitude,
+        group_rows[0].event.depth_km,
+        group_rows[0].event.time,
+        group_rows[0].event.magnitude,
+        group_rows[0].event.magnitude_type
+    )
+    if first.quakeml is not None:
+        event = read_events(first.quakeml, format='QUAKEML')
+    else:
+        event = event_dc
+
+    #
+    # mapping = {
+    #     f'{g.network_code}.{g.network_code}.{g.network_code}.{g.network_code}': g
+    #     for g in group_rows
+    # }
+    segment = Segment(
+        # ids={g: g.id for g in group_rows},
+        arrival_time=start_time.datetime + timedelta(seconds=group_rows[0].noise_window_s),
+        station_latitude=group_rows[0].channel.latitude,
+        station_longitude=group_rows[0].channel.longitude,
+        # channel_dip={g: g.channel.dip for g in group_rows},
+        channel_depth=group_rows[0].channel.depth,
+        # channel_azimuth={g: g.channel.azimuth for g in group_rows},
+        event = event_dc
+    )
+
+    return (
+        stream,
+        inventory,
+        event,
+        segment,
+        config,
+    )
 
 # def fetch_segments_ids(dburl, segments_selection, writer=None):
 #     """Return the numpy array of segments ids to process
@@ -820,11 +920,21 @@ def process_segments(
 
 
 @dataclass(frozen=True, slots=True)
-class SegmentMeta:
+class Event:
+    latitude: float
+    longitude: float
+    depth_km: float
+    time: datetime
+    magnitude: float
+    magnitude_type: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class Segment:
     ids: dict[str, int]
     arrival_time: datetime
-    network_code: str
-    station_code: str
+    # network_code: str
+    # station_code: str
     # location_code: str
     # channel_band_code: str
     # channel_instrument_code: str
@@ -833,14 +943,10 @@ class SegmentMeta:
     station_longitude: float
     channel_sample_rate: float
     channel_depth: float
-    # channel_azimuth: float
-    # channel_dip: float
-    event_latitude: float
-    event_longitude: float
-    event_depth_km: float
-    event_time: datetime
-    event_magnitude: float
-    event_magnitude_type: str
+    channel_azimuth: dict[str, int]
+    channel_dip: dict[str, int]
+    event: Event
+
 
     # @property
     # def channel_code(self) -> str:
@@ -864,8 +970,8 @@ class SegmentMeta:
         return locations2degrees(
             lat1=self.station_latitude,
             long1=self.station_longitude,
-            lat2=self.event_latitude,
-            long2=self.event_longitude
+            lat2=self.event.latitude,
+            long2=self.event.longitude
         )
 
     @property
