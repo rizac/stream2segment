@@ -15,6 +15,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import timedelta, datetime, UTC
 import warnings
+from io import BytesIO
 from multiprocessing import Pool, cpu_count
 import signal
 from itertools import chain, repeat
@@ -22,7 +23,7 @@ import inspect
 from pathlib import Path
 
 import numpy as np
-from sqlalchemy import select, func, tuple_
+from sqlalchemy import select, func, tuple_, Engine
 import yaml
 from obspy.core.event import Event
 from obspy import Stream, Inventory, read, read_events
@@ -481,8 +482,8 @@ def build_select(where_conditions=None):
         select(
             Segment,
             MiniSeed.data.label("mseed"),
-            StationXML.data.label("stationxml"),
-            QuakeML.data.label("quakeml"),
+            StationXML.id.label("stationxml_id"),
+            QuakeML.id.label("quakeml_id"),
             Channel,
             Event
         )
@@ -513,7 +514,7 @@ def build_select(where_conditions=None):
 
 def stream_grouped(engine, where_condition, group_by_orientation, chunksize):
 
-    orderby_columns = (Segment.id,)
+    orderby_columns = (StationXML.id, Segment.id)
 
     if group_by_orientation:
         orderby_columns = (
@@ -522,6 +523,7 @@ def stream_grouped(engine, where_condition, group_by_orientation, chunksize):
             Channel.location_code,
             Channel.instrument_code,
             Channel.band_code,
+            Segment.event_id,
             Segment.id
         )
 
@@ -544,7 +546,7 @@ def stream_grouped(engine, where_condition, group_by_orientation, chunksize):
 
         if not group_by_orientation:
             last_key = (rows[-1].id,)
-            yield [db_to_obspy(r) for r in rows]
+            yield [db_to_obspy(engine, r) for r in rows]
             continue
 
         buffer.extend(rows)
@@ -565,22 +567,24 @@ def stream_grouped(engine, where_condition, group_by_orientation, chunksize):
             rows[-1].Channel.location_code,
             rows[-1].Channel.instrument_code,
             rows[-1].Channel.band_code,
+            rows[-1].event_id,
             rows[-1].id,
         )
-        yield [db_to_obspy(*r) for r in split_in_same_group_chunks(to_yield)]
+        yield [db_to_obspy(engine, *r) for r in split_in_same_group_chunks(to_yield)]
 
     if buffer:
         # surely group by orientation:
-        yield [db_to_obspy(*b) for b in split_in_same_group_chunks(buffer)]
+        yield [db_to_obspy(engine, *b) for b in split_in_same_group_chunks(buffer)]
 
 
-def same_group(a, b):
+def same_group(row1, row2):
     return (
-        a.network_code == b.network_code and
-        a.station_code == b.station_code and
-        a.location_code == b.location_code and
-        a.band_code == b.band_code and
-        a.instrument_code == b.instrument_code
+        row1.Channel.network_code == row2.Channel.network_code and
+        row1.Channel.station_code == row2.Channel.station_code and
+        row1.Channel.location_code == row2.Channel.location_code and
+        row1.Channel.band_code == row2.Channel.band_code and
+        row1.Channel.instrument_code == row2.Channel.instrument_code and
+        row1.event_id == row2.event_id
     )
 
 
@@ -598,14 +602,14 @@ def split_in_same_group_chunks(rows):
 
 
 _inventory_cache = {}
-_inventory_cache_maxsize = estimate_buffer_size('stationxml')
-_events_cache = {}
-_events_cache_maxsize = estimate_buffer_size('quakeml')
+_inventory_cache_maxsize = estimate_buffer_size('stationxml', memory_fraction=0.15)
+_event_cache = {}
+_event_cache_maxsize = estimate_buffer_size('quakeml', memory_fraction=0.05)
 
 
 
 def db_to_obspy(
-    *db_rows
+    engine: Engine, *db_rows
 ) -> tuple[Stream, Inventory | S2Sstation, Event | S2Sevent]:
     """
     return:
@@ -626,10 +630,15 @@ def db_to_obspy(
             while len(_inventory_cache) >= _inventory_cache_maxsize:
                 _inventory_cache.pop(next(iter(_inventory_cache)))
             try:
-                inventory = read(first_row.stationxml, format='STATIONXML')
+                with engine.connect() as conn:
+                    data = conn.execute(select(StationXML.data).where(
+                        StationXML.id == stationxml_id)
+                    ).scalar_one_or_none()
+                inventory = read(BytesIO(data), format='STATIONXML')
+                _inventory_cache[stationxml_id] = inventory
             except Exception as e:
                 logger.warning(e)  # FIXME automatize
-            _inventory_cache[stationxml_id] = inventory
+
     else:
         inventory = S2Sstation(
             longitude=first_row.channel.longitude,
@@ -640,10 +649,21 @@ def db_to_obspy(
             elevation=first_row.channel.elevation
         )
 
-
-    if first_row.quakeml is not None:
-        event = _events_cache.get(stationxml_id)
-        event = read_events(first_row.quakeml, format='QUAKEML')
+    quakeml_id = first_row.quakeml_id
+    if quakeml_id is not None:
+        event = _event_cache.get(quakeml_id)
+        if event is None:
+            while len(_event_cache) >= _event_cache_maxsize:
+                _event_cache.pop(next(iter(_event_cache)))
+            try:
+                with engine.connect() as conn:
+                    data = conn.execute(select(QuakeML.data).where(
+                        QuakeML.id == quakeml_id)
+                    ).scalar_one_or_none()
+                event = read(BytesIO(data), format='QUEKEML')
+                _event_cache[quakeml_id] = event
+            except Exception as e:
+                logger.warning(e)  # FIXME automatizeelse:
     else:
         event = S2Sevent(
             longitude=first_row.event.longitude,
