@@ -26,7 +26,7 @@ from stream2segment.download.mseedlite import MSeedError, Input
 from stream2segment.download.stationsearch import (
     atime_col, dist_col, ev_id_col, ch_id_col
 )
-from stream2segment.io.utils import get_progressbar
+from stream2segment.io.utils import get_progressbar, estimate_buffer_size
 from stream2segment.io.db.pdsql import (
     sync_pkey, get_row_count, get_col_max, insert, executemany, fetch_df, select
 )
@@ -185,7 +185,7 @@ def download_and_save(
     # report seg. errors only once per error type and data center:
     id_once_filter: IdOnceLogFilter | None = None
 
-    db_bufsize = compute_db_buf_size(1)  # avg size of 10 minutes MiniSeed in Mb
+    db_bufsize = estimate_buffer_size('miniseed')  # avg size of MiniSeed as benchmark
 
     processed_indices = []
     # this is the maximum id (primary key) of NoDataSegments.
@@ -600,16 +600,3 @@ class DownloadStats:
             na_rep="",
             formatters={col: "{:,}".format for col in df.columns}
         )
-
-
-def compute_db_buf_size(
-    item_avg_size_mb: float,
-    max_mem_fraction: float = 0.2,
-    hard_cap_mb: int = 4096
-) -> int:
-    mem = psutil.virtual_memory()
-
-    available_mb = mem.available / (1024 ** 2)
-    usable_mb = min(available_mb * max_mem_fraction, hard_cap_mb)
-
-    return max(1, int(usable_mb // item_avg_size_mb))

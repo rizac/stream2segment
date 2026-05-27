@@ -6,6 +6,7 @@ import logging
 from logging import Logger
 from contextlib import contextmanager
 from itertools import chain
+import psutil
 
 from click import progressbar as click_progressbar
 
@@ -145,3 +146,31 @@ def start_logging(logger: Logger, handlers: list[logging.Handler]):
             except Exception:  # noqa
                 pass
             logger.removeHandler(handler)
+
+
+def estimate_buffer_size(
+    item_size_mb: float | str,
+    memory_fraction: float = 0.2,
+):
+    """
+    Estimate buffer/cache size based on available RAM.
+
+    item_size_mb can be:
+    - float (MB per item)
+    - 'stationxml' -> 1.0 MB
+    - 'quakeml'    -> 0.1 MB
+    - 'miniseed'   -> 1.0 MB (default safe estimate)
+    """
+
+    if isinstance(item_size_mb, str):
+        item_size_mb = {
+            "stationxml": 1.0,
+            "quakeml": 0.1,
+            "miniseed": 1.0,
+        }[item_size_mb.lower()]
+
+    available_mem_mb = psutil.virtual_memory().available / (1024**2)
+
+    usable_mem_mb = available_mem_mb * memory_fraction
+
+    return max(1, int(usable_mem_mb / float(item_size_mb)))
