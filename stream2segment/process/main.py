@@ -354,8 +354,17 @@ def start_processing(logfile: str, verbose: bool):
             raise
 
 
-def run_and_yield(dburl, seg_ids, pyfunc, config, show_progress=False,
-                  multi_process=False, chunksize=None, skip_exceptions=None):
+def run_and_yield(
+    dburl,
+    segments_selection,
+    pyfunc,
+    config,
+    group_by_orientation=False,
+    show_progress=False,
+    multi_process=False,
+    chunksize=None,
+    skip_exceptions=None
+):
     """Run `pyfunc(segment, config)` on each given segment and yields its output
     as the tuple
     ```(output, segment_id)```
@@ -394,7 +403,16 @@ def run_and_yield(dburl, seg_ids, pyfunc, config, show_progress=False,
     _valid_pyfunc(pyfunc)
 
     done, errors = 0, 0
-    seg_len = len(seg_ids)
+
+    stmt = build_select(segments_selection)
+
+    total = 0
+    engine = create_engine(dburl, check_db_existence=True)
+    if show_progress:
+        stmt_count = select(func.count()).select_from(stmt.subquery())
+        with engine.connect() as conn:
+            total = conn.execute(stmt_count).scalar_one()
+
     num_processes = 0
     if multi_process is True:
         num_processes = cpu_count()  # or None (let's set it directly here though)
@@ -402,35 +420,39 @@ def run_and_yield(dburl, seg_ids, pyfunc, config, show_progress=False,
         num_processes = max(0, int(multi_process))
 
     if chunksize is None:
-        chunksize = get_default_chunksize(seg_len, show_progress)
+        chunksize = estimate_buffer_size(50, 0.1)
 
     if skip_exceptions is None:
         skip_exceptions = [SkipSegment]
     skip_exceptions = tuple(skip_exceptions)  # for safety, in case list
 
-    stmt = build_select()
     # `create_processing_env` redirects Python BUT ALSO external libraries errors which
     # might mess up the terminal printout (e.g. progressbar). Python warnings should be
     # redirected as well because normally printed to `stderr`, so avoid capturing them
     # (`warnings_filter=None`). `create_processing_env` is also called in Python
     # subprocesses, if present. For info see :func:`process_segments_mp`
     with create_processing_env(
-        seg_len if show_progress else 0,
+        total,
         redirect_stderr=sys.stderr.isatty(),
         warnings_filter=None
     ) as pbar:
 
-        if show_progress and seg_len:
+        if show_progress and total:
             # Show the progressbar now, because the 1st chunk might be ready in minutes,
             # and an empty screen might give the impression of a program hang:
             time.sleep(0.5)
             pbar.render_progress()
 
-        where
+        db_chunks = stream_grouped(
+            engine, segments_selection, group_by_orientation, chunksize
+        )
+        pyfunc_args =  ((*args, config) for args in db_chunks)
+
         if num_processes:
             itr = process_mp(dburl, pyfunc, config, get_slices(seg_ids, chunksize),
                              pbar, num_processes, skip_exceptions)
         else:
+            itr = process_segments()
             itr = process_simple(dburl, pyfunc, config, get_slices(seg_ids, chunksize),
                                  pbar, skip_exceptions)
 
@@ -480,7 +502,7 @@ def build_select(where_conditions=None):
 
     stmt = (
         select(
-            Segment,
+            Segment.id,
             MiniSeed.data.label("mseed"),
             StationXML.id.label("stationxml_id"),
             QuakeML.id.label("quakeml_id"),
@@ -514,7 +536,7 @@ def build_select(where_conditions=None):
 
 def stream_grouped(engine, where_condition, group_by_orientation, chunksize):
 
-    orderby_columns = (StationXML.id, Segment.id)
+    orderby_columns = (StationXML.id, Segment.event_id, Segment.id)
 
     if group_by_orientation:
         orderby_columns = (
@@ -545,7 +567,7 @@ def stream_grouped(engine, where_condition, group_by_orientation, chunksize):
             break
 
         if not group_by_orientation:
-            last_key = (rows[-1].id,)
+            last_key = (rows[-1].stationxml_id, rows[-1].event_id, rows[-1].id)
             yield [db_to_obspy(engine, r) for r in rows]
             continue
 
@@ -623,6 +645,7 @@ def db_to_obspy(
     """
     first_row = db_rows[0]
 
+    inventory=None
     stationxml_id = first_row.stationxml_id
     if stationxml_id is not None:
         inventory = _inventory_cache.get(stationxml_id)
@@ -639,16 +662,7 @@ def db_to_obspy(
             except Exception as e:
                 logger.warning(e)  # FIXME automatize
 
-    else:
-        inventory = S2Sstation(
-            longitude=first_row.channel.longitude,
-            latitude=first_row.channel.latitude,
-            network_code=first_row.channel.network_code,
-            station_code=first_row.channel.station_code,
-            depth=first_row.channel.depth,
-            elevation=first_row.channel.elevation
-        )
-
+    event=None
     quakeml_id = first_row.quakeml_id
     if quakeml_id is not None:
         event = _event_cache.get(quakeml_id)
@@ -664,54 +678,30 @@ def db_to_obspy(
                 _event_cache[quakeml_id] = event
             except Exception as e:
                 logger.warning(e)  # FIXME automatizeelse:
-    else:
-        event = S2Sevent(
-            longitude=first_row.event.longitude,
-            latitude=first_row.event.latitude,
-            depth_km=first_row.event.depth_km,
-            time=first_row.event.time,
-            magnitude=first_row.event.magnitude,
-            magnitude_type=first_row.event.magnitude_type
-        )
-
-    #
-    # mapping = {
-    #     f'{g.network_code}.{g.network_code}.{g.network_code}.{g.network_code}': g
-    #     for g in group_rows
-    # }
-    # segment = S2Ssegment(
-    #     # ids={g: g.id for g in group_rows},
-    #     arrival_time=start_time.datetime + timedelta(seconds=db_rows[0].noise_window_s),
-    #     station_latitude=db_rows[0].channel.latitude,
-    #     station_longitude=db_rows[0].channel.longitude,
-    #     # channel_dip={g: g.channel.dip for g in group_rows},
-    #     channel_depth=db_rows[0].channel.depth,
-    #     # channel_azimuth={g: g.channel.azimuth for g in group_rows},
-    #     event = event_dc
-    # )
-
-    # stream = Stream()
-    # for row in db_rows:
-    #     stream += read(row.mseed.data, format='MSEED')
-    # start_time = stream[0].stats.starttime
 
     stream = Stream()
     for db_row in db_rows:
-        db_id = db_row.id
-        _stream = read(db_row.mseed.data, format='MSEED')
-        ev_dist_deg = locations2degrees(
-            lat1=db_row.channel.latitude,
-            long1=db_row.channel.longitude,
-            lat2=db_row.event.latitude,
-            long2=db_row.event.longitude
-        )
+        _stream = read(db_row.MiniSeed.data, format='MSEED')
         start_time = _stream[0].stats.starttime.datetime
         arrival_time = start_time + timedelta(seconds=db_row.noise_window_s)
-
+        s_meta = S2Ssegment(
+            id=db_row.id,
+            latitude=db_row.Channel.latitude,
+            longitude=db_row.Channel.longitude,
+            depth=db_row.Channel.depth,
+            dip=db_row.Channel.dip,
+            azimuth=db_row.Channel.azimuth,
+            elevation=db_row.Channel.elevation,
+            arrival_time=arrival_time,
+            event_latitude=db_row.Event.latitude,
+            event_longitude=db_row.Event.longitude,
+            event_depth_km=db_row.Event.depth_km,
+            event_time=db_row.Event.time,
+            event_magnitude=db_row.Event.magnitude,
+            event_magnitude_type=db_row.Event.magtype
+        )
         for t in _stream:
-            t.stats.s2s = S2Ssegment(
-                db_id=db_id, arrival_time=arrival_time, event_distance_deg=ev_dist_deg
-            )
+            t.stats.s2s = s_meta
 
         stream += _stream
 
@@ -971,12 +961,13 @@ def process_segments_mp(args):
 #     # So we go for the full load
 
 def process_segments(
-    items: Iterable[tuple[Stream, Inventory | None, Event | None, SegmentMeta]],
+    items: Iterable[tuple[Stream, Inventory | None, Event | None, dict]],
     config, pyfunc,
     safe_exceptions_tuple
 ):
 
     for (stream, inv, evt, meta) in items:
+
         try:
             yield pyfunc(stream, inv, evt, meta, config), True, list(meta.id.values())
         except safe_exceptions_tuple as exc:
@@ -1033,20 +1024,29 @@ class S2Sstation:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class S2Ssegment:
-    db_id: int
-    # latitude: float
-    # longitude: float
+    id: int
+    latitude: float
+    longitude: float
+    depth: float
+    dip: float
+    azimuth: float
+    elevation: float
     arrival_time: datetime
-    event_distance_deg: float
+    event_latitude: float
+    event_longitude: float
+    event_depth_km: float
+    event_time: datetime
+    event_magnitude: float
+    event_magnitude_type: str
 
-    # @property
-    # def event_distance_deg(self) -> float:
-    #     return locations2degrees(
-    #         lat1=self.latitude,
-    #         long1=self.longitude,
-    #         lat2=self.event.latitude,
-    #         long2=self.event.longitude
-    #     )
+    @property
+    def event_distance_deg(self) -> float:
+        return locations2degrees(
+            lat1=self.latitude,
+            long1=self.longitude,
+            lat2=self.event_latitude,
+            long2=self.event_longitude
+        )
 
     @property
     def event_distance_km(self) -> float:
