@@ -1,10 +1,7 @@
 """
-Main module for the segment processing and .csv output
-
-Created on Feb 2, 2017
-
-.. moduleauthor:: <rizac@gfz-potsdam.de>
+Processing functions
 """
+# Feb 2, 2017
 from __future__ import annotations
 import os
 import time
@@ -25,14 +22,15 @@ from pathlib import Path
 import numpy as np
 from sqlalchemy import select, func, tuple_, Engine
 import yaml
-from obspy.core.event import Event
+from obspy.core.event import Event as ObspyEvent
 from obspy import Stream, Inventory, read, read_events
 from obspy.geodetics import locations2degrees, degrees2kilometers
 
-from stream2segment.io.db import secure_dburl, create_engine
+from stream2segment.io.db import secure_dburl, create_engine, models
 from stream2segment.io.db.models import (
     StationXML, Channel, Segment, Event, QuakeML, MiniSeed
 )
+
 # from stream2segment.io import yaml_load
 # from stream2segment.io.db import secure_dburl, close_session
 from stream2segment.process.db.sqlevalexpr import exprquery
@@ -245,6 +243,7 @@ def imap(
     dburl: str,
     segments_selection: dict | None=None,
     config: dict | None=None,
+    group_by_orientation: bool = False,
     logfile: str='',
     verbose=False,
     multi_process=False,
@@ -292,103 +291,114 @@ def imap(
         execution but will be logged to file, with the relative segment id. When missing
         or None, it defaults to :class:`stream2segmetn.process.SkipExeption`
     """
-    stmt = build_select(segments_selection)
+#     stmt = build_select(segments_selection)
+#
+#     total = 0
+#     engine = create_engine(dburl,check_db_existence=True)
+#     if verbose:
+#         stmt_count = select(func.count()).select_from(stmt.subquery())
+#         with engine.connect() as conn:
+#             total = conn.execute(stmt_count).scalar_one()
+#
+#
+#     with start_logging(logger, create_log_handlers(logfile, verbose)):
+#         try:
+#             stime = time.time()
+#
+#             if not multi_process:
+#                 stream_grouped(
+#                     engine, stmt, chunksize)
+#
+#             logger.info(
+#                 f"Completed in {timedelta(seconds=round((time.time()) - stime))}"
+#             )
+#         except KeyboardInterrupt:
+#             logger.critical("Aborted by user")  # see comment above
+#             raise
+#         except:  # noqa
+#             logger.critical("Process aborted", exc_info=True)  # see comment above
+#             raise
+#
+#     # seg_ids = fetch_segments_ids(dburl, segments_selection)
+#
+#     with start_processing(logfile, verbose):
+#         for result, seg_id in run_and_yield(
+#             dburl,
+#             seg_ids,
+#             pyfunc,
+#             config,
+#             total,
+#             multi_process,
+#             chunksize,
+#             skip_exceptions
+#         ):
+#             yield result
+#
+#
+# @contextmanager
+# def start_processing(logfile: str, verbose: bool):
+#     """Contextmanager handling log stuff and closing session at the end"""
+#     with start_logging(logger, create_log_handlers(logfile, verbose)):
+#         try:
+#             stime = time.time()
+#             yield
+#             logger.info(
+#                 f"Completed in {timedelta(seconds=round((time.time()) - stime))}"
+#             )
+#         except KeyboardInterrupt:
+#             logger.critical("Aborted by user")  # see comment above
+#             raise
+#         except:  # noqa
+#             logger.critical("Process aborted", exc_info=True)  # see comment above
+#             raise
+#
+# # pyfunc: Callable,
+# #     dburl: str,
+# #     segments_selection: dict | None=None,
+# #     config: dict | None=None,
+# #     logfile: str='',
+# #     verbose=False,
+# #     multi_process=False,
+# #     chunksize=None,
+# #     skip_exceptions=None
+#
+# def imap(
+#     pyfunc: Callable,
+#     dburl: str,
+#     segments_selection: dict | None = None,
+#     config: dict | None = None,
+#     group_by_orientation: bool = False,
+#     logfile: str = '',
+#     verbose=False,
+#     multi_process=False,
+#     chunksize=None,
+#     skip_exceptions=None
+# ):
+#     """Run `pyfunc(segment, config)` on each given segment and yields its output
+#     as the tuple
+#     ```(output, segment_id)```
+#
+#     :param dburl: string database URL
+#     :param pyfunc: a Python function accepting as arguments a given segment object and
+#         a `dict` of optional user-defined parameters. The function will be called with
+#         any given segment and the provided `config` argument. The argument can also be
+#         a path to a Python module, with optional double semicolon separating the name
+#         of the function to search therein. Use this latter option when multi_process is
+#         on to avoid pickable problems, e.g. if the function has to be loaded from custom
+#         file.
+#     :param config: dict of configuration parameters, usually the result of an associated
+#         YAML configuration file, to be passed as second argument of `pyfunc`
+#     :param show_progress: (boolean, default False) whether to show progress bar
+#         and other info (e.g. remaining time, successfully processed segments) on the
+#         standard output (usually, the terminal window)
+#     :param multi_process: (bool, or numeric) Use multiprocessing.Pool. A numeric value
+#         will be equal to true, using a Pool with the specified number of processes (only
+#         for advanced users: true is fine and sufficient in most cases)
+#     :param skip_exceptions: tuple of Python exceptions that will not interrupt the whole
+#         execution but will be logged to file, with the relative segment id. When missing
+#         or None, it defaults to :class:`stream2segmetn.process.SkipExeption`
+#     """
 
-    total = 0
-    engine = create_engine(dburl,check_db_existence=True)
-    if verbose:
-        stmt_count = select(func.count()).select_from(stmt.subquery())
-        with engine.connect() as conn:
-            total = conn.execute(stmt_count).scalar_one()
-
-
-    with start_logging(logger, create_log_handlers(logfile, verbose)):
-        try:
-            stime = time.time()
-
-            if not multi_process:
-                stream_grouped(
-                    engine, stmt, chunksize)
-
-            logger.info(
-                f"Completed in {timedelta(seconds=round((time.time()) - stime))}"
-            )
-        except KeyboardInterrupt:
-            logger.critical("Aborted by user")  # see comment above
-            raise
-        except:  # noqa
-            logger.critical("Process aborted", exc_info=True)  # see comment above
-            raise
-
-    # seg_ids = fetch_segments_ids(dburl, segments_selection)
-
-    with start_processing(logfile, verbose):
-        for result, seg_id in run_and_yield(
-            dburl,
-            seg_ids,
-            pyfunc,
-            config,
-            total,
-            multi_process,
-            chunksize,
-            skip_exceptions
-        ):
-            yield result
-
-
-@contextmanager
-def start_processing(logfile: str, verbose: bool):
-    """Contextmanager handling log stuff and closing session at the end"""
-    with start_logging(logger, create_log_handlers(logfile, verbose)):
-        try:
-            stime = time.time()
-            yield
-            logger.info(
-                f"Completed in {timedelta(seconds=round((time.time()) - stime))}"
-            )
-        except KeyboardInterrupt:
-            logger.critical("Aborted by user")  # see comment above
-            raise
-        except:  # noqa
-            logger.critical("Process aborted", exc_info=True)  # see comment above
-            raise
-
-
-def run_and_yield(
-    dburl,
-    segments_selection,
-    pyfunc,
-    config,
-    group_by_orientation=False,
-    show_progress=False,
-    multi_process=False,
-    chunksize=None,
-    skip_exceptions=None
-):
-    """Run `pyfunc(segment, config)` on each given segment and yields its output
-    as the tuple
-    ```(output, segment_id)```
-
-    :param dburl: string database URL
-    :param pyfunc: a Python function accepting as arguments a given segment object and
-        a `dict` of optional user-defined parameters. The function will be called with
-        any given segment and the provided `config` argument. The argument can also be
-        a path to a Python module, with optional double semicolon separating the name
-        of the function to search therein. Use this latter option when multi_process is
-        on to avoid pickable problems, e.g. if the function has to be loaded from custom
-        file.
-    :param config: dict of configuration parameters, usually the result of an associated
-        YAML configuration file, to be passed as second argument of `pyfunc`
-    :param show_progress: (boolean, default False) whether to show progress bar
-        and other info (e.g. remaining time, successfully processed segments) on the
-        standard output (usually, the terminal window)
-    :param multi_process: (bool, or numeric) Use multiprocessing.Pool. A numeric value
-        will be equal to true, using a Pool with the specified number of processes (only
-        for advanced users: true is fine and sufficient in most cases)
-    :param skip_exceptions: tuple of Python exceptions that will not interrupt the whole
-        execution but will be logged to file, with the relative segment id. When missing
-        or None, it defaults to :class:`stream2segmetn.process.SkipExeption`
-    """
     # check params:
     if isinstance(config, str):
         try:
@@ -402,13 +412,11 @@ def run_and_yield(
 
     _valid_pyfunc(pyfunc)
 
-    done, errors = 0, 0
-
     stmt = build_select(segments_selection)
 
     total = 0
     engine = create_engine(dburl, check_db_existence=True)
-    if show_progress:
+    if verbose:
         stmt_count = select(func.count()).select_from(stmt.subquery())
         with engine.connect() as conn:
             total = conn.execute(stmt_count).scalar_one()
@@ -426,49 +434,95 @@ def run_and_yield(
         skip_exceptions = [SkipSegment]
     skip_exceptions = tuple(skip_exceptions)  # for safety, in case list
 
+    oks = 0
+    errors = 0
     # `create_processing_env` redirects Python BUT ALSO external libraries errors which
     # might mess up the terminal printout (e.g. progressbar). Python warnings should be
     # redirected as well because normally printed to `stderr`, so avoid capturing them
     # (`warnings_filter=None`). `create_processing_env` is also called in Python
     # subprocesses, if present. For info see :func:`process_segments_mp`
-    with create_processing_env(
-        total,
-        redirect_stderr=sys.stderr.isatty(),
-        warnings_filter=None
-    ) as pbar:
+    with (
+        start_logging(logger, create_log_handlers(logfile, verbose)),
+        create_processing_env(
+            total,
+            redirect_stderr=sys.stderr.isatty(),
+            warnings_filter=None
+        ) as pbar
+    ):
+        try:
+            if verbose and total:
+                # Show the progressbar now, because the 1st chunk might be ready in min,
+                # and an empty screen might give the impression of a program hang:
+                time.sleep(0.5)
+                pbar.render_progress()
 
-        if show_progress and total:
-            # Show the progressbar now, because the 1st chunk might be ready in minutes,
-            # and an empty screen might give the impression of a program hang:
-            time.sleep(0.5)
-            pbar.render_progress()
+            db_chunks = stream_grouped(
+                engine, segments_selection, group_by_orientation, chunksize
+            )
+            process_func_args =  (
+                (args, config, pyfunc, skip_exceptions) for args in db_chunks
+            )
 
-        db_chunks = stream_grouped(
-            engine, segments_selection, group_by_orientation, chunksize
-        )
-        pyfunc_args =  ((*args, config) for args in db_chunks)
+            stime = time.time()
 
-        if num_processes:
-            itr = process_mp(dburl, pyfunc, config, get_slices(seg_ids, chunksize),
-                             pbar, num_processes, skip_exceptions)
-        else:
-            itr = process_segments()
-            itr = process_simple(dburl, pyfunc, config, get_slices(seg_ids, chunksize),
-                                 pbar, skip_exceptions)
-
-        for output, is_ok, segment_id in itr:
-            if is_ok:
-                done += 1
+            if not num_processes:
+                for process_func_args_ in process_func_args:
+                    output, is_ok, ids = process_segments(*process_func_args_)
+                    pbar.update(len(ids))
+                    if is_ok:
+                        oks += len(ids)
+                        yield output
+                    else:
+                        errors += len(ids)
+                        logger.warning(
+                            f"segment id(s)={' ,'.join(ids)}): {str(output)}"
+                        )
             else:
-                logger.warning("segment (id=%d): %s", segment_id, str(output))
-                errors += 1
-            if is_ok:
-                yield output, segment_id
 
-    logger.info('')
-    logger.info("%d of %d segment(s) successfully processed", done, seg_len)
-    logger.info("%d of %d segment(s) skipped with error message "
-                "reported in the log file, if provided", errors, seg_len)
+                with Pool(
+                    processes=num_processes,
+                    initializer=_mp_initializer
+                ) as pool:
+
+                    try:
+
+                        for (output, is_ok, ids) in pool.imap_unordered(
+                            process_segments, process_func_args
+                        ):
+                            pbar.update(len(ids))
+                            if is_ok:
+                                oks += len(ids)
+                                yield output
+                            else:
+                                errors += len(ids)
+                                logger.warning(
+                                    f"segment id(s)={' ,'.join(ids)}): {str(output)}"
+                                )
+
+
+                    except Exception:
+                        # explicit terminate because we are yielding (generator)
+                        pool.terminate()
+                        raise
+
+            logger.info(
+                f"Completed in {timedelta(seconds=round((time.time()) - stime))}"
+            )
+
+            logger.info('')
+            logger.info(f"{oks} of {oks+errors} segment(s) successfully processed")
+            logger.info(
+                f"{errors} of {oks+errors} segment(s) skipped with error message "
+                f"reported in the log file, if provided"
+            )
+
+        except KeyboardInterrupt:
+            logger.critical("Aborted by user")  # see comment above
+            raise
+
+        except:  # noqa
+            logger.critical("Process aborted", exc_info=True)  # see comment above
+            raise
 
 
 def _valid_pyfunc(pyfunc):
@@ -632,7 +686,7 @@ _event_cache_maxsize = estimate_buffer_size('quakeml', memory_fraction=0.05)
 
 def db_to_obspy(
     engine: Engine, *db_rows
-) -> tuple[Stream, Inventory | S2Sstation, Event | S2Sevent]:
+) -> tuple[Stream, Inventory | None, ObspyEvent | None]:
     """
     return:
         (
@@ -674,7 +728,7 @@ def db_to_obspy(
                     data = conn.execute(select(QuakeML.data).where(
                         QuakeML.id == quakeml_id)
                     ).scalar_one_or_none()
-                event = read(BytesIO(data), format='QUEKEML')
+                event = read_events(BytesIO(data), format='QUEKEML')
                 _event_cache[quakeml_id] = event
             except Exception as e:
                 logger.warning(e)  # FIXME automatizeelse:
@@ -817,29 +871,29 @@ def _get_chunksize_defaults():
     return 600, 10
 
 
-def process_mp(dburl, pyfunc, config, seg_ids_chunks, pbar, num_processes,
-               safe_exceptions_tuple):
-    """Execute `pyfunc` using the multiprocessing Python module
-
-    :param seg_ids_chunks: iterable yielding numpy arrays of segment ids
-    """
-    pool = Pool(processes=num_processes, initializer=_mp_initializer)
-    try:
-        for results in \
-                pool.imap_unordered(process_segments_mp,
-                                    ((seg_ids_chunk, dburl, config, pyfunc,
-                                      safe_exceptions_tuple)
-                                     for seg_ids_chunk in seg_ids_chunks)):
-            for output, is_ok, segment_id in results:
-                yield output, is_ok, segment_id
-            pbar.update(len(results))
-    except:  # noqa
-        pool.terminate()
-        pool.join()
-        raise
-    else:
-        pool.close()
-        pool.join()
+# def process_mp(dburl, pyfunc, config, seg_ids_chunks, pbar, num_processes,
+#                safe_exceptions_tuple):
+#     """Execute `pyfunc` using the multiprocessing Python module
+#
+#     :param seg_ids_chunks: iterable yielding numpy arrays of segment ids
+#     """
+#     pool = Pool(processes=num_processes, initializer=_mp_initializer)
+#     try:
+#         for results in \
+#                 pool.imap_unordered(process_segments_mp,
+#                                     ((seg_ids_chunk, dburl, config, pyfunc,
+#                                       safe_exceptions_tuple)
+#                                      for seg_ids_chunk in seg_ids_chunks)):
+#             for output, is_ok, segment_id in results:
+#                 yield output, is_ok, segment_id
+#             pbar.update(len(results))
+#     except:  # noqa
+#         pool.terminate()
+#         pool.join()
+#         raise
+#     else:
+#         pool.close()
+#         pool.join()
 
 
 def _mp_initializer():
@@ -893,36 +947,36 @@ def _mp_initializer():
 #     session.add(segment)
 
 
-def process_segments_mp(args):
-    """Function to be used INSIDE A CHILD python-process to process a chunk of segments
-    Takes care of releasing db session and other stuff.
-
-    :param args: the tuple (seg_ids_chunk, dburl, config, func_or_pyfile, funcname)
-        where seg_ids_chunk is a numpy array of segment ids, dburl is the database
-        url (string), config is the config dict, pyfile is the path to the processing
-        module (string) and funcname is the processing function name to be called
-
-    :return: a list of (output, is_ok, segment_id) tuples, where output is the
-        output of the processing function name (either iterable or Exception), is_ok
-        (boolean) tells if `output` is NOT an Exception, and segment_id is the id of the
-        segment processed
-    """
-    seg_ids_chunk, dburl, config, pyfunc, safe_exceptions_tuple = args
-    session = get_session(dburl)
-    ret = []
-
-    # Do not capture external C libraries errors (we do it already in the parent process,
-    # and we do not want to mess up too much with leaking file descriptors, a complex
-    # topic) but use warnings_filter='ignore', to avoid redundant messages
-    with create_processing_env(0, redirect_stderr=False, warnings_filter='ignore'):
-        try:
-            for output, is_ok, segment in \
-                        process_segments(session, seg_ids_chunk, config, pyfunc,
-                                         safe_exceptions_tuple):
-                ret.append((output, is_ok, segment.id))
-            return ret
-        finally:
-            close_session(session)
+# def process_segments_mp(args):
+#     """Function to be used INSIDE A CHILD python-process to process a chunk of segments
+#     Takes care of releasing db session and other stuff.
+#
+#     :param args: the tuple (seg_ids_chunk, dburl, config, func_or_pyfile, funcname)
+#         where seg_ids_chunk is a numpy array of segment ids, dburl is the database
+#         url (string), config is the config dict, pyfile is the path to the processing
+#         module (string) and funcname is the processing function name to be called
+#
+#     :return: a list of (output, is_ok, segment_id) tuples, where output is the
+#         output of the processing function name (either iterable or Exception), is_ok
+#         (boolean) tells if `output` is NOT an Exception, and segment_id is the id of the
+#         segment processed
+#     """
+#     seg_ids_chunk, dburl, config, pyfunc, safe_exceptions_tuple = args
+#     session = get_session(dburl)
+#     ret = []
+#
+#     # Do not capture external C libraries errors (we do it already in the parent process,
+#     # and we do not want to mess up too much with leaking file descriptors, a complex
+#     # topic) but use warnings_filter='ignore', to avoid redundant messages
+#     with create_processing_env(0, redirect_stderr=False, warnings_filter='ignore'):
+#         try:
+#             for output, is_ok, segment in \
+#                         process_segments(session, seg_ids_chunk, config, pyfunc,
+#                                          safe_exceptions_tuple):
+#                 ret.append((output, is_ok, segment.id))
+#             return ret
+#         finally:
+#             close_session(session)
 
 
 # def process_segments(
@@ -967,11 +1021,11 @@ def process_segments(
 ):
 
     for (stream, inv, evt, meta) in items:
-
+        ids = set(t.stats.s2s.id for t in stream)
         try:
-            yield pyfunc(stream, inv, evt, meta, config), True, list(meta.id.values())
+            yield pyfunc(stream, inv, evt, meta, config), True, ids
         except safe_exceptions_tuple as exc:
-            yield exc, False, list(meta.id.values())
+            yield exc, False, ids
         except Exception:
             raise
 
@@ -997,29 +1051,29 @@ def process_segments(
 #         raise
 
 
-@dataclass(frozen=True, slots=True)
-class S2Sevent:
-    latitude: float
-    longitude: float
-    depth_km: float
-    time: datetime
-    magnitude: float
-    magnitude_type: str
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class S2Sstation:
-    # id: int | tuple[int]
-    network_code: str
-    station_code: str
-    latitude: float
-    longitude: float
-    elevation: float
-    depth: float
-    # sample_rate: float
-    # depth: float
-    # channel_azimuth: dict[str, int]
-    # channel_dip: dict[str, int]
+# @dataclass(frozen=True, slots=True)
+# class S2Sevent:
+#     latitude: float
+#     longitude: float
+#     depth_km: float
+#     time: datetime
+#     magnitude: float
+#     magnitude_type: str
+#
+#
+# @dataclass(frozen=True, slots=True, kw_only=True)
+# class S2Sstation:
+#     # id: int | tuple[int]
+#     network_code: str
+#     station_code: str
+#     latitude: float
+#     longitude: float
+#     elevation: float
+#     depth: float
+#     # sample_rate: float
+#     # depth: float
+#     # channel_azimuth: dict[str, int]
+#     # channel_dip: dict[str, int]
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
