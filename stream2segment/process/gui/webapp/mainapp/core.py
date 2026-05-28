@@ -1,10 +1,7 @@
 """
 Core functionalities for the main GUI web application (show command)
-
-:date: Jul 31, 2016
-
-.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
+# :date: Jul 31, 2016
 import math
 import contextlib
 import os
@@ -17,7 +14,7 @@ from obspy import Stream, Trace
 from obspy.core.utcdatetime import UTCDateTime
 
 from stream2segment.process import gui
-from stream2segment.process.inspectimport import iterfuncs
+from stream2segment.process.gui.introspection import scan_module
 from stream2segment.process.gui.webapp.mainapp import db
 
 
@@ -87,7 +84,7 @@ def init(app, session, pymodule=None, config=None, segments_selection=None):
 
     if pymodule:
         _reset_global_functions()
-        for function in iterfuncs(pymodule):
+        for function in scan_module(pymodule, functions=True, classes=False):
             att, pos, xaxis, yaxis = gui.get_func_attrs(function)
             if att == 'gui.preprocess':
                 global _preprocessfunc  # noqa

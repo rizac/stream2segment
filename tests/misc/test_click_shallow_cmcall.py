@@ -15,7 +15,7 @@ from click.testing import CliRunner
 from stream2segment.cli import cli
 from stream2segment.resources import get_templates_fpaths, get_templates_fpath
 from stream2segment.io import yaml_load
-from stream2segment.process.inspectimport import load_source
+from stream2segment.process.gui.introspection import load_source
 from stream2segment.cli import copy_example_files as copyeexfiles
 
 

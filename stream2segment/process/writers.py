@@ -1,267 +1,145 @@
 """
 Module handling the Writers, i.e. classes handling the IO operation from the
 processing function into a file
-
-Created on 22 May 2018
-
-.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
+# 22 May 2018
 import os
 import csv
+from collections.abc import Iterable, Sequence
+
 import pandas as pd
 
-HDF_FILE_EXTENSIONS = ['.hdf', '.h5', '.hdf5']
-# SEGMENT_ID_COLNAME = 'segment_db_id'
-# previous versions had different SEGMENT_ID_COLNAMEs:
-# _SEGMENT_ID_COLNAMES = (SEGMENT_ID_COLNAME, 'Segment.db.id')  # order matters
-HDF_DEFAULT_CHUNKSIZE = 10000
+hdf_file_extensions = ['.hdf', '.h5', '.hdf5']
 
 
-def get_writer(outputfile=None, append=False, options_dict=None):
+def get_writer(outputfile=None, append=False, options: dict | None = None):
     """Return the writer from the given outputfile (string denoting a file
     path, or None) and append flag (boolean)
     """
     if outputfile is None:
         return BaseWriter(outputfile, append)
-    if os.path.splitext(os.path.basename(outputfile))[1].lower() in \
-            HDF_FILE_EXTENSIONS:
-        return HDFWriter(outputfile, append, options_dict)
-    return CsvWriter(outputfile, append, options_dict)
+    file_ext = os.path.splitext(os.path.basename(outputfile))[1].lower()
+    if  file_ext in hdf_file_extensions:
+        return HDFWriter(outputfile, append, options)
+    return CsvWriter(outputfile, append, options)
 
 
 class BaseWriter:
-    """Base class, basically no-op: it can be used in a with statement but it's
-    basically no-op **IMPORTANT**: subclasses need to call super.__init__ !!!
-    """
+    """Base Writer, No-op"""
 
-    _SEGID_NOTFOUND_ERR = TypeError('Cannot append to file, segment_id column '
-                                    'name not found (was the file created with '
-                                    'this program?)')
-
-    def __init__(self, outputfile=None, append=False, options=None):
+    def __init__(self, output_file=None, append=False, options=None):
         self.append = append
-        self.outputfile = os.path.abspath(outputfile) if outputfile else None
-        self.outputfilehandle = None
+        self.output_file = os.path.abspath(output_file) if output_file else None
+        self.file_handle = None  # must have a close method
         self.options = {} if options is None else options
-        # self._isbasewriter = self.__class__ is BaseWriter
-        self._segment_id_colname = SEGMENT_ID_COLNAME
-        # self._segment_id_colname could be retrieved from outputfile
-        # but append must be True, outputfile must exist and be non empty:
-        if append and self.outputfileexists and not self.outputfileempty:
-            try:
-                self._segment_id_colname = \
-                    self.get_segment_id_colname(outputfile)
-            except:
-                self._segment_id_colname = None
 
-    def get_segment_id_colname(self, outputfile):
-        """Retrieve the segment id column name from `outputfile` (which must
-        exist). Return None if such a column could not be found
-        :param outputfile: a valid EXISTING file
-        """
-        return None
-
-    @property
-    def isbasewriter(self):
-        """Property returning if this object is a base writer, i.e., no-op"""
-        # return self._isbasewriter
-        return self.__class__ is BaseWriter
-
-    @property
-    def outputfileexists(self):
-        """Return True if the output file given in the constructor exists.
-        Returns False in any other case
-        """
-        return self.outputfile and os.path.isfile(self.outputfile)
-
-    @property
-    def outputfileempty(self):
-        """Return True if the output file exists and is empty"""
-        return self.outputfileexists and os.stat(self.outputfile).st_size == 0
-
-    def already_processed_segments(self):
-        """Return a numpy array of UNIQUE integers denoting the the already
-        processed segments
-        """
-        return []
-
-    def write(self, segment_id, result):  # result is surely not None
+    def write(self, result: dict | pd.Series | pd.DataFrame | list[dict | pd.Series]):
         """Core function to write a processed segment result to the specified
         output
         """
-        pass
+        if (
+            isinstance(result, (pd.DataFrame, dict, pd.Series)) or
+            (
+                isinstance(result, list) and
+                all(isinstance(r, (pd.DataFrame, dict, pd.Series)) for r in result)
+            )
+        ):
+            return
+        raise ValueError(f'Cannot write objects of type {type(result)}')
 
     def __enter__(self):
-        """Method executed at the beginning of a `with` clause.
-        this method MUST be overridden and MUST set `self.outputfilehandle`
-        != None
-        """
+        """Opens file handler"""
         # subclasses might set a more meaningful value
-        self.outputfilehandle = True
+        return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):  # @UnusedVariable
-        """Method executed at the end of a `with` clause. Calls `self.close()`
-        by default
-        """
+        """Close file handler"""
         self.close()
 
     def close(self):
-        """Close `self.outputfilehandle`, which is the file object of this
-        class, most likely set in `self.__enter__`. If `self.outputfilehandle`
-        has not been set, or has no attribute `close()`, this method is no-op
-        """
-        try:
-            self.outputfilehandle.close()
+        """"""
+        if self.file_handle is None:
             return True
-        except:  # @IgnorePep8 pylint: disable=bare-except
+        try:
+            self.file_handle.flush()
+            return True
+        except: # noqa
+            pass
+        try:
+            self.file_handle.close()
+            return True
+        except: # noqa
             return False
         finally:
-            self.outputfilehandle = None
+            self.file_handle = None
 
     def __str__(self):
-        return "%s (output: %s)" % (self.__class__.__name__ ,
-                                    os.path.abspath(self.outputfile) if self.outputfile
-                                    else 'n/a')
+        return f"{self.__class__.__name__}({self.output_file or '<no file>'})"
 
 
 class CsvWriter(BaseWriter):
-    """Class that can be used in a with statement writing each processed
+    """
+    Class that can be used in a with statement writing each processed
     segments results into a csv file
     """
 
-    _SEGID_NOTFOUND_ERR = TypeError(str(BaseWriter._SEGID_NOTFOUND_ERR) +
-                                    '. You can only append lists, not dicts')
-
-    def __init__(self, outputfile, append, options=None):
-        """Call super.__init__ (**mandatory**) and sets up class specific
-        stuff
+    def __init__(self, output_file, append, options=None):
+        """
+        Initialize a CSVWriter
 
         :param options: dict of optional keyword arguments to be passed
-            to the writer. When missing or None, it defaults to `{}`. See e.g.:
-            https://docs.python.org/3/library/csv.html#csv.DictWriter
-            Note that these arguments are set by default if missing: `delimiter` (","),
-            `quotechar` ('"') and `quoting` (`csv.QUOTE_MINIMAL`)
+            to the writer (some are set in this class unless overwritten). For details,
+            see <https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.to_csv.html>
         """
         # call super as first call (mandatory):
-        super(CsvWriter, self).__init__(outputfile, append, options)
-
-        self.options.setdefault('delimiter', ',')
-        self.options.setdefault('quotechar', '"')
-        self.options.setdefault('quoting', csv.QUOTE_MINIMAL)
-
-        self.csvwriter = None
-        self.csvwriterisdict = False
-
-    def get_segment_id_colname(self, outputfile):
-        """Retrieve the segment id column name from `outputfile` (which must
-        exist). Return None if such a column could not be found
-        :param outputfile: a valid EXISTING file
-        """
-        # read header automatically
-        with open(outputfile, "r") as f:
-            reader = csv.reader(f)
-            for header in reader:
-                segidcolname = str(header[0])
-                if segidcolname in _SEGMENT_ID_COLNAMES:
-                    return segidcolname
-                break
-        return None
-
-    def already_processed_segments(self):
-        """Return a numpy array of UNIQUE integers denoting the the already
-        processed segments
-        """
-        return pd.unique(list(self._already_processed_segments_iter()))
-
-    def _already_processed_segments_iter(self):
-        with open(self.outputfile) as filep:
-            reader = csv.reader(filep)
-            for firstrow in reader:
-                try:
-                    yield int(firstrow[0])
-                except ValueError as _:
-                    # be relaxed about first row, it might be the header made
-                    # of string columns:
-                    pass
-                # now read all other first-col values, they must be integers
-                # this time:
-                for row in reader:
-                    yield int(row[0])
+        super(CsvWriter, self).__init__(output_file, append, options)
+        # self.options.setdefault('sep', ',')
+        # self.options.setdefault('quotechar', '"')
+        # self.options.setdefault('quoting', csv.QUOTE_MINIMAL)
+        self.options.pop('header', None)
+        self.options.pop('index', None)
+        self.writer = None
 
     def __enter__(self):
-        self.outputfilehandle = open(self.outputfile, 'a' if self.append else 'w',
-                                     buffering=1, encoding='utf8', errors='replace',
-                                     newline='')  # buffering=1: flush each line
+        self.file_handle = open(
+            self.output_file, 'a' if self.append else 'w',
+            buffering=1, # buffering=1: flush each line
+            encoding='utf-8',
+            errors='replace',
+            newline=''
+        )
+        return self
 
-    def write(self, segment_id, result):  # result is surely not None
-        csvwriter, isdict, seg_id_colname = \
-            self.csvwriter, self.csvwriterisdict, self._segment_id_colname
-        if csvwriter is None:  # instantiate writer according to first input
-            isdict = self.csvwriterisdict = isinstance(result, dict)
-            # write first column(s):
-            if isdict:
-                if seg_id_colname is None:
-                    raise self._SEGID_NOTFOUND_ERR
+    def write(self, result: dict | pd.Series | pd.DataFrame | list[dict | pd.Series]):
+        super().write(result)  # just to check type
 
-                # we need to pass a list and not an iterable cause the iterable
-                # needs to be consumed twice (the doc states differently,
-                # however...):
-                fieldnames = [seg_id_colname]
-                fieldnames.extend(result.keys())
-                csvwriter = csv.DictWriter(self.outputfilehandle,
-                                           fieldnames=fieldnames,
-                                           **self.options)
-                self.csvwriter = csvwriter
-                # write header if we need it (file does not exists, append is
-                # False, or file exist, append=True but file has no row):
-                if not self.append or self.outputfileempty:
-                    csvwriter.writeheader()
-            else:
-                csvwriter = self.csvwriter = csv.writer(self.outputfilehandle,
-                                                        **self.options)
+        if isinstance(result, (pd.Series, dict)):
+            result = pd.DataFrame([result])
+        elif isinstance(result, list):
+            result = pd.DataFrame(result)
 
-        if isdict:
-            result[seg_id_colname] = segment_id
-        else:
-            # we might have numpy arrays, we should support variable types
-            # (numeric, strings,..)
-            res = [segment_id]
-            res.extend(result)
-            result = res
-
-        csvwriter.writerow(result)
+        result.to_csv(
+            self.file_handle,
+            header=self.file_handle.tell() == 0,
+            index=False,
+            **self.options
+        )
 
 
 class HDFWriter(BaseWriter):
-    """Class that can be used in a with statement writing each processed
-    segments results into a HDF file
-    """
+    """HDF Writer"""
 
-    def __init__(self, outputfile, append, options=None):
-        """Call super.__init__ (**mandatory**) and sets up class specific
-        stuff
+    def __init__(self, output_file, append, options=None):
+        """Initialize a HDFWriter
 
-        :param options_dict: dict of optional keyword arguments to be passed to:
-            https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.HDFStore.append.html
-            When missing or None, it defaults to `{}`. Any argument listed at the link
-            above can be passed here with the exception of the arguments `value` and
-            `append`, which are not configurable and will be overwritten (also note that
-            `format` and `key` will be set by default and do not need to be input)
+        :param options: dict of optional keyword arguments to be passed to:
+            <https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.HDFStore.append.html>
+            (some are set in this class unless overwritten)
         """
-        # call super as first call (mandatory):
-        super(HDFWriter, self).__init__(outputfile, append, options)
-        # Raise now if the segment id column name is None (i.e., if append is
-        # True and we did not find the column in the file):
-        if self._segment_id_colname is None:
-            raise self._SEGID_NOTFOUND_ERR
-        self._dframeslist = []
-
+        super(HDFWriter, self).__init__(output_file, append, options)
         # remove 'value' from options, it must be set by the user-defined
         # Python file:
         self.options.pop('value', None)
-        # pop the chunksize from options, if any, because we handle here
-        # the chunksize:
-        self.chunksize = self.options.pop('chunksize', HDF_DEFAULT_CHUNKSIZE)
         # needs to overwrite append: this append is True because we write
         # in chunks, it is not the append above (which means open the storage
         # in write or append mode)
@@ -269,68 +147,21 @@ class HDFWriter(BaseWriter):
         # set options defaults, if not given:
         self.options.setdefault('key', 's2s_table')
         self.options.setdefault('format', 'table')
-        # data_columns set the indexed columns: set also the
-        # SEGMENT_ID_COLNAME column which we insert automatically:
-        data_columns = self.options.get('data_columns', [])
-        if self._segment_id_colname not in data_columns:
-            data_columns += [self._segment_id_colname]
-        self.options['data_columns'] = data_columns
 
-    def get_segment_id_colname(self, outputfile):
-        """Retrieve the segment id column name from `outputfile` (which must
-        exist). Return None if such a column could not be found
-        :param outputfile: a valid EXISTING file
-        """
-        columns = set(pd.read_hdf(outputfile, start=0, stop=0).columns)
-        for c in _SEGMENT_ID_COLNAMES:
-            if c in columns:
-                return c
-        return None
-
-    def already_processed_segments(self):
-        """Return a numpy array of UNIQUE integers denoting the the already
-        processed segments
-        """
-        col = self._segment_id_colname
-        ids = pd.read_hdf(self.outputfile, columns=[col])[col]
-        return pd.unique(ids)
 
     def __enter__(self):
-        self.outputfilehandle = pd.HDFStore(self.outputfile,
-                                            mode='a' if self.append else 'w')
+        self.file_handle = pd.HDFStore(
+            self.output_file, mode='a' if self.append else 'w'
+        )
+        return self
 
-    def write(self, segment_id, result):  # result is surely not None
-        dframelist = self._dframeslist
+    def write(self, result: dict | pd.Series | pd.DataFrame | list[dict | pd.Series]):
+        super().write(result)  # just to check type
         if isinstance(result, list):
-            # convert to dict with integer keys, emulating pandas.
-            # Maybe inefficient, but we need to add the segment id later
-            result = {i: k for i, k in enumerate(result)}
+            result = pd.DataFrame(result)
 
         if isinstance(result, (dict, pd.Series)):
             result = pd.DataFrame([result])
 
-        result[self._segment_id_colname] = segment_id
-        dframelist.append(result)
+        self.file_handle.append(value=result, **self.options)
 
-        self._write()
-
-    def _write(self, force=False):
-        dframelist = self._dframeslist
-        if dframelist and (len(dframelist) >= self.chunksize or force):
-            dfr = pd.concat(dframelist, axis=0, sort=False, ignore_index=True,
-                            verify_integrity=False)
-            self.outputfilehandle.append(value=dfr,
-                                         chunksize=len(dfr),
-                                         **self.options)
-            self._dframeslist = []
-
-    def close(self):
-        """Close `self.outputfilehandle`, which is the file object of this
-        class, most likely set in `self.__enter__`. If `self.outputfilehandle`
-        has not been set, or has no attribute `close()`, this method is no-op
-        """
-        try:
-            self._write(True)
-        finally:
-            self._dframeslist = []  # clear data, if any, and also help gc)
-            BaseWriter.close(self)

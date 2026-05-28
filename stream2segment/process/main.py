@@ -177,7 +177,6 @@ def process(
     writer = get_writer(outfile, append, writer_options)
 
     num_ok = 0
-    write2file = not writer.isbasewriter
     with writer, start_logging(logger, create_log_handlers(logfile, verbose)):
 
         logger.info(
@@ -209,13 +208,7 @@ def process(
             if output is None:
                 continue
             num_ok += 1
-            if write2file:
-                writer.write(output)
-
-    if write2file:
-        logger.info(
-            f"{num_ok} processed result(s) successfully written to the provided output"
-        )
+            writer.write(output)
 
     return num_ok
 

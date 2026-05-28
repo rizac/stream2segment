@@ -194,19 +194,6 @@ def load_ints_from_txt(path, sep='\n', as_list=True):
         return lst
 
 
-def save_ints_to_txt(path, integers, sep="\n"):
-    """Return a list of integers from a given file in text format.
-    See also `load_ints_from_txt`
-
-    :param path: string denoting the file path
-    :param integers: numpy int array or Python list of integers to be saved.
-    :param sep: the number separator. Default to "\n" (one integer per line). No
-        separator (e.g. "") is not allowed and will be replaced with "\n"
-    """
-    np.savetxt(path, np.asarray(integers, dtype=int),  # noqa
-               delimiter=sep or "\n", newline=sep or "\n", fmt='%i')
-
-
 def get_segment_help(format='html', maxwidth=79, **print_kwargs):
     """Return the :class:`Segment` help (attributes and methods) as string
 

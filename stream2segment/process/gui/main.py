@@ -15,7 +15,7 @@ from flask import Flask
 from stream2segment.io import yaml_load
 from stream2segment.io.inputvalidation import validate_param, BadParam
 from stream2segment.process import get_default_segments_selection
-from stream2segment.process.inspectimport import load_source
+from stream2segment.process.gui.introspection import load_source
 from stream2segment.process.db import get_session
 
 

@@ -21,7 +21,7 @@ from obspy.core.stream import read
 from stream2segment.process.db.models import (Event, WebService, Channel, Station,
                                               DataCenter, Segment, Class, Download,
                                               ClassLabelling)
-from stream2segment.process.inspectimport import load_source
+from stream2segment.process.gui.introspection import load_source
 from stream2segment.process.db import get_session
 from stream2segment.resources import get_templates_fpaths
 from stream2segment.io import yaml_load
