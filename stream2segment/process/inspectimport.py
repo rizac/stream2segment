@@ -1,10 +1,6 @@
-"""
-inspect+importlib functions for stream2segment
+"""inspect+importlib functions for stream2segment"""
+# March 22, 2020
 
-March 22, 2020
-
-.. moduleauthor:: <rizac@gfz-potsdam.de>
-"""
 import os
 import importlib.util
 import inspect
