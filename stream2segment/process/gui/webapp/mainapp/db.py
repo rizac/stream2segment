@@ -10,8 +10,8 @@ from sqlalchemy import func
 from datetime import datetime
 
 from stream2segment.io.db import secure_dburl, sqlalchemy_version
-from stream2segment.io.db.models import (Channel, ClassLabeling, get_classlabels)
-from stream2segment.process.db.sqlevalexpr import exprquery, get_pytype, get_sqltype
+from stream2segment.io.db.models import (get_classlabels)
+from stream2segment.process.sqlevalexpr import exprquery, get_pytype, get_sqltype
 
 # import atexit
 

@@ -2,11 +2,8 @@
 Module implementing the functionalities that allow issuing sql select
 statements from config files, command line or via GUI input controls
 via string expression on database tables columns
-
-:date: Mar 6, 2017
-
-.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
+# Mar 6, 2017
 from datetime import datetime
 import shlex
 import warnings
@@ -14,55 +11,6 @@ import warnings
 import numpy as np
 from sqlalchemy import asc, and_, desc, inspect
 
-
-def exprquery_legacy(sa_query, conditions, orderby=None):
-    # FIXME: remove
-    # get the table model from the query's FIRST column description
-    model = sa_query.column_descriptions[0]['entity']
-    parsed_conditions = []
-    joins = set()  # relationships have an hash, this assures no duplicates
-    # set already joined tables. We use the private method _join_entities
-    # although it's not documented anywhere (we inspected via eclipse debug to
-    # find the method):
-    already_joined_models = set(_.class_ for _ in sa_query._join_entities)
-    # if its'an InstrumentedAttribute, use the class
-    relations = inspect(model).relationships
-
-    if conditions:
-        for attname, expression in conditions.items():
-            if not expression:  # discard empty strings, None's, ...
-                # note that expressions MUST be strings
-                continue
-            relationship, column = _get_rel_and_column(model, attname, relations)
-            if relationship is not None and \
-                    get_rel_refmodel(relationship) not in already_joined_models:
-                joins.add(relationship)
-            condition = binexpr(column, expression)
-            parsed_conditions.append(condition)
-
-    directions = {"asc": asc, "desc": desc}
-    orders = []
-    if orderby:
-        for order in orderby:
-            try:
-                column_str, direction = order
-            except ValueError:
-                column_str, direction = order, "asc"
-            directionfunc = directions[direction]
-            relationship, column = _get_rel_and_column(model, column_str, relations)
-            if relationship is not None and \
-                    get_rel_refmodel(relationship) not in already_joined_models:
-                joins.add(relationship)
-            # FIXME: we might also write column.asc() or column.desc()
-            orders.append(directionfunc(column))
-
-    if joins:
-        sa_query = sa_query.join(*joins)
-    if parsed_conditions:
-        sa_query = sa_query.filter(and_(*parsed_conditions))
-    if orders:
-        sa_query = sa_query.order_by(*orders)
-    return sa_query
 
 
 def exprquery(sa_query, conditions, orderby=None):

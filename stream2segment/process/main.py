@@ -30,7 +30,7 @@ from stream2segment.io.db.models import (
     StationXML, Channel, Segment, Event, QuakeML, MiniSeed
 )
 
-from stream2segment.process.db.sqlevalexpr import exprquery
+from stream2segment.process.sqlevalexpr import exprquery
 from stream2segment.io.utils import (
     get_progressbar, ascii_decorate, start_logging, BadParam, create_log_handlers,
     estimate_buffer_size
@@ -61,7 +61,7 @@ class SkipSegment(Exception):
 def process(
     pyfunc: Callable,
     dburl: str,
-    segments_selection: dict|None = None,
+    segments_selection: dict | None = None,
     group_by_orientation: bool = False,
     config: str|Path = None,
     outfile: str | Path = None,
@@ -217,8 +217,8 @@ def imap(
     pyfunc: Callable,
     dburl: str,
     segments_selection: dict | None=None,
-    config: dict | None=None,
     group_by_orientation: bool = False,
+    config: dict | None=None,
     logfile: str='',
     verbose=False,
     multi_process=False,
