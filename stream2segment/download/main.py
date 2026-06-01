@@ -110,9 +110,9 @@ def download(
                 f"\nCompleted in {timedelta(seconds=round((time.time()) - stime))}"
             )
         except NoSegmentsToDownload as ntd_exc:
-            logger.info(f'No segments to download; {str(ntd_exc).lower()}')
+            logger.info(str(ntd_exc))
         except FailedDownload as fd_exc:
-            logger.error(f'Download failed; {str(fd_exc).lower()}')
+            logger.error(str(fd_exc))
             ret = 1
         except:  # noqa
             logger.critical("Download aborted", exc_info=True)

@@ -22,7 +22,11 @@ from stream2segment.io.db.pdsql import (
 from stream2segment.io.db.models import Event, WebService
 from stream2segment.download.url import read_url, CustomResponseCode, Response
 from stream2segment.download.utils import (
-    fdsn_url_qs, fdsn_response_text_to_df, FailedDownload, NoSegmentsToDownload, fdsn_url
+    fdsn_url_qs,
+    fdsn_response_text_to_df,
+    FailedDownload,
+    NoSegmentsToDownload,
+    fdsn_url
 )
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
@@ -437,6 +441,8 @@ def save_events(
     # for safety:
     events.drop_duplicates(uc_cols + [mag_col, magtype_col], inplace=True)
 
+    lat_tol_deg = kilometers2degrees(lat_tol_km)
+    lon_tol_deg = kilometers2degrees(lon_tol_km)
     _round_suf = "_.round._"
 
     def round(series, abs_tol):
@@ -449,8 +455,8 @@ def save_events(
         return (series / abs_tol).round().astype("int64")
 
     # first check equal events in the current dataframe:
-    events[lat_col + _round_suf] = round(events[lat_col], kilometers2degrees(lat_tol_km))
-    events[lon_col + _round_suf] = round(events[lon_col], kilometers2degrees(lon_tol_km))
+    events[lat_col + _round_suf] = round(events[lat_col], lat_tol_deg)
+    events[lon_col + _round_suf] = round(events[lon_col], lon_tol_deg)
     events[depth_col + _round_suf] = round(events[depth_col], depth_tol_km)
     events[time_col + _round_suf] = round(events[time_col], time_tol_sec)
 
@@ -482,8 +488,10 @@ def save_events(
                 drop_ids.extend(ev_df.index)
 
             if drop_ids:
-                logger.warning(f"Discarding {len(drop_ids)} overlapping events: "
-                               f"{to_urls(ev_df.loc[drop_ids])}")
+                logger.warning(
+                    f"Discarding the following overlapping events: "
+                    f"{to_urls(ev_df.loc[drop_ids])}"
+                )
                 drop_indices.extend(drop_ids)
 
         if drop_indices:
@@ -491,25 +499,27 @@ def save_events(
 
     if len(events) < num_events:
         dropped = num_events - len(events)
-        logger.info(f"{dropped:,} downloaded overlapping event(s) discarded")
+        logger.info(f"{dropped:,} overlapping event(s) discarded")
 
     if events.empty:
-        raise NoSegmentsToDownload('All downloaded events overlap: discarded')
+        raise NoSegmentsToDownload('All downloaded events overlap')
 
     id_col = Event.id.key
 
-    # check values on db and assign their spatio temporal coords and ids,
-    select_stmt = get_db_select_statement(events)
+    # check values on db and assign their spatio-temporal coords and ids,
+    select_stmt = get_db_select_statement(
+        events, lat_tol_deg, lon_tol_deg, depth_tol_km, time_tol_sec
+    )
 
     events[id_col] = pd.Series(pd.NA, index=events.index, dtype="Int64")
     _suf = '_.db._'
-
+    mismatches = 0
     for saved_events in fetch_df(engine, select_stmt):
         saved_events[lat_col + _round_suf] = round(
-            saved_events[lat_col], kilometers2degrees(lat_tol_km)
+            saved_events[lat_col], lat_tol_deg
         )
         saved_events[lon_col + _round_suf] = round(
-            saved_events[lon_col], kilometers2degrees(lon_tol_km)
+            saved_events[lon_col], lon_tol_deg
         )
         saved_events[depth_col + _round_suf] = round(
             saved_events[depth_col], depth_tol_km
@@ -531,8 +541,14 @@ def save_events(
             (events[depth_col] != events[depth_col + _suf]) |
             (events[time_col] != events[time_col + _suf])
         )
-        if mismatch.any():
-            # write to dataframe and log FIXME log?
+        _mismatches = mismatch.sum()
+        if _mismatches > 0:
+            mismatches += _mismatches
+            logger.warning(
+                f'Replacing the following events with matching database records '
+                f'(magnitude might differ):\n'
+                f'{to_urls(events[mismatch])}'
+            )
             events.loc[mismatch, lat_col] = events.loc[mismatch, lat_col + _suf]
             events.loc[mismatch, lon_col] = events.loc[mismatch, lon_col + _suf]
             events.loc[mismatch, depth_col] = events.loc[mismatch, depth_col + _suf]
@@ -543,8 +559,13 @@ def save_events(
             columns=[c for c in events.columns if c.endswith(_suf)], inplace=True
         )
     events.drop(columns=cmp_cols_round, inplace=True)
-
+    if mismatches > 0:
+        logger.warning(
+            f'{mismatches} event(s) replaced with matching database records '
+            f'(magnitudes might differ)'
+        )
     events = insert_id_col_na_values_to_db(engine, events, id_col, 'event')
+    events.drop_duplicates(id_col, keep='first', inplace=True)  # for safety
 
     if not events.empty:
         events.drop_duplicates(id_col, keep='first', inplace=True) # for safety
@@ -579,19 +600,22 @@ def insert_id_col_na_values_to_db(
     return dfr
 
 
-def get_db_select_statement(events) -> Select:
+def get_db_select_statement(
+    events, lat_tol_deg, lon_tol_deg, depth_tol_km, time_tol_sec
+) -> Select:
     conditions = []
-    for name, col in {
-        lat_col: Event.latitude,
-        lon_col: Event.longitude,
-        depth_col: Event.depth_km,
-        mag_col: Event.magnitude,
-        time_col: Event.time,
-    }.items():
+    # select according to current events; use loose deltas to avoid
+    # fetching and comparing db events unnecessarily:
+    for name, col, delta in [
+        (lat_col, Event.latitude, lat_tol_deg + 0.0001),
+        (lon_col, Event.longitude, lon_tol_deg + 0.0001),
+        (depth_col, Event.depth_km, depth_tol_km + 0.01),
+        (time_col, Event.time, timedelta(seconds=time_tol_sec + 1)),
+    ]:
         if pd.notna(events[name].max()):
-            conditions.append(col <= events[name].max())
+            conditions.append(col <= events[name].max() + delta)
         if pd.notna(events[name].min()):
-            conditions.append(col >= events[name].min())
+            conditions.append(col >= events[name].min() - delta)
 
     select_stmt = select(
         Event.id, Event.latitude, Event.longitude, Event.time, Event.depth_km,
@@ -601,28 +625,24 @@ def get_db_select_statement(events) -> Select:
     return select_stmt
 
 
-def to_urls(dfr:pd.DataFrame, max_rows=3):
+def to_urls(dfr:pd.DataFrame, max_rows=5):
     ret = []
-    _i = 0
-    if max_rows is None:
-        max_rows = np.inf
-    for row in dfr.itertuples(index=True):
+    for row in dfr[:max_rows].itertuples(index=True):
         url = getattr(row, url_col, None)
         ev_id = getattr(row, Event.eventid.key, None)
         if url is None or ev_id is None:
             line = (
-                f'event #{row.Index + 1} ('
-                f'mag: {getattr(row, mag_col, "N/A")}, '
-                f'lat: {getattr(row, lat_col, "N/A")}, '
-                f'lon: {getattr(row, lon_col, "N/A")},'
-                f'time: {getattr(row, time_col, "N/A")})'
+                f'event('
+                f'mag={getattr(row, mag_col, "N/A")}, '
+                f'lat={getattr(row, lat_col, "N/A")}, '
+                f'lon={getattr(row, lon_col, "N/A")}, '
+                f'time={getattr(row, time_col, "N/A")})'
             )
         else:
-            line = fdsn_url_qs(url, eventid=ev_id)
+            line = fdsn_url_qs(url, eventid=ev_id, format='text')
         ret.append(line)
-        _i += 1
-        if _i >= max_rows:
-            ret.append(f'(showing first {max_rows:,} of {len(dfr):,})')
-            break
+
+    if max_rows is not None:
+        ret.append(f'(showing first {max_rows:,} of {len(dfr):,})')
 
     return "\n".join(ret)

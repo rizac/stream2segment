@@ -116,7 +116,9 @@ def log_capture():
 
         return handlers
 
-    with patch("stream2segment.io.utils.create_log_handlers", fake_create_log_handlers):
+    with patch(
+        "stream2segment.download.main.create_log_handlers", fake_create_log_handlers
+    ):
         yield stream
 
 

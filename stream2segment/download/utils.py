@@ -229,7 +229,10 @@ class NoSegmentsToDownload(QuitDownload):
     segments to download according to the user's settings (no error). See
     `download.main.py` for details
     """
-    pass
+    prefix = 'No segments to download'
+
+    def __str__(self):
+        return f'{self.prefix}; {super().__str__().lower()}'
 
 
 class FailedDownload(QuitDownload):
@@ -237,4 +240,7 @@ class FailedDownload(QuitDownload):
     proceed for some error (e.g., download error). See `download.main.py`
     for details
     """
-    pass
+    prefix = 'Download failed'
+
+    def __str__(self):
+        return f'{self.prefix}; {super().__str__().lower()}'

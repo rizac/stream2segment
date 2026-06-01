@@ -102,7 +102,7 @@ def test_real_download_events(
     evts.loc[[1,2], Event.time.key] = (
         evts.at[0, Event.time.key] + timedelta(seconds=0.1)
     )
-    evts.at[2, Event.mag_type.key] = 'preferred_magtype'
+    evts.at[1, Event.mag_type.key] = 'preferred_magtype'
     evts.at[2, Event.mag_type.key] = 'some_other_magtype'
 
     cat_file = tmp_path / 'events.csv'
@@ -121,15 +121,28 @@ def test_real_download_events(
 
             cli_args.extend(['--events_url', str(cat_file.resolve())])
             result = CliRunner().invoke(cli, cli_args)
-            if on_event_conflict == 'discard':
-                assert result.exit_code == 1
-            else:
-                assert result.exit_code == 0
-            assert custom_message in result.output
+            assert result.exit_code == 0
+            log_text = log_capture.getvalue()
+            # in all cases we issued a no segments to download
+            assert NoSegmentsToDownload.prefix in result.output
+            assert NoSegmentsToDownload.prefix in log_text
+            discard_overlaps = on_event_conflict == 'discard'
+            assert (custom_message in log_text) == (not discard_overlaps)
+            assert (custom_message in result.output) == (not discard_overlaps)
+            assert ('matching events' in log_text.lower()) == on_event_conflict == 'keep'
+            assert ('matching events' in result.output.lower()) == on_event_conflict == 'keep'
+
+            use_preferred_mag = on_event_conflict != 'keep'
+            # if we have printed overlap (or overlapping), we did not set 'keep':
+            assert ('overlap' in result.output) == use_preferred_mag or discard_overlaps
+            assert ('overlap' in log_text) == use_preferred_mag or discard_overlaps
             num_channels2 = get_row_count(db.engine, Channel)
             num_events2 = get_row_count(db.engine, Event)
             assert num_channels2 == 0
             assert num_events2 == num_events
+            # clear log capture
+            # log_capture.seek(0)
+            # log_capture.truncate(0)
 
 
 
