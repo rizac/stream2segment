@@ -14,6 +14,7 @@ import pandas as pd
 from obspy.geodetics import kilometers2degrees
 from pandas import CategoricalDtype
 from sqlalchemy import and_, Select
+from sqlalchemy.orm import DeclarativeBase
 
 from stream2segment.io.utils import get_progressbar
 from stream2segment.io.db.pdsql import (
@@ -157,17 +158,18 @@ def download_or_read_events(
             )
 
         for obj in iterable:
-            url = None
-            file = None
-            data = obj
+
             if isinstance(obj, Response):  # is s Response object
                 url = fdsn_url_qs(obj.request)  # basically remove query string
-                data = obj.data
+                content_or_path = obj.data
                 file = None
-            try:
-                file = data
+            else:
                 url = None
-                dfr = read_events(file)
+                content_or_path = obj
+                file = str(obj)
+
+            try:
+                dfr = read_events(content_or_path)
                 if dfr.empty:
                     raise Exception(
                         'all rows discarded due to errors '
@@ -564,8 +566,7 @@ def save_events(
             f'{mismatches} event(s) replaced with matching database records '
             f'(magnitudes might differ)'
         )
-    events = insert_id_col_na_values_to_db(engine, events, id_col, 'event')
-    events.drop_duplicates(id_col, keep='first', inplace=True)  # for safety
+    events = insert_id_col_na_values_to_db(engine, Event, events, id_col)
 
     if not events.empty:
         events.drop_duplicates(id_col, keep='first', inplace=True) # for safety
@@ -574,18 +575,18 @@ def save_events(
 
 
 def insert_id_col_na_values_to_db(
-    engine: Engine, dfr: pd.DataFrame, id_col: str, item_name: str
+    engine: Engine, table: type[DeclarativeBase], dfr: pd.DataFrame, id_col: str
 ) -> pd.DataFrame:
 
-    to_insert = set_pkeys(dfr[dfr[id_col].isna()], engine, Event)
-    inserted = insert_df(to_insert, engine, Event)
+    to_insert = set_pkeys(dfr[dfr[id_col].isna()], engine, table)
+    inserted = insert_df(to_insert, engine, table)
     if not inserted.empty:
         dfr[id_col] = inserted[id_col]  # assignment is index aligned
 
     id_na = dfr[id_col].isna()
     if id_na.any():
         logger.warning(
-            f"{id_na.sum():,} {item_name}(s)"
+            f"{id_na.sum():,} {table.__name__.lower()}(s)"
             f"discarded (likely error while inserting to DB)\n" +
             dfr[id_na].to_string(
                 max_rows=30, index=False, na_rep='', show_dimensions=True

@@ -1,6 +1,7 @@
 """
 Real download test scenarios
 """
+import re
 from collections import namedtuple
 # Feb 4, 2016
 from datetime import datetime, timedelta
@@ -10,6 +11,9 @@ from sqlalchemy import select, update, delete
 from sqlalchemy.exc import IntegrityError
 
 from stream2segment.download.url import read_urls as original_read_urls
+from stream2segment.download.channels import (
+    download_channels as original_download_channels
+)
 from stream2segment.download.segments import _nothing_to_download_msg  # noqa
 from stream2segment.download.stationsearch import _no_station_found_within_search_area_msg  # noqa
 from stream2segment.download.utils import NoSegmentsToDownload
@@ -26,6 +30,7 @@ from stream2segment.io.db.pdsql import get_row_count, fetch_df
 # DEFINE PATHS GLOBALLY (SO IN CASE OF REFACTORING, WE CHANGE STR HERE ONCE):
 download_save_segments_path = 'stream2segment.download.main.download_and_save'
 get_channels_path = 'stream2segment.download.main.get_channels'
+download_channels_path = 'stream2segment.download.channels.download_channels'
 get_events_path = 'stream2segment.download.main.get_events'
 read_url_path = "stream2segment.download.url.read_url"
 load_input_path = 'stream2segment.download.main.load_input'
@@ -57,9 +62,9 @@ def test_real_download_events(
         return
 
     # mock download save segments: raise NothingToDownload to speed up things:
-    custom_message = 'custom message!'
+    no_channels_msg = 'no channels found!'
     def func_(*a, **kw):
-        raise NoSegmentsToDownload(custom_message)
+        raise NoSegmentsToDownload(no_channels_msg)
     mock_get_channels_df.side_effect = func_
 
     cfg_file = test_data_dir / "download-network-filter.yaml"
@@ -75,7 +80,7 @@ def test_real_download_events(
     # 616921219 2019-11-26 09:19:27.174  43.2096  18.0153   23.0     MW       5.37
     # 621394962 2019-11-26 16:30:43.400  43.1931  18.0287   21.7     ML       3.40
     assert result.exit_code == 0
-    assert custom_message in result.output
+    assert no_channels_msg in result.output
     num_channels = get_row_count(db.engine, Channel)
     num_events = get_row_count(db.engine, Event)
     assert num_channels == 0
@@ -84,7 +89,7 @@ def test_real_download_events(
     # do it again (test that no new event is written:
     result = CliRunner().invoke(cli, cli_args)
     assert result.exit_code == 0
-    assert custom_message in result.output
+    assert no_channels_msg in result.output
     num_channels2 = get_row_count(db.engine, Channel)
     num_events2 = get_row_count(db.engine, Event)
     assert num_channels2 == 0
@@ -109,7 +114,8 @@ def test_real_download_events(
     evts.to_csv(cat_file, index=False)
 
     from stream2segment.download.inputvalidation import load_input as original_load_input
-    for on_event_conflict in ['discard', 'preferred_magtype,mw', 'keep']:
+    discard, pref_mag, keep =  'discard', 'preferred_magtype,mw', 'keep'
+    for on_event_conflict in [discard, pref_mag, keep]:
 
         with patch(load_input_path) as _:
 
@@ -126,23 +132,39 @@ def test_real_download_events(
             # in all cases we issued a no segments to download
             assert NoSegmentsToDownload.prefix in result.output
             assert NoSegmentsToDownload.prefix in log_text
-            discard_overlaps = on_event_conflict == 'discard'
-            assert (custom_message in log_text) == (not discard_overlaps)
-            assert (custom_message in result.output) == (not discard_overlaps)
-            assert ('matching events' in log_text.lower()) == on_event_conflict == 'keep'
-            assert ('matching events' in result.output.lower()) == on_event_conflict == 'keep'
+            if on_event_conflict == discard:
+                # we did not get to the channel download step:
+                assert no_channels_msg not in log_text
+                assert no_channels_msg not in result.output
+                # we found all events overlapping:
+                assert '3 overlapping event(s)' in log_text
+                assert '3 overlapping event(s)' in result.output
+                # we did not get to the events save to db sub-step:
+                assert 'event(s) replaced' not in log_text
+            elif on_event_conflict == pref_mag:
+                # we got to the channel download step:
+                assert no_channels_msg in log_text
+                assert no_channels_msg in result.output
+                # we found 2 events overlapping:
+                assert '2 overlapping event(s)' in result.output
+                assert '2 overlapping event(s)' in log_text
+                # we got to the events save to db sub-step, replacing with db records:
+                assert '1 event(s) replaced' in log_text
+            else:
+                # we got to the channel download step:
+                assert no_channels_msg in log_text
+                assert no_channels_msg in result.output
+                # we found no event overlapping (we said to keep them anyway):
+                assert 'overlapping event(s)' not in log_text
+                assert 'overlapping event(s)' not in result.output
+                # we got to the events save to db sub-step, replacing with db records:
+                assert '2 event(s) replaced' in log_text
 
-            use_preferred_mag = on_event_conflict != 'keep'
-            # if we have printed overlap (or overlapping), we did not set 'keep':
-            assert ('overlap' in result.output) == use_preferred_mag or discard_overlaps
-            assert ('overlap' in log_text) == use_preferred_mag or discard_overlaps
+            # we never save new events in any case:
             num_channels2 = get_row_count(db.engine, Channel)
             num_events2 = get_row_count(db.engine, Event)
             assert num_channels2 == 0
             assert num_events2 == num_events
-            # clear log capture
-            # log_capture.seek(0)
-            # log_capture.truncate(0)
 
 
 
@@ -255,9 +277,10 @@ def test_download_channels_adarray(
 
 
 @patch(download_save_segments_path)
+@patch(download_channels_path)
 @patch(get_events_path)
 def test_download_channels_all(
-    mock_get_events_df, mock_download_save_segments,
+    mock_get_events_df, mock_download_channels, mock_download_save_segments,
     # fixtures:
     online_only, db, log_capture, test_data_dir
 ):
@@ -284,19 +307,41 @@ def test_download_channels_all(
         raise NoSegmentsToDownload(custom_message)
     mock_download_save_segments.side_effect = func_
 
+    # mock channels urls to check stuff
+    def func_(urls, *a, **kw):
+        urls = list(urls)  # consume generator
+        assert len(urls) > 1
+        # no dupes in nets:
+        all_nets = set()
+        for url in urls:
+            nets = re.search(r"[?&]net=([^&]+)", url).group(1).split(",")
+            assert all_nets.isdisjoint(nets)
+            all_nets.update(nets)
+        # pass first element only, we do not want to spend more time on this:
+        return original_download_channels(urls[:1], *a, **kw)
+        # raise NoSegmentsToDownload(custom_message)
+    mock_download_channels.side_effect = func_
+
     cfg_file = test_data_dir / "download-network-filter.yaml"
 
     result = CliRunner().invoke(
         cli, [
             'download', '-c', str(cfg_file), '--dburl', db.url,
-            '--data_url', 'eida', '--data_url', 'iris'
+            '--data_url', 'iris'  #  '--data_url', 'eida',
         ]
     )
     assert result.exit_code == 0
-    assert 'custom message' in result.output
+    assert mock_download_channels.called
+    # we did not get to the segments download because no stations in the search area:
+    assert custom_message not in result.output
+    # or alternatively:
+    assert not mock_download_save_segments.called
+    # test stuf on db:
     num_channels = get_row_count(db.engine, Channel)
     num_events = get_row_count(db.engine, Event)
     assert num_channels > 0
+    assert num_events == 0
+
 
 Count = namedtuple('count', [
     'segment',
@@ -317,6 +362,7 @@ def count_from_db(engine):
         get_row_count(engine, QuakeML),
         get_row_count(engine, StationXML)
     )
+
 
 @patch("stream2segment.download.segments.read_urls")
 def test_real_download_segments(

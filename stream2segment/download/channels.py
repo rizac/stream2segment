@@ -106,7 +106,8 @@ def get_channels(
         net_col, sta_col, loc_col, band_col, inst_col, orient_col, url_col
     ]
     for c in categorical_columns:
-        channels[c] = channels[c].astype('str').astype('category')
+        if not pd.api.types.is_categorical_dtype(channels[c]):
+            channels[c] = channels[c].astype('str').astype('category')
 
     num_downloaded_channels = len(channels)
 
@@ -378,9 +379,7 @@ def download_channels(
                 continue
 
             try:
-                dframe = fdsn_channel_response_text_to_df(
-                    response.data, filter_funcs
-                )
+                dframe = fdsn_channel_response_text_to_df(response.data, filter_funcs)
                 if dframe.empty:
                     raise Exception('no rows left after type conversion and filtering')
             except Exception as e:
@@ -708,9 +707,7 @@ def save_channels(engine: Engine, channels: pd.DataFrame):
         # for safety:
         channels.dropna(subset=[url_col], inplace=True)
 
-    channels = insert_id_col_na_values_to_db(
-        engine, channels, id_col, 'channel'
-    )
+    channels = insert_id_col_na_values_to_db(engine, Channel, channels, id_col)
 
     return channels
 
