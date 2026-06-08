@@ -101,7 +101,7 @@ def merge_events_stations(
     # create total segments dataframe:
     # first check we have data:
     if not ret:
-        raise NoSegmentsToDownload("No stations found within events search area")
+        raise NoSegmentsToDownload(_no_station_found_within_search_area_msg)
     # now concat:
     ret = pd.concat(ret, axis=0, ignore_index=True)
 

@@ -3,8 +3,7 @@ Utilities for the download routine
 """
 # date Nov 25, 2016
 import re
-import psutil
-from io import StringIO, BytesIO
+from io import IOBase
 from datetime import datetime, date
 import logging
 from typing import Literal
@@ -49,7 +48,7 @@ class IdOnceLogFilter(logging.Filter):
         return True
 
 
-def fdsn_response_text_to_df(response: bytes | str, **csv_kwargs) -> pd.DataFrame:
+def fdsn_response_text_to_df(response: IOBase, **csv_kwargs) -> pd.DataFrame:
     """
     Convert a response content obtained from a FDSN webservice with format=text
     into a pandas DataFrame of type str (no casting performed)
@@ -68,10 +67,7 @@ def fdsn_response_text_to_df(response: bytes | str, **csv_kwargs) -> pd.DataFram
     )
     params |= csv_kwargs
 
-    return pd.read_csv(
-        StringIO(response) if isinstance(response, str) else BytesIO(response),
-        **params
-    )
+    return pd.read_csv(response, **params)
 
 
 def fdsn_url(

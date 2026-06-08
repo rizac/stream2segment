@@ -169,16 +169,10 @@ def save_quakeml(
         select(
             Event.id, Event.eventid, Event.webservice_id
         )
-        # .join(WebService, Event.webservice_id == WebService.id)
         .join(Segment, Segment.event_id == Event.id)  # (*) inner join
-        .where(
-            exists(
-                # select(1) is hust a convention, e.g. *, Event also work
-                select(1).where(Segment.event_id == Event.id)
-            ),
-            ~exists().where(QuakeML.id == Event.id)
-        )
-        # .distinct()
+        .outerjoin(QuakeML, QuakeML.id == Event.id)
+        .where(QuakeML.id.is_(None))
+        .distinct()
     )
     # (*) only channels with at least one matching Segment row are included
 

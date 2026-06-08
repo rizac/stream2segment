@@ -93,12 +93,7 @@ def apply_table_dtypes(
             keep &= dataframe[col_name].notna()
 
     if keep is not None and (~keep.all()):
-        pre_len = len(dataframe)
         dataframe = dataframe[keep]
-        discarded = pre_len - len(dataframe)
-        if discarded:
-            # Cast bools and ints as they might have been object:
-            dataframe.attrs['discarded'] = discarded
 
     return dataframe
 

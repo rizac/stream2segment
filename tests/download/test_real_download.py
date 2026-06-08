@@ -23,9 +23,10 @@ import pandas as pd
 
 from stream2segment.cli import cli
 from stream2segment.io.db.models import (
-    WebService, Event, Channel, Segment, StationXML, QuakeML, SkippedSegment
+    Event, Channel, Segment, StationXML, QuakeML, SkippedSegment
 )
 from stream2segment.io.db.pdsql import get_row_count, fetch_df
+
 
 # DEFINE PATHS GLOBALLY (SO IN CASE OF REFACTORING, WE CHANGE STR HERE ONCE):
 download_save_segments_path = 'stream2segment.download.main.download_and_save'
@@ -34,16 +35,6 @@ download_channels_path = 'stream2segment.download.channels.download_channels'
 get_events_path = 'stream2segment.download.main.get_events'
 read_url_path = "stream2segment.download.url.read_url"
 load_input_path = 'stream2segment.download.main.load_input'
-
-
-# # WE PATCH THIS AT THE BEGINNING, TO BE SURE WE INTERCEPT ALL READ_URLS
-# # WE DO NOT PATCH PER FUNCTION BECAUSE SOME FIXTURES MIGHT IMPORT read_url
-# # BEFORE WE MOCK IT. BY DEFAULT, THE MOCKED FUNCTION DOES WHAT THE MOCKED FUNCTION DOES
-# read_url_patch = patch(read_url_path)
-# mock_read_url = read_url_patch.start()
-# mock_read_url.side_effect = original_read_url
-# def teardown_module():
-#     read_url_patch.stop()
 
 
 @patch(get_channels_path)

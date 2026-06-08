@@ -470,7 +470,7 @@ def unpack_miniseed(
                 start=records[0].begin_time,
                 end=records[-1].end_time,
                 fsamp=fsamp,
-                maxgap=max(max_gap_ratios)
+                maxgap=max(max_gap_ratios, key=abs)
             )
 
         except MSeedError as _:

@@ -5,6 +5,7 @@ import os
 from collections.abc import Iterable
 from datetime import timedelta, datetime
 import logging
+from io import BytesIO
 from itertools import product
 from pathlib import Path
 from typing import Literal
@@ -136,52 +137,36 @@ def download_or_read_events(
     """
     Yield pandas dataframe(s) from the event url or file
     """
-    harmonized_urls = set()
-    url_categories = set()
-    for u in urls:
-        if is_local_file(u):
-            url = url_file_prefix + u
-        else:
-            url = fdsn_url(EVENTWS_MAPPING.get(u, u))
-            url_categories.add(url)
-        harmonized_urls.add(url)
 
-    cat_type = CategoricalDtype(categories=list(url_categories))
+    url_col_dtype = CategoricalDtype(categories=list({
+        fdsn_url(EVENTWS_MAPPING.get(u, u)) for u in urls if not is_local_file(u)
+    }))
     events = []
 
-    for url in harmonized_urls:
-        if url.startswith(url_file_prefix):
-            iterable = [Path(url.removeprefix(url_file_prefix))]
-        else:
-            iterable = download_events(
-                url, evt_query_args, start, end, timeout, show_progress
-            )
-
-        for obj in iterable:
-
-            if isinstance(obj, Response):  # is s Response object
-                url = fdsn_url_qs(obj.request)  # basically remove query string
-                content_or_path = obj.data
-                file = None
-            else:
-                url = None
-                content_or_path = obj
-                file = str(obj)
-
+    for url in urls:
+        if is_local_file(url):
             try:
-                dfr = read_events(content_or_path)
-                if dfr.empty:
-                    raise Exception(
-                        'all rows discarded due to errors '
-                        'in type conversion and filtering'
+                events.append(read_events(Path(url)))
+                if url_col not in events[-1].columns:
+                    events[-1][url_col] =  pd.Series(
+                        None, index=events[-1].index, dtype=url_col_dtype
                     )
-                dfr[url_col] = pd.Series(url, index=dfr.index, dtype=cat_type)
+            except Exception as exc:
+                raise FailedDownload(f"{url}: {exc}")
+            continue
+
+        url = EVENTWS_MAPPING.get(url, url)
+        for resp in download_events(
+            url, evt_query_args, start, end, timeout, show_progress
+        ):
+            try:
+                dfr = read_events(resp.data)
+                dfr[url_col] = pd.Series(url, index=dfr.index, dtype=url_col_dtype)
                 events.append(dfr)
             except Exception as exc:
-                if file is not None:  # file passed, stop download
-                    raise FailedDownload(f"{file}: {exc}")
-                else:
-                    logger.warning(f"Unable to read data downloaded from {url}: {exc}")
+                logger.warning(
+                    f"Unable to read data downloaded from {resp.request}: {exc}"
+                )
 
     ret = pd.DataFrame()
     if events:
@@ -278,7 +263,7 @@ def read_events(content: str | Path) -> pd.DataFrame:
     if isinstance(content, (str, bytes)):
         if not content:
             raise Exception("no data")
-        dfr = fdsn_event_response_text_to_df(content)
+        dfr = fdsn_event_response_text_to_df(BytesIO(content))
         if dfr.empty:
             return dfr
     else:
@@ -313,10 +298,13 @@ def read_events(content: str | Path) -> pd.DataFrame:
 
         dfr = dfr.rename(columns=rename)[list(rename.values())]
 
-    return apply_table_dtypes(Event, dfr, drop_non_nullable=True)
+    dfr = apply_table_dtypes(Event, dfr, drop_non_nullable=True)
+    if dfr.empty:
+        raise Exception('no event with valid data')
+    return dfr
 
 
-def fdsn_event_response_text_to_df(response: str):
+def fdsn_event_response_text_to_df(response: BytesIO):
     """
     Convert a response content obtained from a FDSN event webservice with format=text
     into a pandas DataFrame with proper dtypes associated to the SQL mapped class

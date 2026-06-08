@@ -7,6 +7,7 @@ import logging
 from collections.abc import Iterable, Callable
 import json
 from datetime import datetime, timedelta, UTC
+from io import BytesIO
 from multiprocessing.pool import ThreadPool
 from urllib.request import urlopen
 
@@ -351,7 +352,7 @@ def split_url_by_network_quantiles(fdsn_station_url, params):
 
 def download_channels(
     fdsn_station_urls,
-    filter_funcs: dict[str, Callable],  # column string -> callable on series
+    filter_funcs: dict[str, Callable[[pd.Series], pd.Series]],  # Series->Series[bool]
     restricted_download: bool,
     timeout: int,
     show_progress=False
@@ -379,9 +380,9 @@ def download_channels(
                 continue
 
             try:
-                dframe = fdsn_channel_response_text_to_df(response.data, filter_funcs)
-                if dframe.empty:
-                    raise Exception('no rows left after type conversion and filtering')
+                dframe = fdsn_channel_response_text_to_df(
+                    BytesIO(response.data), filter_funcs
+                )
             except Exception as e:
                 logger.warning(
                     f"Unable to read data downloaded from {response.request}: {e}"
@@ -429,7 +430,7 @@ def download_channels(
 
 
 def fdsn_channel_response_text_to_df(
-    response: str, filter_func: dict[str, Callable],  # col string -> callable on series
+    response: BytesIO, filter_func: dict[str, Callable[[pd.Series], pd.Series]],
 ):
     """
     Convert a response content obtained from a FDSN station webservice with
@@ -478,13 +479,15 @@ def fdsn_channel_response_text_to_df(
     # apply data types now (e.g., we might filter sample_rate it needs to be float)
     dfr = apply_table_dtypes(Channel, dfr, drop_non_nullable=True)
     if dfr.empty:
-        return dfr
+        raise Exception('no channel with valid data')
 
     # filter out
     for key, func in filter_func.items():
         dfr = dfr[func(dfr[key])]
         if dfr.empty:
-            return dfr
+            break
+    if dfr.empty:
+        raise Exception('all channels filtered out')
 
     dfr[start_col] = dfr[start_col].dt.round('s')
     dfr[end_col] = dfr[end_col].dt.round('s')

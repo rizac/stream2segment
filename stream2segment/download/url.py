@@ -3,6 +3,7 @@ Http requests with multi-threading
 """
 # :date: Apr 15, 2017
 from collections.abc import Iterable
+from typing import Any
 from dataclasses import dataclass
 from threading import Condition, current_thread, main_thread, Lock, Event
 import signal
@@ -102,7 +103,7 @@ class Response:
     - request: The request (URL string or Request object) generating the Response
     """
 
-    data: object
+    data: Any
     status_code: int
     request: str | Request
 
