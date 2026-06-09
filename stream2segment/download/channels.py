@@ -18,13 +18,15 @@ from stream2segment.download.events import (
     sync_webservice_urls_and_assign_ids, insert_id_col_na_values_to_db
 )
 from stream2segment.io.utils import get_progressbar
-from stream2segment.io.db.pdsql import (
-    insert_df, apply_table_dtypes, fetch_df, select, Engine, set_pkeys
-)
+from stream2segment.io.db.pdsql import apply_table_dtypes, fetch_df, select, Engine
 from stream2segment.io.db.models import Channel, WebService
 from stream2segment.download.url import read_url
 from stream2segment.download.utils import (
-    fdsn_url, fdsn_url_qs, fdsn_response_text_to_df, FailedDownload, NoSegmentsToDownload
+    fdsn_url,
+    fdsn_url_qs,
+    fdsn_response_text_to_df,
+    FailedDownload,
+    NoSegmentsToDownload
 )
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
@@ -61,7 +63,7 @@ def get_channels(
     restricted_download: bool,
     download_timeout: int | None = None,
     show_progress=False
-):
+) -> pd.DataFrame:
     cha_urls = get_channel_urls(
         datacenter_urls,
         eida_rs_urls,
@@ -109,8 +111,6 @@ def get_channels(
     for c in categorical_columns:
         if not pd.api.types.is_categorical_dtype(channels[c]):
             channels[c] = channels[c].astype('str').astype('category')
-
-    num_downloaded_channels = len(channels)
 
     channels = resolve_inter_conflicts(channels, eida_rs_urls)
 
@@ -318,7 +318,7 @@ def split_url_by_network_quantiles(fdsn_station_url, params):
         with urlopen(
             fdsn_url_qs(fdsn_station_url, **params, level='network', format='text')
         ) as r:
-            header = r.readline().decode().strip().split('|')
+            _ = r.readline().decode().strip().split('|')  # header (just ignore)
             for line in r:
                 split_line = line.decode().strip().split('|')
                 rows.append((split_line[0].strip(), split_line[-1].strip()))
@@ -333,7 +333,7 @@ def split_url_by_network_quantiles(fdsn_station_url, params):
         c = dfr['count'].cumsum()
         # total sum of counts
         t = dfr['count'].sum()
-        stations_per_request = 1000
+        stations_per_request = 900
         if t <= stations_per_request:
             yield fdsn_station_url, params
             return
@@ -346,13 +346,17 @@ def split_url_by_network_quantiles(fdsn_station_url, params):
             _params = dict(params)
             _params['net'] = ",".join(sorted(set(df_['net'])))
             yield fdsn_station_url, _params
-    except Exception as e:
+    except Exception as e:  # noqa
         yield fdsn_station_url, params
+
+
+from typing import TypeAlias
+BooleanSeries: TypeAlias = pd.Series  # just for hint clarity (see below)
 
 
 def download_channels(
     fdsn_station_urls,
-    filter_funcs: dict[str, Callable[[pd.Series], pd.Series]],  # Series->Series[bool]
+    filter_funcs: dict[str, Callable[[pd.Series], BooleanSeries]],
     restricted_download: bool,
     timeout: int,
     show_progress=False
@@ -422,7 +426,7 @@ def download_channels(
             # urls have priority in case of conflicts:
             channels.index.name = '._index._'
             channels = (
-                channels.sort_values(by=[rank_col, channels.index.name], ascending=True).
+                channels.sort_values([rank_col, channels.index.name], ascending=True).
                 drop(columns=rank_col).reset_index(drop=True)
             )
 
@@ -430,7 +434,7 @@ def download_channels(
 
 
 def fdsn_channel_response_text_to_df(
-    response: BytesIO, filter_func: dict[str, Callable[[pd.Series], pd.Series]],
+    response: BytesIO, filter_func: dict[str, Callable[[pd.Series], BooleanSeries]],
 ):
     """
     Convert a response content obtained from a FDSN station webservice with
@@ -598,7 +602,7 @@ def resolve_via_eida_rs(
     # [
     #   "url": url
     #   "params": [
-    #       ["net,:..., "sta":... "loc": ..., "cha" ..., "start": ..., "end: ... "priority": ...] #noqa
+    #       ["net,:..., "sta":... "loc": ..., "cha" ..., "start": ..., "end: ... "priority": ...]  # noqa
     #   ]
     # ]
     for item in eida_rs_json:
@@ -640,6 +644,7 @@ def save_channels(engine: Engine, channels: pd.DataFrame):
     (`Station.id`) renamed to 'station_id' (`Channel.station_id`) and a new
     'id' column referring to the Channel id (`Channel.id`)
 
+    :param engine: the sql alchemy Engine
     :param channels: pandas DataFrame
     """
     # if update is True, don't update inventories HERE (handled later)
