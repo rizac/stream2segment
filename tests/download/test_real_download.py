@@ -17,6 +17,7 @@ from stream2segment.download.channels import (
 from stream2segment.download.segments import _nothing_to_download_msg  # noqa
 from stream2segment.download.stationsearch import _no_station_found_within_search_area_msg  # noqa
 from stream2segment.download.utils import NoSegmentsToDownload
+from stream2segment.download.inputvalidation import load_input as original_load_input
 from unittest.mock import patch
 
 import pandas as pd
@@ -104,7 +105,6 @@ def test_real_download_events(
     cat_file = tmp_path / 'events.csv'
     evts.to_csv(cat_file, index=False)
 
-    from stream2segment.download.inputvalidation import load_input as original_load_input
     discard, pref_mag, keep =  'discard', 'preferred_magtype,mw', 'keep'
     for on_event_conflict in [discard, pref_mag, keep]:
 
@@ -564,3 +564,67 @@ def test_real_download_segments(
 
     assert len(set(channel_ids2) - set(channel_ids)) == 1
     assert len(set(quakeml_ids2) - set(quakeml_ids)) == 1
+
+
+@patch("stream2segment.download.segments.read_urls")
+def test_real_download_segments_with_credentials(
+    mock_download_segments_read_urls,
+    # fixtures:
+    online_only, db, log_capture, test_data_dir
+):
+    """This segments download test"""
+    if db.is_postgres:
+        # THIS TEST IS JUST ENOUGH WITH ONE DB (USE SQLITE BECAUSE POSTGRES MIGHT NOT BE
+        # SETUP FOR TESTS)
+        return
+
+    cfg_file = test_data_dir / "download-network-filter.yaml"
+
+
+    mock_download_segments_read_urls.side_effect = original_read_urls
+
+    # Start tests, try download restricted data with no token
+
+    mock_download_segments_read_urls.reset_mock()
+    cli_options = [
+        'download', '-c', str(cfg_file), '--dburl', db.url,
+        '--data_url', 'https://www.orfeus-eu.org/fdsnws/dataselect/1/query',
+        '--events_url', 'isc',
+        # '--minmag', '4', '--maxmag', '5',
+        '--start', '2015-01-24T00:00:00',
+        '--end', '2015-04-30T23:59:59',
+        '--net', 'Z3', '--sta', 'A009A', '--cha', 'HHE',
+        '--time_window', '0.1', '0.2',
+        '--minlatitude', '45', '--maxlatitude', '52',
+        '--minlongitude', '14', '--maxlongitude', '20',
+        '--minmag', '3.3', '--maxdepth', '10'
+    ]
+    result = CliRunner().invoke(cli, cli_options)
+    assert result.exit_code == 0
+    count = count_from_db(db.engine)
+    assert (count.skipped_segment == count.quakeml == 0)
+    assert count.channel > 0
+    assert count.event > 0
+    assert count.segment > 0
+    assert count.stationxml > 0
+    assert mock_download_segments_read_urls.called
+
+    # TEST WITH CREDENTIALS NOW
+
+    # mock load config to add the token from data dir:
+    with patch(load_input_path) as _:
+        def mock_load_input(*args, **kwargs):
+            config, kwargs = original_load_input(*args, **kwargs)
+            kwargs['credentials'] = test_data_dir / 'eidatoken'
+            return config, kwargs
+
+        _.side_effect = mock_load_input
+
+        # run tests:
+        result = CliRunner().invoke(cli, cli_options)
+        assert result.exit_code == 0
+        count = count_from_db(db.engine)
+        assert (count.segment == count.skipped_segment == count.stationxml ==
+                count.quakeml == count.channel == 0)
+        assert count.event > 0
+        assert not mock_download_segments_read_urls.called

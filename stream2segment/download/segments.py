@@ -443,7 +443,7 @@ def unpack_miniseed(
             # get records and sort ascending by time
             records.sort(key=lambda elm: elm.begin_time)
             fsamp = records[0].fsamp
-            max_gap_ratios: list[float] = []
+            max_gap_ratios = [0.0]  # populate it with 1 element in case single record
 
             for i, record in enumerate(records):
 
