@@ -113,25 +113,29 @@ def get_channels(
             channels[c] = channels[c].astype('str').astype('category')
 
     channels = resolve_inter_conflicts(channels, eida_rs_urls)
-
-    if not channels.empty:
-
-        ws_id_col = Channel.data_webservice_id.key
-        rows = len(channels)
-        channels = sync_webservice_urls_and_assign_ids(
-            channels, engine, ids_column_name=ws_id_col
+    if channels.empty:
+        raise FailedDownload(
+            'All channels discarded while dropping conflicts; See log for details'
         )
-        channels.dropna(subset=[ws_id_col], inplace=True)
-        if rows > len(channels):
+
+    ws_id_col = Channel.data_webservice_id.key
+    channels = sync_webservice_urls_and_assign_ids(
+        channels, engine, ids_column_name=ws_id_col
+    )
+    rem = channels[ws_id_col].isna() | channels[url_col].isna()
+    if rem.any():
+        channels = channels[~rem]
+        if channels.empty:
+            raise FailedDownload(
+                f"All channels ({rem.sum()}) discarded (associated URL not saved to DB)"
+            )
+        else:
             logger.warning(
-                f"Discarding {rows-len(channels)} channel(s) "
-                f"(associated URL not saved to DB)"
+                f"Discarding {rem.sum()} channel(s) (associated URL not saved to DB)"
             )
 
-        if not channels.empty:
-            channels[ws_id_col] = channels[ws_id_col].astype(int)
-            channels = save_channels(engine, channels)
-
+    channels[ws_id_col] = channels[ws_id_col].astype(int)
+    channels = save_channels(engine, channels)
     if channels.empty:
         raise FailedDownload(
             'No channels saved; this is likely due to a Database I/O error. '

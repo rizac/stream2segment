@@ -59,12 +59,8 @@ def prepare_for_download(
         [ev_id_col, ch_id_col],
             chunksize=min(1000, len(segments))
         )
-        already_saved = segments[Segment.id.key].notna()
-        if already_saved.any():
-            logger.info(
-                f"Discarding {already_saved.sum():,} already downloaded segments"
-            )
-            segments = segments[~already_saved]
+        segments.dropna(subset=[Segment.id.key], inplace=True)
+        if Segment.id.key in segments.columns:
             segments.pop(Segment.id.key)
 
     if get_row_count(engine, SkippedSegment) > 0 and not segments.empty:
@@ -103,13 +99,7 @@ def prepare_for_download(
         segments = segments[~mask]
         segments.pop(SkippedSegment.id.key)
 
-    if segments.empty:
-        raise NoSegmentsToDownload(_nothing_to_download_msg)
-
     return segments
-
-# used for testing
-_nothing_to_download_msg = 'all segments already downloaded'
 
 
 def download_and_save(
@@ -164,7 +154,8 @@ def download_and_save(
                 if ':' not in data:
                     raise ValueError(
                         f'Invalid user and password from {req.full_url}. '
-                        'This could be a data-center bug')
+                        'This could be a data-center bug'
+                    )
                 else:
                     user_pass = tuple(data.split(':'))
             else:

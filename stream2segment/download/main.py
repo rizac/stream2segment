@@ -15,9 +15,7 @@ from sqlalchemy import Engine
 
 from stream2segment.io.utils import start_logging, create_log_handlers, BadParam, \
     ascii_decorate
-from stream2segment.io.db.pdsql import (
-    get_col_max, executemany, insert
-)
+from stream2segment.io.db.pdsql import (get_col_max, insert, update)
 from stream2segment.io.db import models, close_engine
 from stream2segment.download.inputvalidation import load_input
 from stream2segment.download.utils import NoSegmentsToDownload, FailedDownload
@@ -223,35 +221,34 @@ def _download(
     del events  # help gc?
     del channels  # help gc?
 
-    log_step_header(
-        f"Checking already downloaded segments",4
-    )
+    log_step_header(f"Checking already downloaded segments",4)
+
+    # logger.warning(
+    #                 f"Discarding {already_saved.sum():,} already downloaded segment(s)"
+    #             )
+
     # raises NothingToDownload, but store variable because if we have stationxml or quakeml
     # we want to check those as well and potentially download them (imagine a failed previous
     # attempt, and one wants just to update XMLs)
-    skip_download_msg = ""
-    try:
-        segments = prepare_for_download(
-            engine=engine, segments=segments, restricted_download=credentials is not None
-        )
-    except NoSegmentsToDownload as e:
-        # raise only if stationxml and quakeml are False
-        if not stationxml and not quakeml:
-            raise e
-        else:
-            skip_download_msg = f'Skipping: {str(e)}'
 
-    # prepare_for_download raises a NothingToDownload if there is no
-    # data, so if we are here segments is not empty
-    log_step_header(
-        skip_download_msg or
-        f"Downloading {len(segments):,} segments " +
-        '(no credentials, open data only)' if credentials is None else '',
-        5
+    segments = prepare_for_download(
+        engine=engine, segments=segments, restricted_download=credentials is not None
     )
 
+    if segments.empty:
+        if not stationxml and not quakeml:
+            raise NoSegmentsToDownload(_nothing_to_download_msg)
+        else:
+            download_seg_msg = _nothing_to_download_msg
+    else:
+        download_seg_msg = f"Downloading {len(segments):,} segments"
+        if credentials is None:
+            download_seg_msg += ' (no credentials, open data only)'
+
+    log_step_header(download_seg_msg, 5)
     download_stats = {}
-    if not skip_download_msg:
+
+    if not segments.empty:
         d_stats = download_and_save(
             engine=engine,
             segments=segments,
@@ -299,6 +296,10 @@ def _download(
     return download_stats
 
 
+# used for testing
+_nothing_to_download_msg = 'all segments already downloaded'
+
+
 def save_download_run(engine, config: dict, log_file_path: str, d_stats: dict) -> int:
     if config is None:
         config = {}
@@ -323,19 +324,17 @@ def save_download_run(engine, config: dict, log_file_path: str, d_stats: dict) -
         version = "N/A"
 
     download_id = get_col_max(engine, models.DownloadRun.id) + 1
-    _ = list(  # list will consume the iterable `execute_sql` FIXME better?
-        executemany(
-            engine,
-            [insert(models.DownloadRun)],
-            [dict(
+    with engine.begin() as conn:
+        conn.execute(
+            insert(models.DownloadRun),
+            dict(
                 id=download_id,
                 time=datetime.now(UTC).replace(tzinfo=None, microsecond=0),
                 config=config_str,
                 log=tmp_log,
                 summary=json.dumps(d_stats or {}),
                 s2s_version=version
-            )]
+            )
         )
-    )
 
     return download_id

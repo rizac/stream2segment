@@ -84,8 +84,6 @@ def get_events(
             f"checking duplicates, conflicts, and saving"
         )
 
-    if not pd.api.types.is_categorical_dtype(events[url_col]):
-        events[url_col] = events[url_col].astype("category")
     ws_id_col = Event.webservice_id.key
     events = sync_webservice_urls_and_assign_ids(
         events, engine, ids_column_name=ws_id_col
@@ -93,22 +91,25 @@ def get_events(
     rem = events[ws_id_col].isna() & events[url_col].notna()
     if rem.any():
         events = events[~rem]
-        logger.warning(
-            f"Discarding {rem.sum()} events(s) (associated URL not saved to DB)"
-        )
+        if events.empty:
+            raise FailedDownload(
+                f"All events ({rem.sum()}) discard (associated URL not saved to DB)"
+            )
+        else:
+            logger.warning(
+                f"Discarding {rem.sum()} events(s) (associated URL not saved to DB)"
+            )
 
-    if not events.empty:
-        events[ws_id_col] = events[ws_id_col].astype('Int64')  # there might be Nones
-
-        events = save_events(
-            events,
-            engine,
-            lat_tol_km=event_overlap_tolerance['lat'],
-            lon_tol_km=event_overlap_tolerance['lon'],
-            depth_tol_km=event_overlap_tolerance['depth'],
-            time_tol_sec=event_overlap_tolerance['time'],
-            on_event_conflict=on_event_conflict
-        )
+    events[ws_id_col] = events[ws_id_col].astype('Int64')  # there might be Nones
+    events = save_events(
+        events,
+        engine,
+        lat_tol_km=event_overlap_tolerance['lat'],
+        lon_tol_km=event_overlap_tolerance['lon'],
+        depth_tol_km=event_overlap_tolerance['depth'],
+        time_tol_sec=event_overlap_tolerance['time'],
+        on_event_conflict=on_event_conflict
+    )
 
     if events.empty:
         raise FailedDownload(

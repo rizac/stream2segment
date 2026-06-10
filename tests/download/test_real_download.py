@@ -14,8 +14,10 @@ from stream2segment.download.url import read_urls as original_read_urls
 from stream2segment.download.channels import (
     download_channels as original_download_channels
 )
-from stream2segment.download.segments import _nothing_to_download_msg  # noqa
-from stream2segment.download.stationsearch import _no_station_found_within_search_area_msg  # noqa
+from stream2segment.download.main import _nothing_to_download_msg
+from stream2segment.download.stationsearch import (
+    _no_station_found_within_search_area_msg
+)
 from stream2segment.download.utils import NoSegmentsToDownload
 from stream2segment.download.inputvalidation import load_input as original_load_input
 from unittest.mock import patch
