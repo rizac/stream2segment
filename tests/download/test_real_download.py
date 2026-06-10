@@ -1,16 +1,19 @@
 """
 Real download test scenarios
 """
+# Feb 4, 2016
 import re
 from collections import namedtuple
-# Feb 4, 2016
 from datetime import datetime, timedelta
+from urllib.request import Request
+from unittest.mock import patch
 
+import pandas as pd
 from click.testing import CliRunner
 from sqlalchemy import select, update, delete
 from sqlalchemy.exc import IntegrityError
 
-from stream2segment.download.url import read_urls as original_read_urls
+from stream2segment.download.url import read_urls as original_read_urls, Response
 from stream2segment.download.channels import (
     download_channels as original_download_channels
 )
@@ -18,12 +21,8 @@ from stream2segment.download.main import _nothing_to_download_msg
 from stream2segment.download.stationsearch import (
     _no_station_found_within_search_area_msg
 )
-from stream2segment.download.utils import NoSegmentsToDownload
+from stream2segment.download.utils import NoSegmentsToDownload, FailedDownload
 from stream2segment.download.inputvalidation import load_input as original_load_input
-from unittest.mock import patch
-
-import pandas as pd
-
 from stream2segment.cli import cli
 from stream2segment.io.db.models import (
     Event, Channel, Segment, StationXML, QuakeML, SkippedSegment
@@ -160,7 +159,6 @@ def test_real_download_events(
             assert num_events2 == num_events
 
 
-
 @patch(download_save_segments_path)
 @patch(get_events_path)
 def test_real_download_channels(
@@ -221,6 +219,32 @@ def test_real_download_channels(
     # nothing new has been written:
     assert num_channels == get_row_count(db.engine, Channel)
     assert num_events == get_row_count(db.engine, Event)
+
+    # do it again (test channel conflict):
+    # first change 10 channels lat, to return conflicts:
+    with db.engine.begin() as conn:
+        first_10_ids = select(Channel.__table__.c.id).limit(10)
+
+        conn.execute(
+            update(Channel.__table__)
+            .where(Channel.__table__.c.id.in_(first_10_ids))
+            .values(latitude=Channel.__table__.c.latitude + 1)
+        )
+    result = CliRunner().invoke(
+        cli, [
+            'download', '-c', str(cfg_file), '--dburl', db.url,
+            '--net', 'BE,16,DK,1B,1C,3D,BK', '--sta', 'MEM,MG09,NUUG,KARA,ANR,MM01,BRIB'
+        ]
+    )
+    assert result.exit_code == 0
+    assert _no_station_found_within_search_area_msg in result.output
+    # nothing new has been written:
+    assert num_channels == get_row_count(db.engine, Channel)
+    assert num_events == get_row_count(db.engine, Event)
+    assert (
+        'Replacing the following channels with matching database records'
+        in log_capture.getvalue()
+    )
 
 
 @patch(download_save_segments_path)
@@ -336,27 +360,6 @@ def test_download_channels_all(
     assert num_events == 0
 
 
-Count = namedtuple('count', [
-    'segment',
-    'skipped_segment',
-    'channel',
-    'event',
-    'quakeml',
-    'stationxml'
-])
-
-
-def count_from_db(engine):
-    return Count(
-        get_row_count(engine, Segment),
-        get_row_count(engine, SkippedSegment),
-        get_row_count(engine, Channel),
-        get_row_count(engine, Event),
-        get_row_count(engine, QuakeML),
-        get_row_count(engine, StationXML)
-    )
-
-
 @patch("stream2segment.download.segments.read_urls")
 def test_real_download_segments(
     mock_download_segments_read_urls,
@@ -391,8 +394,10 @@ def test_real_download_segments(
     result = CliRunner().invoke(cli, cli_options)
     assert result.exit_code == 0
     count = count_from_db(db.engine)
-    assert (count.segment == count.skipped_segment == count.stationxml ==
-            count.quakeml == count.channel == 0)
+    assert (
+        count.segment == count.skipped_segment == count.stationxml == count.quakeml ==
+        count.channel == 0
+    )
     assert count.event > 0
     assert not mock_download_segments_read_urls.called
 
@@ -423,8 +428,9 @@ def test_real_download_segments(
     count = count_from_db(db.engine)
     assert count.event == prev_count.event
     assert count.channel > 0
-    assert (count.segment == count.skipped_segment == count.stationxml ==
-            count.quakeml == 0)
+    assert (
+        count.segment == count.skipped_segment == count.stationxml == count.quakeml == 0
+    )
     assert mock_download_segments_read_urls.called
 
     # same as before, but lower to the bare minimum the retry settings, to execute
@@ -441,12 +447,7 @@ def test_real_download_segments(
     result = CliRunner().invoke(cli, cli_options)
     assert result.exit_code == 0
     assert 'download not performed for' in result.output.lower()
-    prev_count = count
-    count = count_from_db(db.engine)
-    assert count.event == prev_count.event
-    assert count.channel  == prev_count.channel
-    assert (count.segment == count.skipped_segment == count.stationxml ==
-            count.quakeml == 0)
+    assert count == count_from_db(db.engine)  # nothing changed on DB
     assert mock_download_segments_read_urls.called
 
     # Same as before, but read_urls behaves normally. We will get all 204 No content
@@ -500,14 +501,7 @@ def test_real_download_segments(
     mock_download_segments_read_urls.reset_mock()
     result = CliRunner().invoke(cli, cli_options)
     assert result.exit_code == 0
-    prev_count = count
-    count = count_from_db(db.engine)
-    assert count.event == prev_count.event
-    assert count.channel == prev_count.channel
-    assert count.skipped_segment == prev_count.skipped_segment
-    assert count.segment == prev_count.segment
-    assert count.stationxml == prev_count.stationxml
-    assert count.quakeml == prev_count.quakeml
+    assert count == count_from_db(db.engine)  # nothing changed on DB
     assert _nothing_to_download_msg in result.output
     assert not mock_download_segments_read_urls.called  # NOTE: NOT CALLED!
 
@@ -541,19 +535,11 @@ def test_real_download_segments(
         ).scalars().all()
         quakeml_ids = conn.execute(select(QuakeML.id)).scalars().all()
 
-
     # same as before, we check that nothing is downloaded again:
     mock_download_segments_read_urls.reset_mock()
     result = CliRunner().invoke(cli, cli_options)
     assert result.exit_code == 0
-    prev_count = count
-    count = count_from_db(db.engine)
-    assert count.event == prev_count.event
-    assert count.channel == prev_count.channel
-    assert count.skipped_segment == prev_count.skipped_segment
-    assert count.segment == prev_count.segment
-    assert count.stationxml == prev_count.stationxml
-    assert count.quakeml == prev_count.quakeml
+    assert count == count_from_db(db.engine)  # nothing changed on DB
     assert _nothing_to_download_msg in result.output
     assert not mock_download_segments_read_urls.called  # NOTE: NOT CALLED!
 
@@ -586,7 +572,7 @@ def test_real_download_segments_with_credentials(
     mock_download_segments_read_urls.side_effect = original_read_urls
 
     # Start tests, try download restricted data with no token
-
+    # actually, data is not restricted anymore, so we should download 1 segment
     mock_download_segments_read_urls.reset_mock()
     cli_options = [
         'download', '-c', str(cfg_file), '--dburl', db.url,
@@ -611,48 +597,69 @@ def test_real_download_segments_with_credentials(
     assert count.stationxml > 0
     assert mock_download_segments_read_urls.called
 
+    mock_download_segments_read_urls.reset_mock()
+    result = CliRunner().invoke(cli, cli_options)
+    assert 'all segments already downloaded' in result.output
+    assert 'all segments already downloaded' in log_capture.getvalue()
+    assert not mock_download_segments_read_urls.called
+    assert result.exit_code == 0
+
     # TEST WITH CREDENTIALS NOW
-    # (nothing is done because segment already downloaded, but we test mismatching
-    # channels)
+    # (error downloading user password cause token invalid)
     # mock load config to add the token from data dir:
+
+    # delete segments table otheerwise we do not hit segments download
+    with db.engine.begin() as conn:
+        Segment.__table__.drop(conn)
     with (patch(load_input_path) as _):
-        def mock_load_input(config_file_path: str, **override_params):
-            override_params['credentials'] = test_data_dir / 'eidatoken'
+        def load_input(config_file_path: str, **override_params):
+            override_params['credentials'] = str(test_data_dir / 'eidatoken')
             return original_load_input(config_file_path, **override_params)
 
-        _.side_effect = mock_load_input
+        _.side_effect = load_input
 
         # run tests:
         result = CliRunner().invoke(cli, cli_options)
-        assert result.exit_code == 0
-        assert (
-            'Replacing the following channels with matching database records'
-            in log_capture.getvalue()
-        )
-        result = CliRunner().invoke(cli, cli_options)
-        assert result.exit_code == 0
-        count = count_from_db(db.engine)
-        assert (count.segment == count.skipped_segment == count.stationxml ==
-                count.quakeml == count.channel == 0)
-        assert count.event > 0
-        assert not mock_download_segments_read_urls.called
+        assert result.exit_code == 1
+        assert FailedDownload.prefix in result.output
+        assert FailedDownload.prefix in log_capture.getvalue()
+        assert count_from_db(db.engine).segment == 0
 
-        # Now delete segments table first (force re download)
-        Segment.__table__.drop(db.engine)
-        # mock load config to add the token from data dir:
-        with (patch(load_input_path) as _):
-            def mock_load_input(*args, **kwargs):
-                config, kwargs = original_load_input(*args, **kwargs)
-                kwargs['credentials'] = test_data_dir / 'eidatoken'
-                return config, kwargs
+        # now mock url read to return a valid user password:
+        from stream2segment.download.segments import read_url as original_read_url
+        with patch('stream2segment.download.segments.read_url') as mock_read_url:
 
-            _.side_effect = mock_load_input
+            def read_url(req, *a, **kw):
+                if isinstance(req, Request) and '/auth' in req.full_url:
+                    return Response('uS3r:pa55uu0Rd', 200, req.full_url)
+                return original_read_url(req, *a, **kw)
 
-        # run tests:
-        result = CliRunner().invoke(cli, cli_options)
-        assert result.exit_code == 0
-        count = count_from_db(db.engine)
-        assert (count.segment == count.skipped_segment == count.stationxml ==
-                count.quakeml == count.channel == 0)
-        assert count.event > 0
-        assert not mock_download_segments_read_urls.called
+            mock_read_url.side_effect = read_url
+
+            # run tests:
+            result = CliRunner().invoke(cli, cli_options)
+            assert result.exit_code == 0
+            # we got a 500 from trying to download the segment with the user password
+            # returned by the mock function above:
+            assert 'Download unsuccessful' in log_capture.getvalue()
+            assert count_from_db(db.engine).segment == 0
+
+
+Count = namedtuple('count', [
+    'segment',
+    'skipped_segment',
+    'channel',
+    'event',
+    'quakeml',
+    'stationxml'
+])
+
+def count_from_db(engine):
+    return Count(
+        get_row_count(engine, Segment),
+        get_row_count(engine, SkippedSegment),
+        get_row_count(engine, Channel),
+        get_row_count(engine, Event),
+        get_row_count(engine, QuakeML),
+        get_row_count(engine, StationXML)
+    )

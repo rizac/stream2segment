@@ -59,19 +59,14 @@ def prepare_for_download(
         [ev_id_col, ch_id_col],
             chunksize=min(1000, len(segments))
         )
-        segments.dropna(subset=[Segment.id.key], inplace=True)
+        already_saved = segments[Segment.id.key].notna()
+        if already_saved.any():
+            segments = segments[~already_saved]
         if Segment.id.key in segments.columns:
             segments.pop(Segment.id.key)
 
     if get_row_count(engine, SkippedSegment) > 0 and not segments.empty:
 
-        # segments = sync_pkey(
-        #     segments,
-        #     engine,
-        #     SkippedSegment,
-        #     [SkippedSegment.event_id.key, SkippedSegment.channel_id.key],
-        #     chunksize=min(1000, len(segments))
-        # )
         _suf = '_.db._'
         select_stmt = select(
             SkippedSegment.id,
@@ -141,15 +136,17 @@ def download_and_save(
                 response = read_url(req)
                 if not response.is_ok:
                     logger.warning(str(response))
-                    if 'queryauth' in url:
-                        rem = segments[url_col] == url
-                        if rem.any():
-                            logger.warning(
-                                f'Discarding {rem.sum():,} segment(s) '
-                                f'(error acquiring credentials from their URL domain)'
-                            )
-                            segments = segments[segments[url_col] != url]
+                    rem = segments[url_col] == url
+                    if rem.any():
+                        logger.warning(
+                            f'Discarding {rem.sum():,} segment(s) '
+                            f'(error acquiring credentials from their URL domain)'
+                        )
+                        segments = segments[segments[url_col] != url]
+                        if segments.empty:
+                            break
                     continue
+
                 data = response.data
                 if ':' not in data:
                     raise ValueError(
@@ -158,6 +155,14 @@ def download_and_save(
                     )
                 else:
                     user_pass = tuple(data.split(':'))
+
+                # replace url with new url (queryauth):
+                url_auth = fdsn_url(url, new_method='queryauth')
+                if url_auth not in segments[url_col].cat.categories:
+                    segments[url_col] = segments[url_col].cat.add_categories([url_auth])
+                # Replace the values
+                segments.loc[segments[url_col] == url, url_col] = url_auth
+
             else:
                 user_pass = tuple(credentials)
 

@@ -91,8 +91,7 @@ def get_channels(
         cha_urls,
         filter_funcs=filter_funcs,
         timeout=download_timeout,
-        show_progress=show_progress,
-        restricted_download=restricted_download,
+        show_progress=show_progress
     )
     if channels.empty:
         raise NoSegmentsToDownload(
@@ -361,7 +360,6 @@ BooleanSeries: TypeAlias = pd.Series  # just for hint clarity (see below)
 def download_channels(
     fdsn_station_urls,
     filter_funcs: dict[str, Callable[[pd.Series], BooleanSeries]],
-    restricted_download: bool,
     timeout: int,
     show_progress=False
 ):
@@ -399,23 +397,14 @@ def download_channels(
             dframe[rank_col] = idx
 
             # replace full url with the future dataselect url
-            if restricted_download:
-                datasel_url = fdsn_url_qs(  # <- basically, remove query from final URL
-                    fdsn_url(
-                        response.request,
-                        new_service='dataselect',
-                        new_method='queryauth'
-                    )
+
+            dframe[url_col] = fdsn_url_qs(  # <- basically, remove query from final URL
+                fdsn_url(
+                    response.request,
+                    new_service='dataselect',
+                    new_method='query'
                 )
-            else:
-                datasel_url = fdsn_url_qs(  # <- basically, remove query from final URL
-                    fdsn_url(
-                        response.request,
-                        new_service='dataselect',
-                        new_method='query'
-                    )
-                )
-            dframe[url_col] = datasel_url
+            )
             # station_urls.add(station_url)
             ch_list.append(resolve_intra_conflicts(dframe, response.request))
 
@@ -497,6 +486,7 @@ def fdsn_channel_response_text_to_df(
     if dfr.empty:
         raise Exception('all channels filtered out')
 
+    # round unique constraint values to remove noise whilst preserving integrity:
     dfr[start_col] = dfr[start_col].dt.round('s')
     dfr[end_col] = dfr[end_col].dt.round('s')
     dfr[lat_col] = dfr[lat_col].round(6)
@@ -690,14 +680,13 @@ def save_channels(engine: Engine, channels: pd.DataFrame):
         if mismatch.any():
             logger.warning(
                 f'Replacing the following channels with matching database records '
-                f'(url might differ):\n'
+                f'(url, lat or lon might differ):\n'
                 f'{to_urls(channels[mismatch])}'
             )
             channels.loc[mismatch, lat_col] = channels.loc[mismatch, lat_col + _suf]
             channels.loc[mismatch, lon_col] = channels.loc[mismatch, lon_col + _suf]
-            channels.loc[mismatch, ws_id_col] = (
-                channels.loc[mismatch, ws_id_col + _suf]
-            )
+            channels.loc[mismatch, ws_id_col] = channels.loc[mismatch, ws_id_col + _suf]
+
         channels.loc[on_db & ws_id_mismatch, url_col] = None  # flag for later
 
         channels[id_col] = channels[id_col].fillna(channels[id_col + _suf])
