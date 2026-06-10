@@ -394,12 +394,7 @@ def sync_webservice_urls_and_assign_ids(
     ws_df = pd.DataFrame({url_col: dfr[url_col].cat.categories})
 
     id_col = WebService.id.key
-    ws_df = sync_pkey(
-        ws_df,
-        engine,
-        WebService,
-        [url_col]
-    )
+    ws_df = sync_pkey(ws_df, engine, WebService,[url_col])
 
     to_insert = set_pkeys(ws_df[ws_df[id_col].isna()], engine, WebService)
     inserted = insert_df(to_insert, engine, WebService)
@@ -409,12 +404,11 @@ def sync_webservice_urls_and_assign_ids(
     # for safety remove merge_on column, if any:
     dfr.drop(columns=[ids_column_name], errors="ignore", inplace=True)
     # now assign (might change dtype of url so check this beforehand):
-    are_urls_categorical = pd.api.types.is_categorical_dtype(dfr[url_col])
     dfr = dfr.merge(
         ws_df.rename(columns={id_col: ids_column_name}), on=url_col, how="left"
     )
-    # restore categorical if needed
-    if are_urls_categorical and not pd.api.types.is_categorical_dtype(dfr[url_col]):
+    # restore categorical if needed (merge might convert to StringDtype):
+    if not pd.api.types.is_categorical_dtype(dfr[url_col]):
         dfr[url_col] = dfr[url_col].astype("category")
     return dfr
 
