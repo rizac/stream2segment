@@ -7,6 +7,7 @@ import re
 from collections.abc import Sequence
 from datetime import datetime, timedelta, UTC, date
 from os.path import isabs, abspath, join, dirname, isfile
+from pathlib import Path
 from typing import Any
 
 import yaml
@@ -447,7 +448,7 @@ def valid_credentials(
             )
         return str(credentials[0]), str(credentials[1])
 
-    if isinstance(credentials, str):
+    if isinstance(credentials, (str, Path)):
         token_path = credentials
         if not isfile(token_path) and not isabs(token_path) and configfile is not None:
             token_path = abspath(join(dirname(configfile), token_path))
@@ -465,7 +466,7 @@ def valid_credentials(
             )
         return credentials
 
-    raise ValueError(f'Invalid "restricted data" parameter: {credentials}')
+    raise ValueError(f'unable to read file path "{credentials}"')
     #
     # if isinstance(credentials, str) and configfile is not None:
     #     if not isabs(credentials):

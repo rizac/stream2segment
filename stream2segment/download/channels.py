@@ -683,18 +683,20 @@ def save_channels(engine: Engine, channels: pd.DataFrame):
             (channels[lon_col] != channels[lon_col + _suf]) |
             ws_id_mismatch
         )
-        channels.loc[on_db & ws_id_mismatch, url_col] = None  # flag for later
-
         if mismatch.any():
-            # write to dataframe and log FIXME log!
+            logger.warning(
+                f'Replacing the following channels with matching database records '
+                f'(url might differ):\n'
+                f'{to_urls(channels[mismatch])}'
+            )
             channels.loc[mismatch, lat_col] = channels.loc[mismatch, lat_col + _suf]
             channels.loc[mismatch, lon_col] = channels.loc[mismatch, lon_col + _suf]
             channels.loc[mismatch, ws_id_col] = (
                 channels.loc[mismatch, ws_id_col + _suf]
             )
-        channels[id_col] = channels[id_col].fillna(
-            channels[id_col + _suf]
-        )
+        channels.loc[on_db & ws_id_mismatch, url_col] = None  # flag for later
+
+        channels[id_col] = channels[id_col].fillna(channels[id_col + _suf])
         channels.drop(
             columns=[c for c in channels.columns if c.endswith(_suf)], inplace=True
         )
@@ -702,7 +704,7 @@ def save_channels(engine: Engine, channels: pd.DataFrame):
     # if I changed webservice id, I must reset also urls, which has categorical dtype:
     url_na = channels[url_col].isna()
     if url_na.any():
-        ws_ids = channels[url_na][ws_id_col].unique()
+        ws_ids = channels[url_na][ws_id_col].unique().tolist()
         with engine.connect() as conn:
             result = conn.execute(select(WebService.id, WebService.url).where(
                 WebService.id.in_(ws_ids)
@@ -754,3 +756,23 @@ def get_db_select_statement(channels) -> Select:
     if conditions:
         select_stmt = select_stmt.where(and_(*conditions))
     return select_stmt
+
+
+def to_urls(dfr:pd.DataFrame, max_rows=5):
+    ret = []
+    for (url, net, sta, start), df in dfr.groupby([
+        url_col, net_col, sta_col, start_col
+    ]):
+        loc = ",".join(set(df[loc_col]))
+        chas = df[band_col] + df[inst_col] + df[orient_col]
+        cha = ",".join(set(chas))
+        ret.append(fdsn_url_qs(
+            url, net=net, sta=sta, start=start, loc=loc, cha=cha, format='text'
+        ))
+        if max_rows is not None and len(ret) > max_rows:
+            break
+
+    if max_rows is not None:
+        ret.append(f'(showing first {max_rows:,} of {len(dfr):,})')
+
+    return "\n".join(ret)

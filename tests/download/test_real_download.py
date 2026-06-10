@@ -609,16 +609,62 @@ def test_real_download_segments_with_credentials(
     assert count.stationxml > 0
     assert mock_download_segments_read_urls.called
 
-    # TEST WITH CREDENTIALS NOW
-
+    # TEST WITHOUT CREDENTIALS TO CHECK
+    Segment.__table__.drop(db.engine)
     # mock load config to add the token from data dir:
     with patch(load_input_path) as _:
-        def mock_load_input(*args, **kwargs):
-            config, kwargs = original_load_input(*args, **kwargs)
-            kwargs['credentials'] = test_data_dir / 'eidatoken'
-            return config, kwargs
+        def mock_load_input(config_file_path: str, **override_params):
+            override_params['credentials'] = test_data_dir / 'eidatoken'
+            return original_load_input(config_file_path, **override_params)
 
         _.side_effect = mock_load_input
+
+        # run tests:
+        result = CliRunner().invoke(cli, cli_options)
+        assert result.exit_code == 0
+        count = count_from_db(db.engine)
+        assert (count.segment == count.skipped_segment == count.stationxml ==
+                count.quakeml == count.channel == 0)
+        assert count.event > 0
+        assert not mock_download_segments_read_urls.called
+
+
+    # TEST WITH CREDENTIALS NOW
+    # (nothing is done because segment already downloaded, but we test mismatching
+    # channels)
+    # mock load config to add the token from data dir:
+    with (patch(load_input_path) as _):
+        def mock_load_input(config_file_path: str, **override_params):
+            override_params['credentials'] = test_data_dir / 'eidatoken'
+            return original_load_input(config_file_path, **override_params)
+
+        _.side_effect = mock_load_input
+
+        # run tests:
+        result = CliRunner().invoke(cli, cli_options)
+        assert result.exit_code == 0
+        assert (
+            'Replacing the following channels with matching database records'
+            in log_capture.getvalue()
+        )
+        result = CliRunner().invoke(cli, cli_options)
+        assert result.exit_code == 0
+        count = count_from_db(db.engine)
+        assert (count.segment == count.skipped_segment == count.stationxml ==
+                count.quakeml == count.channel == 0)
+        assert count.event > 0
+        assert not mock_download_segments_read_urls.called
+
+        # TEST WITH CREDENTIALS NOW, delete segments table first (force re download)
+        Segment.__table__.drop(db.engine)
+        # mock load config to add the token from data dir:
+        with (patch(load_input_path) as _):
+            def mock_load_input(*args, **kwargs):
+                config, kwargs = original_load_input(*args, **kwargs)
+                kwargs['credentials'] = test_data_dir / 'eidatoken'
+                return config, kwargs
+
+            _.side_effect = mock_load_input
 
         # run tests:
         result = CliRunner().invoke(cli, cli_options)
