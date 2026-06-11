@@ -94,7 +94,7 @@ def get_channels(
         show_progress=show_progress
     )
     if channels.empty:
-        raise NoSegmentsToDownload(
+        raise FailedDownload(
             f'no channels downloaded; check your configuration, '
             'web services status, your internet connection. See log for details'
         )
@@ -718,7 +718,10 @@ def save_channels(engine: Engine, channels: pd.DataFrame):
 def get_db_select_statement(channels) -> Select:
     conditions = []
     if pd.notna(channels[start_col].max()):
-        conditions.append(Channel.start_time <= channels[start_col].max())
+        conditions.append(
+            Channel.start_time <= channels[start_col].max().to_pydatetime()
+        )
+
     for name, col in {
         net_col: Channel.network_code,
         sta_col: Channel.station_code,

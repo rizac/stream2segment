@@ -74,7 +74,7 @@ def get_events(
         urls, evt_query_args, start, end, download_timeout, show_progress
     )
     if events.empty:
-        raise NoSegmentsToDownload(
+        raise FailedDownload(
             f'no events downloaded; check your configuration, '
             'web services status, your internet connection. See log for details'
         )
@@ -600,12 +600,20 @@ def get_db_select_statement(
         (lat_col, Event.latitude, lat_tol_deg + 0.0001),
         (lon_col, Event.longitude, lon_tol_deg + 0.0001),
         (depth_col, Event.depth_km, depth_tol_km + 0.01),
-        (time_col, Event.time, timedelta(seconds=time_tol_sec + 1)),
     ]:
         if pd.notna(events[name].max()):
-            conditions.append(col <= events[name].max() + delta)
+            conditions.append(col <= float(events[name].max() + delta))
         if pd.notna(events[name].min()):
-            conditions.append(col >= events[name].min() - delta)
+            conditions.append(col >= float(events[name].min() - delta))
+
+    # handle datetimes separately:
+    delta = timedelta(seconds=time_tol_sec + 1)
+    col = Event.time
+    name = time_col
+    if pd.notna(events[name].max()):
+        conditions.append(col <= (events[name].max() + delta).to_pydatetime())
+    if pd.notna(events[name].min()):
+        conditions.append(col >= (events[name].min() - delta).to_pydatetime())
 
     select_stmt = select(
         Event.id, Event.latitude, Event.longitude, Event.time, Event.depth_km,

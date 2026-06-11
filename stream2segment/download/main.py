@@ -121,7 +121,7 @@ def download(
             close_engine(engine)
 
     try:
-        if os.path.isfile(log_file_path):
+        if ret == 0 and os.path.isfile(log_file_path):
             os.remove(log_file_path)
     except Exception:
         pass

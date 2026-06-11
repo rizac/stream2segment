@@ -645,6 +645,37 @@ def test_real_download_segments_with_credentials(
             assert count_from_db(db.engine).segment == 0
 
 
+@patch(download_save_segments_path)
+def test_download_iris_caltec_up_to_segments(
+    mock_download_save_segments,
+    # fixtures:
+    online_only, db, log_capture, test_data_dir
+):
+    """This tess _ADARRAY private network"""
+    if db.is_postgres:
+        # THIS TEST IS JUST ENOUGH WITH ONE DB (USE SQLITE BECAUSE POSTGRES MIGHT NOT BE
+        # SETUP FOR TESTS)
+        return
+
+    # mock download save segments: raise NothingToDownload to speed up things:
+    custom_message = 'custom message!'
+    def func_(*a, **kw):
+        raise NoSegmentsToDownload(custom_message)
+    mock_download_save_segments.side_effect = func_
+
+    # check  the log files in the dir:
+
+    cfg_file = test_data_dir / "download-iris-caltec-500.yaml"
+
+    result = CliRunner().invoke(
+        cli, [
+            'download', '-c', str(cfg_file), '--dburl', db.url,
+        ]
+    )
+    assert result.exit_code == 1
+    asd = 9
+
+
 Count = namedtuple('count', [
     'segment',
     'skipped_segment',

@@ -1,0 +1,51 @@
+dburl: ''  # will be filled in tests
+starttime: 1999-01-01 00:00:00
+endtime: 2023-08-06 00:00:00
+eventws: http://service.iris.edu/fdsnws/event/1/query
+minlatitude: 35
+maxlatitude: 42
+minlongitude: -125
+maxlongitude: -114
+mindepth: 0
+maxdepth: 40
+minmagnitude: 3
+maxmagnitude: null
+eventws_params: null
+dataws:
+- iris
+- http://service.scedc.caltech.edu/fdsnws/dataselect/1/query
+network:
+- CI
+- CE
+station: '*'
+location: '*'
+channel:
+- HL?
+- HN?
+- HG?
+min_sample_rate: 60
+inventory: true
+update_metadata: false
+search_radius:
+  max: 3
+  min: 0
+time_window:
+- -2
+- 3.0
+restricted_data: ''
+retry_client_err: true
+retry_mseed_err: false
+retry_seg_not_found: true
+retry_server_err: true
+retry_timespan_err: true
+retry_url_err: true
+traveltimes_model: ak135_ttp+
+advanced_settings:
+  db_buf_size: 100
+  download_blocksize: 1048576
+  e_timeout: 120
+  i_timeout: 60
+  max_concurrent_downloads: null
+  routing_service_url: http://www.orfeus-eu.org/eidaws/routing/1/query
+  s_timeout: 120
+  w_timeout: 30

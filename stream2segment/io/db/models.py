@@ -242,7 +242,7 @@ class Segment(Base):
 
     __table_args__ = (
         Index("okseg_event_channel_index", "event_id", "channel_id"),
-        UniqueConstraint('event_id', 'channel_id', name='unique_event_channel'),
+        UniqueConstraint('event_id', 'channel_id', name='unique_evt_cha'),
     )
 
     @hybrid_property
@@ -293,8 +293,9 @@ class SkippedSegment(Base):
 
     __table_args__ = (
         Index("skipseg_event_channel_index", "event_id", "channel_id"),
-        UniqueConstraint('event_id', 'channel_id', name='unique_event_channel'),
+        UniqueConstraint('event_id', 'channel_id', name='unique_evt_cha_2'),
     )
+
 
 class ClassLabel(Base):
     """Model representing a segment class label"""
