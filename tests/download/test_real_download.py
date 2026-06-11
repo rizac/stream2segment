@@ -9,6 +9,7 @@ from urllib.request import Request
 from unittest.mock import patch
 
 import pandas as pd
+import pytest
 from click.testing import CliRunner
 from sqlalchemy import select, update, delete
 from sqlalchemy.exc import IntegrityError
@@ -21,6 +22,9 @@ from stream2segment.download.main import _nothing_to_download_msg
 from stream2segment.download.stationsearch import (
     _no_station_found_within_search_area_msg
 )
+# from stream2segment.download.main import (
+#     download_and_save as original_download_download_save_segments
+# )
 from stream2segment.download.utils import NoSegmentsToDownload, FailedDownload
 from stream2segment.download.inputvalidation import load_input as original_load_input
 from stream2segment.cli import cli
@@ -670,6 +674,31 @@ def test_download_iris_caltec_up_to_segments(
     result = CliRunner().invoke(
         cli, [
             'download', '-c', str(cfg_file), '--dburl', db.url,
+        ]
+    )
+    assert result.exit_code == 1
+    asd = 9
+
+
+@pytest.mark.skip('Huge download - tested only once in debug mode with pydev')
+def test_download_iris_caltec_up_to_segments_tmp(
+    # fixtures:
+    online_only, db, log_capture, test_data_dir
+):
+    """This tess _ADARRAY private network"""
+    if db.is_postgres:
+        # THIS TEST IS JUST ENOUGH WITH ONE DB (USE SQLITE BECAUSE POSTGRES MIGHT NOT BE
+        # SETUP FOR TESTS)
+        return
+
+    # check  the log files in the dir:
+
+    cfg_file = test_data_dir / "download-iris-caltec-500.yaml"
+
+    result = CliRunner().invoke(
+        cli, [
+            'download', '-c', str(cfg_file), '--dburl', db.url,
+            '--events_url', 'https://service.ncedc.org/fdsnws/event/1/query'
         ]
     )
     assert result.exit_code == 1
