@@ -273,7 +273,7 @@ def _download(
         log_step_header("Downloading Stations", 6)
         s_stats = save_stationxml(
             engine=engine,
-            max_download_concurrency=max_download_concurrency,
+            max_download_concurrency_per_domain=max_download_concurrency,
             download_timeout=data_download_timeout,
             download_blocksize=download_blocksize,
             show_progress=isterminal
@@ -285,7 +285,7 @@ def _download(
         log_step_header("Downloading Events", 7)
         e_stats = save_quakeml(
             engine=engine,
-            max_download_concurrency=max_download_concurrency,
+            max_download_concurrency_per_domain=max_download_concurrency,
             download_timeout=data_download_timeout,
             download_blocksize=download_blocksize,
             show_progress=isterminal

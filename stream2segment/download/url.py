@@ -2,7 +2,7 @@
 Http requests with multi-threading
 """
 # :date: Apr 15, 2017
-from collections.abc import Iterable
+from collections.abc import Iterable, Callable
 from typing import Any
 from dataclasses import dataclass
 from threading import Condition, current_thread, main_thread, Lock, Event
@@ -86,7 +86,7 @@ responses[CustomResponseCode.HTTP_EXC_ERROR] = "HTTP response malformed"
 responses[CustomResponseCode.SSL_ERROR] = "SSL/TLS handshake failure"
 
 
-@dataclass(slots=True, frozen=True)
+@dataclass(slots=True)
 class Response:
     """
     Lightweight data class representing a Response object with two arguments:
@@ -103,9 +103,10 @@ class Response:
     - request: The request (URL string or Request object) generating the Response
     """
 
-    data: Any
+    data: str | bytes
     status_code: int
     request: str | Request
+    meta: Any = None
 
     @property
     def is_ok(self):
@@ -213,8 +214,9 @@ def read_url(
         raise
 
 
-def read_urls(
-    iterable,
+def build_and_read_urls(
+    url_builder: Callable[..., [str | Request]] | None,
+    iterable: Iterable,
     *,
     max_global_concurrency=None,
     max_concurrency=8,
@@ -228,12 +230,16 @@ def read_urls(
     **kwargs
 ) -> Iterable[Response]:
     """
-    Download data (optionally asynchronously) from different urls, yielding
-    Response objects. Specifically designed for large downloads, handles concurrency
-    (`threading.Pool`) globally and per URL-domain, stopping at specific errors
-    iteratively received.
+    Download data (optionally asynchronously) from different urls build from the given
+    iterable of objects, yielding Response objects. Specifically designed for large
+    downloads, handles concurrency (`threading.Pool`) globally and per URL-domain,
+    stopping at specific errors iteratively received.
 
-    :param iterable: an iterable strings (URLs) or `Request` objects
+    :param url_builder: a callable which takes one object of iterable and converts it
+        to a download URL string or Request object
+    :param iterable: an iterable of objects. Each element will be returned in the
+        `Response.meta` attribute so that the input object can be easily retrieved,
+        if needed
     :param max_global_concurrency: integer or None (the default) denoting the max
         parallel downloads globally. This corresponds to the maximum worker (sub)
         threads used. When None, the threads allocated are relative to the machine CPU
@@ -320,9 +326,11 @@ def read_urls(
         aborted_download_domains = set()
         limiters: dict[str, DynamicLimiter] = {}
 
-        def url_wrapper(url):
+        def url_wrapper(item):
             if stop_event is not None and stop_event.is_set():
                 return None
+            url = item if url_builder is None else url_builder(item)
+
             # get the opener (restricted data):
             domain = get_host(url)  # noqa
             with per_domain_lock(domain):
@@ -341,6 +349,7 @@ def read_urls(
             hostname_limiter.acquire()
             try:
                 resp = read_url(url, blocksize, decode, timeout, opener, **kwargs)
+                resp.meta = item
             finally:
                 hostname_limiter.release()
 

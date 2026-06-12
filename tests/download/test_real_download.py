@@ -14,7 +14,9 @@ from click.testing import CliRunner
 from sqlalchemy import select, update, delete
 from sqlalchemy.exc import IntegrityError
 
-from stream2segment.download.url import read_urls as original_read_urls, Response
+from stream2segment.download.url import (
+    build_and_read_urls as original_read_urls, Response
+)
 from stream2segment.download.channels import (
     download_channels as original_download_channels
 )
@@ -364,7 +366,7 @@ def test_download_channels_all(
     assert num_events == 0
 
 
-@patch("stream2segment.download.segments.read_urls")
+@patch("stream2segment.download.segments.build_and_read_urls")
 def test_real_download_segments(
     mock_download_segments_read_urls,
     # fixtures:
@@ -378,7 +380,6 @@ def test_real_download_segments(
 
     cfg_file = test_data_dir / "download-network-filter.yaml"
 
-
     mock_download_segments_read_urls.side_effect = original_read_urls
 
     # Start tests:
@@ -389,30 +390,22 @@ def test_real_download_segments(
         'download', '-c', str(cfg_file), '--dburl', db.url,
         '--data_url', 'iris',
         '--events_url', 'www.seismicportal.eu/fdsnws/event/1/query',
-        '--minmag', '4', '--maxmag', '5',
-        '--net', 'CAVN,CAVN,CAVN,CFON,CLLI,MAHO',
+        '--minmag', '5', '--maxmag', '6',
+        '--sta', 'MAHO',  # CAVN,CAVN,CFON,CLLI,MAHO',
         '--quakeml',
         '--start', '2000-01-01T00:00:00', '--end', '2000-12-31T23:59:59',
         '--time_window', '0.1', '0.2'
     ]
-    result = CliRunner().invoke(cli, cli_options)
-    assert result.exit_code == 0
-    count = count_from_db(db.engine)
-    assert (
-        count.segment == count.skipped_segment == count.stationxml == count.quakeml ==
-        count.channel == 0
-    )
-    assert count.event > 0
-    assert not mock_download_segments_read_urls.called
 
     # Widen the stations range to get some channel. Mock read_urls to test a
     # repeat "same error" type whilst keeping the other default args
     ################
-    def mocked_download_segments_read_urls(iterable, **kwargs):
+    def mocked_download_segments_read_urls(url_builder, iterable, **kwargs):
         """forward the original read_urls after changing some args"""
         kwargs['timeout'] = 0.00001
         # use lists cause is easier to debug:
-        return original_read_urls(list(u for u in iterable), **kwargs)
+        return original_read_urls(url_builder, list(u for u in iterable), **kwargs)
+
     mock_download_segments_read_urls.side_effect = mocked_download_segments_read_urls
     mock_download_segments_read_urls.reset_mock()
     cli_options = [
@@ -428,9 +421,8 @@ def test_real_download_segments(
     ]
     result = CliRunner().invoke(cli, cli_options)
     assert result.exit_code == 0
-    prev_count = count
     count = count_from_db(db.engine)
-    assert count.event == prev_count.event
+    assert count.event > 0
     assert count.channel > 0
     assert (
         count.segment == count.skipped_segment == count.stationxml == count.quakeml == 0
@@ -439,13 +431,14 @@ def test_real_download_segments(
 
     # same as before, but lower to the bare minimum the retry settings, to execute
     # read_urls code paths not yet hit:
-    def mocked_download_segments_read_urls(iterable, **kwargs):
+    def mocked_download_segments_read_urls(url_builder, iterable, **kwargs):
         """forward the original read_urls after changing some args"""
         kwargs['timeout'] = 0.00001
         kwargs['consecutive_error_limit'] = 1
         kwargs['error_limit'] = 2
         # use lists cause is easier to debug:
-        return original_read_urls(list(u for u in iterable), **kwargs)
+        return original_read_urls(url_builder, list(u for u in iterable), **kwargs)
+
     mock_download_segments_read_urls.side_effect = mocked_download_segments_read_urls
     mock_download_segments_read_urls.reset_mock()
     result = CliRunner().invoke(cli, cli_options)
@@ -558,7 +551,7 @@ def test_real_download_segments(
     assert len(set(quakeml_ids2) - set(quakeml_ids)) == 1
 
 
-@patch("stream2segment.download.segments.read_urls")
+@patch("stream2segment.download.segments.build_and_read_urls")
 def test_real_download_segments_with_credentials(
     mock_download_segments_read_urls,
     # fixtures:

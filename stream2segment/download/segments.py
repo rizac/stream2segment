@@ -11,11 +11,10 @@ import logging
 from enum import IntEnum
 from io import BytesIO
 from math import log
-import time
+from urllib.parse import parse_qs, urlsplit
 from urllib.request import Request
 
 import pandas as pd
-import psutil
 from sqlalchemy import Engine
 
 from stream2segment.download import url
@@ -32,10 +31,10 @@ from stream2segment.io.db.pdsql import (
 )
 from stream2segment.io.db.models import Segment, MiniSeed, SkippedSegment
 from stream2segment.download.utils import (
-    fdsn_url_qs, IdOnceLogFilter, fdsn_url, FailedDownload, NoSegmentsToDownload
+    fdsn_url_qs, IdOnceLogFilter, fdsn_url, FailedDownload
 )
 from stream2segment.download.url import (
-    get_host, read_urls, Response, read_url, responses
+    get_host, build_and_read_urls, Response, read_url
 )
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
@@ -212,7 +211,7 @@ def download_and_save(
         with get_progressbar(len(segments) if show_progress else 0) as pbar:
 
             while not segments.empty:
-                for idx, response in download(
+                for response, m_seed_code, m_seed, idx in download(
                     segments,
                     time_window,
                     user_passwords,
@@ -223,7 +222,7 @@ def download_and_save(
                     url_domain = get_host(response.request)
                     processed_indices.append(idx)
 
-                    if response.status_code in skipped_segment_codes:
+                    if m_seed_code in skipped_segment_codes:
                         if not_already_skipped(idx, segments):
                             skipped_segments_current_id += 1
                             rows_skip.append(
@@ -231,7 +230,7 @@ def download_and_save(
                                     skipped_segments_current_id,
                                     segments,
                                     idx,
-                                    response.status_code
+                                    m_seed_code
                                 )
                             )
                             if len(rows_skip) >= db_bufsize:
@@ -247,7 +246,7 @@ def download_and_save(
                         segments_current_id += 1
                         rows_ok.append(
                             prepare_segment_to_insert(
-                                segments_current_id, segments, idx, response.data  # noqa
+                                segments_current_id, segments, idx, m_seed
                             )
                         )
                         if len(rows_ok) >= db_bufsize:
@@ -321,7 +320,7 @@ def download(
     max_download_concurrency: int,
     download_timeout,
     download_blocksize
-) -> Iterable[tuple[int, Response]]:
+) -> Iterable[tuple[Response, int, unpacked_miniseed | None, int]]:
     """
     Download segments and yields results
     """
@@ -330,78 +329,70 @@ def download(
     ]
     dataframes = segments.groupby(grp_cols, sort=False, observed=True)
 
-    requests_cache: dict[str, dict[str, int | datetime]] = {}
     noise_w = timedelta(minutes=time_window[0])
     signal_w = timedelta(minutes=time_window[1])
 
-    def get_request(ev_id, net, sta, loc, band, inst, dfr:pd.DataFrame) -> str:
+    def url_builder(group: tuple[tuple, pd.DataFrame]) -> str:
+        ev_id, net, sta, loc, band, inst = group[0]
+        dfr = group[1]
         dc_url = dfr[url_col].iloc[0]
         a_time = dfr[atime_col].iloc[0].to_pydatetime()
-        # start and end (round down and round up to nearest second):
-        req_start = (a_time + noise_w).replace(microsecond=0)
-        req_end = (a_time + signal_w + timedelta(seconds=1)).replace(microsecond=0)
-        params = {
-            'start': req_start,
-            'end': req_end,
-            'net': net or None,
-            'sta': sta or None,
-            'loc': loc or None,
-            'cha': ",".join(f'{band}{inst}{o}' for o in dfr[orient_col]),
-        }
 
-        url_with_query = fdsn_url_qs(dc_url, **params)
-        url_req_cache = {
-            f'{net}.{sta}.{loc}.{band}{inst}{o}': i
-            for i, o in zip(dfr.index, dfr[orient_col])
-        }
-        url_req_cache |= {'_.request_start': req_start, '_.request_end': req_end}
-        requests_cache[url_with_query] = url_req_cache
-        return url_with_query
+        return fdsn_url_qs(
+            dc_url,
+            net = net or None,
+            sta = sta or None,
+            loc = loc or None,
+            cha = ",".join(f'{band}{inst}{o}' for o in dfr[orient_col]),
+            start = (a_time + noise_w).replace(microsecond=0),
+            end = (a_time + signal_w + timedelta(seconds=1)).replace(microsecond=0),
+        )
 
-    for response in read_urls(
-        (get_request(*params, dfr) for (params, dfr) in dataframes),  # noqa
+    for response in build_and_read_urls(
+        url_builder,
+        dataframes,  # noqa
         max_concurrency=max_download_concurrency,
         timeout=download_timeout,
         blocksize=download_blocksize,
         credentials=user_passwords
     ):
-        req_cache: dict = requests_cache.pop(response.request)
-        req_start = req_cache.pop('_.request_start')
-        req_end = req_cache.pop('_.request_end')
+        group = response.meta
+        ev_id, net, sta, loc, band, inst = group[0]
+        dfr = group[1]
+        req_cache = {
+            f'{net}.{sta}.{loc}.{band}{inst}{o}': i
+            for i, o in zip(dfr.index, dfr[orient_col])
+        }
 
         if not response.is_ok:
             for idx in req_cache.values():
-                yield idx, response
+                yield response, response.status_code, None, idx
             continue
+
+        qs = parse_qs(urlsplit(response.request).query)
+        req_start = datetime.fromisoformat(qs["start"][0])
+        req_end = datetime.fromisoformat(qs["end"][0])
 
         for m_seed in unpack_miniseed(response.data, set(req_cache.keys())):
             idx = req_cache[m_seed.seed_id]  # dataframe index value
+            m_seed_code = response.status_code
 
             if m_seed.data is None:
-                yield idx, Response(
-                    None,
-                    SkippedSegment.BAD_DATA,
-                    response.request
-                )
-                continue
+                m_seed_code = SkippedSegment.BAD_DATA
+                m_seed = None
+            elif m_seed.start >= req_end or m_seed.end <= req_start:
+                # we want at least something before and after the arrival time. If not:
+                m_seed_code = SkippedSegment.OUT_OF_TIME_BOUNDS
+                m_seed = None
 
-            # we want at least something before and after the arrival time:
-            if m_seed.start >= req_end or m_seed.end <= req_start:
-                yield idx, Response(
-                    None,
-                    SkippedSegment.OUT_OF_TIME_BOUNDS,
-                    response.request
-                )
-                continue
+            yield response, m_seed_code, m_seed, idx
 
-            yield idx, Response(
-                m_seed, response.status_code, response.request
-            )
 
 unpacked_miniseed = namedtuple(
     'unpacked_miniseed',
     ['seed_id', 'data', 'start', 'end', 'fsamp', 'maxgap']
 )
+
 
 def unpack_miniseed(
     data: bytes, expected_seed_ids: set[str]

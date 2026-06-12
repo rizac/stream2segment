@@ -13,12 +13,12 @@ from sqlalchemy.exc import IntegrityError
 from stream2segment.download.channels import url_col, net_col, sta_col
 from stream2segment.io.utils import get_progressbar
 from stream2segment.io.db.pdsql import (
-    Engine, executemany, get_col_max, insert, update, select, fetch_df, get_row_count
+    Engine, get_col_max, insert, update, select, fetch_df
 )
 from stream2segment.io.db.models import (
     WebService, Segment, Channel, StationXML, Event, QuakeML
 )
-from stream2segment.download.url import read_urls, get_host, responses, Response
+from stream2segment.download.url import build_and_read_urls, get_host, Response
 from stream2segment.download.utils import (
     IdOnceLogFilter, fdsn_url_qs, fdsn_url
 )
@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 def save_stationxml(
     *,
     engine: Engine,
-    max_download_concurrency: int | None,
+    max_download_concurrency_per_domain: int | None,
     download_timeout,
     download_blocksize,
     show_progress=False
@@ -63,7 +63,6 @@ def save_stationxml(
 
     total, downloaded, saved = 0, 0, 0
     db_stationxml_id = get_col_max(engine, StationXML.id)
-    cache: dict[str, tuple[str, str, int, int | None]] = {}
     ws_id_col = Channel.data_webservice_id.key
     # query all webservice ids and urls in one shot (also avoids to query it inside
     # url_iterator, which is run in a worker thread and might cause problems):
@@ -73,40 +72,27 @@ def save_stationxml(
     with engine.connect() as conn:
         ws_urls = dict(conn.execute(ws_stmt).all())  # noqa
 
-    def url_iterator(dfr: pd.DataFrame) -> Iterable[str]:
-        """build url (str) from each item yielded by the previous iterable"""
-        dfr[staxml_id_col] = dfr[staxml_id_col].astype('Int64')  # int with Nulls
-        dfr[ws_id_col] = dfr[ws_id_col].astype('category')
+    def url_builder(df_row: tuple) -> str:
+        """
+        build url (str) from a row of the dataframe fetched from DB
 
-        for net, sta, ws_id, sta_id in zip(
-            dfr[net_col],
-            dfr[sta_col],
-            dfr[ws_id_col],
-            dfr[staxml_id_col]
-        ):
-            if ws_id in ws_urls:
-                url_ = fdsn_url_qs(
-                    fdsn_url(ws_urls[ws_id], new_service='station'),
-                    net=net, sta=sta, level='response'
-                )
-                # note use Python objects because we might insert those values to DB:
-                cache.setdefault(
-                    url_, (
-                        str(net),
-                        str(sta),
-                        int(ws_id),
-                        None if pd.isna(sta_id) else int(sta_id)
-                    )
-                )
-                yield url_
+        :param df_row: a row of the DB table, as normal tuple. This object is accessible
+            in `response.meta`
+        """
+        net, sta, ws_id, _ = df_row  # must match select statement above
+
+        return fdsn_url_qs(
+            fdsn_url(ws_urls[ws_id], new_service='station'),
+            net=net, sta=sta, level='response'
+        )
 
     with engine.begin() as conn:  # noqa
         for response in download_xml(
             engine = engine,
             stmt = stmt,
-            url_iterator = url_iterator,
+            url_builder = url_builder,
             err_log_caption="StationXML download errors",
-            max_download_concurrency = max_download_concurrency,
+            max_download_concurrency_per_domain = max_download_concurrency_per_domain,
             download_timeout = download_timeout,
             download_blocksize = download_blocksize,
             show_progress=show_progress
@@ -116,11 +102,8 @@ def save_stationxml(
                 continue
 
             downloaded += 1
-            url = response.request
-            if url not in cache:
-                # log wanr?
-                continue
-            (net, sta, ws_id, sta_id) = cache.pop(url)
+            net, sta, ws_id, sta_id = response.meta
+
             try:
                 with conn.begin_nested():
                     if sta_id is not None:
@@ -159,7 +142,7 @@ def save_stationxml(
 def save_quakeml(
     *,
     engine: Engine,
-    max_download_concurrency: int | None,
+    max_download_concurrency_per_domain: int | None,
     download_timeout,
     download_blocksize,
     show_progress=False
@@ -177,7 +160,6 @@ def save_quakeml(
     # (*) only channels with at least one matching Segment row are included
 
     total, downloaded, saved = 0, 0, 0
-    cache: dict[str, int] = {}
     ws_id_col = Event.webservice_id.key
     # query all webservice ids and urls in one shot (also avoids to query it inside
     # url_iterator, which is run in a worker thread and might cause problems):
@@ -189,28 +171,23 @@ def save_quakeml(
         ws_urls = dict(conn.execute(ws_stmt).all())  # noqa
 
 
-    def url_iterator(dfr: pd.DataFrame) -> Iterable[str]:
-        """build url (str) from each item yielded by the previous iterable"""
-        dfr[ws_id_col] = dfr[ws_id_col].astype('category')
+    def url_builder(df_row: tuple) -> str:
+        """
+        build url (str) from a row of the dataframe fetched from DB
 
-        for db_ev_id, cat_ev_id, ws_id in zip(
-            dfr[Event.id.key],
-            dfr[Event.eventid.key],
-            dfr[ws_id_col]
-        ):
-            if ws_id in ws_urls:
-                url_ = fdsn_url_qs(ws_urls[ws_id], eventid=cat_ev_id, format='xml')
-                # Note use Python objects in cache as we might insert those values to DB
-                cache.setdefault(url_, int(db_ev_id))
-                yield url_
+        :param df_row: a row of the DB table, as normal tuple. This object is accessible
+            in `response.meta`
+        """
+        _, catalog_ev_id, ws_id = df_row  # must match select statement above
+        return fdsn_url_qs(ws_urls[ws_id], eventid=catalog_ev_id, format='xml')
 
     with engine.begin() as conn:  # noqa
         for response in download_xml(
             engine=engine,
             stmt=stmt,
-            url_iterator=url_iterator,
+            url_builder=url_builder,
             err_log_caption="QuakeML download errors",
-            max_download_concurrency=max_download_concurrency,
+            max_download_concurrency_per_domain=max_download_concurrency_per_domain,
             download_timeout=download_timeout,
             download_blocksize=download_blocksize,
             show_progress=show_progress
@@ -220,11 +197,8 @@ def save_quakeml(
                 continue
 
             downloaded += 1
-            url = response.request
-            if url not in cache:
-                # log warn?
-                continue
-            db_ev_id = cache.pop(url)
+            db_ev_id = response.meta[0]
+
             try:
                 with conn.begin_nested():
                     conn.execute(insert(QuakeML), {
@@ -242,16 +216,21 @@ def download_xml(
     *,
     engine: Engine,
     stmt: Select,
-    url_iterator: Callable[[pd.DataFrame], Iterable[str]],
+    url_builder: Callable[[tuple], str],
     err_log_caption: str,
-    max_download_concurrency: int | None,
+    max_download_concurrency_per_domain: int | None,
     download_timeout,
     download_blocksize,
     show_progress=False
 ) -> Iterable[Response | None]:
     """Download XML data"""
-    if max_download_concurrency is None:
-        max_download_concurrency = 4
+
+    # max_download_concurrency in [1, 2]
+    if max_download_concurrency_per_domain is None:
+        max_download_concurrency_per_domain = 2
+    max_download_concurrency_per_domain = max(
+        1, min(2, max_download_concurrency_per_domain)
+    )
 
     with engine.connect() as conn:
         total = conn.execute(
@@ -266,9 +245,10 @@ def download_xml(
 
         for dfr in fetch_df(engine, stmt):
 
-            reader = read_urls(
-                url_iterator(dfr),
-                max_concurrency=max_download_concurrency,
+            reader = build_and_read_urls(
+                url_builder,
+                dfr.itertuples(index=False, name=None),
+                max_concurrency=max_download_concurrency_per_domain,
                 timeout=download_timeout,
                 blocksize=download_blocksize
             )
