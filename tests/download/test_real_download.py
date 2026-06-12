@@ -434,7 +434,7 @@ def test_real_download_segments(
     def mocked_download_segments_read_urls(url_builder, iterable, **kwargs):
         """forward the original read_urls after changing some args"""
         kwargs['timeout'] = 0.00001
-        kwargs['consecutive_error_limit'] = 1
+        kwargs['same_error_limit'] = 1
         kwargs['error_limit'] = 2
         # use lists cause is easier to debug:
         return original_read_urls(url_builder, list(u for u in iterable), **kwargs)

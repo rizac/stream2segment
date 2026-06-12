@@ -3,9 +3,10 @@ Http requests with multi-threading
 """
 # :date: Apr 15, 2017
 from collections.abc import Iterable, Callable
+from contextlib import nullcontext
 from typing import Any
 from dataclasses import dataclass
-from threading import Condition, current_thread, main_thread, Lock, Event
+from threading import Condition, current_thread, main_thread, Lock, Event, Semaphore
 import signal
 import socket
 import os
@@ -221,7 +222,7 @@ def build_and_read_urls(
     max_global_concurrency=None,
     max_concurrency=8,
     error_limit=25,
-    consecutive_error_limit=10,
+    same_error_limit=10,
     blocksize=-1,
     decode=None,
     timeout=None,
@@ -245,16 +246,19 @@ def build_and_read_urls(
         threads used. When None, the threads allocated are relative to the machine CPU
         (should be around 16-32)
     :param max_concurrency: integer denoting the max parallel downloads per url domain.
-        Defaults to 4. This parameter might be adjusted and decreased when
-        `consecutive_error_limit` errors are returned
-    :param error_limit: int denoting the error limit per-domain: if no download is
-        successful for `error_limit` times, regardless of the error type, the downloads
-        from that domain are suspended and nothing is yielded anymore. Default: 25
-    :param consecutive_error_limit: int denoting the (same) error limit per-domain: if
-        the same error type is returned for `consecutive_error_limit` times from the
-        same url domain, the concurrency for that domain is decreased until it reaches
-        0 (in that case, downloads from that domain are suspended and nothing is
-        yielded anymore). Default: 10
+        Defaults to 8
+    :param error_limit: int (default: 25) denoting the error limit per-domain: if no
+        download is successful for `error_limit` times, the downloads from that domain
+        are suspended and nothing is yielded anymore; users are responsible to handle
+        the retry of failed downloads in case. Unsuccessful downloads are HTTP error
+        codes (400-599) timeout errors, network errors (for which a custom unique code
+        is assigned) but not 200-299 HTTP codes (so 'No data' - 204 - is a successful
+        download)
+    :param same_error_limit: int denoting the (same) error limit per-domain: if
+        the same error type is returned for `consecutive_error_limit`, the downloads
+        from that domain are suspended and nothing is yielded anymore; users are
+        responsible to handle the retry of failed downloads in case.
+        See parameter `error_limit` for a definition of unsuccessful download
     :param blocksize: integer defaulting to 1024*1024 specifying, when connecting to one
         of the given urls, the maximum number of bytes to be read at each call of
         `urlopen.read`. If the size argument is negative or omitted, read all data until
@@ -282,10 +286,13 @@ def build_and_read_urls(
     """
     if max_global_concurrency is None:
         max_global_concurrency = get_os_max_thread_count()
+    max_global_concurrency = max(1, max_global_concurrency)
 
     max_concurrency = min(max_concurrency, max_global_concurrency)
+    max_concurrency = max(1, max_concurrency)
 
-    user, pswd, openers = None, None, None
+    user = None
+    pswd = None
     openers = {}
     if credentials is not None:
         if isinstance(credentials, tuple):
@@ -303,10 +310,20 @@ def build_and_read_urls(
     stop_event = None
     t_pool = None
     t_map = map
+    null_context = nullcontext()  # no ope context to use in with statements
+    aborted_download_domains_lock = null_context
+    openers_lock = null_context
+    semaphores_lock = null_context
 
     concurrency_is_on = max_global_concurrency > 1
 
     if concurrency_is_on:
+
+        # locks (for modifying objects in sub-threads safely):
+        aborted_download_domains_lock = Lock()
+        openers_lock = Lock()
+        semaphores_lock = Lock()
+
         # flag for CTRL-C or cancelled tasks
         stop_event = Event()
 
@@ -321,10 +338,8 @@ def build_and_read_urls(
         # seems to slow down download. Omit the argument and leave chunksize=1 (default)
 
     try:
-
-        per_domain_lock = thread_lock_factory()
         aborted_download_domains = set()
-        limiters: dict[str, DynamicLimiter] = {}
+        semaphores: dict[str, Semaphore] = {}
 
         def url_wrapper(item):
             if stop_event is not None and stop_event.is_set():
@@ -333,25 +348,26 @@ def build_and_read_urls(
 
             # get the opener (restricted data):
             domain = get_host(url)  # noqa
-            with per_domain_lock(domain):
+            with aborted_download_domains_lock:
                 if domain in aborted_download_domains:
                     return None
 
-                if pswd is not None:
-                    opener = openers.setdefault(domain, _get_opener(domain, user, pswd))
-                else:
-                    opener = openers.get(domain, None)
+            with openers_lock:
+                if pswd is not None and domain not in openers:
+                    openers[domain] = _get_opener(domain, user, pswd)
+                opener = openers.get(domain, None)
 
-                hostname_limiter = limiters.setdefault(
-                    domain, DynamicLimiter(max_concurrency)
-                )
+            if concurrency_is_on:
+                with semaphores_lock:
+                    if domain not in semaphores:
+                        semaphores[domain] = Semaphore(max_concurrency)
+                    semaphore = semaphores[domain]
+            else:
+                semaphore = null_context
 
-            hostname_limiter.acquire()
-            try:
+            with semaphore:
                 resp = read_url(url, blocksize, decode, timeout, opener, **kwargs)
                 resp.meta = item
-            finally:
-                hostname_limiter.release()
 
             return domain, resp
 
@@ -369,35 +385,23 @@ def build_and_read_urls(
 
             if 200 <= response.status_code < 300:
                 yield response
-                if domain in last_n_errors:
-                    resp_queue = last_n_errors[domain]
-                    while len(resp_queue):
-                        yield resp_queue.pop()
+                resp_queue = last_n_errors.get(domain, [])
+                while len(resp_queue):
+                    yield resp_queue.pop()
                 continue
 
             # error response. Append to queue:
             resp_queue = last_n_errors.setdefault(domain, [])
             resp_queue.append(response)
 
-            if len(resp_queue) < consecutive_error_limit:
-                # threshold not yet reached, go on:
-                continue
+            same_err_limit_reached = (
+                len(resp_queue) >= same_error_limit and
+                len({_.status_code for _ in resp_queue[:same_error_limit]}) == 1
+            )
+            err_limit_reached = len(resp_queue) >= error_limit
 
-            if len({_.status_code for _ in resp_queue[:consecutive_error_limit]}) == 1:
-                # same error got more than threshold. Decrease domain concurrency:
-                new_limit = limiters[domain].adjust_limit(
-                    -max(1, limiters[domain].limit // 2)
-                )
-                resp_queue.clear()
-                if new_limit <= 0:
-                    # cannot decrease further: discard domain downloads
-                    with per_domain_lock(domain):
-                        aborted_download_domains.add(domain)
-                continue
-
-            if len(resp_queue) >= error_limit:
-                # too many errors (any error): discard domain downloads
-                with per_domain_lock(domain):
+            if same_err_limit_reached or err_limit_reached:
+                with aborted_download_domains_lock:
                     aborted_download_domains.add(domain)
                 resp_queue.clear()
 
@@ -409,7 +413,7 @@ def build_and_read_urls(
                 yield response
 
     finally:
-        if t_pool is not None:
+        if concurrency_is_on and t_pool is not None:
             t_pool.close()
             t_pool.join()
 
@@ -422,57 +426,6 @@ def get_os_max_thread_count():
     # Now adjust with the computer capacity (algorithm copied from
     # concurrent.futures.ThreadPoolExecutor):
     return min(32, os.cpu_count() + 4)
-
-
-def thread_lock_factory():
-    """
-    Create a function F so that F(key:str) returns a unique key-based
-    threading.Lock, meaning that calling the function with the same key again will
-    return the same Lock
-    """
-
-    thread_locks = {}
-    global_lock = Lock()
-
-    def get_thread_lock(domain):
-        lock = thread_locks.get(domain)
-        if lock is not None:
-            return lock
-        with global_lock:
-            return thread_locks.setdefault(domain, Lock())
-
-    return get_thread_lock
-
-
-class DynamicLimiter:
-    def __init__(self, limit: int):
-        self.limit = limit
-        self.active = 0
-        self.cond = Condition()
-
-    def adjust_limit(self, delta):
-        with self.cond:
-            new_limit = self.limit + delta
-            # prevent invalid state
-            if new_limit < 0:
-                new_limit = 0
-            self.limit = new_limit
-            if new_limit > self.active:
-                # wake up waiters in case capacity increased
-                self.cond.notify_all()
-        return new_limit
-
-    def acquire(self):
-        with self.cond:
-            while 0 < self.limit <= self.active:
-                self.cond.wait()
-            if self.limit > 0:
-                self.active += 1
-
-    def release(self):
-        with self.cond:
-            self.active -= 1
-            self.cond.notify_all()
 
 
 def _is_main_thread():
