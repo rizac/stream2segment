@@ -243,34 +243,44 @@ def download_xml(
 
     with get_progressbar(total if show_progress else 0) as pbar:
 
-        for dfr in fetch_df(engine, stmt):
+        while True:
 
-            reader = build_and_read_urls(
-                url_builder,
-                dfr.itertuples(index=False, name=None),
-                max_concurrency=max_download_concurrency_per_domain,
-                timeout=download_timeout,
-                blocksize=download_blocksize
-            )
+            oks = 0
 
-            for response in reader:
-                pbar.update(1)
-                url = response.request
-                if not response.is_ok:
-                    if log_once_filter is None:  # create lazily
-                        log_once_filter = IdOnceLogFilter()
-                        logger.addFilter(log_once_filter)
+            for dfr in fetch_df(engine, stmt):
+
+                reader = build_and_read_urls(
+                    url_builder,
+                    dfr.itertuples(index=False, name=None),
+                    max_concurrency=max_download_concurrency_per_domain,
+                    timeout=download_timeout,
+                    blocksize=download_blocksize
+                )
+
+                for response in reader:
+                    pbar.update(1)
+                    url = response.request
+                    oks += (200 <= response.status_code < 300)
+                    if not response.is_ok:
+                        if log_once_filter is None:  # create lazily
+                            log_once_filter = IdOnceLogFilter()
+                            logger.addFilter(log_once_filter)
+                            logger.warning(
+                                f"{err_log_caption}\n"
+                                "(shown once per (URL domain, error type) combination)"
+                            )
                         logger.warning(
-                            f"{err_log_caption}\n"
-                            "(shown once per (URL domain, error type) combination)"
+                            str(response),
+                            extra={'ID': (get_host(url), response.status_code)}
                         )
-                    logger.warning(
-                        str(response),
-                        extra={'ID': (get_host(url), response.status_code)}
-                    )
-                    yield None
-                else:
-                    yield response
+                        yield None
+                    else:
+                        yield response
+
+            if oks / total >= 0.75 or max_download_concurrency_per_domain // 2 < 1:
+                break
+
+            max_download_concurrency_per_domain //= 2
 
     if log_once_filter is not None:
         logger.removeFilter(log_once_filter)
