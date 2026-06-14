@@ -206,7 +206,7 @@ def download_and_save(
         with get_progressbar(len(segments) if show_progress else 0) as pbar:
 
             while not segments.empty:
-                for response, m_seed_code, m_seed, idx in download(
+                for req_url, status_code, resp, df_idx in download(
                     segments,
                     time_window,
                     user_passwords,
@@ -214,18 +214,31 @@ def download_and_save(
                     download_timeout,
                     download_blocksize
                 ):
-                    url_domain = get_host(response.request)
-                    processed_indices.append(idx)
+                    url_domain = get_host(req_url)
+                    processed_indices.append(df_idx)
 
-                    if m_seed_code in skipped_segment_codes:
-                        if not_already_skipped(idx, segments):
+                    if status_code == 200 and resp is not None:
+                        segments_current_id += 1
+                        rows_ok.append(
+                            prepare_segment_to_insert(
+                                segments_current_id, segments, df_idx, resp
+                            )
+                        )
+                        if len(rows_ok) >= db_bufsize:
+                            written_ok += sum(
+                                1 for _ in executemany(engine, sql_insert_ok, rows_ok)
+                            )
+                            rows_ok.clear()
+
+                    elif status_code in skipped_segment_codes:
+                        if not_already_skipped(df_idx, segments):
                             skipped_segments_current_id += 1
                             rows_skip.append(
                                 prepare_skipped_segment_to_insert(
                                     skipped_segments_current_id,
                                     segments,
-                                    idx,
-                                    m_seed_code
+                                    df_idx,
+                                    status_code
                                 )
                             )
                             if len(rows_skip) >= db_bufsize:
@@ -235,21 +248,6 @@ def download_and_save(
                                     )
                                 )
                                 rows_skip.clear()
-
-                    elif response.is_ok:
-
-                        segments_current_id += 1
-                        rows_ok.append(
-                            prepare_segment_to_insert(
-                                segments_current_id, segments, idx, m_seed
-                            )
-                        )
-                        if len(rows_ok) >= db_bufsize:
-                            written_ok += sum(
-                                1 for _ in executemany(engine, sql_insert_ok, rows_ok)
-                            )
-                            rows_ok.clear()
-
 
                     else:
                         if id_once_filter is None:
@@ -261,11 +259,10 @@ def download_and_save(
                             logger.addFilter(id_once_filter)
 
                         logger.warning(
-                            str(response),
-                            extra={'ID': (url_domain, response.status_code)}
+                            str(resp), extra={'ID': (url_domain, status_code)}
                         )
 
-                    stats.increment(url_domain, response.status_code)
+                    stats.increment(url_domain, status_code)
                     pbar.update(1)
 
                 logger.warning(
@@ -327,7 +324,7 @@ def download(
     max_download_concurrency: int,
     download_timeout,
     download_blocksize
-) -> Iterable[tuple[Response, int, unpacked_miniseed | None, int]]:
+) -> Iterable[tuple[str, int, unpacked_miniseed | str | None, int]]:
     """
     Download segments and yields results
     """
@@ -370,31 +367,38 @@ def download(
         group = response.meta
         dc_url, net, sta, loc, a_time = group[0]
         dfr = group[1]
+
+        if not response.is_ok:
+            for idx in dfr.index:
+                yield response.request, response.status_code, str(response), idx
+            continue
+
+        req_start, req_end = get_request_time_bounds(a_time.to_pydatetime())
         req_cache = {
             f'{net}.{sta}.{loc}.{cha}': df_idx
             for df_idx, cha in zip(dfr.index, dfr[cha_col])
         }
 
-        if not response.is_ok:
-            for idx in req_cache.values():
-                yield response, response.status_code, None, idx
-            continue
+        try:
+            for m_seed in unpack_miniseed(response.data):
+                if m_seed.seed_id in req_cache:
+                    idx = req_cache[m_seed.seed_id]  # dataframe index value
+                    status_code = 200  # for safety (caller relies on this)
 
-        req_start, req_end = get_request_time_bounds(a_time.to_pydatetime())
+                    if m_seed.data is None:
+                        status_code = MiniSeedErrorCode.BAD_DATA
 
-        for m_seed in unpack_miniseed(response.data, set(req_cache.keys())):
-            idx = req_cache[m_seed.seed_id]  # dataframe index value
-            m_seed_code = response.status_code
+                    elif m_seed.start >= req_end or m_seed.end <= req_start:
+                        # we want at least something before and after the arrival time.
+                        # If not:
+                        status_code = MiniSeedErrorCode.OUT_OF_TIME_BOUNDS
 
-            if m_seed.data is None:
-                m_seed_code = MiniSeedErrorCode.BAD_DATA
-                m_seed = None
-            elif m_seed.start >= req_end or m_seed.end <= req_start:
-                # we want at least something before and after the arrival time. If not:
-                m_seed_code = MiniSeedErrorCode.OUT_OF_TIME_BOUNDS
-                m_seed = None
+                    yield response.request, status_code, m_seed, idx
 
-            yield response, m_seed_code, m_seed, idx
+        except MSeedError:
+
+            for idx in dfr.index:
+                yield response.request, MiniSeedErrorCode.BAD_DATA, None, idx
 
 
 unpacked_miniseed = namedtuple(
@@ -403,13 +407,11 @@ unpacked_miniseed = namedtuple(
 )
 
 
-def unpack_miniseed(
-    data: bytes, expected_seed_ids: set[str]
-) -> Iterable[unpacked_miniseed]:
+def unpack_miniseed(data: bytes) -> Iterable[unpacked_miniseed]:
     """
     Unpack data into its "traces" (time series). Returns an iterable of MiniSeedInfo
     """
-    unpacked_records = {_: [] for _ in expected_seed_ids}
+    unpacked_records = {}
     stream = BytesIO(data)
     try:
         for rec in Input(stream):
@@ -419,27 +421,26 @@ def unpack_miniseed(
                 f'{rec.loc.strip()}.'
                 f'{rec.cha.strip()}'
             )
-            if seed_id in unpacked_records:
-                unpacked_records[seed_id].append(rec)
+            unpacked_records.setdefault(seed_id, []).append(rec)
     except UnicodeDecodeError as exc:
         # invalidate all miniseed. though harsh, it allows us to track problems
-        unpacked_records = {_: [] for _ in expected_seed_ids}
+        raise MSeedError()
 
     finally:
         stream.close()
 
 
     for seed_id, records in unpacked_records.items():
+
         bytesio = BytesIO()
-
         try:
-            if not len(records):
-                raise MSeedError()
-
             # get records and sort ascending by time
             records.sort(key=lambda elm: elm.begin_time)
             fsamp = records[0].fsamp
             max_gap_ratio = 0.0
+
+            if not len(records):
+                raise MSeedError()  # just for safety
 
             for i, record in enumerate(records):
 
@@ -495,7 +496,7 @@ def prepare_skipped_segment_to_insert(
         SkippedSegment.event_id.key: int(
             segments.at[idx, SkippedSegment.event_id.key]
         ),
-        SkippedSegment.download_code.key: code
+        SkippedSegment.download_code.key: int(code)
     }
 
 
@@ -504,25 +505,25 @@ def prepare_segment_to_insert(
 ) -> dict:
 
     arrival_time = segments.at[idx, atime_col]
+    # small ints min and max:
+    smallint_min = -32768
+    smallint_max = 32767
+
     return{
         Segment.id.key: db_id,
-        dist_col: int(
-            segments.at[idx, dist_col]
-        ),
+        dist_col: int(segments.at[idx, dist_col]),
         # Segment.webservice_id.key: int(segments.at[idx, Segment.webservice_id.key]),
         ev_id_col: int(segments.at[idx, ev_id_col]),
         ch_id_col: int(segments.at[idx, ch_id_col]),
-        Segment.noise_window_s.key: int(round(
+        Segment.noise_window_s.key: int(max(smallint_min, min(smallint_max, round(
             (m_seed.start - arrival_time).total_seconds()
-        )),
-        Segment.signal_window_s.key: int(round(
+        )))),
+        Segment.signal_window_s.key: int(max(smallint_min, min(smallint_max, round(
             (m_seed.end - arrival_time).total_seconds()
-        )),
-        Segment.gap_score_percent.key: int(min(
-            100 * m_seed.maxgap, 10000
-            # 100000 because we want smallint. Also, high values provide no relevant
-            # info
-        )),
+        )))),
+        Segment.gap_score_percent.key: int(max(smallint_min, min(
+            smallint_max, 100 * m_seed.maxgap
+        ))),
         MiniSeed.data.key: m_seed.data,
     }
 
