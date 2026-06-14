@@ -206,7 +206,6 @@ def _download(
         end=end,
         min_sample_rate=min_sample_rate,
         eida_rs_urls=advanced_settings['routing_service_url'],
-        restricted_download=credentials is not None,
         download_timeout=text_download_timeout,
         show_progress=isterminal
     )

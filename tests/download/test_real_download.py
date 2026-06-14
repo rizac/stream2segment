@@ -276,7 +276,6 @@ def test_download_channels_adarray(
             req = _.read(1)
         if not req:
             pytest.skip('_ADARRAY returns no data (bugfix?)')
-            return
 
     mock_get_events_df.return_value = pd.DataFrame([{
         'time': datetime.fromisoformat('2000-01-03T18:28:35'),
@@ -680,8 +679,9 @@ def test_download_iris_caltec_up_to_segments(
             'download', '-c', str(cfg_file), '--dburl', db.url,
         ]
     )
-    assert result.exit_code == 1
-    asd = 9
+    assert result.exit_code == 0
+    assert custom_message in log_capture.getvalue()
+    assert custom_message in result.output
 
 
 @pytest.mark.skip('Huge download - tested only once in debug mode with pydev')

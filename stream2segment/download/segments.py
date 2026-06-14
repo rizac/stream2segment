@@ -11,7 +11,6 @@ import logging
 from enum import IntEnum
 from io import BytesIO
 from math import log
-from urllib.parse import parse_qs, urlsplit
 from urllib.request import Request
 
 import pandas as pd
@@ -19,7 +18,7 @@ from sqlalchemy import Engine
 
 from stream2segment.download import url
 from stream2segment.download.channels import (
-    url_col, orient_col, net_col, sta_col, loc_col, band_col, inst_col
+    url_col, net_col, sta_col, loc_col, cha_col
 )
 from stream2segment.download.mseedlite import MSeedError, Input
 from stream2segment.download.stationsearch import (
@@ -111,16 +110,8 @@ def download_and_save(
     download_blocksize,
     show_progress=False
 ):
-    """Download and saves the segments. segments_df MUST not be empty (this is
-    not checked for)
-
-    :param segments: the dataframe resulting from `prepare_for_download`.
-        The Dataframe might or might not have the column 'download_code'. If it
-        has, it will skip writing to db segments whose code did not change: in
-        this case, nans stored under 'download_code' in segments_df indicate
-        new segments, or segments for which the update has to be forced,
-        whatever code is obtained (e.g., queryauth when previously a simple
-        query was used)
+    """
+    Download and save the segments
     """
 
     stats = DownloadStats(
@@ -262,9 +253,10 @@ def download_and_save(
 
                     else:
                         if id_once_filter is None:
-                            logger.warning('Detailed segment download errors '
-                                           '(showing only first of each type per '
-                                           'URL domain):')
+                            logger.warning(
+                                'Detailed segment download errors '
+                                '(showing only first of each type per URL domain):'
+                            )
                             id_once_filter = IdOnceLogFilter()
                             logger.addFilter(id_once_filter)
 
@@ -276,6 +268,11 @@ def download_and_save(
                     stats.increment(url_domain, response.status_code)
                     pbar.update(1)
 
+                logger.warning(
+                    f'{len(processed_indices):,} of {len(segments):,} segment '
+                    f'download(s) completed (regardless of the download status)'
+                )
+
                 if max_download_concurrency <= 1 or not retry_decreasing_concurrency:
                     # add segments not processed to the stats
                     counts = segments[url_col].value_counts()
@@ -286,9 +283,8 @@ def download_and_save(
                     segments = pd.DataFrame()
                     logger.info(
                         f'Download not performed for {len(segments):,} segments '
-                        f'due to consistently repeated failures from their '
-                        f'URL domain'
-                    )  # FIXME BETTER (consistently?)
+                        f'due to consistently repeated failures from their URL domain'
+                    )
                 else:
                     if processed_indices:
                         segments = segments.loc[
@@ -297,8 +293,8 @@ def download_and_save(
                     max_download_concurrency //= 2
 
                     logger.warning(
-                        f'Resuming download with new per-domain concurrency decreased '
-                        f'to {max_download_concurrency}'
+                        f'Resuming download for pending segments with new per-domain '
+                        f'concurrency decreased to {max_download_concurrency}'
                     )
                     # stop for a while to avoid stressing URL domains
                     # if not segments.empty:
@@ -313,6 +309,8 @@ def download_and_save(
 
     if id_once_filter is not None:
         logger.removeFilter(id_once_filter)
+
+    logger.info(f'{written_ok:,} new segment(s) successfully saved to DB')
 
     return stats
 
@@ -350,14 +348,13 @@ def download(
         dc_url, net, sta, loc, a_time = group[0]
         df = group[1]
         start, end = get_request_time_bounds(a_time.to_pydatetime())
-        cha = ",".join(df[band_col].str.cat(df[inst_col]).str.cat(df[orient_col]))
 
         return fdsn_url_qs(
             dc_url,
             net = net or None,
             sta = sta or None,
             loc = loc or None,
-            cha = cha,
+            cha = ",".join(df[cha_col]),
             start = start,
             end = end,
         )
@@ -374,10 +371,8 @@ def download(
         dc_url, net, sta, loc, a_time = group[0]
         dfr = group[1]
         req_cache = {
-            f'{net}.{sta}.{loc}.{band}{inst}{orient}': df_idx
-            for df_idx, band, inst, orient in zip(
-                dfr.index, dfr[band_col], dfr[inst_col], dfr[orient_col]
-            )
+            f'{net}.{sta}.{loc}.{cha}': df_idx
+            for df_idx, cha in zip(dfr.index, dfr[cha_col])
         }
 
         if not response.is_ok:

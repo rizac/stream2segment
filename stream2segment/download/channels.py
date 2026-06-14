@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 
 start_col = Channel.start_time.key
 end_col = "end"
+cha_col = "channel_code"
 net_col = Channel.network_code.key
 sta_col = Channel.station_code.key
 loc_col = Channel.location_code.key
@@ -60,7 +61,6 @@ def get_channels(
     end,
     min_sample_rate,
     eida_rs_urls,
-    restricted_download: bool,
     download_timeout: int | None = None,
     show_progress=False
 ) -> pd.DataFrame:
@@ -77,7 +77,7 @@ def get_channels(
 
     filter_funcs = {}
     for key, vals in {
-        net_col: network, sta_col: station, loc_col: location, "channel_code": channel
+        net_col: network, sta_col: station, loc_col: location, cha_col: channel
     }.items():
         val = [v[1:] for v in vals if v.startswith('!')]
         if not val:
@@ -141,8 +141,16 @@ def get_channels(
             'See log for details'
         )
 
-    for c in categorical_columns:  # for safety
-        if not pd.api.types.is_categorical_dtype(channels[c]):
+    # restore channel column by concatenating inst band orient:
+    channels[cha_col] = (
+        channels[band_col].str.cat(channels[inst_col]).str.cat(channels[orient_col])
+    ).astype('category')
+    channels.drop(columns=[band_col, inst_col, orient_col], inplace=True)
+
+    # for safety, re-check categorical columns:
+    for c in categorical_columns + [cha_col]:
+        # need to check that column exists now:
+        if c in channels.columns and not pd.api.types.is_categorical_dtype(channels[c]):
             channels[c] = channels[c].astype('str').astype('category')
 
     # return a copy of relevant columns only:
@@ -151,17 +159,12 @@ def get_channels(
         net_col,
         sta_col,
         loc_col,
-        band_col,
-        inst_col,
-        orient_col,
+        cha_col,
         lat_col,
         lon_col,
-        # Channel.depth.key,
         start_col,
         end_col,
-        # ws_id_col,
-        url_col,
-        # Channel.data_webservice_id.key
+        url_col
     ]]
 
 
@@ -474,7 +477,7 @@ def fdsn_channel_response_text_to_df(
         0: net_col,
         1: sta_col,
         2: loc_col,
-        3: "channel_code",
+        3: cha_col,
         4: lat_col,
         5: lon_col,
         6: Channel.elevation.key,
@@ -501,9 +504,7 @@ def fdsn_channel_response_text_to_df(
     dfr[end_col] = pd.to_datetime(dfr[end_col], errors='coerce').fillna(
         end_time_replacement
     )
-    dfr[
-        [band_col, inst_col, orient_col]
-    ] = dfr.pop("channel_code").str.extract(r"(.)(.)(.)")
+    dfr[[band_col, inst_col, orient_col]] = dfr.pop(cha_col).str.extract(r"(.)(.)(.)")
 
     # apply data types now (e.g., we might filter sample_rate it needs to be float)
     dfr = apply_table_dtypes(Channel, dfr, drop_non_nullable=True)
