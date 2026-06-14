@@ -5,7 +5,8 @@ Real download test scenarios
 import re
 from collections import namedtuple
 from datetime import datetime, timedelta
-from urllib.request import Request
+from unittest import skip
+from urllib.request import Request, urlopen
 from unittest.mock import patch
 
 import pandas as pd
@@ -266,6 +267,17 @@ def test_download_channels_adarray(
         # THIS TEST IS JUST ENOUGH WITH ONE DB (USE SQLITE BECAUSE POSTGRES MIGHT NOT BE
         # SETUP FOR TESTS)
         return
+
+    with urlopen(
+        'https://www.orfeus-eu.org/eidaws/routing/1/query?network=_ADARRAY'
+        '&service=dataselect&format=json'
+    ) as _:
+        req = b''
+        if _.code == 200:
+            req = _.read(1)
+        if not req:
+            skip('_ADARRAY returns no data (bugfix?)')
+            return
 
     mock_get_events_df.return_value = pd.DataFrame([{
         'time': datetime.fromisoformat('2000-01-03T18:28:35'),

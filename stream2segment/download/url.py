@@ -219,10 +219,10 @@ def build_and_read_urls(
     url_builder: Callable[..., [str | Request]] | None,
     iterable: Iterable,
     *,
-    max_global_concurrency=None,
-    max_concurrency=8,
-    error_limit=25,
-    same_error_limit=10,
+    max_global_concurrency: int | None = None,
+    max_concurrency: int | None = 8,
+    error_limit: int | None = 25,
+    same_error_limit: int | None = 10,
     blocksize=-1,
     decode=None,
     timeout=None,
@@ -243,22 +243,25 @@ def build_and_read_urls(
         if needed
     :param max_global_concurrency: integer or None (the default) denoting the max
         parallel downloads globally. This corresponds to the maximum worker (sub)
-        threads used. When None, the threads allocated are relative to the machine CPU
-        (should be around 16-32)
+        threads used. When None or <1, the threads allocated are relative to the machine
+        CPU (should be around 16-32, usually > 4)
     :param max_concurrency: integer denoting the max parallel downloads per url domain.
-        Defaults to 8
+        Defaults to 8. None or values < 1 will disable per-domain concurrency, leaving
+        only the global one active
     :param error_limit: int (default: 25) denoting the error limit per-domain: if no
         download is successful for `error_limit` times, the downloads from that domain
         are suspended and nothing is yielded anymore; users are responsible to handle
         the retry of failed downloads in case. Unsuccessful downloads are HTTP error
         codes (400-599) timeout errors, network errors (for which a custom unique code
         is assigned) but not 200-299 HTTP codes (so 'No data' - 204 - is a successful
-        download)
+        download). None or values < 1 will disable this check, and downloads will be
+        performed regardless of their successful state
     :param same_error_limit: int denoting the (same) error limit per-domain: if
         the same error type is returned for `consecutive_error_limit`, the downloads
         from that domain are suspended and nothing is yielded anymore; users are
         responsible to handle the retry of failed downloads in case.
-        See parameter `error_limit` for a definition of unsuccessful download
+        See parameter `error_limit` for a definition of unsuccessful download and when
+        this parameter is None or < 1
     :param blocksize: integer defaulting to 1024*1024 specifying, when connecting to one
         of the given urls, the maximum number of bytes to be read at each call of
         `urlopen.read`. If the size argument is negative or omitted, read all data until
@@ -284,12 +287,22 @@ def build_and_read_urls(
     exception (particularly relevant in case of e.g., `KeyboardInterrupt`) by canceling
     all worker threads before raising
     """
-    if max_global_concurrency is None:
+    if max_global_concurrency is None or max_global_concurrency < 1:
         max_global_concurrency = get_os_max_thread_count()
     max_global_concurrency = max(1, max_global_concurrency)
 
-    max_concurrency = min(max_concurrency, max_global_concurrency)
-    max_concurrency = max(1, max_concurrency)
+    if max_concurrency is not None:
+        if max_concurrency < 1:
+            max_concurrency = None
+        else:
+            max_concurrency = min(max_concurrency, max_global_concurrency)
+            max_concurrency = max(1, max_concurrency)
+
+    if error_limit is None:
+        error_limit = float('inf')
+
+    if same_error_limit is None:
+        same_error_limit = float('inf')
 
     user = None
     pswd = None
@@ -307,35 +320,28 @@ def build_and_read_urls(
                     raise ValueError(f'Credentials conflict for {base_url}')
                 openers[base_url] = _get_opener(base_url, *user_pswd)
 
-    stop_event = None
-    t_pool = None
-    t_map = map
-    null_context = nullcontext()  # no ope context to use in with statements
-    aborted_download_domains_lock = null_context
-    openers_lock = null_context
-    semaphores_lock = null_context
-
-    concurrency_is_on = max_global_concurrency > 1
-
-    if concurrency_is_on:
-
-        # locks (for modifying objects in sub-threads safely):
-        aborted_download_domains_lock = Lock()
-        openers_lock = Lock()
+    # locks (for modifying objects in sub-threads safely):
+    aborted_download_domains_lock = Lock()
+    openers_lock = Lock()
+    null_context = nullcontext()
+    if max_concurrency is not None:
         semaphores_lock = Lock()
+    else:
+        semaphores_lock = nullcontext()
 
-        # flag for CTRL-C or cancelled tasks
-        stop_event = Event()
+    stop_event = Event()
+    # flag for CTRL-C or cancelled tasks
+    stop_event = Event()
 
-        def signal_handler(sig, frame):
-            stop_event.set()
+    def signal_handler(sig, frame):
+        stop_event.set()
 
-        signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
 
-        t_pool = ThreadPool(max_global_concurrency)
-        t_map = t_pool.imap_unordered if unordered else t_pool.imap
-        # note above: chunksize argument for threads (not processes)
-        # seems to slow down download. Omit the argument and leave chunksize=1 (default)
+    t_pool = ThreadPool(max_global_concurrency)
+    t_map = t_pool.imap_unordered if unordered else t_pool.imap
+    # note above: chunksize argument for threads (not processes)
+    # seems to slow down download. Omit the argument and leave chunksize=1 (default)
 
     try:
         aborted_download_domains = set()
@@ -352,18 +358,19 @@ def build_and_read_urls(
                 if domain in aborted_download_domains:
                     return None
 
-            with openers_lock:
-                if pswd is not None and domain not in openers:
-                    openers[domain] = _get_opener(domain, user, pswd)
-                opener = openers.get(domain, None)
+            opener = None
+            if credentials is not None:
+                with openers_lock:
+                    if pswd is not None and domain not in openers:
+                        openers[domain] = _get_opener(domain, user, pswd)
+                    opener = openers.get(domain, None)
 
-            if concurrency_is_on:
+            semaphore = null_context
+            if max_concurrency is not None:
                 with semaphores_lock:
                     if domain not in semaphores:
                         semaphores[domain] = Semaphore(max_concurrency)
                     semaphore = semaphores[domain]
-            else:
-                semaphore = null_context
 
             with semaphore:
                 resp = read_url(url, blocksize, decode, timeout, opener, **kwargs)
@@ -396,7 +403,7 @@ def build_and_read_urls(
 
             same_err_limit_reached = (
                 len(resp_queue) >= same_error_limit and
-                len({_.status_code for _ in resp_queue[:same_error_limit]}) == 1
+                len({_.status_code for _ in resp_queue[-same_error_limit:]}) == 1
             )
             err_limit_reached = len(resp_queue) >= error_limit
 
@@ -413,7 +420,7 @@ def build_and_read_urls(
                 yield response
 
     finally:
-        if concurrency_is_on and t_pool is not None:
+        if t_pool is not None:
             t_pool.close()
             t_pool.join()
 

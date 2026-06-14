@@ -20,7 +20,7 @@ from stream2segment.download.events import (
 from stream2segment.io.utils import get_progressbar
 from stream2segment.io.db.pdsql import apply_table_dtypes, fetch_df, select, Engine
 from stream2segment.io.db.models import Channel, WebService
-from stream2segment.download.url import read_url
+from stream2segment.download.url import read_url, build_and_read_urls
 from stream2segment.download.utils import (
     fdsn_url,
     fdsn_url_qs,
@@ -286,9 +286,15 @@ def get_eida_rs_response(
     """Return the EIDA Routing Service response, as json dict"""
     for eida_rs_url in routing_service_url:
         url = fdsn_url_qs(
-            eida_rs_url, net=net, sta=sta, loc=loc,
-            cha=cha, start=start, end=end,
-            service=service, format='json'
+            eida_rs_url,
+            net=net,
+            sta=sta,
+            loc=loc,
+            cha=cha,
+            start=start,
+            end=end,
+            service=service,
+            format='json'
         )
         response = read_url(url, decode='utf8')
         if response.is_ok:
@@ -312,7 +318,6 @@ def split_times(start: datetime, end: datetime, interval_years=5):
 
 def split_url_by_network_quantiles(fdsn_station_url, params):
     """
-
     """
     # no network specified, query might take long (even for short time bounds).
     # get all networks and perform n subsets queries
@@ -368,45 +373,72 @@ def download_channels(
     """
     rank_col = "_.rank._"
 
-    t_pool = ThreadPool(4)
-    def _urlread(_):
-        return _[0], read_url(
-            fdsn_url(_[1], new_service='station'), timeout=timeout, blocksize=-1
-        )
+    # use enumerate to keep order based rank to resolve conflicts
+    # (not implemented, but might be in the future). Use also list to have the len
+    # (progressbar)
+    urls = list(enumerate(fdsn_station_urls))
 
-    urls = list(fdsn_station_urls)
+    # define url builder func:
+    def url_builder(enum_item: tuple[int, str]):
+        return fdsn_url(enum_item[1], new_service='station')
 
     ch_list = []
     # station_urls = set()
     with get_progressbar(len(urls) if show_progress else 0) as pbar:
-        for idx, response in t_pool.imap_unordered(_urlread, enumerate(urls)):
-            pbar.update(1)
-            if not response.is_ok:
-                logger.warning(str(response))
-                continue
 
-            try:
-                dframe = fdsn_channel_response_text_to_df(
-                    BytesIO(response.data), filter_funcs
-                )
-            except Exception as e:
-                logger.warning(
-                    f"Unable to read data downloaded from {response.request}: {e}"
-                )
-                continue
-            dframe[rank_col] = idx
+        failed: list[tuple[int,str]] = []
+        max_concurrency = 4  # per domain concurrency
 
-            # replace full url with the future dataselect url
+        while len(urls):
+            for response in build_and_read_urls(
+                url_builder,
+                urls,
+                max_concurrency=max_concurrency,
+                error_limit=None,
+                same_error_limit=None,
+                timeout=timeout,
+                blocksize=-1
+            ):
+                pbar.update(1)
+                if not response.is_ok:
+                    if 200 <= response.status_code < 400:
+                        logger.warning(str(response))
+                    else:
+                        failed.append(response.meta)
+                        if max_concurrency < 2:
+                            # no further attempt, log:
+                            logger.warning(str(response))
+                    continue
 
-            dframe[url_col] = fdsn_url_qs(  # <- basically, remove query from final URL
-                fdsn_url(
-                    response.request,
-                    new_service='dataselect',
-                    new_method='query'
+                try:
+                    dframe = fdsn_channel_response_text_to_df(
+                        BytesIO(response.data), filter_funcs
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"Unable to read data downloaded from {response.request}: {e}"
+                    )
+                    continue
+                dframe[rank_col] = response.meta[0]  # enumerate int value
+
+                # replace full url with the future dataselect url
+
+                dframe[url_col] = fdsn_url_qs(  # <- basically, remove query from final URL
+                    fdsn_url(
+                        response.request,
+                        new_service='dataselect',
+                        new_method='query'
+                    )
                 )
-            )
-            # station_urls.add(station_url)
-            ch_list.append(resolve_intra_conflicts(dframe, response.request))
+                # station_urls.add(station_url)
+                ch_list.append(resolve_intra_conflicts(dframe, response.request))
+
+
+            urls = []  # will exit the loop. unless:
+            if max_concurrency >= 2 and failed:
+                # retry failed with lower concurrency:
+                max_concurrency //= 2
+                urls = failed
 
     # build two dataframes which we will concatenate afterward
     channels = pd.DataFrame()
