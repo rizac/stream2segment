@@ -310,7 +310,7 @@ def download_and_save(
     if id_once_filter is not None:
         logger.removeFilter(id_once_filter)
 
-    logger.info(f'{written_ok:,} new segment(s) successfully saved to DB')
+    logger.info(f'{written_ok:,} new segment(s) saved to DB')
 
     return stats
 
@@ -409,7 +409,7 @@ def unpack_miniseed(
     """
     Unpack data into its "traces" (time series). Returns an iterable of MiniSeedInfo
     """
-    unpacked_records = {_:[] for _ in expected_seed_ids}
+    unpacked_records = {_: [] for _ in expected_seed_ids}
     stream = BytesIO(data)
     try:
         for rec in Input(stream):
@@ -439,7 +439,7 @@ def unpack_miniseed(
             # get records and sort ascending by time
             records.sort(key=lambda elm: elm.begin_time)
             fsamp = records[0].fsamp
-            max_gap_ratios = [0.0]  # populate it with 1 element in case single record
+            max_gap_ratio = 0.0
 
             for i, record in enumerate(records):
 
@@ -456,9 +456,10 @@ def unpack_miniseed(
                         (record.begin_time - records[i-1].end_time).total_seconds()
                         * fsamp # - 1
                     )
-                    max_gap_ratios.append(gap_ratio)
-                # if abs(curr_max_gap_ratio) > abs(max_gap_overlap_ratio):
-                #     max_gap_overlap_ratio = curr_max_gap_ratio
+                    if abs(gap_ratio) > abs(max_gap_ratio):
+                        # abs cause we count also overlaps (negative numbers)
+                        max_gap_ratio = gap_ratio
+
 
             yield unpacked_miniseed(
                 seed_id=seed_id,
@@ -466,7 +467,7 @@ def unpack_miniseed(
                 start=records[0].begin_time,
                 end=records[-1].end_time,
                 fsamp=fsamp,
-                maxgap=max(max_gap_ratios, key=abs)
+                maxgap=max_gap_ratio
             )
 
         except MSeedError as _:
