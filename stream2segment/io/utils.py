@@ -150,7 +150,7 @@ def start_logging(logger: Logger, handlers: list[logging.Handler]):
 
 def estimate_buffer_size(
     item_size_mb: float | str,
-    memory_fraction: float = 0.2,
+    memory_fraction: float = 0.15,
 ):
     """
     Estimate buffer/cache size based on available RAM.

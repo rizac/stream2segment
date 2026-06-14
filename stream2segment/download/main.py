@@ -16,7 +16,7 @@ from sqlalchemy import Engine
 from stream2segment.io.utils import start_logging, create_log_handlers, BadParam, \
     ascii_decorate
 from stream2segment.io.db.pdsql import (get_col_max, insert, update)
-from stream2segment.io.db import models, close_engine
+from stream2segment.io.db import models, close_engine, secure_dburl
 from stream2segment.download.inputvalidation import load_input
 from stream2segment.download.utils import NoSegmentsToDownload, FailedDownload
 from stream2segment.download.events import get_events
@@ -96,6 +96,8 @@ def download(
 
     try:
         config, kwargs = load_input(config_file, **override_params)
+        if verbose:
+            print(f"\nOutput database: {secure_dburl(str(kwargs['engine'].url))}")
     except BadParam as bpar:
         raise bpar from None
 
@@ -112,6 +114,9 @@ def download(
         except FailedDownload as fd_exc:
             logger.error(str(fd_exc))
             ret = 1
+        except KeyboardInterrupt as ki:
+            logger.critical("Download aborted by user")
+            ret = 2
         except:  # noqa
             logger.critical("Download aborted", exc_info=True)
             # by raising, we execute finally but not what's afterward:
@@ -216,7 +221,7 @@ def _download(
         tttable=tt_table,
         show_progress=isterminal
     )
-    logger.info(f'Working with {len(segments):,} segment(s)')
+    logger.info(f'{len(segments):,} potential segment(s) detected')
 
     del events  # help gc?
     del channels  # help gc?

@@ -100,7 +100,7 @@ def get_channels(
         )
     else:
         logger.info(
-            f"{len(channels)} channel(s) downloaded; "
+            f"{len(channels):,} channel(s) downloaded; "
             f"checking duplicates, conflicts, and saving"
         )
 

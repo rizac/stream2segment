@@ -6,9 +6,10 @@ from collections.abc import Iterable, Callable
 from contextlib import nullcontext
 from typing import Any
 from dataclasses import dataclass
-from threading import Condition, current_thread, main_thread, Lock, Event, Semaphore
+from threading import current_thread, main_thread, Lock, Event, Semaphore
 import signal
 import socket
+import sys
 import os
 import ssl
 from enum import IntEnum
@@ -329,12 +330,14 @@ def build_and_read_urls(
     else:
         semaphores_lock = nullcontext()
 
-    stop_event = Event()
     # flag for CTRL-C or cancelled tasks
     stop_event = Event()
 
     def signal_handler(sig, frame):
         stop_event.set()
+        if sys.stdout.isatty():
+            print('\nCancelling pending tasks, please wait', file=sys.stdout)
+        raise KeyboardInterrupt()
 
     signal.signal(signal.SIGINT, signal_handler)
 
@@ -348,7 +351,7 @@ def build_and_read_urls(
         semaphores: dict[str, Semaphore] = {}
 
         def url_wrapper(item):
-            if stop_event is not None and stop_event.is_set():
+            if stop_event.is_set():
                 return None
             url = item if url_builder is None else url_builder(item)
 
@@ -373,6 +376,8 @@ def build_and_read_urls(
                     semaphore = semaphores[domain]
 
             with semaphore:
+                if stop_event.is_set():
+                    return None
                 resp = read_url(url, blocksize, decode, timeout, opener, **kwargs)
                 resp.meta = item
 
@@ -382,9 +387,7 @@ def build_and_read_urls(
 
         # perform download:
         for resp_tuple in t_map(url_wrapper, iterable):
-            if stop_event is not None and stop_event.is_set():
-                continue
-            if resp_tuple is None:
+            if stop_event.is_set() or resp_tuple is None:
                 continue
             domain, response = resp_tuple
             if domain in aborted_download_domains:

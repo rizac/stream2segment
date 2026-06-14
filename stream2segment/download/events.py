@@ -80,7 +80,7 @@ def get_events(
         )
     else:
         logger.info(
-            f"{len(events)} event(s) downloaded; "
+            f"{len(events):,} event(s) downloaded; "
             f"checking duplicates, conflicts, and saving"
         )
 
@@ -567,6 +567,7 @@ def insert_id_col_na_values_to_db(
     engine: Engine, table: type[DeclarativeBase], dfr: pd.DataFrame, id_col: str
 ) -> pd.DataFrame:
 
+    item_name = table.__name__.lower()
     to_insert = set_pkeys(dfr[dfr[id_col].isna()], engine, table)
     inserted = insert_df(to_insert, engine, table)
     if not inserted.empty:
@@ -575,7 +576,7 @@ def insert_id_col_na_values_to_db(
     id_na = dfr[id_col].isna()
     if id_na.any():
         logger.warning(
-            f"{id_na.sum():,} {table.__name__.lower()}(s)"
+            f"{id_na.sum():,} {item_name}(s)"
             f"discarded (likely error while inserting to DB)\n" +
             dfr[id_na].to_string(
                 max_rows=30, index=False, na_rep='', show_dimensions=True
@@ -586,6 +587,8 @@ def insert_id_col_na_values_to_db(
     if not dfr.empty:
         # for safety:
         dfr[id_col] = dfr[id_col].astype(int)
+
+    logger.info(f'{len(to_insert):,} new {item_name}(s) saved to database')
 
     return dfr
 

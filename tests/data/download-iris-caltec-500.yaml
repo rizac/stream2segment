@@ -1,7 +1,7 @@
 dburl: ''  # will be filled in tests
 starttime: 1999-01-01 00:00:00
 endtime: 2023-08-06 00:00:00
-eventws: http://service.iris.edu/fdsnws/event/1/query
+eventws: https://service.ncedc.org/fdsnws/event/1/query
 minlatitude: 35
 maxlatitude: 42
 minlongitude: -125

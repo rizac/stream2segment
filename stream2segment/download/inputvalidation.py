@@ -74,7 +74,7 @@ def load_input(
             configfile=config_file_path
         )
 
-        params = ('db_url', 'dburl')
+        params = ('db', 'dburl', 'db_url')
         val = get_param(params, config, override_params)
         kwargs['engine'] = get_engine(
             resolve_db_path(val, dirname(config_file_path))

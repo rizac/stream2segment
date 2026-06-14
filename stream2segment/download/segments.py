@@ -84,6 +84,10 @@ def prepare_for_download(
             )
             segments[id_col] = segments[id_col].fillna(segments[id_col + _suf])
             segments[dl_col] = segments[dl_col].fillna(segments[dl_col + _suf])
+            # remove suffix columns (next fetch_df needs to write them new):
+            segments.drop(
+                columns=[c for c in segments.columns if c.endswith(_suf)], inplace=True
+            )
 
         mask = segments[id_col].notna()
         if restricted_download:
@@ -281,7 +285,7 @@ def download_and_save(
                     # close loop: set empty dataframe (will break the loop)
                     segments = pd.DataFrame()
                     logger.info(
-                        f'Download not performed for {counts.sum():,} segments '
+                        f'Download not performed for {len(segments):,} segments '
                         f'due to consistently repeated failures from their '
                         f'URL domain'
                     )  # FIXME BETTER (consistently?)
@@ -291,6 +295,11 @@ def download_and_save(
                             segments.index.difference(processed_indices)
                         ]
                     max_download_concurrency //= 2
+
+                    logger.warning(
+                        f'Resuming download with new per-domain concurrency decreased '
+                        f'to {max_download_concurrency}'
+                    )
                     # stop for a while to avoid stressing URL domains
                     # if not segments.empty:
                     #     time.sleep(30)
@@ -325,27 +334,32 @@ def download(
     Download segments and yields results
     """
     grp_cols = [
-        ev_id_col, net_col, sta_col, loc_col, band_col, inst_col
+        url_col, net_col, sta_col, loc_col, atime_col
     ]
     dataframes = segments.groupby(grp_cols, sort=False, observed=True)
 
     noise_w = timedelta(minutes=time_window[0])
     signal_w = timedelta(minutes=time_window[1])
 
+    def get_request_time_bounds(a_time: datetime) -> tuple[datetime, datetime]:
+        start = (a_time + noise_w).replace(microsecond=0)
+        end = (a_time + signal_w + timedelta(seconds=1)).replace(microsecond=0)
+        return start, end
+
     def url_builder(group: tuple[tuple, pd.DataFrame]) -> str:
-        ev_id, net, sta, loc, band, inst = group[0]
-        dfr = group[1]
-        dc_url = dfr[url_col].iloc[0]
-        a_time = dfr[atime_col].iloc[0].to_pydatetime()
+        dc_url, net, sta, loc, a_time = group[0]
+        df = group[1]
+        start, end = get_request_time_bounds(a_time.to_pydatetime())
+        cha = ",".join(df[band_col].str.cat(df[inst_col]).str.cat(df[orient_col]))
 
         return fdsn_url_qs(
             dc_url,
             net = net or None,
             sta = sta or None,
             loc = loc or None,
-            cha = ",".join(f'{band}{inst}{o}' for o in dfr[orient_col]),
-            start = (a_time + noise_w).replace(microsecond=0),
-            end = (a_time + signal_w + timedelta(seconds=1)).replace(microsecond=0),
+            cha = cha,
+            start = start,
+            end = end,
         )
 
     for response in build_and_read_urls(
@@ -357,11 +371,13 @@ def download(
         credentials=user_passwords
     ):
         group = response.meta
-        ev_id, net, sta, loc, band, inst = group[0]
+        dc_url, net, sta, loc, a_time = group[0]
         dfr = group[1]
         req_cache = {
-            f'{net}.{sta}.{loc}.{band}{inst}{o}': i
-            for i, o in zip(dfr.index, dfr[orient_col])
+            f'{net}.{sta}.{loc}.{band}{inst}{orient}': df_idx
+            for df_idx, band, inst, orient in zip(
+                dfr.index, dfr[band_col], dfr[inst_col], dfr[orient_col]
+            )
         }
 
         if not response.is_ok:
@@ -369,20 +385,18 @@ def download(
                 yield response, response.status_code, None, idx
             continue
 
-        qs = parse_qs(urlsplit(response.request).query)
-        req_start = datetime.fromisoformat(qs["start"][0])
-        req_end = datetime.fromisoformat(qs["end"][0])
+        req_start, req_end = get_request_time_bounds(a_time.to_pydatetime())
 
         for m_seed in unpack_miniseed(response.data, set(req_cache.keys())):
             idx = req_cache[m_seed.seed_id]  # dataframe index value
             m_seed_code = response.status_code
 
             if m_seed.data is None:
-                m_seed_code = SkippedSegment.BAD_DATA
+                m_seed_code = MiniSeedErrorCode.BAD_DATA
                 m_seed = None
             elif m_seed.start >= req_end or m_seed.end <= req_start:
                 # we want at least something before and after the arrival time. If not:
-                m_seed_code = SkippedSegment.OUT_OF_TIME_BOUNDS
+                m_seed_code = MiniSeedErrorCode.OUT_OF_TIME_BOUNDS
                 m_seed = None
 
             yield response, m_seed_code, m_seed, idx

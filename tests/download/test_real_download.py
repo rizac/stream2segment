@@ -5,7 +5,6 @@ Real download test scenarios
 import re
 from collections import namedtuple
 from datetime import datetime, timedelta
-from unittest import skip
 from urllib.request import Request, urlopen
 from unittest.mock import patch
 
@@ -276,7 +275,7 @@ def test_download_channels_adarray(
         if _.code == 200:
             req = _.read(1)
         if not req:
-            skip('_ADARRAY returns no data (bugfix?)')
+            pytest.skip('_ADARRAY returns no data (bugfix?)')
             return
 
     mock_get_events_df.return_value = pd.DataFrame([{
@@ -703,7 +702,7 @@ def test_download_iris_caltec_up_to_segments_tmp(
     result = CliRunner().invoke(
         cli, [
             'download', '-c', str(cfg_file), '--dburl', db.url,
-            '--events_url', 'https://service.ncedc.org/fdsnws/event/1/query'
+            # '--events_url', 'https://service.ncedc.org/fdsnws/event/1/query'
         ]
     )
     assert result.exit_code == 1

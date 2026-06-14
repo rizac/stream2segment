@@ -10,7 +10,7 @@
 # suggest sqlite for small to medium data or enough system RAM (as a rule of thumb:
 # less than a million segments, and/or more than 8GB of RAM) and postgres otherwise.
 # For info see: http://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls
-db_url: 'sqlite:///<local_file_path>'  # or, e.g.: postgresql://<user>:<password>@<host>/<dbname>
+db: 'sqlite:///<local_file_path>'  # or, e.g.: postgresql://<user>:<password>@<host>/<dbname>
 
 # Download events and data on or after the specified time. Type an ISO-formatted
 # date, date-time string, or an integer in days, where 0 is the start of the current day.
@@ -184,7 +184,7 @@ credentials: ""
 # =====================================
 
 advanced_settings:
-  # Maximum number of concurrent downloads per data URL. If set to null, concurrency
+  # Maximum number of concurrent downloads per URL domain. If set to null, concurrency
   # is tuned automatically for optimal performance. Higher values may speed up downloads
   # but can lead to throttling or failures (e.g. "Too Many Requests", "Service Unavailable")
   # depending on the data center. Use low values (1–2) to reduce server load and improve
