@@ -271,28 +271,33 @@ def download_and_save(
                 )
 
                 if max_download_concurrency <= 1 or not retry_decreasing_concurrency:
+                    logger.info(
+                        f'Download not performed for {len(segments):,} segments '
+                        f'due to consistently repeated failures from their URL domain'
+                    )
+
                     # add segments not processed to the stats
                     counts = segments[url_col].value_counts()
                     for url_, count in counts.items():
                         stats.increment(get_host(url_),None, count)
                         pbar.update(count)
+
                     # close loop: set empty dataframe (will break the loop)
                     segments = pd.DataFrame()
-                    logger.info(
-                        f'Download not performed for {len(segments):,} segments '
-                        f'due to consistently repeated failures from their URL domain'
-                    )
+
                 else:
                     if processed_indices:
                         segments = segments.loc[
                             segments.index.difference(processed_indices)
                         ]
-                    max_download_concurrency //= 2
 
                     logger.warning(
-                        f'Resuming download for pending segments with new per-domain '
-                        f'concurrency decreased to {max_download_concurrency}'
+                        f'Resuming download for pending segments after decreasing '
+                        f'per-domain concurrency from {max_download_concurrency} to '
+                        f'{max_download_concurrency // 2}'
                     )
+                    max_download_concurrency //= 2
+
                     # stop for a while to avoid stressing URL domains
                     # if not segments.empty:
                     #     time.sleep(30)
@@ -569,12 +574,14 @@ class DownloadStats:
         return sorted(ok_statuses) + sorted(err_statuses)
 
     def to_dataframe(self) -> pd.DataFrame:
-        df = pd.DataFrame.from_dict(self._stats, orient="index").fillna(0).astype(int)
+        df = pd.DataFrame.from_dict(self._stats, orient="index")
         df = df.reindex(
             index=sorted(self._stats.keys()), columns=self._status_codes
         ).rename(
             columns={c: self._status_msg[c] for c in self._status_codes},
         )
+        # cast to int here because reindex might have added rows or columns (with NaN):
+        df = df.fillna(0).astype(int)
         df["Total"] = df.sum(axis=1)
         df.loc["Total"] = df.sum(axis=0)
         df.loc["Total", "Total"] = df.iloc[:-1, :-1].values.sum()

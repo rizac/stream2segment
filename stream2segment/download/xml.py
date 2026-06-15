@@ -86,6 +86,9 @@ def save_stationxml(
             net=net, sta=sta, level='response'
         )
 
+    if max_download_concurrency_per_domain is None:
+        max_download_concurrency_per_domain = 4
+
     with engine.begin() as conn:  # noqa
         for response in download_xml(
             engine = engine,
@@ -181,6 +184,9 @@ def save_quakeml(
         _, catalog_ev_id, ws_id = df_row  # must match select statement above
         return fdsn_url_qs(ws_urls[ws_id], eventid=catalog_ev_id, format='xml')
 
+    if max_download_concurrency_per_domain is None:
+        max_download_concurrency_per_domain = 4  # same domain downloads
+
     with engine.begin() as conn:  # noqa
         for response in download_xml(
             engine=engine,
@@ -218,19 +224,12 @@ def download_xml(
     stmt: Select,
     url_builder: Callable[[tuple], str],
     err_log_caption: str,
-    max_download_concurrency_per_domain: int | None,
+    max_download_concurrency_per_domain: int,
     download_timeout,
     download_blocksize,
     show_progress=False
 ) -> Iterable[Response | None]:
     """Download XML data"""
-
-    # max_download_concurrency in [1, 2]
-    if max_download_concurrency_per_domain is None:
-        max_download_concurrency_per_domain = 2
-    max_download_concurrency_per_domain = max(
-        1, min(2, max_download_concurrency_per_domain)
-    )
 
     with engine.connect() as conn:
         total = conn.execute(

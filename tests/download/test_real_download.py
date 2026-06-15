@@ -3,6 +3,7 @@ Real download test scenarios
 """
 # Feb 4, 2016
 import re
+import os
 from collections import namedtuple
 from datetime import datetime, timedelta
 from urllib.request import Request, urlopen
@@ -689,7 +690,7 @@ def test_download_iris_caltec_up_to_segments_tmp(
     # fixtures:
     online_only, db, log_capture, test_data_dir
 ):
-    """This tess _ADARRAY private network"""
+    """"""
     if db.is_postgres:
         # THIS TEST IS JUST ENOUGH WITH ONE DB (USE SQLITE BECAUSE POSTGRES MIGHT NOT BE
         # SETUP FOR TESTS)
@@ -707,6 +708,28 @@ def test_download_iris_caltec_up_to_segments_tmp(
     )
     assert result.exit_code == 1
     asd = 9
+
+
+def test_download_to_file(tmp_path, test_data_dir):
+
+    curr_dir = os.getcwd()
+    os.chdir(str(tmp_path))
+
+    try:
+        cfg_file = test_data_dir / "download-iris-caltec-500.yaml"
+
+        result = CliRunner().invoke(
+            cli, [
+                'download', '-c', str(cfg_file),
+                '--dburl', "sqlite:///./march-2019-caltec-iris.sqlite",
+                '--start', "2019-03-01", '--end', "2019-03-31"
+            ]
+        )
+        assert result.exit_code == 0
+
+
+    finally:
+        os.chdir(curr_dir)
 
 
 Count = namedtuple('count', [
