@@ -4,6 +4,7 @@ Real download test scenarios
 # Feb 4, 2016
 import re
 import os
+import shutil
 from collections import namedtuple
 from datetime import datetime, timedelta
 from urllib.request import Request, urlopen
@@ -31,6 +32,7 @@ from stream2segment.download.stationsearch import (
 from stream2segment.download.utils import NoSegmentsToDownload, FailedDownload
 from stream2segment.download.inputvalidation import load_input as original_load_input
 from stream2segment.cli import cli
+from stream2segment.io.db import is_sqlite, sqlite_in_memory_path
 from stream2segment.io.db.models import (
     Event, Channel, Segment, StationXML, QuakeML, SkippedSegment
 )
@@ -710,26 +712,35 @@ def test_download_iris_caltec_up_to_segments_tmp(
     asd = 9
 
 
-def test_download_to_file(tmp_path, test_data_dir):
+def test_download_to_file(db_urls, tmp_path, test_data_dir, request):
+
+    cfg_file = tmp_path / "download-iris-caltec-500.yaml"
+    shutil.copyfile(test_data_dir / cfg_file.name, cfg_file)
 
     curr_dir = os.getcwd()
     os.chdir(str(tmp_path))
 
     try:
-        cfg_file = test_data_dir / "download-iris-caltec-500.yaml"
+        for url in db_urls:
+            if is_sqlite(url) and sqlite_in_memory_path in url:
+                url = "sqlite:///./march-2019-caltec-iris.sqlite"
 
-        result = CliRunner().invoke(
-            cli, [
-                'download', '-c', str(cfg_file),
-                '--dburl', "sqlite:///./march-2019-caltec-iris.sqlite",
-                '--start', "2019-03-01", '--end', "2019-03-31"
-            ]
-        )
-        assert result.exit_code == 0
+
+            result = CliRunner().invoke(
+                cli, [
+                    'download', '-c', str(cfg_file),
+                    '--dburl', url,
+                    '--start', "2019-07-01",
+                    '--end', "2019-07-15",
+                    '--sta', "VOC,VOB,25282"
+                ]
+            )
+            assert result.exit_code == 0
 
 
     finally:
         os.chdir(curr_dir)
+
 
 
 Count = namedtuple('count', [

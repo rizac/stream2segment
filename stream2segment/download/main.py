@@ -83,8 +83,9 @@ def download(
 
     # configure logger and handlers:
     if log2file is True:  # noqa
-        _now = datetime.now(UTC).replace(microsecond=0, tzinfo=None).isoformat('T')
-        log_file_path = f'{config_file}.{_now}.log'
+        _now = datetime.now(UTC).replace(microsecond=0, tzinfo=None)
+        _now_iso = _now.isoformat('_').replace(':', '')
+        log_file_path = f'{config_file}_{_now_iso}.log'
     else:
         log_file_path = log2file or ''  # assure we have a string
 

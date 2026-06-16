@@ -12,6 +12,7 @@ from enum import IntEnum
 from io import BytesIO
 from math import log
 from urllib.request import Request
+import time
 
 import pandas as pd
 from sqlalchemy import Engine
@@ -170,17 +171,12 @@ def download_and_save(
     retry_decreasing_concurrency = False
     if max_download_concurrency is None:
         retry_decreasing_concurrency = True
-        max_download_concurrency = 8
+        max_download_concurrency = 6
 
     # report seg. errors only once per error type and data center:
     id_once_filter: IdOnceLogFilter | None = None
 
     db_bufsize = estimate_buffer_size('miniseed')  # avg size of MiniSeed as benchmark
-
-    processed_indices = []
-    # this is the maximum id (primary key) of NoDataSegments.
-    # On download error (no data), it will be used to get if we need to save the segment
-    # download info:
 
     if already_skipped_col not in segments.columns:
         def not_already_skipped(*a, **kw):
@@ -201,11 +197,16 @@ def download_and_save(
 
     written_ok = 0
     written_skipped = 0
+    downloads_completed = 0
+    segments_count = len(segments)
 
     try:
-        with get_progressbar(len(segments) if show_progress else 0) as pbar:
+        with (get_progressbar(segments_count if show_progress else 0) as pbar):
 
             while not segments.empty:
+
+                processed_indices = []
+
                 for req_url, status_code, resp, df_idx in download(
                     segments,
                     time_window,
@@ -265,22 +266,9 @@ def download_and_save(
                     stats.increment(url_domain, status_code)
                     pbar.update(1)
 
-                logger.warning(
-                    f'{len(processed_indices):,} of {len(segments):,} segment '
-                    f'download(s) completed (regardless of the download status)'
-                )
+                downloads_completed += len(processed_indices)
 
                 if max_download_concurrency <= 1 or not retry_decreasing_concurrency:
-                    logger.info(
-                        f'Download not performed for {len(segments):,} segments '
-                        f'due to consistently repeated failures from their URL domain'
-                    )
-
-                    # add segments not processed to the stats
-                    counts = segments[url_col].value_counts()
-                    for url_, count in counts.items():
-                        stats.increment(get_host(url_),None, count)
-                        pbar.update(count)
 
                     # close loop: set empty dataframe (will break the loop)
                     segments = pd.DataFrame()
@@ -291,16 +279,19 @@ def download_and_save(
                             segments.index.difference(processed_indices)
                         ]
 
-                    logger.warning(
-                        f'Resuming download for pending segments after decreasing '
-                        f'per-domain concurrency from {max_download_concurrency} to '
-                        f'{max_download_concurrency // 2}'
-                    )
-                    max_download_concurrency //= 2
+                    if not segments.empty:
+                        logger.warning(
+                            f'Resuming download for {len(segments):,} pending '
+                            f'segment(s) with less aggressive approach '
+                            f'(per-domain concurrency decreased '
+                            f'from {max_download_concurrency} to '
+                            f'{max_download_concurrency // 2})'
+                        )
+                        max_download_concurrency //= 2
 
-                    # stop for a while to avoid stressing URL domains
-                    # if not segments.empty:
-                    #     time.sleep(30)
+                        # stop for a while to avoid stressing URL domains
+                        time.sleep(10)
+
     finally:
         if len(rows_ok):
             written_ok += sum(1 for _ in executemany(engine, sql_insert_ok, rows_ok))
@@ -311,6 +302,13 @@ def download_and_save(
 
     if id_once_filter is not None:
         logger.removeFilter(id_once_filter)
+
+    logger.info(f'{downloads_completed:,} download attempt(s) performed')
+    if segments_count - downloads_completed > 0:
+        logger.info(
+            f'{segments_count - downloads_completed:,} download(s) skipped '
+            f'due to persistent server or network failures'
+        )
 
     logger.info(f'{written_ok:,} new segment(s) saved to DB')
 
@@ -353,9 +351,9 @@ def download(
 
         return fdsn_url_qs(
             dc_url,
-            net = net or None,
-            sta = sta or None,
-            loc = loc or None,
+            net = net,
+            sta = sta,
+            loc = loc,
             cha = ",".join(df[cha_col]),
             start = start,
             end = end,

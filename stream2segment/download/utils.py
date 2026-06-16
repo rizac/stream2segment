@@ -203,7 +203,10 @@ def fdsn_url_qs(base_url: str, **query_args):
             safe_chars.update(set('-:') & set(v))  # don't encode ":-" if in v
         else:
             v = str(v)
-            if k in c_params:
+            if k in ('loc', 'location') and v == '':
+                v = '--'
+                safe_chars.update('-')
+            elif k in c_params:
                 safe_chars.update(set(',?*') & set(v))  # don't encode ',?*' if in v
             elif k in n_params:
                 safe_chars.update(set('.') & set(v))  # don't encode '.' if in v

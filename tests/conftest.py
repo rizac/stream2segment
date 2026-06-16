@@ -28,7 +28,9 @@ download_close_engine_path = 'stream2segment.download.main.close_engine'
 from stream2segment.download.inputvalidation import create_engine as original_create_engine
 from stream2segment.download.main import close_engine as original_close_engine
 
-# from stream2segment.traveltimes.ttloader import TTTable
+
+_db_optname = '--dburl'
+_in_mem_sqlite = "sqlite:///:memory:"
 
 
 # https://docs.pytest.org/en/3.0.0/parametrize.html#basic-pytest-generate-tests-example
@@ -41,21 +43,24 @@ def pytest_addoption(parser):
     parser.addoption(
         "--dburl",
         action="append",
-        default=[],
+        default=[_in_mem_sqlite],
         help=(
             "list of database url(s) to be used for testing *in addition* to the "
             "default SQLite database"
         )
     )
 
-_in_mem_sqlite = "sqlite:///:memory:"
+
 
 def pytest_generate_tests(metafunc):
     """parametrize all tests with db in it with all URLs given in the command line"""
     if "db" in metafunc.fixturenames:
-        urls = [_in_mem_sqlite]
-        urls.extend(metafunc.config.getoption("--dburl"))
-        metafunc.parametrize("db_url", urls)
+        metafunc.parametrize("db_url", metafunc.config.getoption("--dburl"))
+
+
+@pytest.fixture
+def db_urls(request):
+    return request.config.getoption("--dburl")
 
 
 @pytest.fixture
@@ -130,13 +135,20 @@ def online_only():
         pytest.skip("no internet connection")
 
 
-@pytest.fixture
-def read_url():
-    original_read_url = read_url
-    try:
-        urllib.request.urlopen("https://example.com", timeout=2)
-    except Exception:
-        pytest.skip("no internet connection")
+@pytest.fixture(scope="session")
+def test_data_dir():  # n
+    return Path(__file__).parent / "data"
+
+
+#
+#
+# @pytest.fixture
+# def read_url():
+#     original_read_url = read_url
+#     try:
+#         urllib.request.urlopen("https://example.com", timeout=2)
+#     except Exception:
+#         pytest.skip("no internet connection")
 
 # _PDOPT = {_: pd.get_option(_) for _ in ['display.max_colwidth']}
 #
@@ -162,11 +174,6 @@ def read_url():
 #     # the system. However:
 #     for k, v in _PDOPT.items():
 #         pd.set_option(k, v)
-
-
-@pytest.fixture(scope="session")
-def test_data_dir():  # n
-    return Path(__file__).parent / "data"
 
 
 # @pytest.fixture(scope="session")

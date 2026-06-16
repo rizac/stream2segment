@@ -164,8 +164,9 @@ def process(
         if not outfile:
             logfile = ''
         else:
-            _now = datetime.now(UTC).replace(microsecond=0).isoformat()
-            logfile = f'{outfile}.{_now}.log'
+            _now = datetime.now(UTC).replace(microsecond=0, tzinfo=None)
+            _now_iso = _now.isoformat('_').replace(':', '')
+            logfile = f'{outfile}.{_now_iso}.log'
 
     if outfile is not None:
         if not isinstance(outfile, str) or not os.path.isdir(os.path.dirname(outfile)):
