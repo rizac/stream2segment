@@ -19,9 +19,7 @@ from stream2segment.io.db.models import (
     WebService, Segment, Channel, StationXML, Event, QuakeML
 )
 from stream2segment.download.url import build_and_read_urls, get_host, Response
-from stream2segment.download.utils import (
-    IdOnceLogFilter, fdsn_url_qs, fdsn_url
-)
+from stream2segment.download.utils import fdsn_url_qs, fdsn_url
 from sqlalchemy import func, exists, Select, case
 
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial):
@@ -238,7 +236,8 @@ def download_xml(
         if total < 1:
             return
 
-    log_once_filter: Optional[IdOnceLogFilter] = None  # lazily created if needed
+    # report seg. errors only once per error type and data center:
+    already_logged_ids: set[tuple[str, int]] = set()
 
     with get_progressbar(total if show_progress else 0) as pbar:
 
@@ -260,19 +259,22 @@ def download_xml(
                     pbar.update(1)
                     url = response.request
                     oks += (200 <= response.status_code < 300)
+
                     if not response.is_ok:
-                        if log_once_filter is None:  # create lazily
-                            log_once_filter = IdOnceLogFilter()
-                            logger.addFilter(log_once_filter)
+
+                        if not already_logged_ids:
                             logger.warning(
                                 f"{err_log_caption}\n"
                                 "(shown once per (URL domain, error type) combination)"
                             )
-                        logger.warning(
-                            str(response),
-                            extra={'ID': (get_host(url), response.status_code)}
-                        )
+
+                        log_id = (get_host(url), response.status_code)
+                        if log_id not in already_logged_ids:
+                            already_logged_ids.add(log_id)
+                            logger.warning(str(response))
+
                         yield None
+
                     else:
                         yield response
 
@@ -280,9 +282,6 @@ def download_xml(
                 break
 
             max_download_concurrency_per_domain //= 2
-
-    if log_once_filter is not None:
-        logger.removeFilter(log_once_filter)
 
 
 @dataclasses.dataclass(frozen=True, slots=True)

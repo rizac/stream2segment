@@ -17,37 +17,6 @@ from obspy.clients.fdsn.header import service
 # logger = logging.getLogger(__name__)
 
 
-class IdOnceLogFilter(logging.Filter):
-    """
-    logging Filter that expects an 'ID' attribute on each record
-    and filters out already processed record (comparing by same 'ID').
-
-    # Usage:
-
-    log_filter = IdOnceLogFilter()
-    logger.addFilter(log_filter)
-    logger.warn('message', extra={'ID': (1, 'geofon.gfz.de')})  # logged
-    logger.warn('another message', extra={'ID': (1, 'geofon.gfz.de')})  # not logged
-    # eventually, you can optionally remove the filter (freeing memory):
-    logger.removeFilter(log_filter)
-    """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.processed_ids = set()
-
-    def filter(self, record):
-        _id = getattr(record, "ID", None)
-        if _id is None:
-            return True
-
-        if _id in self.processed_ids:
-            return False
-
-        self.processed_ids.add(_id)
-        return True
-
-
 def fdsn_response_text_to_df(response: IOBase, **csv_kwargs) -> pd.DataFrame:
     """
     Convert a response content obtained from a FDSN webservice with format=text

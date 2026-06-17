@@ -30,9 +30,7 @@ from stream2segment.io.db.pdsql import (
     sync_pkey, get_row_count, get_col_max, insert, executemany, fetch_df, select
 )
 from stream2segment.io.db.models import Segment, MiniSeed, SkippedSegment
-from stream2segment.download.utils import (
-    fdsn_url_qs, IdOnceLogFilter, fdsn_url, FailedDownload
-)
+from stream2segment.download.utils import fdsn_url_qs, fdsn_url, FailedDownload
 from stream2segment.download.url import (
     get_host, build_and_read_urls, Response, read_url
 )
@@ -174,7 +172,7 @@ def download_and_save(
         max_download_concurrency = 6
 
     # report seg. errors only once per error type and data center:
-    id_once_filter: IdOnceLogFilter | None = None
+    already_logged_ids: set[tuple[str, int]] = set()
 
     db_bufsize = estimate_buffer_size('miniseed')  # avg size of MiniSeed as benchmark
 
@@ -219,6 +217,7 @@ def download_and_save(
                     processed_indices.append(df_idx)
 
                     if status_code == 200 and resp is not None:
+                        # resp is an unpacked_miniseed indeed
                         segments_current_id += 1
                         rows_ok.append(
                             prepare_segment_to_insert(
@@ -251,17 +250,16 @@ def download_and_save(
                                 rows_skip.clear()
 
                     else:
-                        if id_once_filter is None:
+                        if not already_logged_ids:
                             logger.warning(
                                 'Detailed segment download errors '
                                 '(showing only first of each type per URL domain):'
                             )
-                            id_once_filter = IdOnceLogFilter()
-                            logger.addFilter(id_once_filter)
 
-                        logger.warning(
-                            str(resp), extra={'ID': (url_domain, status_code)}
-                        )
+                        log_id = (url_domain, status_code)
+                        if log_id not in already_logged_ids:
+                            already_logged_ids.add(log_id)
+                            logger.warning(str(resp))
 
                     stats.increment(url_domain, status_code)
                     pbar.update(1)
@@ -300,9 +298,6 @@ def download_and_save(
                 1 for _ in executemany(engine, sql_insert_skip, rows_skip)
             )
 
-    if id_once_filter is not None:
-        logger.removeFilter(id_once_filter)
-
     logger.info(f'{downloads_completed:,} download attempt(s) performed')
     if segments_count - downloads_completed > 0:
         logger.info(
@@ -327,7 +322,7 @@ def download(
     max_download_concurrency: int,
     download_timeout,
     download_blocksize
-) -> Iterable[tuple[str, int, unpacked_miniseed | str | None, int]]:
+) -> Iterable[tuple[str, int, unpacked_miniseed | Response | None, int]]:
     """
     Download segments and yields results
     """
@@ -373,7 +368,7 @@ def download(
 
         if not response.is_ok:
             for idx in dfr.index:
-                yield response.request, response.status_code, str(response), idx
+                yield response.request, response.status_code, response, idx
             continue
 
         req_start, req_end = get_request_time_bounds(a_time.to_pydatetime())

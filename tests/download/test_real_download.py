@@ -456,7 +456,7 @@ def test_real_download_segments(
     mock_download_segments_read_urls.reset_mock()
     result = CliRunner().invoke(cli, cli_options)
     assert result.exit_code == 0
-    assert 'download not performed for' in result.output.lower()
+    assert 'download(s) skipped' in result.output.lower()
     assert count == count_from_db(db.engine)  # nothing changed on DB
     assert mock_download_segments_read_urls.called
 
@@ -730,8 +730,8 @@ def test_download_to_file(db_urls, tmp_path, test_data_dir, request):
                 cli, [
                     'download', '-c', str(cfg_file),
                     '--dburl', url,
-                    '--start', "2019-07-01",
-                    '--end', "2019-07-15",
+                    '--start', "2019-07-06",
+                    '--end', "2019-07-06",
                     '--sta', "VOC,VOB,25282"
                 ]
             )
