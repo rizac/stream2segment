@@ -169,10 +169,8 @@ def download_and_save(
                 'Could not get user password from eida token for any URLs'
             )
 
-    retry_decreasing_concurrency = False
     if max_download_concurrency is None:
-        retry_decreasing_concurrency = True
-        max_download_concurrency = 6
+        max_download_concurrency = 4
 
     # report seg. errors only once per error type and data center:
     already_logged_ids: set[tuple[str, int]] = set()
@@ -216,9 +214,7 @@ def download_and_save(
                     download_blocksize
                 ):
                     url_domain = get_host(req_url)
-
-                    if 200 <= status_code < 300 or status_code in skipped_segment_codes:
-                        processed_indices.append(df_idx)
+                    processed_indices.append(df_idx)
 
                     if status_code == 200 and resp is not None:
                         # resp is an unpacked_miniseed indeed
@@ -268,7 +264,10 @@ def download_and_save(
                     stats.increment(url_domain, status_code)
                     pbar.update(1)
 
-                if max_download_concurrency <= 1 or not retry_decreasing_concurrency:
+                if (
+                    max_download_concurrency <= 1 or
+                    len(processed_indices) == segments_count
+                ):
 
                     # close loop: set empty dataframe (will break the loop)
                     segments = pd.DataFrame()
@@ -279,7 +278,7 @@ def download_and_save(
                             segments.index.difference(processed_indices)
                         ]
 
-                    if not segments.empty:
+                    if not segments.empty:  # for safety
                         logger.warning(
                             f'Resuming download for {len(segments):,} pending '
                             f'segment(s) with less aggressive approach '
@@ -307,7 +306,6 @@ def download_and_save(
             f'{segments_count - downloads_completed:,} download(s) skipped '
             f'due to persistent server or network failures'
         )
-
     logger.info(f'{written_ok:,} new segment(s) saved to DB')
 
     return stats

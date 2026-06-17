@@ -251,17 +251,19 @@ def build_and_read_urls(
         Defaults to 8. None or values < 1 will disable per-domain concurrency, leaving
         only the global one active
     :param error_limit: int (default: 25) denoting the error limit per-domain: if no
-        download is successful for `error_limit` times, the downloads from that domain
-        are suspended and nothing is yielded anymore; users are responsible to handle
+        download is successful for `error_limit` times, the downloads are not yielded
+        and all pending domain downloads will be skipped; users are responsible to handle
         the retry of failed downloads in case. Unsuccessful downloads are HTTP error
-        with codes in the range (400-599) and not included in `skip_on_errors`,
-        timeout errors, network errors (for which a custom unique code is assigned).
-        Other HTTP codes are not included, e.g. 'No data' - 204 - is a successful
-        download. When this parameter is None or < 1 the error code check will be
-        disabled, and downloads will be performed regardless of their successful state
+        with codes in the range (400-599) and not included in `skip_on_errors` and other
+        errors for which a custom unique code is assigned (e.g., timeout or network
+        errors). All other HTTP codes are yielded normally, e.g. 'OK' (200), 'No data'
+        (204).
+        When this parameter is None or < 1 the error code check will be disabled, and all
+        downloads will be performed and yielded, which might slow down time
+        unnecessarily and increase server workload
     :param same_error_limit: int denoting the (same) error limit per-domain: if
         the same error type is returned for `consecutive_error_limit`, the downloads
-        from that domain are suspended and nothing is yielded anymore; users are
+        are not yielded and all pending domain downloads will be skipped; users are
         responsible to handle the retry of failed downloads in case. Two errors are of
         the same type if they share the same code (int): see parameter `error_limit` for
         more details. When this parameter is None or < 1 the error code check will be
@@ -401,6 +403,7 @@ def build_and_read_urls(
         for resp_tuple in t_map(url_wrapper, iterable):
             if stop_event.is_set() or resp_tuple is None:
                 continue
+
             domain, response = resp_tuple
             if domain in aborted_download_domains:
                 continue
@@ -408,8 +411,13 @@ def build_and_read_urls(
             if 200 <= response.status_code < 300 or response.status_code in skip_on_errors:
                 yield response
                 resp_queue = last_n_errors.get(domain, [])
-                while len(resp_queue):
-                    yield resp_queue.pop()
+                for resp in resp_queue:
+                    if (
+                        200 <= resp.status_code < 300 or
+                        resp.status_code in skip_on_errors
+                    ):
+                        yield resp_queue.pop()
+                resp_queue.clear()
                 continue
 
             # error response. Append to queue:

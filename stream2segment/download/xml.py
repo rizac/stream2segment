@@ -2,15 +2,11 @@
 StationsXML download
 """
 from __future__ import annotations
-import dataclasses
 import logging
 from collections.abc import Iterable, Callable
-from dataclasses import asdict
-from typing import Optional
-import pandas as pd
 from sqlalchemy.exc import IntegrityError
 
-from stream2segment.download.channels import url_col, net_col, sta_col
+from stream2segment.download.segments import DownloadStats
 from stream2segment.io.utils import get_progressbar
 from stream2segment.io.db.pdsql import (
     Engine, get_col_max, insert, update, select, fetch_df
@@ -33,7 +29,7 @@ def save_stationxml(
     download_timeout,
     download_blocksize,
     show_progress=False
-) -> XMLStats:
+) -> DownloadStats:
     """Save StationXML data. stations_df must not be empty (not checked here)"""
     staxml_id_col = Channel.stationxml_id.key
     stmt = (
@@ -59,7 +55,6 @@ def save_stationxml(
         )
     )
 
-    total, downloaded, saved = 0, 0, 0
     db_stationxml_id = get_col_max(engine, StationXML.id)
     ws_id_col = Channel.data_webservice_id.key
     # query all webservice ids and urls in one shot (also avoids to query it inside
@@ -68,7 +63,7 @@ def save_stationxml(
         WebService.url.contains("/dataselect/") | WebService.url.contains("/station/")
     )
     with engine.connect() as conn:
-        ws_urls = dict(conn.execute(ws_stmt).all())  # noqa
+        ws_urls: dict[int, str] = dict(conn.execute(ws_stmt).all())  # noqa
 
     def url_builder(df_row: tuple) -> str:
         """
@@ -87,6 +82,8 @@ def save_stationxml(
     if max_download_concurrency_per_domain is None:
         max_download_concurrency_per_domain = 4
 
+    stats = DownloadStats(get_host(w) for w in ws_urls.values())
+    saved = 0
     with engine.begin() as conn:  # noqa
         for response in download_xml(
             engine = engine,
@@ -98,11 +95,7 @@ def save_stationxml(
             download_blocksize = download_blocksize,
             show_progress=show_progress
         ):
-            total += 1
-            if response is None:
-                continue
-
-            downloaded += 1
+            stats.increment(get_host(response.request), response.status_code)
             net, sta, ws_id, sta_id = response.meta
 
             try:
@@ -137,7 +130,10 @@ def save_stationxml(
             except IntegrityError as e:
                 pass
 
-    return XMLStats(total, downloaded, saved)
+    downloads_completed = stats.downloads_completed
+    logger.info(f'{downloads_completed:,} download attempt(s) performed')
+    logger.info(f'{saved:,} new station(s) saved to DB')
+    return stats
 
 
 def save_quakeml(
@@ -147,7 +143,7 @@ def save_quakeml(
     download_timeout,
     download_blocksize,
     show_progress=False
-) -> XMLStats:
+) -> DownloadStats:
     """Save QuakeML data. stations_df must not be empty (not checked here)"""
     stmt = (
         select(
@@ -160,7 +156,6 @@ def save_quakeml(
     )
     # (*) only channels with at least one matching Segment row are included
 
-    total, downloaded, saved = 0, 0, 0
     ws_id_col = Event.webservice_id.key
     # query all webservice ids and urls in one shot (also avoids to query it inside
     # url_iterator, which is run in a worker thread and might cause problems):
@@ -169,8 +164,7 @@ def save_quakeml(
         ~WebService.url.contains("/station/"),
     )
     with engine.connect() as conn:
-        ws_urls = dict(conn.execute(ws_stmt).all())  # noqa
-
+        ws_urls: dict[int, str] = dict(conn.execute(ws_stmt).all())  # noqa
 
     def url_builder(df_row: tuple) -> str:
         """
@@ -185,6 +179,8 @@ def save_quakeml(
     if max_download_concurrency_per_domain is None:
         max_download_concurrency_per_domain = 4  # same domain downloads
 
+    stats = DownloadStats(get_host(w) for w in ws_urls.values())
+    saved = 0
     with engine.begin() as conn:  # noqa
         for response in download_xml(
             engine=engine,
@@ -196,11 +192,7 @@ def save_quakeml(
             download_blocksize=download_blocksize,
             show_progress=show_progress
         ):
-            total += 1
-            if response is None:
-                continue
-
-            downloaded += 1
+            stats.increment(get_host(response.request), response.status_code)
             db_ev_id = response.meta[0]
 
             try:
@@ -213,7 +205,10 @@ def save_quakeml(
             except IntegrityError as e:
                 pass
 
-    return XMLStats(total, downloaded, saved)
+    downloads_completed = stats.downloads_completed
+    logger.info(f'{downloads_completed:,} download attempt(s) performed')
+    logger.info(f'{saved:,} new event(s) saved to DB')
+    return stats
 
 
 def download_xml(
@@ -243,9 +238,11 @@ def download_xml(
 
         while True:
 
-            oks = 0
+            total, downloaded = 0, 0
 
             for dfr in fetch_df(engine, stmt):
+
+                total += len(dfr)
 
                 reader = build_and_read_urls(
                     url_builder,
@@ -257,78 +254,25 @@ def download_xml(
 
                 for response in reader:
                     pbar.update(1)
+                    downloaded += 1
                     url = response.request
-                    oks += (200 <= response.status_code < 300)
 
-                    if not response.is_ok:
-
-                        if not already_logged_ids:
-                            logger.warning(
-                                f"{err_log_caption}\n"
-                                "(shown once per (URL domain, error type) combination)"
-                            )
-
-                        log_id = (get_host(url), response.status_code)
-                        if log_id not in already_logged_ids:
-                            already_logged_ids.add(log_id)
-                            logger.warning(str(response))
-
-                        yield None
-
-                    else:
+                    if response.is_ok:
                         yield response
+                        continue
 
-            if oks / total >= 0.75 or max_download_concurrency_per_domain // 2 < 1:
+                    if not already_logged_ids:
+                        logger.warning(
+                            f"{err_log_caption}\n"
+                            "(shown once per (URL domain, error type) combination)"
+                        )
+
+                    log_id = (get_host(url), response.status_code)
+                    if log_id not in already_logged_ids:
+                        already_logged_ids.add(log_id)
+                        logger.warning(str(response))
+
+            if downloaded == total or max_download_concurrency_per_domain // 2 < 1:
                 break
 
             max_download_concurrency_per_domain //= 2
-
-
-@dataclasses.dataclass(frozen=True, slots=True)
-class XMLStats(dict):
-
-    total: int
-    downloaded: int
-    saved: int
-
-    def __str__(self):
-        total = self.total
-        downloaded = self.downloaded
-        saved = self.saved
-
-        not_downloaded = total - downloaded
-        nds = ''
-        if not_downloaded > 0:
-            nds = f"{not_downloaded:,} download error"
-            if not_downloaded > 1:
-                nds += 's'
-            nds = f'({nds})'
-
-        not_saved = downloaded - saved
-        nss = ''
-        if not_saved > 0:
-            nss = f"{not_saved:,} db error"
-            if not_saved > 1:
-                nss += 's'
-            nss = f'({nss})'
-
-        df = pd.DataFrame(
-            columns = ['c1', 'c2'],  # any name is ok (we will not show these)
-            index = ['Total', 'Downloaded', 'Saved'],
-            data = [
-                [total, ""],
-                [downloaded, nds],
-                [saved, nss]
-            ]
-        )
-        df['c1'] = df['c1'].astype(int)
-        df['c2'] = df['c2'].astype(str)
-        return df.to_string(
-            index=True,
-            header=False,
-            na_rep="",
-            formatters={'c1': "{:,}".format}
-        )
-
-    def to_dict(self) -> dict:
-        return asdict(self)

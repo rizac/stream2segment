@@ -712,7 +712,7 @@ def test_download_iris_caltec_up_to_segments_tmp(
     asd = 9
 
 
-def test_download_to_file(db_urls, tmp_path, test_data_dir, request):
+def test_download_to_file(db_urls, tmp_path, test_data_dir, log_capture):
 
     cfg_file = tmp_path / "download-iris-caltec-500.yaml"
     shutil.copyfile(test_data_dir / cfg_file.name, cfg_file)
@@ -732,7 +732,8 @@ def test_download_to_file(db_urls, tmp_path, test_data_dir, request):
                     '--dburl', url,
                     '--start', "2019-07-06T00:00:00",
                     '--end', "2019-07-07T00:00:00",
-                    '--sta', "VOC,VOB,25282"
+                    '--sta', "VOC,VOB,25282",
+                    '--cha', 'HNZ'
                 ]
             )
             assert result.exit_code == 0
