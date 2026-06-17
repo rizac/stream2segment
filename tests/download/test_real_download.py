@@ -730,8 +730,8 @@ def test_download_to_file(db_urls, tmp_path, test_data_dir, request):
                 cli, [
                     'download', '-c', str(cfg_file),
                     '--dburl', url,
-                    '--start', "2019-07-06",
-                    '--end', "2019-07-06",
+                    '--start', "2019-07-06T00:00:00",
+                    '--end', "2019-07-07T00:00:00",
                     '--sta', "VOC,VOB,25282"
                 ]
             )

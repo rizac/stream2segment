@@ -265,13 +265,11 @@ def _download(
             show_progress=isterminal
         )
         del segments  # help gc?
-        # logger.info("")
-        stats_str = str(d_stats) or "Nothing to show"
-        logger.info(
-            "** Segments (miniSEED) download summary **\n"
-            "Number of segments per data center url (row) and download status (column):\n"
-            f"{stats_str}"
-        )
+
+        if d_stats.downloads_completed:
+            logger.info(
+                f"** Segments (miniSEED) download summary **\n{str(d_stats)}"
+            )
         download_stats = d_stats.to_dict()
 
     if stationxml:
@@ -283,7 +281,7 @@ def _download(
             download_blocksize=download_blocksize,
             show_progress=isterminal
         )
-        logger.info(
+        logger.warning(
             f"** Stations (StationXML) download summary **\n{str(s_stats)}"
         )
     if quakeml:
@@ -295,7 +293,7 @@ def _download(
             download_blocksize=download_blocksize,
             show_progress=isterminal
         )
-        logger.info(
+        logger.warning(
             f"** Events (QuakeML) download summary **\n{str(e_stats)}"
         )
     return download_stats

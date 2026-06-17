@@ -87,13 +87,16 @@ def prepare_for_download(
                 columns=[c for c in segments.columns if c.endswith(_suf)], inplace=True
             )
 
-        mask = segments[id_col].notna()
+        already_saved = segments[id_col].notna()
         if restricted_download:
-            # with restricted download (credentials), retry also 204, as sometimes that
+            # with restricted download (credentials), retry 401 (unauthotized) and 403
+            # (forbidden) but also 204, as sometimes that
             # is the code returned when we request restricted data with no credentials
-            mask &= (segments[dl_col] != 204)
-        segments = segments[~mask]
-        segments.pop(SkippedSegment.id.key)
+            already_saved &= (segments[dl_col] not in {204, 401, 403})
+        if already_saved.any():
+            segments = segments[~already_saved]
+        if SkippedSegment.id.key in segments.columns:
+            segments.pop(SkippedSegment.id.key)
 
     return segments
 
@@ -183,7 +186,7 @@ def download_and_save(
         def not_already_skipped(idx, segs):
             return not segs.at[idx, already_skipped_col]
 
-    skipped_segment_codes = set(m.value for m in MiniSeedErrorCode) | {204}
+    skipped_segment_codes = set(m.value for m in MiniSeedErrorCode) | {204, 401, 403}
 
     skipped_segments_current_id = get_col_max(engine, SkippedSegment.id)
     segments_current_id = get_col_max(engine, Segment.id)
@@ -195,7 +198,6 @@ def download_and_save(
 
     written_ok = 0
     written_skipped = 0
-    downloads_completed = 0
     segments_count = len(segments)
 
     try:
@@ -214,7 +216,9 @@ def download_and_save(
                     download_blocksize
                 ):
                     url_domain = get_host(req_url)
-                    processed_indices.append(df_idx)
+
+                    if 200 <= status_code < 300 or status_code in skipped_segment_codes:
+                        processed_indices.append(df_idx)
 
                     if status_code == 200 and resp is not None:
                         # resp is an unpacked_miniseed indeed
@@ -264,8 +268,6 @@ def download_and_save(
                     stats.increment(url_domain, status_code)
                     pbar.update(1)
 
-                downloads_completed += len(processed_indices)
-
                 if max_download_concurrency <= 1 or not retry_decreasing_concurrency:
 
                     # close loop: set empty dataframe (will break the loop)
@@ -298,6 +300,7 @@ def download_and_save(
                 1 for _ in executemany(engine, sql_insert_skip, rows_skip)
             )
 
+    downloads_completed = stats.downloads_completed
     logger.info(f'{downloads_completed:,} download attempt(s) performed')
     if segments_count - downloads_completed > 0:
         logger.info(
@@ -529,7 +532,7 @@ def prepare_segment_to_insert(
 class DownloadStats:
 
     def __init__(self, url_domains: Iterable[str]):
-        self._stats = {}
+        self._stats: dict[str, dict[int, int]] = {}
         self._status_msg = {_.value: url.responses[_] for _ in url.responses}
         self._status_msg[MiniSeedErrorCode.BAD_DATA.value] = 'Corrupted MiniSeed'
         self._status_msg[
@@ -541,9 +544,9 @@ class DownloadStats:
         for u in url_domains:
             self._stats[u] = {}
 
-    def increment(self, url_domain, status_code, count=1):
+    def increment(self, url_domain: str, status_code, count=1):
 
-        row = self._stats.get(url_domain)
+        row: dict[int, int] = self._stats.get(url_domain)
         if row is None:
             return
 
@@ -558,6 +561,10 @@ class DownloadStats:
                     real_code = self._unknown_code
 
         row[real_code] = row.get(real_code, 0) + count
+
+    @property
+    def downloads_completed(self):
+        return sum(sum(r.values()) for r in self._stats.values())
 
     @property
     def _status_codes(self) -> list:
@@ -575,11 +582,15 @@ class DownloadStats:
         )
         # cast to int here because reindex might have added rows or columns (with NaN):
         df = df.fillna(0).astype(int)
-        df["Total"] = df.sum(axis=1)
-        df.loc["Total"] = df.sum(axis=0)
-        df.loc["Total", "Total"] = df.iloc[:-1, :-1].values.sum()
+        if self.downloads_completed == 0:
+            df["Downloads"] = df.sum(axis=1)
+        else:
+            df["Total"] = df.sum(axis=1)
+            df.loc["Total"] = df.sum(axis=0)
+            df.loc["Total", "Total"] = df.iloc[:-1, :-1].values.sum()
+            df.columns.name = 'Download message:'
+
         df.index.name='URL:'
-        df.columns.name='Download message:'
         return df
 
     def to_dict(self) -> dict:

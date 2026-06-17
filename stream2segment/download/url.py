@@ -224,6 +224,7 @@ def build_and_read_urls(
     max_concurrency: int | None = 8,
     error_limit: int | None = 25,
     same_error_limit: int | None = 10,
+    skip_on_errors: set = frozenset({400, 401, 403, 405, 414, 501}),
     blocksize=-1,
     decode=None,
     timeout=None,
@@ -253,16 +254,27 @@ def build_and_read_urls(
         download is successful for `error_limit` times, the downloads from that domain
         are suspended and nothing is yielded anymore; users are responsible to handle
         the retry of failed downloads in case. Unsuccessful downloads are HTTP error
-        codes (400-599) timeout errors, network errors (for which a custom unique code
-        is assigned) but not 200-299 HTTP codes (so 'No data' - 204 - is a successful
-        download). None or values < 1 will disable this check, and downloads will be
-        performed regardless of their successful state
+        with codes in the range (400-599) and not included in `skip_on_errors`,
+        timeout errors, network errors (for which a custom unique code is assigned).
+        Other HTTP codes are not included, e.g. 'No data' - 204 - is a successful
+        download. When this parameter is None or < 1 the error code check will be
+        disabled, and downloads will be performed regardless of their successful state
     :param same_error_limit: int denoting the (same) error limit per-domain: if
         the same error type is returned for `consecutive_error_limit`, the downloads
         from that domain are suspended and nothing is yielded anymore; users are
-        responsible to handle the retry of failed downloads in case.
-        See parameter `error_limit` for a definition of unsuccessful download and when
-        this parameter is None or < 1
+        responsible to handle the retry of failed downloads in case. Two errors are of
+        the same type if they share the same code (int): see parameter `error_limit` for
+        more details. When this parameter is None or < 1 the error code check will be
+        disabled, and downloads will be performed regardless of their successful state
+    :param skip_on_errors: a set of ints denoting the http errors that should
+        be skipped from the error counts. These are errors that denote a
+        "not worth retrying" message. Defaults to:
+        400 Bad Request — request is malformed.
+        401 Unauthorized — credentials/access problem.
+        403 Forbidden — access denied.
+        405 Method Not Allowed — client is using the wrong HTTP method.
+        414 URI Too Long — request construction issue.
+        501 Not Implemented — server does not support that functionality
     :param blocksize: integer defaulting to 1024*1024 specifying, when connecting to one
         of the given urls, the maximum number of bytes to be read at each call of
         `urlopen.read`. If the size argument is negative or omitted, read all data until
@@ -393,7 +405,7 @@ def build_and_read_urls(
             if domain in aborted_download_domains:
                 continue
 
-            if 200 <= response.status_code < 300:
+            if 200 <= response.status_code < 300 or response.status_code in skip_on_errors:
                 yield response
                 resp_queue = last_n_errors.get(domain, [])
                 while len(resp_queue):
