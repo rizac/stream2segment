@@ -7,15 +7,8 @@ from sqlalchemy.exc import ProgrammingError, OperationalError, SQLAlchemyError
 from sqlalchemy.engine import Engine, create_engine as sa_create_engine
 from sqlalchemy import text, __version__ as __sa_version__, inspect
 
-
-sqlalchemy_version = float(".".join(__sa_version__.split('.')[0:2]))  # https://stackoverflow.com/a/75634238
-
-# IMPORTS to be called from the codebase to fix sqlalchemy 1.x vs 2.x changes:
-
-# if sqlalchemy_version >= 2:
-#     from sqlalchemy.orm import declarative_base  # noqa
-# else:
-#     from sqlalchemy.ext.declarative import declarative_base  # noqa
+# legacy sqlalchemy version, just in case (https://stackoverflow.com/a/75634238)
+sqlalchemy_version = float(".".join(__sa_version__.split('.')[0:2]))
 
 
 def create_engine(dbpath: str, check_db_existence=True, **kwargs) -> Engine:
@@ -69,11 +62,14 @@ class DbNotFound(Exception):
 
 sqlite_prefix = "sqlite:///"
 
-sqlite_in_memory_path = ":memory:"
 
-
-def is_sqlite (db_url: str):
-    return db_url.lower().startswith(sqlite_prefix)
+def is_sqlite (db_url: str, in_memory: bool | None = None) -> bool:
+    if db_url.lower().startswith(sqlite_prefix):
+        if in_memory is None:
+            return True
+        else:
+            return (db_url.removeprefix(sqlite_prefix) == ":memory:") == in_memory
+    return False
 
 
 postgres_prefix = "postgres://"
@@ -94,11 +90,10 @@ def database_exists(engine: Engine):
     # For details, see https://stackoverflow.com/a/3670000
 
     db_url = str(engine.url)
-    if is_sqlite(db_url):
-        # Apparently, 'select 1' below creates a db if it does not exist. Check first:
+    if is_sqlite(db_url, in_memory=False):
+        # Sqlite file. 'select 1' below might create a db if it does not exist. So:
         file_path = db_url.removeprefix(sqlite_prefix)
-        if file_path != sqlite_in_memory_path and not os.path.isfile(file_path):
-            return False
+        return os.path.isfile(file_path)
 
     try:
         with engine.connect() as conn:  # noqa
@@ -118,16 +113,17 @@ def resolve_db_path(db_url: str, base_dir_path=None) -> str:
     :param db_url: database URL.
     :param base_dir_path: base directory used to resolve relative SQLite paths.
     """
-    if is_sqlite(db_url):
-        file_path = db_url.removeprefix(sqlite_prefix)
-        if file_path == sqlite_in_memory_path or isabs(file_path):
-            return db_url
-        elif base_dir_path is None:
-            return sqlite_prefix + abspath(file_path)
-        else:
-            return sqlite_prefix + abspath(join(base_dir_path, file_path))
+    if not is_sqlite(db_url) or is_sqlite(db_url, in_memory=True):
+        return db_url
 
-    return db_url
+    # sqlite, not in-memory
+    file_path = db_url.removeprefix(sqlite_prefix)
+    if isabs(file_path):
+        return db_url
+    elif base_dir_path is None:
+        return sqlite_prefix + abspath(file_path)
+    else:
+        return sqlite_prefix + abspath(join(base_dir_path, file_path))
 
 
 def secure_dburl(db_url):

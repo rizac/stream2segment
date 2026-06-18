@@ -29,7 +29,6 @@ from stream2segment.download.inputvalidation import create_engine as original_cr
 from stream2segment.download.main import close_engine as original_close_engine
 
 
-_db_optname = '--dburl'
 _in_mem_sqlite = "sqlite:///:memory:"
 
 
@@ -49,7 +48,6 @@ def pytest_addoption(parser):
             "default SQLite database"
         )
     )
-
 
 
 def pytest_generate_tests(metafunc):

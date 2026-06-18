@@ -32,7 +32,7 @@ from stream2segment.download.stationsearch import (
 from stream2segment.download.utils import NoSegmentsToDownload, FailedDownload
 from stream2segment.download.inputvalidation import load_input as original_load_input
 from stream2segment.cli import cli
-from stream2segment.io.db import is_sqlite, sqlite_in_memory_path
+from stream2segment.io.db import is_sqlite
 from stream2segment.io.db.models import (
     Event, Channel, Segment, StationXML, QuakeML, SkippedSegment
 )
@@ -712,7 +712,7 @@ def test_download_iris_caltec_up_to_segments_tmp(
     asd = 9
 
 
-def test_download_to_file(db_urls, tmp_path, test_data_dir, log_capture):
+def test_download_real_db(db_urls, tmp_path, test_data_dir, log_capture):
 
     cfg_file = tmp_path / "download-iris-caltec-500.yaml"
     shutil.copyfile(test_data_dir / cfg_file.name, cfg_file)
@@ -720,11 +720,15 @@ def test_download_to_file(db_urls, tmp_path, test_data_dir, log_capture):
     curr_dir = os.getcwd()
     os.chdir(str(tmp_path))
 
+    # if we do not have a sqlite with disk file set, set it:
+    if not any(is_sqlite(u, in_memory=True) for u in db_urls):
+        db_urls = list(db_urls) + [f"sqlite:///./{cfg_file}.sqlite"]
+
+    # now we have sqlite (to file) + anything else passed as option in the cli
     try:
         for url in db_urls:
-            if is_sqlite(url) and sqlite_in_memory_path in url:
-                url = "sqlite:///./march-2019-caltec-iris.sqlite"
-
+            if is_sqlite(url, in_memory=True):  # skip in mem sqlite
+                continue
 
             result = CliRunner().invoke(
                 cli, [

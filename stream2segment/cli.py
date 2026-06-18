@@ -21,7 +21,7 @@ class clickutils:  # noqa
     """Container for all `click` related stuff to be used here"""
 
     @staticmethod
-    def valid_dburl_or_download_yamlpath(value, param_names=('dburl', 'db_url')):
+    def valid_dburl_or_download_yamlpath(value, param_names=('dburl', 'db')):
         """
         Return the database path from 'value': 'value' can be a file (in that
         case is assumed to be a YAML file with the `param_name` key in it, which
@@ -57,9 +57,9 @@ class clickutils:  # noqa
         type=lambda val: clickutils.valid_dburl_or_download_yamlpath(val),
         metavar='TEXT or PATH',
         help=("Database URL where data has been saved. It can also be the path of a "
-              "YAML file with the property 'dburl' (e.g., the config file used for "
-              "downloading). WARNING: if the URL contains passwords it is safer to use "
-              "a file instead of typing the URL on the terminal"),
+              "YAML file with the property 'db' or 'dburl' (e.g., the config file used "
+              "for downloading). WARNING: if the URL contains passwords it is safer to "
+              "use a file instead of typing the URL on the terminal"),
         required=True
     )
     # custom type for Options accepting an existing File:
