@@ -158,19 +158,25 @@ def estimate_buffer_size(
     item_size_mb can be:
     - float (MB per item)
     - 'stationxml' -> 1.0 MB
-    - 'quakeml'    -> 0.1 MB
+    - 'quakeml'    -> 0.2 MB
     - 'miniseed'   -> 1.0 MB (default safe estimate)
+    - 'sql-table-row' -> 0.002
     """
 
     if isinstance(item_size_mb, str):
         item_size_mb = {
-            "stationxml": 1.0,
-            "quakeml": 0.1,
-            "miniseed": 1.0,
+            "stationxml": 1.0,      # upper bound per file
+            "quakeml": 0.2,         # typical parsed event size
+            "miniseed": 1.0,        # 5–10 min, 1 channel trace
+            "sql-table-row": 0.006, # ~6 KB per SQLAlchemy→DataFrame row
         }[item_size_mb.lower()]
 
-    available_mem_mb = psutil.virtual_memory().available / (1024**2)
+    item_size_mb = max(float(item_size_mb), 0.001)  # 1 KB floor to avoid blowups
 
-    usable_mem_mb = available_mem_mb * memory_fraction
+    # 0.85 = safety discount on OS-reported "available"
+    available_mem_mb = psutil.virtual_memory().available * 0.85 / (1024**2)
 
-    return max(1, int(usable_mem_mb / float(item_size_mb)))
+    peak_factor = 3  # accounts for Python + DataFrame conversion spikes
+    usable_mem_mb = available_mem_mb * memory_fraction / peak_factor
+
+    return max(1, int(usable_mem_mb / item_size_mb))
