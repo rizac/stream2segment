@@ -3,33 +3,34 @@ Module handling the Writers, i.e. classes handling the IO operation from the
 processing function into a file
 """
 # 22 May 2018
-import os
-import csv
-from collections.abc import Iterable, Sequence
+from pathlib import Path
 
 import pandas as pd
 
 hdf_file_extensions = ['.hdf', '.h5', '.hdf5']
 
 
-def get_writer(outputfile=None, append=False, options: dict | None = None):
-    """Return the writer from the given outputfile (string denoting a file
+def get_writer(
+    output_file:str | Path | None, append=False, options: dict | None = None
+):
+    """
+    Return the writer from the given outputfile (string denoting a file
     path, or None) and append flag (boolean)
     """
-    if outputfile is None:
-        return BaseWriter(outputfile, append)
-    file_ext = os.path.splitext(os.path.basename(outputfile))[1].lower()
+    if output_file is None:
+        return BaseWriter(output_file, append)
+    file_ext = Path(output_file).suffix.lower()
     if  file_ext in hdf_file_extensions:
-        return HDFWriter(outputfile, append, options)
-    return CsvWriter(outputfile, append, options)
+        return HDFWriter(output_file, append, options)
+    return CsvWriter(output_file, append, options)
 
 
 class BaseWriter:
     """Base Writer, No-op"""
 
-    def __init__(self, output_file=None, append=False, options=None):
+    def __init__(self, output_file: str | Path | None=None, append=False, options=None):
         self.append = append
-        self.output_file = os.path.abspath(output_file) if output_file else None
+        self.output_file = Path(output_file).resolve() if output_file else None
         self.file_handle = None  # must have a close method
         self.options = {} if options is None else options
 
@@ -62,16 +63,15 @@ class BaseWriter:
             return True
         try:
             self.file_handle.flush()
-            return True
         except: # noqa
             pass
         try:
             self.file_handle.close()
-            return True
         except: # noqa
             return False
         finally:
             self.file_handle = None
+        return True
 
     def __str__(self):
         return f"{self.__class__.__name__}({self.output_file or '<no file>'})"
@@ -102,8 +102,9 @@ class CsvWriter(BaseWriter):
 
     def __enter__(self):
         self.file_handle = open(
-            self.output_file, 'a' if self.append else 'w',
-            buffering=1, # buffering=1: flush each line
+            str(self.output_file),
+            'a' if self.append else 'w',
+            buffering=10, # buffering=1: flush 10 lines
             encoding='utf-8',
             errors='replace',
             newline=''
@@ -151,7 +152,7 @@ class HDFWriter(BaseWriter):
 
     def __enter__(self):
         self.file_handle = pd.HDFStore(
-            self.output_file, mode='a' if self.append else 'w'
+            str(self.output_file), mode='a' if self.append else 'w'
         )
         return self
 

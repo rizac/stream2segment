@@ -31,7 +31,7 @@ from stream2segment.download.inputvalidation import (
     get_engine as original_get_engine
 )
 from stream2segment.download.main import (
-    create_log_handlers as original_create_log_handlers
+    start_logging as original_start_logging
 )
 from stream2segment.download.utils import NoSegmentsToDownload, FailedDownload
 from stream2segment.download.inputvalidation import load_input as original_load_input
@@ -73,11 +73,11 @@ def log_capture(tmp_path: Path):
 
     log_file = tmp_path / 'test.log'
     
-    def wrapper(log_file_path, verbose):
-        return original_create_log_handlers(log_file, verbose)
+    def wrapper(logger, log_file_path, verbose):
+        return original_start_logging(logger, log_file, verbose)
 
     with patch(
-        "stream2segment.download.main.create_log_handlers", side_effect=wrapper
+        "stream2segment.download.main.start_logging", side_effect=wrapper
     ):
         yield log_file
 

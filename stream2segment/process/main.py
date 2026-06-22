@@ -4,6 +4,7 @@ Processing functions
 # Feb 2, 2017
 from __future__ import annotations
 import os
+from pathlib import Path
 import time
 import sys
 import logging
@@ -16,8 +17,8 @@ from io import BytesIO
 from multiprocessing import Pool, cpu_count
 import signal
 import inspect
-from os.path import abspath
-from pathlib import Path
+
+from typing import Any
 
 from sqlalchemy import select, func, tuple_, Engine
 import yaml
@@ -30,10 +31,9 @@ from stream2segment.io.db.models import (
     StationXML, Channel, Segment, Event, QuakeML, MiniSeed
 )
 
-from stream2segment.process.sqlevalexpr import exprquery
+from stream2segment.process.segments_selection import build_where_clause
 from stream2segment.io.utils import (
-    get_progressbar, ascii_decorate, start_logging, BadParam, create_log_handlers,
-    estimate_buffer_size
+    get_progressbar, ascii_decorate, start_logging, BadParam, estimate_buffer_size
 )
 from stream2segment.process.writers import get_writer
 
@@ -62,12 +62,12 @@ def process(
     pyfunc: Callable,
     dburl: str,
     segments_selection: dict | None = None,
-    group_by_orientation: bool = False,
+    group_components: bool = False,
     config: str | Path | dict = None,
     outfile: str | Path = None,
     append=False,
     writer_options=None,
-    logfile: str = '',
+    logfile: str | Path = '',
     verbose=False,
     multi_process=False,
     chunksize: int | None = None,
@@ -157,7 +157,7 @@ def process(
     :return: the number of successfully processed segments. If a file is provided, it
         is the number of written rows
     """
-    cfg_file = config if isinstance(config, str) else None
+    cfg_file = Path(config).resolve() if isinstance(config, str) else None
     pyfile = getattr(pyfunc, "__name__", str(pyfunc))
 
     if logfile is True:
@@ -168,9 +168,13 @@ def process(
             _now_iso = _now.isoformat('_').replace(':', '')
             logfile = f'{outfile}.{_now_iso}.log'
 
+    if logfile:
+        logfile = Path(logfile).resolve()
+
     if outfile is not None:
-        if not isinstance(outfile, str) or not os.path.isdir(os.path.dirname(outfile)):
+        if not isinstance(outfile, (str, Path)) or not Path(outfile).parent.is_dir():
             raise BadParam('invalid output file path (check parent dir)')
+        outfile = Path(outfile).resolve()
 
     if config is None:
         config = {}
@@ -178,27 +182,26 @@ def process(
     writer = get_writer(outfile, append, writer_options)
 
     num_ok = 0
-    with writer, start_logging(logger, create_log_handlers(logfile, verbose)):
+    with writer:
 
         logger.info(
             ascii_decorate("\n".join([
-                    f"Input database:      {secure_dburl(dburl)}",
-                    f"Output file:         {abspath(outfile) if outfile else 'n/a'}",
-                    f"Processing function: {pyfile or 'n/a'}",
-                    f"Log file:            {abspath(logfile) if logfile else 'n/a'}",
-                    f"Config. file:        {abspath(cfg_file) if cfg_file else 'n/a'}"
-                ])
-            )
+                f"Input database:      {secure_dburl(dburl)}",
+                f"Output file:         {str(outfile) if outfile else 'n/a'}",
+                f"Processing function: {pyfile or 'n/a'}",
+                f"Log file:            {str(logfile) if logfile else 'n/a'}",
+                f"Config. file:        {str(cfg_file) if cfg_file else 'n/a'}"
+            ]))
         )
 
         for output in imap(
             pyfunc,
             dburl,
             segments_selection=segments_selection,
-            group_by_orientation=group_by_orientation,
+            group_components=group_components,
             config=config,
-            logfile='',
-            verbose=False,
+            logfile=logfile,
+            verbose=verbose,
             multi_process=multi_process,
             chunksize=chunksize,
             skip_exceptions=skip_exceptions
@@ -215,7 +218,7 @@ def imap(
     pyfunc: Callable,
     dburl: str,
     segments_selection: dict | None=None,
-    group_by_orientation: bool = False,
+    group_components: bool = False,
     config: dict | None=None,
     logfile: str='',
     verbose=False,
@@ -293,9 +296,6 @@ def imap(
     elif multi_process not in (0, False):
         num_processes = max(0, int(multi_process))
 
-    if chunksize is None:
-        chunksize = estimate_buffer_size(50, 0.1)
-
     if skip_exceptions is None:
         skip_exceptions = [SkipSegment]
     skip_exceptions = tuple(skip_exceptions)  # for safety, in case list
@@ -308,7 +308,7 @@ def imap(
     # (`warnings_filter=None`). `create_processing_env` is also called in Python
     # subprocesses, if present. For info see :func:`process_segments_mp`
     with (
-        start_logging(logger, create_log_handlers(logfile, verbose)),
+        start_logging(logger, logfile, verbose),
         create_processing_env(
             total,
             redirect_stderr=sys.stderr.isatty(),
@@ -317,32 +317,37 @@ def imap(
     ):
         try:
             if verbose and total:
+                logger.info(f"{total:,} segment(s) to process found")
                 # Show the progressbar now, because the 1st chunk might be ready in min,
                 # and an empty screen might give the impression of a program hang:
                 time.sleep(0.5)
                 pbar.render_progress()
 
-            process_func_args = get_segments(
-                engine, segments_selection, group_by_orientation, False, chunksize
-            )
-            process_segments_args =  (
-                (args, config, pyfunc, skip_exceptions) for args in process_func_args
+            exec_process_func_args = (
+                (pyfunc, args, config, skip_exceptions) for args in get_segments(
+                    engine,
+                    segments_selection,
+                    group_components,
+                    False,
+                    chunksize
+                )
             )
 
             stime = time.time()
 
             if not num_processes:
-                for process_func_args_ in process_segments_args:
-                    for output, is_ok, ids in process_segments(*process_func_args_):
-                        pbar.update(len(ids))
-                        if is_ok:
-                            oks += len(ids)
-                            yield output
-                        else:
-                            errors += len(ids)
-                            logger.warning(
-                                f"segment id(s)={' ,'.join(ids)}): {str(output)}"
-                            )
+                for (output, is_ok, ids) in map(
+                    execute_process_function, exec_process_func_args
+                ):
+                    pbar.update(len(ids))
+                    if is_ok:
+                        oks += len(ids)
+                        yield output
+                    else:
+                        errors += len(ids)
+                        logger.warning(
+                            f"segment id(s)={' ,'.join(str(i) for i in ids)}): {output}"
+                        )
             else:
 
                 with Pool(
@@ -353,7 +358,7 @@ def imap(
                     try:
 
                         for (output, is_ok, ids) in pool.imap_unordered(
-                            process_segments, process_segments_args
+                            execute_process_function, exec_process_func_args
                         ):
                             pbar.update(len(ids))
                             if is_ok:
@@ -362,14 +367,17 @@ def imap(
                             else:
                                 errors += len(ids)
                                 logger.warning(
-                                    f"segment id(s)={' ,'.join(ids)}): {str(output)}"
+                                    f"segment id(s)={' ,'.join(str(i) for i in ids)}): "
+                                    f"{output}"
                                 )
 
-
+                        pool.close()  # iterable fully exhausted, normal completion
                     except Exception:
                         # explicit terminate because we are yielding (generator)
                         pool.terminate()
                         raise
+                    finally:
+                        pool.join()
 
             logger.info(
                 f"Completed in {timedelta(seconds=round((time.time()) - stime))}"
@@ -392,20 +400,26 @@ def imap(
 
 
 def _valid_pyfunc(pyfunc):
-    """Checks if the argument is a valid processing Python function by inspecting its
-    signature"""
+    """
+    Check if the argument is a valid processing Python function by inspecting its
+    signature
+    """
     params = inspect.signature(pyfunc).parameters  # dict[str, inspect.Parameter]
     # less than two arguments? then function invalid:
-    if len(params) < 2:
-        raise BadParam('Python function should have 2 arguments '
-                         '`(segment, config)`, %d found' % len(params))
+    if len(params) < 3:
+        raise BadParam(
+            f'Python function should have at least 3 arguments '
+            f'`(segment, station, event)`, {len(params)} found'
+        )
     # more than 2 args? then we need to have them with a default set:
     for pname, param in list(params.items())[2:]:
         if param.kind not in (param.VAR_POSITIONAL, param.VAR_KEYWORD):
             # it is not *args or **kwargs, does it have a default?
             if not param.default == param.empty:
-                raise BadParam('Python function argument "%s" should have a '
-                                 'default, or be removed' % pname)
+                raise BadParam(
+                    f'Python function argument "{pname}" should have a default, '
+                    f'or be removed'
+                )
 
 
 def _mp_initializer():
@@ -435,7 +449,7 @@ def build_select(
             Segment.signal_window_s,
             MiniSeed.data,
             Channel.id.label('channel_id'),
-            # data_webservice_id,
+            Channel.data_webservice_id,
             Channel.stationxml_id ,
             # Channel.network_code,
             # Channel.station_code,
@@ -499,10 +513,10 @@ def build_select(
     #     )
 
     if where_conditions:
-        stmt = exprquery(stmt, where_conditions)  # FIXME
+        stmt = stmt.where(build_where_clause(where_conditions))
 
-    if not segments_only:
-        stmt = stmt.where(Channel.stationxml_id.isnot(None))
+    # if not segments_only:
+    #     stmt = stmt.where(Channel.stationxml_id.isnot(None))
 
     return stmt
 
@@ -510,9 +524,9 @@ def build_select(
 def get_segments(
     db: str | Engine,
     where_condition,
-    group_by_orientation: bool,
-    segments_only: bool,
-    chunksize: int
+    group_components: bool = False,
+    segments_only: bool = False,
+    chunksize: int | None = None
 ) -> Iterable[tuple[Stream, Inventory | None, ObspyEvent | None]]:
 
     if isinstance(db, str):
@@ -522,7 +536,7 @@ def get_segments(
 
     orderby_columns = (Channel.stationxml_id, Segment.event_id, Segment.id)
 
-    if group_by_orientation:
+    if group_components:
         orderby_columns = (
             Channel.network_code,
             Channel.station_code,
@@ -537,6 +551,9 @@ def get_segments(
     last_key = None
     stmt_base = build_select(where_condition, segments_only).order_by(*orderby_columns)
 
+    if chunksize is None:
+        chunksize = estimate_buffer_size(50)
+
     while True:
         stmt = stmt_base
         if last_key is not None:
@@ -550,7 +567,7 @@ def get_segments(
         if not rows:
             break
 
-        if not group_by_orientation:
+        if not group_components:
             last_key = (rows[-1].stationxml_id, rows[-1].event_id, rows[-1].id)
             for r in rows:
                 yield db_to_obspy(engine, segments_only, r)
@@ -661,12 +678,12 @@ def db_to_obspy(
                             QuakeML.id == quakeml_id)
                         ).scalar_one_or_none()
                     if data is not None:
-                        event = read_events(BytesIO(data), format='QUEKEML')
+                        event = read_events(BytesIO(data), format='QUAKEML')
                     else:
                         event = None
                     _event_cache[quakeml_id] = event
                 except Exception as e:
-                    logger.warning(e)  # FIXME automatizeelse:
+                    logger.warning(e)  # FIXME automatize else:
 
     stream = Stream()
     for db_row in db_rows:
@@ -696,6 +713,7 @@ def db_to_obspy(
             depth=db_row.depth,
             dip=db_row.dip,
             azimuth=db_row.azimuth,
+            data_webservice_id=db_row.data_webservice_id,
             elevation=db_row.elevation,
             arrival_time=arrival_time,
             channel_id=db_row.channel_id,
@@ -726,23 +744,22 @@ def get_default_segments_selection():
     }
 
 
-def process_segments(
-    items: Iterable[tuple[Stream, Inventory | None, Event | None, dict]],
-    config, pyfunc,
-    safe_exceptions_tuple
-):
+def execute_process_function(args: tuple[
+    Callable[[Stream, Inventory | None, Event | None, dict], Any],
+    tuple[Stream, Inventory | None, Event | None],
+    dict,
+    tuple[Exception]
+]) -> tuple[Any, bool, set[int]]:
 
-    for (stream, inv, evt) in items:
-        ids = set(t.stats.segment_metadata.id for t in stream)
-        try:
-            yield pyfunc(stream, inv, evt, config), True, ids
-        except safe_exceptions_tuple as exc:
-            yield exc, False, ids
-        except Exception:
-            raise
-
-        # output, is_ok = process_segment(segment, config, pyfunc, safe_exceptions_tuple)
-        # yield output, is_ok, segment
+    pyfunc: Callable[[Stream, Inventory | None, Event | None, dict], Any] = args[0]
+    pyfunc_args: tuple[Stream, Inventory | None, Event | None] = args[1]
+    config: dict = args[2]
+    safe_exceptions_tuple: tuple[Exception] = args[3]
+    ids = set(t.stats.segment_metadata.id for t in pyfunc_args[0])
+    try:
+        return pyfunc(*pyfunc_args, config), True, ids
+    except safe_exceptions_tuple as exc:
+        return exc, False, ids
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -759,6 +776,7 @@ class SegmentMetadata:
     location_code: str
     channel_code: str
     arrival_time: datetime
+    data_webservice_id: int
     channel_id: int
     event_id: int
     event_latitude: float
@@ -767,6 +785,8 @@ class SegmentMetadata:
     event_time: datetime
     event_magnitude: float
     event_magnitude_type: str
+    # noise_window_s: float
+    # signal_window_s: float
 
     @property
     def event_distance_deg(self) -> float:
@@ -941,430 +961,3 @@ def redirect(src=None, dst=os.devnull):
 #         yield array[start:end] if array is not None else (start, end)
 #
 #
-#     stmt = build_select(segments_selection)
-#
-#     total = 0
-#     engine = create_engine(dburl,check_db_existence=True)
-#     if verbose:
-#         stmt_count = select(func.count()).select_from(stmt.subquery())
-#         with engine.connect() as conn:
-#             total = conn.execute(stmt_count).scalar_one()
-#
-#
-#     with start_logging(logger, create_log_handlers(logfile, verbose)):
-#         try:
-#             stime = time.time()
-#
-#             if not multi_process:
-#                 stream_grouped(
-#                     engine, stmt, chunksize)
-#
-#             logger.info(
-#                 f"Completed in {timedelta(seconds=round((time.time()) - stime))}"
-#             )
-#         except KeyboardInterrupt:
-#             logger.critical("Aborted by user")  # see comment above
-#             raise
-#         except:  # noqa
-#             logger.critical("Process aborted", exc_info=True)  # see comment above
-#             raise
-#
-#     # seg_ids = fetch_segments_ids(dburl, segments_selection)
-#
-#     with start_processing(logfile, verbose):
-#         for result, seg_id in run_and_yield(
-#             dburl,
-#             seg_ids,
-#             pyfunc,
-#             config,
-#             total,
-#             multi_process,
-#             chunksize,
-#             skip_exceptions
-#         ):
-#             yield result
-#
-#
-# @contextmanager
-# def start_processing(logfile: str, verbose: bool):
-#     """Contextmanager handling log stuff and closing session at the end"""
-#     with start_logging(logger, create_log_handlers(logfile, verbose)):
-#         try:
-#             stime = time.time()
-#             yield
-#             logger.info(
-#                 f"Completed in {timedelta(seconds=round((time.time()) - stime))}"
-#             )
-#         except KeyboardInterrupt:
-#             logger.critical("Aborted by user")  # see comment above
-#             raise
-#         except:  # noqa
-#             logger.critical("Process aborted", exc_info=True)  # see comment above
-#             raise
-#
-# # pyfunc: Callable,
-# #     dburl: str,
-# #     segments_selection: dict | None=None,
-# #     config: dict | None=None,
-# #     logfile: str='',
-# #     verbose=False,
-# #     multi_process=False,
-# #     chunksize=None,
-# #     skip_exceptions=None
-#
-# def imap(
-#     pyfunc: Callable,
-#     dburl: str,
-#     segments_selection: dict | None = None,
-#     config: dict | None = None,
-#     group_by_orientation: bool = False,
-#     logfile: str = '',
-#     verbose=False,
-#     multi_process=False,
-#     chunksize=None,
-#     skip_exceptions=None
-# ):
-#     """Run `pyfunc(segment, config)` on each given segment and yields its output
-#     as the tuple
-#     ```(output, segment_id)```
-#
-#     :param dburl: string database URL
-#     :param pyfunc: a Python function accepting as arguments a given segment object and
-#         a `dict` of optional user-defined parameters. The function will be called with
-#         any given segment and the provided `config` argument. The argument can also be
-#         a path to a Python module, with optional double semicolon separating the name
-#         of the function to search therein. Use this latter option when multi_process is
-#         on to avoid pickable problems, e.g. if the function has to be loaded from custom
-#         file.
-#     :param config: dict of configuration parameters, usually the result of an associated
-#         YAML configuration file, to be passed as second argument of `pyfunc`
-#     :param show_progress: (boolean, default False) whether to show progress bar
-#         and other info (e.g. remaining time, successfully processed segments) on the
-#         standard output (usually, the terminal window)
-#     :param multi_process: (bool, or numeric) Use multiprocessing.Pool. A numeric value
-#         will be equal to true, using a Pool with the specified number of processes (only
-#         for advanced users: true is fine and sufficient in most cases)
-#     :param skip_exceptions: tuple of Python exceptions that will not interrupt the whole
-#         execution but will be logged to file, with the relative segment id. When missing
-#         or None, it defaults to :class:`stream2segmetn.process.SkipExeption`
-#     """
-#
-#
-# def query4process(session, conditions=None, ids_only=True):
-#     """Return a query yielding the segments ids (and their stations ids) for the
-#     processing. The returned tuples are sorted by station id, event id, channel location
-#     and channel's channel
-#
-#     :param session: the sql-alchemy session
-#     :param conditions: a dict of segment attribute names mapped to a select expression,
-#         each identifying a filter (sql WHERE clause). See :module:`sqlevalexpr.py`. It
-#         can be empty (no filter)
-#
-#     :return: a query yielding the tuples: ```(Segment.id, Segment.station.id)```
-#     """
-#
-#     if ids_only:
-#         query = session.query(Segment.id)
-#     else:
-#         query = session.query(Segment)
-#
-#     # Querying segments for processing should be sorted by station id first (so that a
-#     # segment station inventory is likely cached from a previously processed segment)
-#     # and segment id then (to return consistent ordering across queries):
-#     query = query.join(Segment.station).order_by(StationXML.id, Segment.id)
-#
-#     # Performance hints based on remote Postgres tests: the number of joined tables and
-#     # number of arguments to `order_by` might affect performances, but the latter depends
-#     # heavily on what is being queried, and its size. So, jsust as a rule of thumb, few
-#     # arguments, and preferably primary keys (or any indexed column, I suspect) might be
-#     # better
-#
-#     if conditions:
-#         query = exprquery(query, conditions=conditions, orderby=None)
-#
-#     return query
-#
-#
-# def process_segment(segment, config, pyfunc, safe_exceptions_tuple):
-#     """Process a single segment and return the output of `pyfunc(segment, config)`
-#
-#     :return: the tuple (output, is_ok), where output is either an iterable or a
-#         `ValueError`. in the former case, `is_ok` is True, otherwise False (the variable
-#         is returned as a faster alias of `isinstance(output, Exception)`)
-#
-#     Note that any exception other than `ValueError` will raise and thus interrupt the
-#     program
-#     """
-#     try:
-#         return pyfunc(segment, config), True
-#     except safe_exceptions_tuple as exc:
-#         return exc, False
-#     except Exception:
-#         raise
-#
-#
-# def get_default_chunksize(segments_count, show_progress):
-#     """Get the segments chunksize according to the segments to
-#     process (`segments_count`) and whether the progress bar is being shown
-#
-#     :return: the tuple: `multi_process, num_processes, chunksize`
-#         (int, bool, int)
-#     """
-#     default_chuknksize, min_pbar_iterations = _get_chunksize_defaults()
-#     if not show_progress or segments_count >= 2 * default_chuknksize:
-#         chunksize = default_chuknksize
-#     else:
-#         chunksize = max(1, int(np.true_divide(segments_count,
-#                                               min_pbar_iterations).item()))
-#     return chunksize
-#
-#
-# def _get_chunksize_defaults():
-#     """Return a 2 element tuple with the default segment chunksize (600) and the minimum
-#     progressbar iterations (10). This function is implemented mainly for mocking in tests
-#     """
-#     return 600, 10
-
-
-# def process_mp(dburl, pyfunc, config, seg_ids_chunks, pbar, num_processes,
-#                safe_exceptions_tuple):
-#     """Execute `pyfunc` using the multiprocessing Python module
-#
-#     :param seg_ids_chunks: iterable yielding numpy arrays of segment ids
-#     """
-#     pool = Pool(processes=num_processes, initializer=_mp_initializer)
-#     try:
-#         for results in \
-#                 pool.imap_unordered(process_segments_mp,
-#                                     ((seg_ids_chunk, dburl, config, pyfunc,
-#                                       safe_exceptions_tuple)
-#                                      for seg_ids_chunk in seg_ids_chunks)):
-#             for output, is_ok, segment_id in results:
-#                 yield output, is_ok, segment_id
-#             pbar.update(len(results))
-#     except:  # noqa
-#         pool.terminate()
-#         pool.join()
-#         raise
-#     else:
-#         pool.close()
-#         pool.join()
-
-
-# def process_simple(dburl, pyfunc, config, seg_ids_chunks, pbar, safe_exceptions_tuple):
-#     """Execute `pyfunc` in a single system process
-#
-#     :param seg_ids_chunks: iterable yielding numpy arrays of segment ids
-#     """
-#     segment = None  # currently processed segment id (will be used later)
-#     session = get_session(dburl, scoped=False, check_db_existence=False)
-#     try:
-#         for seg_ids_chunk in seg_ids_chunks:
-#             for output, is_ok, segment in process_segments(
-#                 session, seg_ids_chunk, config, pyfunc, safe_exceptions_tuple
-#             ):
-#                 yield output, is_ok, segment.id
-#
-#             _clear_session(session, segment)
-#             pbar.update(len(seg_ids_chunk))
-#     finally:
-#         close_session(session)
-
-
-# def _clear_session(session, segment=None):
-#     """Clear the session and re-assigns `segment` to it
-#
-#     :param segment: A Segment object denoting the last processed segment, or None
-#     """
-#     # clear session identity map (sort of cache), freeing memory:
-#     session.expunge_all()
-#
-#     if segment is None:
-#         return
-#
-#     # re-assign the segment to the session. This will add also to all the segment's
-#     # already loaded related objects (e.g., Station, with relative inventory) which will
-#     # thus not be garbage collected (i.e., they will be kept in memory). The advantage is
-#     # to (potentially) avoid database queries in the next loop by reusing already loaded
-#     # data (see also the query order given in `query4process'). For info see:
-#     # https://docs.sqlalchemy.org/en/13/orm/query.html#sqlalchemy.orm.query.Query.get
-#     # http://docs.sqlalchemy.org/en/latest/orm/session_state_management.html#merging
-#     session.add(segment)
-
-
-# def process_segments_mp(args):
-#     """Function to be used INSIDE A CHILD python-process to process a chunk of segments
-#     Takes care of releasing db session and other stuff.
-#
-#     :param args: the tuple (seg_ids_chunk, dburl, config, func_or_pyfile, funcname)
-#         where seg_ids_chunk is a numpy array of segment ids, dburl is the database
-#         url (string), config is the config dict, pyfile is the path to the processing
-#         module (string) and funcname is the processing function name to be called
-#
-#     :return: a list of (output, is_ok, segment_id) tuples, where output is the
-#         output of the processing function name (either iterable or Exception), is_ok
-#         (boolean) tells if `output` is NOT an Exception, and segment_id is the id of the
-#         segment processed
-#     """
-#     seg_ids_chunk, dburl, config, pyfunc, safe_exceptions_tuple = args
-#     session = get_session(dburl)
-#     ret = []
-#
-#     # Do not capture external C libraries errors (we do it already in the parent process,
-#     # and we do not want to mess up too much with leaking file descriptors, a complex
-#     # topic) but use warnings_filter='ignore', to avoid redundant messages
-#     with create_processing_env(0, redirect_stderr=False, warnings_filter='ignore'):
-#         try:
-#             for output, is_ok, segment in \
-#                         process_segments(session, seg_ids_chunk, config, pyfunc,
-#                                          safe_exceptions_tuple):
-#                 ret.append((output, is_ok, segment.id))
-#             return ret
-#         finally:
-#             close_session(session)
-
-
-# def process_segments(
-#     items: Iterable[Stream, Inventory | None, Event | None, SegmentMeta],
-#     config, pyfunc,
-#     safe_exceptions_tuple
-# ):
-#     """Process a chunk of segments and yield the resulted output. Yields
-#     tuples of the form `(output, is_ok, segment_id)`, where output is the output of the
-#     `pyfunc`, is_ok (boolean) tells if `pyfunc` run successfully, segment_id is the id
-#     of the segment processed.
-#
-#     Note: `is_ok` indicates if `pyfunc` run successfully, and it is a shorthand for:
-#     `is_ok == not isinstance(output, ValueError)`
-#     By conventions only `ValueError`s are caught and passed as output, any other
-#     exception raised by `pyfunc` will raise and thus interrupt the whole program
-#
-#     :param session: the db session (SQLAlchemy session)
-#     :param seg_ids_chunk: a numpy array of segment ids
-#     :param config: the config dict
-#     :param pyfunc: a Python function to be invoked on each segment
-#     :param safe_exceptions_tuple: a tuple of Exceptions to be caught and returned
-#         instead of raising
-#     """
-#     # We reuse `query4process` for simplicity. The query will sort segments returning
-#     # them in the same order as the given indices (this is not a strict requirement but
-#     # removing the sort does not improve significantly performances)
-#     segments = query4process(session, conditions=None, ids_only=False).\
-#         filter(Segment.id.in_(seg_ids_chunk.tolist()))
-#
-#     # Note that we could have loaded only the segment ids, deferring the load of all
-#     # other Segment attribute upon access (see SQLAlchemy `load_only`). Performance tests
-#     # accessing attributes on several segments reported:
-#     # defer load: 0.043 secs/segment, Peak memory (Kb): 111792 (0.650716 %)
-#     # full load:  0.024 secs/segment, Peak memory (Kb): 409194 (2.381825 %).
-#     # So we go for the full load
-#
-#
-# def fetch_segments_ids(dburl, segments_selection, writer=None):
-#     """Return the numpy array of segments ids to process
-#
-#     :param dburl: database URL (str)
-#     :param segments_selection: dict[str, str] denoting a segment selection, or an
-#         iterable of integers denoting the segment ids. None will get a default
-#         segment selection (see `get_default_segment_selection`)
-#     :param writer: A Writer or None. See :module:`stream2segment.process.writers`.
-#         If not None, the writer is used to fetch the already processed segments
-#         and return only segments to process
-#     :return: the numpy array of integers denoting the ids of the segments to process
-#         according to `config` and `writer` settings
-#     """
-#     if segments_selection is None:
-#         segments_selection = get_default_segments_selection()
-#
-#     try:
-#         session = get_session(dburl)
-#     except Exception as exc:
-#         raise BadParam(f"invalid dburl: {exc}") from exc
-#
-#     skip_already_processed = False
-#     if writer is not None:
-#         if writer.append:
-#             if not writer.outputfileexists:
-#                 logger.info('Ignoring `append` functionality: output file does not '
-#                             'exist or not provided')
-#             else:
-#                 logger.info('Appending results to existing file')
-#                 skip_already_processed = True
-#         elif writer.outputfileexists:
-#             logger.info('Overwriting existing output file')
-#
-#     if not isinstance(segments_selection, dict):
-#         try:
-#             seg_ids = np.asarray(segments_selection, dtype=int)
-#         except Exception as exc:
-#             raise ValueError('Unable to convert the segments selection to an array of '
-#                              'integer IDs: %s' % str(exc))
-#     else:
-#         # The query is always loaded in memory (https://stackoverflow.com/a/11769768), so
-#         # we load ids only into a numpy array for efficiency. Querying with offset and
-#         # limit is not necessarily faster (if offset is close to "the end", the db might
-#         # build anyway the full list of segments, as seen in the GUI), other solutions as
-#         # query and yielding are not a full solution and make the code too complex
-#         # (http://docs.sqlalchemy.org/en/latest/orm/query.html#sqlalchemy.orm.query.Query.yield_per).
-#         # `query4process` below is thus called with "ids_only". Note that querying
-#         # attributes instead of the full instances does not cache the results. I.e.,
-#         # after the line below we do not need to issue `session.expunge_all()`
-#         qry = query4process(session, segments_selection, ids_only=True)
-#         logger.info("Fetching segments to process (please wait)")
-#         seg_ids = np.array(qry.all(), dtype=int).flatten()
-#         # we flatten the array because the qry.all() returns 1element tuples,
-#         # so we want to convert e.g. [[1], [5], [6]] to [1, 5, 6]
-#
-#     if skip_already_processed:
-#         # it might be more elegant to issue a query with a NOT IS IN ...
-#         # and the already processed ids. But for large files, the query might be huge
-#         # not necessarily faster (we need to build a string from a huge numpy array)
-#         # but more importantly the database might simply not support such a long query
-#         # string, and raise Exceptions.
-#         # It is therefore way more efficient to do it in numpy. The drawback is that we
-#         # will query more segments than needed and we might waste time in the query above
-#         # but this is outweighed by the efficiency here
-#         logger.info("Fetching already processed segment(s) (please wait)")
-#         skip_ids = writer.already_processed_segments()
-#         logger.info("Skipping %d already processed segment(s)", len(skip_ids))
-#         seg_ids = np.copy(seg_ids[np.isin(seg_ids, skip_ids, assume_unique=True,
-#                                           invert=True)])
-#
-#     logger.info("%d segment(s) found to process", len(seg_ids))
-#     logger.info('')
-#     close_session(session)
-#     return seg_ids
-#
-#
-
-    # with start_processing(logfile, verbose):
-    #     abp = os.path.abspath
-    #     info = [
-    #         "Input database:      %s" % secure_dburl(dburl),
-    #         "Processing function: %s" % pyfile or 'n/a',
-    #         "Log file:            %s" % (abp(logfile) if logfile else 'n/a'),
-    #         "Output file:         %s" % (abp(outfile) if outfile else 'n/a')
-    #     ]
-    #     if cfg_file:
-    #         info.append("Config. file:        %s" % abp(cfg_file))
-    #     logger.info(ascii_decorate("\n".join(info)))
-    #
-    #     return _run_and_write(pyfunc, dburl, segments_selection, config, outfile, append,
-    #                           writer_options, verbose, multi_process, chunksize, None)
-
-
-
-# def _run_and_write(
-#     pyfunc,
-#     dburl,
-#     segments_selection=None,
-#     config=None,
-#     outfile=None,
-#     append=False,
-#     writer_options=None,
-#     show_progress=False,
-#     multi_process=False,
-#     chunksize=None,
-#     skip_exceptions=None
-# ):
-

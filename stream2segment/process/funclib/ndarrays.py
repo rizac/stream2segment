@@ -520,10 +520,12 @@ class NigamJennings(ResponseSpectrum):
         omega2 = omega ** 2.
         omega3 = omega ** 3.
         omega_d = omega * sqrt(1.0 - (self.damping ** 2.))
-        const = {'f1': (2.0 * self.damping) / (omega3 * self.d_t),
-                 'f2': 1.0 / omega2,
-                 'f3': self.damping * omega,
-                 'f4': 1.0 / omega_d}
+        const = {
+            'f1': (2.0 * self.damping) / (omega3 * self.d_t),
+            'f2': 1.0 / omega2,
+            'f3': self.damping * omega,
+            'f4': 1.0 / omega_d
+        }
         const['f5'] = const['f3'] * const['f4']
         const['f6'] = 2.0 * const['f3']
         const['e'] = np.exp(-const['f3'] * self.d_t)
@@ -539,7 +541,8 @@ class NigamJennings(ResponseSpectrum):
             'Period': self.periods,
             'Acceleration': np.max(np.fabs(x_a), axis=0),
             'Velocity': np.max(np.fabs(x_v), axis=0),
-            'Displacement': np.max(np.fabs(x_d), axis=0)}
+            'Displacement': np.max(np.fabs(x_d), axis=0)
+        }
         self.response_spectrum['Pseudo-Velocity'] = omega * \
             self.response_spectrum['Displacement']
         self.response_spectrum['Pseudo-Acceleration'] = (omega ** 2.) * \
@@ -551,7 +554,8 @@ class NigamJennings(ResponseSpectrum):
             'Displacement': self.displacement,
             'PGA': np.max(np.fabs(self.acceleration)),
             'PGV': np.max(np.fabs(self.velocity)),
-            'PGD': np.max(np.fabs(self.displacement))}
+            'PGD': np.max(np.fabs(self.displacement))
+        }
 
         return self.response_spectrum, time_series, x_a, x_v, x_d
 

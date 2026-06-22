@@ -11,7 +11,7 @@ from datetime import datetime
 
 from stream2segment.io.db import secure_dburl, sqlalchemy_version
 from stream2segment.io.db.models import (get_classlabels)
-from stream2segment.process.sqlevalexpr import exprquery, get_pytype, get_sqltype
+from stream2segment.process.segments_selection import build_where_clause, get_pytype, get_sqltype
 
 # import atexit
 
@@ -20,7 +20,7 @@ _session = None  # noqa
 
 def init(app, session):
     """Initialize the database. this method must be called after the Flask
-    app has been created nd before using it.
+    app has been created and before using it.
 
     :param session: a SQLAlchemy SCOPED session
     """
@@ -66,7 +66,7 @@ def get_segments_count(conditions):
 
 
 def _query4gui(what2query, conditions, orderby=None):
-    return exprquery(what2query, conditions=conditions, orderby=orderby)
+    return build_where_clause(what2query, conditions=conditions, orderby=orderby)
 
 
 def get_segment_id(seg_index, segment_count, conditions):

@@ -98,12 +98,9 @@ def get_progressbar(length, **kw):
             yield pbar
 
 
-def create_log_handlers(
-    logfile_path='', verbose=False
-) -> list[logging.Handler]:
-    """
-    Configure the logger for download
-    """
+@contextmanager
+def start_logging(logger: Logger, logfile_path='', verbose=False):
+
     # https://docs.python.org/2/howto/logging.html#optimization:  # FIXME really needed?
     logging._srcfile = None  # noqa
     logging.logThreads = 0
@@ -126,11 +123,11 @@ def create_log_handlers(
         )
         handlers.append(stdout_streamer)
 
-    return handlers
+    if handlers:
+        # necessary as entry-point filter, if default (unset) nothing
+        # is propagated to handlers
+        logger.setLevel(logging.INFO)
 
-
-@contextmanager
-def start_logging(logger: Logger, handlers: list[logging.Handler]):
     for h in handlers:
         logger.addHandler(h)
     try:

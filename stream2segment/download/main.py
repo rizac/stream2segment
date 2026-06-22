@@ -13,8 +13,7 @@ import psutil
 import yaml
 from sqlalchemy import Engine
 
-from stream2segment.io.utils import start_logging, create_log_handlers, BadParam, \
-    ascii_decorate
+from stream2segment.io.utils import start_logging, BadParam, ascii_decorate
 from stream2segment.io.db.pdsql import (get_col_max, insert, update)
 from stream2segment.io.db import models, close_engine, secure_dburl
 from stream2segment.download.inputvalidation import load_input
@@ -32,7 +31,6 @@ from stream2segment.resources import get_resource_abspath
 # make the logger refer to the parent of this package (`rfind` below. For info:
 # https://docs.python.org/3/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__[:__name__.rfind('.')])
-logger.setLevel(logging.INFO)  # not strictly necessary, but we want to avoid debug
 
 
 def download(
@@ -102,7 +100,7 @@ def download(
     except BadParam as bpar:
         raise bpar from None
 
-    with start_logging(logger, create_log_handlers(log_file_path, verbose)):
+    with start_logging(logger, log_file_path, verbose):
         try:
             engine = kwargs['engine']
             stime = time.time()

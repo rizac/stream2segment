@@ -2,7 +2,7 @@
 # from stream2segment.io.db import close_session
 # from stream2segment.process.db.models import (Segment, Event, Station, Channel,
 #                                               Download, Class, WebService)
-from stream2segment.process.sqlevalexpr import exprquery
+from stream2segment.process.segments_selection import build_where_clause
 from stream2segment.process.main import (
     process, imap, SkipSegment,  get_default_segments_selection,
     SegmentMetadata, create_processing_env
