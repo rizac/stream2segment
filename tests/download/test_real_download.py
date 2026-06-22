@@ -7,7 +7,6 @@ import os
 import shutil
 from collections import namedtuple
 from datetime import datetime, timedelta
-from io import StringIO
 from pathlib import Path
 from urllib.request import Request, urlopen
 from unittest.mock import patch
@@ -53,65 +52,34 @@ read_url_path = "stream2segment.download.url.read_url"
 load_input_path = 'stream2segment.download.main.load_input'
 
 
-# intercept all create_engine calls in download and inject as input the db url
-# specified in the pytest options:
-
 @pytest.fixture
-def db(db_url):
+def db_engine(db_url):
     """
-    create the db fixture (invoked once per db_url provided as
-    option in pytest command line)
+    Intercept the db engine created in tested functions to be accessible in tests
     """
-    return namedtuple(
-        "DB", ["url", "engine", "is_postgres", "is_sqlite"]
-    )(db_url, original_get_engine(db_url), is_postgres(db_url), is_sqlite(db_url))
-
-
-@pytest.fixture(autouse=True)
-def patch_engine(db):
-    """
-    inject our db url in create_engine. This fixture is auto executed
-    for each module test X each url passed as option in pytest command line
-    """
+    db_eng = original_get_engine(db_url)
     with patch(
         "stream2segment.download.inputvalidation.get_engine",
-        return_value=db.engine,
+        return_value=db_eng,
     ):
-        yield
+        yield db_eng
 
-# intercept all create_log_handlers calls in download and inject as input a tmpfile
 
 @pytest.fixture
-def log_file(tmp_path):
-    """create the log tmp file"""
-    return tmp_path / 'test.log'
-
-
-@pytest.fixture(autouse=True)
-def patch_create_logger(log_file: Path):
+def log_capture(tmp_path: Path):
     """
-    inject our tmp log file path in create_log_handlers. This fixture is auto executed
-    for each module test
+    Intercept the log file Path created in tested functions to be accessible in tests
     """
+
+    log_file = tmp_path / 'test.log'
+    
     def wrapper(log_file_path, verbose):
-        if log_file_path:
-            log_file_path = log_file
-        return original_create_log_handlers(log_file_path, verbose)
+        return original_create_log_handlers(log_file, verbose)
 
     with patch(
         "stream2segment.download.main.create_log_handlers", side_effect=wrapper
     ):
-        yield
-
-
-@pytest.fixture
-def log_capture(log_file: Path):
-    """create the log content fixture, accessible as log_capture.getvalue()"""
-    class StringIOProxy:
-        def getvalue(self):
-            return log_file.read_text()
-
-    return StringIOProxy()
+        yield log_file
 
 
 # ======== ACTUAL TESTS: ================================
@@ -121,13 +89,14 @@ def log_capture(log_file: Path):
 def test_real_download_events(
     mock_get_channels_df,
     # fixtures:
-    online_only, db, log_capture, test_data_dir, tmp_path
+    online_only, db_engine, log_capture, test_data_dir, tmp_path
 ):
     """This tess a REAL download to test channels conflicts and stuff during download
     It is a legacy code to test negative network filter bug, now renamed for the new
     purpose
     """
-    if db.is_postgres:
+    db_url = str(db_engine.url)
+    if is_postgres(db_url):
         # THIS TEST IS JUST ENOUGH WITH ONE DB (USE SQLITE BECAUSE POSTGRES MIGHT NOT BE
         # SETUP FOR TESTS)
         return
@@ -141,7 +110,7 @@ def test_real_download_events(
     cfg_file = test_data_dir / "download-network-filter.yaml"
 
     cli_args = [
-        'download', '-c', str(cfg_file), '--dburl', db.url,
+        'download', '-c', str(cfg_file), '--dburl', db_url,
         '--start', '2019-11-26T00:00:00', '--end', '2019-11-27T00:00:00',
     ]
     result = CliRunner().invoke(cli, cli_args)
@@ -152,8 +121,8 @@ def test_real_download_events(
     # 621394962 2019-11-26 16:30:43.400  43.1931  18.0287   21.7     ML       3.40
     assert result.exit_code == 0
     assert no_channels_msg in result.output
-    num_channels = get_row_count(db.engine, Channel)
-    num_events = get_row_count(db.engine, Event)
+    num_channels = get_row_count(db_engine, Channel)
+    num_events = get_row_count(db_engine, Event)
     assert num_channels == 0
     assert num_events > 0
 
@@ -161,13 +130,13 @@ def test_real_download_events(
     result = CliRunner().invoke(cli, cli_args)
     assert result.exit_code == 0
     assert no_channels_msg in result.output
-    num_channels2 = get_row_count(db.engine, Channel)
-    num_events2 = get_row_count(db.engine, Event)
+    num_channels2 = get_row_count(db_engine, Channel)
+    num_events2 = get_row_count(db_engine, Event)
     assert num_channels2 == 0
     assert num_events2 == num_events
 
     # mock the event_df case with duplicates
-    evts = pd.concat(fetch_df(db.engine, select(Event))).iloc[[0]]
+    evts = pd.concat(fetch_df(db_engine, select(Event))).iloc[[0]]
     evts = pd.concat([evts, evts, evts], ignore_index=True)
     evts.reset_index(drop=True, inplace=True)
     assert evts.index.tolist() == [0, 1, 2]
@@ -198,7 +167,7 @@ def test_real_download_events(
             cli_args.extend(['--events_url', str(cat_file.resolve())])
             result = CliRunner().invoke(cli, cli_args)
             assert result.exit_code == 0
-            log_text = log_capture.getvalue()
+            log_text = log_capture.read_text()
             # in all cases we issued a no segments to download
             assert NoSegmentsToDownload.prefix in result.output
             assert NoSegmentsToDownload.prefix in log_text
@@ -231,8 +200,8 @@ def test_real_download_events(
                 assert '2 event(s) replaced' in log_text
 
             # we never save new events in any case:
-            num_channels2 = get_row_count(db.engine, Channel)
-            num_events2 = get_row_count(db.engine, Event)
+            num_channels2 = get_row_count(db_engine, Channel)
+            num_events2 = get_row_count(db_engine, Event)
             assert num_channels2 == 0
             assert num_events2 == num_events
 
@@ -242,13 +211,14 @@ def test_real_download_events(
 def test_real_download_channels(
     mock_get_events_df, mock_download_save_segments,
     # fixtures:
-    online_only, db, log_capture, test_data_dir
+    online_only, db_engine, log_capture, test_data_dir
 ):
     """This tess a REAL download to test channels conflicts and stuff during download
     It is a legacy code to test negative network filter bug, now renamed for the new
     purpose
     """
-    if db.is_postgres:
+    db_url = str(db_engine.url)
+    if is_postgres(db_url):
         # THIS TEST IS JUST ENOUGH WITH ONE DB (USE SQLITE BECAUSE POSTGRES MIGHT NOT BE
         # SETUP FOR TESTS)
         return
@@ -274,33 +244,33 @@ def test_real_download_channels(
 
     result = CliRunner().invoke(
         cli, [
-            'download', '-c', str(cfg_file), '--dburl', db.url,
+            'download', '-c', str(cfg_file), '--dburl', db_url,
             '--net', 'BE,16,DK,1B,1C,3D,BK', '--sta', 'MEM,MG09,NUUG,KARA,ANR,MM01,BRIB'
         ]
     )
     assert result.exit_code == 0
     assert _no_station_found_within_search_area_msg in result.output
-    num_channels = get_row_count(db.engine, Channel)
-    num_events = get_row_count(db.engine, Event)
+    num_channels = get_row_count(db_engine, Channel)
+    num_events = get_row_count(db_engine, Event)
     assert num_channels > 0
     assert num_events == 0  # we mocked get_events, nothing inserted on db
 
     # do it again (test what's been written):
     result = CliRunner().invoke(
         cli, [
-            'download', '-c', str(cfg_file), '--dburl', db.url,
+            'download', '-c', str(cfg_file), '--dburl', db_url,
             '--net', 'BE,16,DK,1B,1C,3D,BK', '--sta', 'MEM,MG09,NUUG,KARA,ANR,MM01,BRIB'
         ]
     )
     assert result.exit_code == 0
     assert _no_station_found_within_search_area_msg in result.output
     # nothing new has been written:
-    assert num_channels == get_row_count(db.engine, Channel)
-    assert num_events == get_row_count(db.engine, Event)
+    assert num_channels == get_row_count(db_engine, Channel)
+    assert num_events == get_row_count(db_engine, Event)
 
     # do it again (test channel conflict):
     # first change 10 channels lat, to return conflicts:
-    with db.engine.begin() as conn:
+    with db_engine.begin() as conn:
         first_10_ids = select(Channel.__table__.c.id).limit(10)
 
         conn.execute(
@@ -310,18 +280,18 @@ def test_real_download_channels(
         )
     result = CliRunner().invoke(
         cli, [
-            'download', '-c', str(cfg_file), '--dburl', db.url,
+            'download', '-c', str(cfg_file), '--dburl', db_url,
             '--net', 'BE,16,DK,1B,1C,3D,BK', '--sta', 'MEM,MG09,NUUG,KARA,ANR,MM01,BRIB'
         ]
     )
     assert result.exit_code == 0
     assert _no_station_found_within_search_area_msg in result.output
     # nothing new has been written:
-    assert num_channels == get_row_count(db.engine, Channel)
-    assert num_events == get_row_count(db.engine, Event)
+    assert num_channels == get_row_count(db_engine, Channel)
+    assert num_events == get_row_count(db_engine, Event)
     assert (
         'Replacing the following channels with matching database records'
-        in log_capture.getvalue()
+        in log_capture.read_text()
     )
 
 
@@ -331,10 +301,11 @@ def test_real_download_channels(
 def test_download_channels_adarray(
     mock_get_events_df, mock_download_save_segments,
     # fixtures:
-    online_only, db, log_capture, test_data_dir
+    online_only, db_engine, log_capture, test_data_dir
 ):
     """This tess _ADARRAY private network"""
-    if db.is_postgres:
+    db_url = str(db_engine.url)
+    if is_postgres(db_url):
         # THIS TEST IS JUST ENOUGH WITH ONE DB (USE SQLITE BECAUSE POSTGRES MIGHT NOT BE
         # SETUP FOR TESTS)
         return
@@ -370,14 +341,14 @@ def test_download_channels_adarray(
 
     result = CliRunner().invoke(
         cli, [
-            'download', '-c', str(cfg_file), '--dburl', db.url,
+            'download', '-c', str(cfg_file), '--dburl', db_url,
             '--net', "_ADARRAY", '--sta', 'A*,B*', '--data_url', 'eida'
         ]
     )
     assert result.exit_code == 0
     assert 'custom message' in result.output
-    num_channels = get_row_count(db.engine, Channel)
-    num_events = get_row_count(db.engine, Event)
+    num_channels = get_row_count(db_engine, Channel)
+    num_events = get_row_count(db_engine, Event)
     assert num_channels > 0
 
 
@@ -387,10 +358,11 @@ def test_download_channels_adarray(
 def test_download_channels_all(
     mock_get_events_df, mock_download_channels, mock_download_save_segments,
     # fixtures:
-    online_only, db, log_capture, test_data_dir
+    online_only, db_engine, log_capture, test_data_dir
 ):
     """This tess _ADARRAY private network"""
-    if db.is_postgres:
+    db_url = str(db_engine.url)
+    if is_postgres(db_url):
         # THIS TEST IS JUST ENOUGH WITH ONE DB (USE SQLITE BECAUSE POSTGRES MIGHT NOT BE
         # SETUP FOR TESTS)
         return
@@ -431,7 +403,7 @@ def test_download_channels_all(
 
     result = CliRunner().invoke(
         cli, [
-            'download', '-c', str(cfg_file), '--dburl', db.url,
+            'download', '-c', str(cfg_file), '--dburl', db_url,
             '--data_url', 'iris'  #  '--data_url', 'eida',
         ]
     )
@@ -442,8 +414,8 @@ def test_download_channels_all(
     # or alternatively:
     assert not mock_download_save_segments.called
     # test stuf on db:
-    num_channels = get_row_count(db.engine, Channel)
-    num_events = get_row_count(db.engine, Event)
+    num_channels = get_row_count(db_engine, Channel)
+    num_events = get_row_count(db_engine, Event)
     assert num_channels > 0
     assert num_events == 0
 
@@ -452,13 +424,10 @@ def test_download_channels_all(
 def test_real_download_segments(
     mock_download_segments_read_urls,
     # fixtures:
-    online_only, db, log_capture, test_data_dir
+    online_only, db_engine, log_capture, test_data_dir
 ):
     """This segments download test"""
-    if db.is_postgres:
-        # THIS TEST IS JUST ENOUGH WITH ONE DB (USE SQLITE BECAUSE POSTGRES MIGHT NOT BE
-        # SETUP FOR TESTS)
-        return
+    db_url = str(db_engine.url)
 
     cfg_file = test_data_dir / "download-network-filter.yaml"
 
@@ -469,7 +438,7 @@ def test_real_download_segments(
     # No station within search radia:
     mock_download_segments_read_urls.reset_mock()
     cli_options = [
-        'download', '-c', str(cfg_file), '--dburl', db.url,
+        'download', '-c', str(cfg_file), '--dburl', db_url,
         '--data_url', 'iris',
         '--events_url', 'www.seismicportal.eu/fdsnws/event/1/query',
         '--minmag', '5', '--maxmag', '6',
@@ -491,7 +460,7 @@ def test_real_download_segments(
     mock_download_segments_read_urls.side_effect = mocked_download_segments_read_urls
     mock_download_segments_read_urls.reset_mock()
     cli_options = [
-        'download', '-c', str(cfg_file), '--dburl', db.url,
+        'download', '-c', str(cfg_file), '--dburl', db_url,
         '--data_url', 'iris',
         '--events_url', 'www.seismicportal.eu/fdsnws/event/1/query',
         '--minmag', '4', '--maxmag', '5',
@@ -503,7 +472,7 @@ def test_real_download_segments(
     ]
     result = CliRunner().invoke(cli, cli_options)
     assert result.exit_code == 0
-    count = count_from_db(db.engine)
+    count = count_from_db(db_engine)
     assert count.event > 0
     assert count.channel > 0
     assert (
@@ -526,7 +495,7 @@ def test_real_download_segments(
     result = CliRunner().invoke(cli, cli_options)
     assert result.exit_code == 0
     assert 'download(s) skipped' in result.output.lower()
-    assert count == count_from_db(db.engine)  # nothing changed on DB
+    assert count == count_from_db(db_engine)  # nothing changed on DB
     assert mock_download_segments_read_urls.called
 
     # Same as before, but read_urls behaves normally. We will get all 204 No content
@@ -536,7 +505,7 @@ def test_real_download_segments(
     assert result.exit_code == 0
     assert 'no content' in result.output.lower()
     prev_count = count
-    count = count_from_db(db.engine)
+    count = count_from_db(db_engine)
     assert count.event == prev_count.event
     assert count.channel == prev_count.channel
     assert count.skipped_segment > 0
@@ -545,7 +514,7 @@ def test_real_download_segments(
 
     # now adjust the config to get some real segments (Http 200):
     cli_options = [
-        'download', '-c', str(cfg_file), '--dburl', db.url,
+        'download', '-c', str(cfg_file), '--dburl', db_url,
         '--data_url', 'eida',
         '--events_url', 'www.seismicportal.eu/fdsnws/event/1/query',
         '--minmag', '3', '--maxmag', '4',
@@ -561,7 +530,7 @@ def test_real_download_segments(
     result = CliRunner().invoke(cli, cli_options)
     assert result.exit_code == 0
     prev_count = count
-    count = count_from_db(db.engine)
+    count = count_from_db(db_engine)
     assert count.event > prev_count.event
     assert count.channel > prev_count.channel
     assert count.skipped_segment == prev_count.skipped_segment
@@ -572,7 +541,7 @@ def test_real_download_segments(
 
     # test compressed binary function in models.py also when reading back:
     stmt = select(StationXML.data).limit(1)
-    with db.engine.connect() as conn:
+    with db_engine.connect() as conn:
         result = conn.execute(stmt).scalar_one_or_none()
     assert b"<?xml " in result  # check it is not compressed
 
@@ -580,7 +549,7 @@ def test_real_download_segments(
     mock_download_segments_read_urls.reset_mock()
     result = CliRunner().invoke(cli, cli_options)
     assert result.exit_code == 0
-    assert count == count_from_db(db.engine)  # nothing changed on DB
+    assert count == count_from_db(db_engine)  # nothing changed on DB
     assert _nothing_to_download_msg in result.output
     assert not mock_download_segments_read_urls.called  # NOTE: NOT CALLED!
 
@@ -589,13 +558,13 @@ def test_real_download_segments(
     # so that we will download 1 stationxml and 1 quakeml
 
     # get cha ids and quakeml ids:
-    with db.engine.connect() as conn:
+    with db_engine.connect() as conn:
         channel_ids_0 = conn.execute(
             select(Channel.id).where(Channel.stationxml_id.is_not(None))
         ).scalars().all()
         quakeml_ids_0 = conn.execute(select(QuakeML.id)).scalars().all()
 
-    with db.engine.begin() as conn:
+    with db_engine.begin() as conn:
         with conn.begin_nested():
             try:
                 conn.execute(update(Channel).where(
@@ -608,7 +577,7 @@ def test_real_download_segments(
                 raise
 
     # recompute cha ids and quakeml ids:
-    with db.engine.connect() as conn:
+    with db_engine.connect() as conn:
         channel_ids = conn.execute(
             select(Channel.id).where(Channel.stationxml_id.is_not(None))
         ).scalars().all()
@@ -618,12 +587,12 @@ def test_real_download_segments(
     mock_download_segments_read_urls.reset_mock()
     result = CliRunner().invoke(cli, cli_options)
     assert result.exit_code == 0
-    assert count == count_from_db(db.engine)  # nothing changed on DB
+    assert count == count_from_db(db_engine)  # nothing changed on DB
     assert _nothing_to_download_msg in result.output
     assert not mock_download_segments_read_urls.called  # NOTE: NOT CALLED!
 
     # recompute cha ids and quakeml ids:
-    with db.engine.connect() as conn:
+    with db_engine.connect() as conn:
         channel_ids2 = conn.execute(
             select(Channel.id).where(Channel.stationxml_id.is_not(None))
         ).scalars().all()
@@ -637,10 +606,11 @@ def test_real_download_segments(
 def test_real_download_segments_with_credentials(
     mock_download_segments_read_urls,
     # fixtures:
-    online_only, db, log_capture, test_data_dir
+    online_only, db_engine, log_capture, test_data_dir
 ):
     """This segments download test"""
-    if db.is_postgres:
+    db_url = str(db_engine.url)
+    if is_postgres(db_url):
         # THIS TEST IS JUST ENOUGH WITH ONE DB (USE SQLITE BECAUSE POSTGRES MIGHT NOT BE
         # SETUP FOR TESTS)
         return
@@ -654,7 +624,7 @@ def test_real_download_segments_with_credentials(
     # actually, data is not restricted anymore, so we should download 1 segment
     mock_download_segments_read_urls.reset_mock()
     cli_options = [
-        'download', '-c', str(cfg_file), '--dburl', db.url,
+        'download', '-c', str(cfg_file), '--dburl', db_url,
         '--data_url', 'https://www.orfeus-eu.org/fdsnws/dataselect/1/query',
         '--events_url', 'isc',
         # '--minmag', '4', '--maxmag', '5',
@@ -668,7 +638,7 @@ def test_real_download_segments_with_credentials(
     ]
     result = CliRunner().invoke(cli, cli_options)
     assert result.exit_code == 0
-    count = count_from_db(db.engine)
+    count = count_from_db(db_engine)
     assert (count.skipped_segment == count.quakeml == 0)
     assert count.channel > 0
     assert count.event > 0
@@ -679,7 +649,7 @@ def test_real_download_segments_with_credentials(
     mock_download_segments_read_urls.reset_mock()
     result = CliRunner().invoke(cli, cli_options)
     assert 'all segments already downloaded' in result.output
-    assert 'all segments already downloaded' in log_capture.getvalue()
+    assert 'all segments already downloaded' in log_capture.read_text()
     assert not mock_download_segments_read_urls.called
     assert result.exit_code == 0
 
@@ -688,7 +658,7 @@ def test_real_download_segments_with_credentials(
     # mock load config to add the token from data dir:
 
     # delete segments table otheerwise we do not hit segments download
-    with db.engine.begin() as conn:
+    with db_engine.begin() as conn:
         conn.execute(Segment.__table__.delete())
 
     with (patch(load_input_path) as _):
@@ -702,8 +672,8 @@ def test_real_download_segments_with_credentials(
         result = CliRunner().invoke(cli, cli_options)
         assert result.exit_code == 1
         assert FailedDownload.prefix in result.output
-        assert FailedDownload.prefix in log_capture.getvalue()
-        assert count_from_db(db.engine).segment == 0
+        assert FailedDownload.prefix in log_capture.read_text()
+        assert count_from_db(db_engine).segment == 0
 
         # now mock url read to return a valid user password:
         from stream2segment.download.segments import read_url as original_read_url
@@ -721,18 +691,19 @@ def test_real_download_segments_with_credentials(
             assert result.exit_code == 0
             # we got a 500 from trying to download the segment with the user password
             # returned by the mock function above:
-            assert 'Download unsuccessful' in log_capture.getvalue()
-            assert count_from_db(db.engine).segment == 0
+            assert 'Download unsuccessful' in log_capture.read_text()
+            assert count_from_db(db_engine).segment == 0
 
 
 @patch(download_save_segments_path)
 def test_download_iris_caltec_up_to_segments(
     mock_download_save_segments,
     # fixtures:
-    online_only, db, log_capture, test_data_dir
+    online_only, db_engine, log_capture, test_data_dir
 ):
     """This tess _ADARRAY private network"""
-    if db.is_postgres:
+    db_url = str(db_engine.url)
+    if is_postgres(db_url):
         # THIS TEST IS JUST ENOUGH WITH ONE DB (USE SQLITE BECAUSE POSTGRES MIGHT NOT BE
         # SETUP FOR TESTS)
         return
@@ -749,11 +720,11 @@ def test_download_iris_caltec_up_to_segments(
 
     result = CliRunner().invoke(
         cli, [
-            'download', '-c', str(cfg_file), '--dburl', db.url,
+            'download', '-c', str(cfg_file), '--dburl', db_url,
         ]
     )
     assert result.exit_code == 0
-    assert custom_message in log_capture.getvalue()
+    assert custom_message in log_capture.read_text()
     assert custom_message in result.output
 
 
@@ -763,7 +734,8 @@ def test_download_iris_caltec_up_to_segments_tmp(
     online_only, db, log_capture, test_data_dir
 ):
     """"""
-    if db.is_postgres:
+    db_url = str(db_engine.url)
+    if is_postgres(db_url):
         # THIS TEST IS JUST ENOUGH WITH ONE DB (USE SQLITE BECAUSE POSTGRES MIGHT NOT BE
         # SETUP FOR TESTS)
         return
@@ -774,7 +746,7 @@ def test_download_iris_caltec_up_to_segments_tmp(
 
     result = CliRunner().invoke(
         cli, [
-            'download', '-c', str(cfg_file), '--dburl', db.url,
+            'download', '-c', str(cfg_file), '--dburl', db_url,
             # '--events_url', 'https://service.ncedc.org/fdsnws/event/1/query'
         ]
     )
@@ -782,8 +754,9 @@ def test_download_iris_caltec_up_to_segments_tmp(
     asd = 9
 
 
-def test_download_real_db(db_url, tmp_path, test_data_dir, log_capture):
-
+def test_download_real_db(db_engine, tmp_path, test_data_dir, log_capture):
+    
+    db_url = str(db_engine.url)
     cfg_file = tmp_path / "download-iris-caltec-500.yaml"
     shutil.copyfile(test_data_dir / cfg_file.name, cfg_file)
 
