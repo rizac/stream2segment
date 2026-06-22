@@ -515,7 +515,7 @@ def prepare_segment_to_insert(
         ev_id_col: int(segments.at[idx, ev_id_col]),
         ch_id_col: int(segments.at[idx, ch_id_col]),
         Segment.noise_window_s.key: int(max(smallint_min, min(smallint_max, round(
-            (m_seed.start - arrival_time).total_seconds()
+            (arrival_time - m_seed.start).total_seconds()
         )))),
         Segment.signal_window_s.key: int(max(smallint_min, min(smallint_max, round(
             (m_seed.end - arrival_time).total_seconds()

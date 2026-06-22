@@ -22,107 +22,37 @@ import pytest
 
 from stream2segment.io.db import is_postgres, is_sqlite
 
-download_create_engine_path = 'stream2segment.download.inputvalidation.create_engine'
-download_close_engine_path = 'stream2segment.download.main.close_engine'
 
-from stream2segment.download.inputvalidation import create_engine as original_create_engine
-from stream2segment.download.main import close_engine as original_close_engine
-
-
-_in_mem_sqlite = "sqlite:///:memory:"
-
-
-# https://docs.pytest.org/en/3.0.0/parametrize.html#basic-pytest-generate-tests-example
-# add option --dburl to the command line
 def pytest_addoption(parser):
-    """Adds the dburl option to pytest command line arguments. The option can be input
-    multiple times and will parametrize all tests with the 'db' fixture with all defined
-    databases (plus a default SQLite database)
-    """
+    """ add command line option db_url"""
     parser.addoption(
-        "--dburl",
+        "--db_url",
         action="append",
-        default=[_in_mem_sqlite],
-        help=(
-            "list of database url(s) to be used for testing *in addition* to the "
-            "default SQLite database"
-        )
+        default=[None],
     )
 
 
 def pytest_generate_tests(metafunc):
-    """parametrize all tests with db in it with all URLs given in the command line"""
-    if "db" in metafunc.fixturenames:
-        metafunc.parametrize("db_url", metafunc.config.getoption("--dburl"))
-
-
-@pytest.fixture
-def db_urls(request):
-    return request.config.getoption("--dburl")
-
-
-@pytest.fixture
-def db(db_url):
-    """
-    Creates a db connection that persists during the whole test and return
-    an object with db info such as url, engine, is_postgres and is_sqlite
-    """
-    if db_url == _in_mem_sqlite:
-        # and multi thread for sqlite
-        from sqlalchemy.pool import StaticPool
-        # <https://docs.sqlalchemy.org/en/21/dialects/sqlite.html#using-a-memory-database-in-multiple-threads>  # noqa
-        engine = original_create_engine(
-            db_url,
-            connect_args={"check_same_thread": False},
-            poolclass=StaticPool,
+    """parametrize all tests containing the fixture db_url with all passed --db_url"""
+    if "db_url" in metafunc.fixturenames:
+        metafunc.parametrize(
+            "db_url",
+            metafunc.config.getoption("--db_url"),
+            # treat the parameter as input to a fixture instead , pass it into the
+            # fixture 'db_url' as request.param instead (see below):
+            indirect=True,
         )
-    else:
-        engine = original_create_engine(db_url)
-
-    with (
-        patch(download_create_engine_path, return_value=engine),
-        patch(download_close_engine_path)
-    ):
-           yield namedtuple(
-                "DB", ["url", "engine", "is_postgres", "is_sqlite"]
-            )(db_url, engine, is_postgres(db_url), is_sqlite(db_url))
-
-    original_close_engine(engine)
 
 
 @pytest.fixture
-def log_capture():
-    stream = StringIO()
+def db_url(request, tmp_path):
+    db_url = request.param
 
-    # from stream2segment.download.main import create_log_handlers as _create_log_handlers
+    if db_url is None:
+        db_file = tmp_path / "test.db"
+        return f"sqlite:///{db_file}"
 
-    def fake_create_log_handlers(*args, **kwargs):
-        # handlers = _create_log_handlers("", True)  # <- no file
-        handlers = []
-        import logging
-        stream.seek(0)
-        stream.truncate(0)
-        db_streamer = logging.StreamHandler(stream)
-        # same setting as in _configure_logging:
-        db_streamer.setLevel(logging.INFO)  # do not print debug, print others
-        db_streamer.setFormatter(logging.Formatter('[%(levelname).1s]  %(message)s'))
-        handlers.append(db_streamer)
-
-        stdout_streamer = logging.StreamHandler(sys.stdout)
-        stdout_streamer.setFormatter(logging.Formatter('%(message)s'))
-        stdout_streamer.setLevel(logging.INFO)  # do not print debug, print others
-        # configure the levels we want to print (20: info, 40: error, 50: critical)
-        stdout_streamer.addFilter(
-            lambda rec: rec.levelno in {logging.INFO, logging.ERROR, logging.CRITICAL}
-        )
-        handlers.append(stdout_streamer)
-
-        return handlers
-
-    with patch(
-        "stream2segment.download.main.create_log_handlers", fake_create_log_handlers
-    ):
-        yield stream
+    return db_url
 
 
 @pytest.fixture

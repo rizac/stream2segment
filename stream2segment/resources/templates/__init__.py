@@ -5,7 +5,6 @@ can be injected in a template file in the usual way, e.g.:
 {{ PROCESS_PY_BANDPASSFUNC }}
 """
 # DO NOT REMOVE IMPORT BELOW, IT IS USED IN TEMPLATES:
-from stream2segment.process.writers import SEGMENT_ID_COLNAME
 
 _WIKI_BASE_URL = 'https://github.com/rizac/stream2segment/wiki'
 

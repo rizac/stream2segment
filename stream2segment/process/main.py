@@ -22,7 +22,7 @@ from pathlib import Path
 from sqlalchemy import select, func, tuple_, Engine
 import yaml
 from obspy.core.event import Event as ObspyEvent
-from obspy import Stream, Inventory, read, read_events
+from obspy import Stream, Inventory, read, read_events, read_inventory
 from obspy.geodetics import locations2degrees, degrees2kilometers
 
 from stream2segment.io.db import secure_dburl, create_engine
@@ -63,7 +63,7 @@ def process(
     dburl: str,
     segments_selection: dict | None = None,
     group_by_orientation: bool = False,
-    config: str|Path = None,
+    config: str | Path | dict = None,
     outfile: str | Path = None,
     append=False,
     writer_options=None,
@@ -181,25 +181,22 @@ def process(
     with writer, start_logging(logger, create_log_handlers(logfile, verbose)):
 
         logger.info(
-            ascii_decorate(
-                "\n".join(
-                    [
-                        f"Input database:      {secure_dburl(dburl)}",
-                        f"Output file:         {abspath(outfile) if outfile else 'n/a'}",
-                        f"Processing function: {pyfile or 'n/a'}",
-                        f"Log file:            {abspath(logfile) if logfile else 'n/a'}",
-                        f"Config. file:        {abspath(cfg_file)}"
-                    ]
-                )
+            ascii_decorate("\n".join([
+                    f"Input database:      {secure_dburl(dburl)}",
+                    f"Output file:         {abspath(outfile) if outfile else 'n/a'}",
+                    f"Processing function: {pyfile or 'n/a'}",
+                    f"Log file:            {abspath(logfile) if logfile else 'n/a'}",
+                    f"Config. file:        {abspath(cfg_file) if cfg_file else 'n/a'}"
+                ])
             )
         )
 
         for output in imap(
             pyfunc,
             dburl,
-            segments_selection,
-            config,
-            group_by_orientation,
+            segments_selection=segments_selection,
+            group_by_orientation=group_by_orientation,
+            config=config,
             logfile='',
             verbose=False,
             multi_process=multi_process,
@@ -284,7 +281,7 @@ def imap(
     stmt = build_select(segments_selection)
 
     total = 0
-    engine = create_engine(dburl, check_db_existence=True)
+    engine = get_engine(dburl)
     if verbose:
         stmt_count = select(func.count()).select_from(stmt.subquery())
         with engine.connect() as conn:
@@ -325,27 +322,27 @@ def imap(
                 time.sleep(0.5)
                 pbar.render_progress()
 
-            db_chunks = get_segments(
+            process_func_args = get_segments(
                 engine, segments_selection, group_by_orientation, False, chunksize
             )
-            process_func_args =  (
-                (args, config, pyfunc, skip_exceptions) for args in db_chunks
+            process_segments_args =  (
+                (args, config, pyfunc, skip_exceptions) for args in process_func_args
             )
 
             stime = time.time()
 
             if not num_processes:
-                for process_func_args_ in process_func_args:
-                    output, is_ok, ids = process_segments(*process_func_args_)
-                    pbar.update(len(ids))
-                    if is_ok:
-                        oks += len(ids)
-                        yield output
-                    else:
-                        errors += len(ids)
-                        logger.warning(
-                            f"segment id(s)={' ,'.join(ids)}): {str(output)}"
-                        )
+                for process_func_args_ in process_segments_args:
+                    for output, is_ok, ids in process_segments(*process_func_args_):
+                        pbar.update(len(ids))
+                        if is_ok:
+                            oks += len(ids)
+                            yield output
+                        else:
+                            errors += len(ids)
+                            logger.warning(
+                                f"segment id(s)={' ,'.join(ids)}): {str(output)}"
+                            )
             else:
 
                 with Pool(
@@ -356,7 +353,7 @@ def imap(
                     try:
 
                         for (output, is_ok, ids) in pool.imap_unordered(
-                            process_segments, process_func_args
+                            process_segments, process_segments_args
                         ):
                             pbar.update(len(ids))
                             if is_ok:
@@ -420,6 +417,10 @@ def _mp_initializer():
     signal.signal(signal.SIGINT, signal.SIG_IGN)
 
 
+def get_engine(db_url: str) -> Engine:
+    return create_engine(db_url, check_db_existence=True)
+
+
 def build_select(
     where_conditions: dict | None = None,
     segments_only: bool = False
@@ -427,40 +428,81 @@ def build_select(
     """
     build select statement with provided where_conditions
     """
-    if segments_only:
-        stmt = (
-            select(
-                Segment.id,
-                MiniSeed.data.label("mseed"),
-                Channel,
-                Event
-            )
-            .select_from(Segment)
-            .join(Channel, Channel.id == Segment.channel_id)
-            .join(Event, Event.id == Segment.event_id)
-            .join(MiniSeed, MiniSeed.id == Segment.id)
+    stmt = (
+        select(
+            Segment.id,
+            Segment.noise_window_s,
+            Segment.signal_window_s,
+            MiniSeed.data,
+            Channel.id.label('channel_id'),
+            # data_webservice_id,
+            Channel.stationxml_id ,
+            # Channel.network_code,
+            # Channel.station_code,
+            Channel.latitude,
+            Channel.longitude,
+            Channel.elevation,
+            # Channel.start_time,
+            # Channel.location_code,
+            # Channel.band_code,
+            # Channel.instrument_code ,
+            # Channel.orientation_code,
+            Channel.depth,
+            Channel.azimuth,
+            Channel.dip,
+            # Channel.sample_rate.label('channel_sample_rate'),
+            Event.id.label('event_id'),
+            # Event.webservice_id,
+            # Event.eventid,
+            Event.time.label('event_time'),
+            Event.latitude.label('event_latitude'),
+            Event.longitude.label('event_longitude'),
+            Event.depth_km.label('event_depth_km'),
+            Event.mag_type.label('event_magnitude_type'),
+            Event.magnitude.label('event_magnitude'),
         )
-
-    else:
-        stmt = (
-            select(
-                Segment.id,
-                MiniSeed.data.label("mseed"),
-                Channel,
-                Event,
-                StationXML.id.label("stationxml_id"),
-                QuakeML.id.label("quakeml_id")
-            )
-            .select_from(Segment)
-            .join(Channel, Channel.id == Segment.channel_id)
-            .join(Event, Event.id == Segment.event_id)
-            .join(MiniSeed, MiniSeed.id == Segment.id)
-            .outerjoin(StationXML, StationXML.id == Channel.stationxml_id)
-            .outerjoin(QuakeML, QuakeML.id == Event.id)
-        )
+        .select_from(Segment)
+        .join(Channel, Channel.id == Segment.channel_id)
+        .join(Event, Event.id == Segment.event_id)
+        .join(MiniSeed, MiniSeed.id == Segment.id)
+    )
+    # if segments_only:
+    #     stmt = (
+    #         select(
+    #             Segment.id,
+    #             MiniSeed.data.label("mseed"),
+    #             Channel,
+    #             Event
+    #         )
+    #         .select_from(Segment)
+    #         .join(Channel, Channel.id == Segment.channel_id)
+    #         .join(Event, Event.id == Segment.event_id)
+    #         .join(MiniSeed, MiniSeed.id == Segment.id)
+    #     )
+    #
+    # else:
+    #     stmt = (
+    #         select(
+    #             Segment.id,
+    #             MiniSeed.data.label("mseed"),
+    #             Channel,
+    #             Event,
+    #             StationXML.id.label("stationxml_id"),
+    #             QuakeML.id.label("quakeml_id")
+    #         )
+    #         .select_from(Segment)
+    #         .join(Channel, Channel.id == Segment.channel_id)
+    #         .join(Event, Event.id == Segment.event_id)
+    #         .join(MiniSeed, MiniSeed.id == Segment.id)
+    #         .outerjoin(StationXML, StationXML.id == Channel.stationxml_id)
+    #         .outerjoin(QuakeML, QuakeML.id == Event.id)
+    #     )
 
     if where_conditions:
         stmt = exprquery(stmt, where_conditions)  # FIXME
+
+    if not segments_only:
+        stmt = stmt.where(Channel.stationxml_id.isnot(None))
 
     return stmt
 
@@ -471,14 +513,14 @@ def get_segments(
     group_by_orientation: bool,
     segments_only: bool,
     chunksize: int
-):
+) -> Iterable[tuple[Stream, Inventory | None, ObspyEvent | None]]:
 
     if isinstance(db, str):
-        engine = create_engine(db, check_db_existence=True)
+        engine = get_engine(db)
     else:
         engine = db
 
-    orderby_columns = (StationXML.id, Segment.event_id, Segment.id)
+    orderby_columns = (Channel.stationxml_id, Segment.event_id, Segment.id)
 
     if group_by_orientation:
         orderby_columns = (
@@ -487,7 +529,7 @@ def get_segments(
             Channel.location_code,
             Channel.instrument_code,
             Channel.band_code,
-            Segment.event_id,
+            Event.id,
             Segment.id
         )
 
@@ -510,7 +552,8 @@ def get_segments(
 
         if not group_by_orientation:
             last_key = (rows[-1].stationxml_id, rows[-1].event_id, rows[-1].id)
-            yield [db_to_obspy(engine, r) for r in rows]
+            for r in rows:
+                yield db_to_obspy(engine, segments_only, r)
             continue
 
         buffer.extend(rows)
@@ -534,11 +577,13 @@ def get_segments(
             rows[-1].event_id,
             rows[-1].id,
         )
-        yield [db_to_obspy(engine, *r) for r in split_in_same_group_chunks(to_yield)]
+        for r in split_in_same_group_chunks(to_yield):
+            yield db_to_obspy(engine, segments_only, *r)
 
     if buffer:
         # surely group by orientation:
-        yield [db_to_obspy(engine, *b) for b in split_in_same_group_chunks(buffer)]
+        for b in split_in_same_group_chunks(buffer):
+            yield db_to_obspy(engine, segments_only, *b)
 
 
 def same_group(row1, row2):
@@ -566,24 +611,18 @@ def split_in_same_group_chunks(rows):
 
 
 _inventory_cache = {}
-_inventory_cache_maxsize = estimate_buffer_size('stationxml', memory_fraction=0.15)
+_inventory_cache_maxsize = estimate_buffer_size('stationxml')
 _event_cache = {}
-_event_cache_maxsize = estimate_buffer_size('quakeml', memory_fraction=0.05)
-
+_event_cache_maxsize = estimate_buffer_size('quakeml')
 
 
 def db_to_obspy(
     engine: Engine, segments_only: bool, *db_rows
 ) -> tuple[Stream, Inventory | None, ObspyEvent | None]:
     """
-    return:
-        (
-            segment: Stream,
-            station: Inventory,
-            event: Event,
-            metadata: SegmentMetadata,
-            config: dict
-        )
+    return the tuple
+        (segment: Stream, station: Inventory, event: Event)
+    from the given db_rows
     """
     first_row = db_rows[0]
 
@@ -600,14 +639,17 @@ def db_to_obspy(
                         data = conn.execute(select(StationXML.data).where(
                             StationXML.id == stationxml_id)
                         ).scalar_one_or_none()
-                    inventory = read(BytesIO(data), format='STATIONXML')
+                    if data is not None:
+                        inventory = read_inventory(BytesIO(data), format='STATIONXML')
+                    else:
+                        inventory = None
                     _inventory_cache[stationxml_id] = inventory
                 except Exception as e:
                     logger.warning(e)  # FIXME automatize
 
     event=None
     if not segments_only:
-        quakeml_id = first_row.quakeml_id
+        quakeml_id = first_row.event_id
         if quakeml_id is not None:
             event = _event_cache.get(quakeml_id)
             if event is None:
@@ -618,41 +660,62 @@ def db_to_obspy(
                         data = conn.execute(select(QuakeML.data).where(
                             QuakeML.id == quakeml_id)
                         ).scalar_one_or_none()
-                    event = read_events(BytesIO(data), format='QUEKEML')
+                    if data is not None:
+                        event = read_events(BytesIO(data), format='QUEKEML')
+                    else:
+                        event = None
                     _event_cache[quakeml_id] = event
                 except Exception as e:
                     logger.warning(e)  # FIXME automatizeelse:
 
     stream = Stream()
     for db_row in db_rows:
-        _stream = read(db_row.MiniSeed.data, format='MSEED')
+        _stream = read(db_row.data, format='MSEED')
         start_time = _stream[0].stats.starttime.datetime
-        arrival_time = start_time + timedelta(seconds=db_row.noise_window_s)
-        s_meta = S2Ssegment(
+        end_time = _stream[0].stats.endtime.datetime
+        arr_time1 = start_time + timedelta(seconds=db_row.noise_window_s)
+        arr_time2 = end_time - timedelta(seconds=db_row.signal_window_s)
+        min_time = min(arr_time1, arr_time2)
+        max_time = max(arr_time1, arr_time2)
+        arrival_time = min_time + ((max_time - min_time)/ 2)
+        try:
+            net = _stream[0].stats.network
+            sta = _stream[0].stats.station
+            loc = _stream[0].stats.location
+            cha = _stream[0].stats.channel
+        except AttributeError:  # legacy Obspy? FIXME check!
+            net, sta, loc, cha = _stream[0].stats.id.split('.')
+        s_meta = SegmentMetadata(
             id=db_row.id,
-            latitude=db_row.Channel.latitude,
-            longitude=db_row.Channel.longitude,
-            depth=db_row.Channel.depth,
-            dip=db_row.Channel.dip,
-            azimuth=db_row.Channel.azimuth,
-            elevation=db_row.Channel.elevation,
+            network_code=net,
+            station_code=sta,
+            location_code=loc,
+            channel_code=cha,
+            latitude=db_row.latitude,
+            longitude=db_row.longitude,
+            depth=db_row.depth,
+            dip=db_row.dip,
+            azimuth=db_row.azimuth,
+            elevation=db_row.elevation,
             arrival_time=arrival_time,
-            event_latitude=db_row.Event.latitude,
-            event_longitude=db_row.Event.longitude,
-            event_depth_km=db_row.Event.depth_km,
-            event_time=db_row.Event.time,
-            event_magnitude=db_row.Event.magnitude,
-            event_magnitude_type=db_row.Event.magtype
+            channel_id=db_row.channel_id,
+            event_id=db_row.event_id,
+            event_latitude=db_row.event_latitude,
+            event_longitude=db_row.event_longitude,
+            event_depth_km=db_row.event_depth_km,
+            event_time=db_row.event_time,
+            event_magnitude=db_row.event_magnitude,
+            event_magnitude_type=db_row.event_magnitude_type
         )
         for t in _stream:
-            t.stats.s2s = s_meta
+            t.stats.segment_metadata = s_meta
 
         stream += _stream
 
     return (
         stream,
         inventory,
-        event,
+        event
     )
 
 
@@ -669,10 +732,10 @@ def process_segments(
     safe_exceptions_tuple
 ):
 
-    for (stream, inv, evt, meta) in items:
-        ids = set(t.stats.s2s.id for t in stream)
+    for (stream, inv, evt) in items:
+        ids = set(t.stats.segment_metadata.id for t in stream)
         try:
-            yield pyfunc(stream, inv, evt, meta, config), True, ids
+            yield pyfunc(stream, inv, evt, config), True, ids
         except safe_exceptions_tuple as exc:
             yield exc, False, ids
         except Exception:
@@ -683,7 +746,7 @@ def process_segments(
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class S2Ssegment:
+class SegmentMetadata:
     id: int
     latitude: float
     longitude: float
@@ -691,7 +754,13 @@ class S2Ssegment:
     dip: float
     azimuth: float
     elevation: float
+    network_code: str
+    station_code: str
+    location_code: str
+    channel_code: str
     arrival_time: datetime
+    channel_id: int
+    event_id: int
     event_latitude: float
     event_longitude: float
     event_depth_km: float
@@ -711,6 +780,18 @@ class S2Ssegment:
     @property
     def event_distance_km(self) -> float:
         return degrees2kilometers(self.event_distance_deg)
+
+    @property
+    def band_code(self):
+        return self.channel_code[0:1]
+
+    @property
+    def instrument_code(self):
+        return self.channel_code[1:2]
+
+    @property
+    def orientation_code(self):
+        return self.channel_code[2:3]
 
 
 @contextmanager

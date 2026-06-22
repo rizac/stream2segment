@@ -1,10 +1,7 @@
 """
 Functions for launching the web app
-
-:date: Jun 20, 2016
-
-.. moduleauthor:: <rizac@gfz-potsdam.de>
 """
+# :date: Jun 20, 2016
 import uuid
 from webbrowser import open as open_in_browser
 import random

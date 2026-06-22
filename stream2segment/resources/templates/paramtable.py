@@ -3,44 +3,49 @@
 Stream2segment processing module generating a segment-based parametric table
 ============================================================================
 
-This file exemplifies how to process downloaded data and can be run as Python script
-from the terminal:
+This file exemplifies how to process downloaded data by generating a parametric table.
+It can be run as Python script from the terminal:
 `python <this_file_path>`
 See section `if __name__ == "__main__"` at the end of the module for details
+
+Remember that you are not bound to table generations, you can use this module as
+backbone for any kind of processing (e.g., process and save waveforms).
 
 For a general overview on segment processing (applicable e.g., in custom code, Jupyter
 Notebook), see {{ USING_S2S_IN_YOUR_PYTHON_CODE_WIKI_URL }}
 """
-import os.path
-# From Python >= 3.6, dicts keys are returned (and thus, written to file) in the order
-# they are inserted. Prior to that version, to preserve insertion order you needed to
-# use OrderedDict:
-from collections import OrderedDict
-from datetime import datetime, timedelta
+from datetime import datetime
 from math import factorial  # for savitzky_golay function
 
-# import numpy for efficient computation:
 import numpy as np
-# import obspy core classes (when working with times, use obspy UTCDateTime when
-# possible):
-from obspy import Trace, Stream, UTCDateTime
+try:
+    from numpy.matrixlib.defmatrix import asmatrix  # FIXME CHECK!!!
+except ImportError:
+    from numpy import mat as asmatrix  # numpy < 2
+
+from obspy import Trace, Stream, UTCDateTime, Inventory
+from obspy.core.event import Event
 from obspy.core.util.obspy_types import ObsPyException
-from obspy.geodetics import degrees2kilometers as d2km
-# decorators needed to setup this module @gui.preprocess @gui.plot:
-from stream2segment.process import SkipSegment
-# straem2segment functions for processing obspy Traces. This is just a list of possible
+from stream2segment.process import SkipSegment, SegmentMetadata
 # functions to show how to import them:
-from stream2segment.process.funclib.traces import bandpass, cumsumsq,\
-    fft, ampspec, powspec, timeof, sn_split
-# stream2segment function for processing numpy arrays:
+from stream2segment.process.funclib.traces import (
+    bandpass, cumsumsq, ampspec, powspec, timeof, sn_split
+)
 from stream2segment.process.funclib.ndarrays import triangsmooth, snr
 
 
-def main(segment, config):
-    """Main processing function, called iteratively for any segment selected from `imap`
+def main(
+    segment: Stream,
+    station: Inventory | None,
+    event: Event | None,
+    config: dict
+):
+    """
+    Main processing function, called iteratively for any segment selected from `imap`
     or `process` functions of stream2segment. If you just created this file with
     `s2s init`, see section `if __name__ == "__main__"` at the end of the module for
-    details.
+    details (remember that you can implement here any routine to be applied to your
+    selection of segments).
 
     IMPORTANT: Any exception raised here or from any sub-function will interrupt the
     whole processing routine (`imap` or `process`) with one special case:
@@ -50,53 +55,60 @@ def main(segment, config):
     if segment.sample_rate < 60:
         raise SkipSegment("segment sample rate too low")`
     ```
-    Hint: Because handling exceptions at any point of a time-consuming processing is
+    General hint: Because handling exceptions at any point of a time-consuming processing is
     complex, we recommend to try to run your code on a smaller and possibly
     heterogeneous dataset first: change temporarily the segment selection (See section
     `if __name__ == "__main__"` at the end of the module), and inspect the logfile:
-    for any exception that is not a bug and should simply be ignored, wrap only
-    the part of code affected in a "try ... except" statement, and raise a `SkipSegment`.
+    for any exception that is not a bug and should simply be ignored, wrap only the
+    part of code affected in a "try ... except" statement, and raise a `SkipSegment`.
     Also, please spend some time on refining the selection of segments: you might
     find that your code runs smoothly and faster by simply skipping certain segments in
     the first place.
 
-    :param: segment: the object describing a downloaded waveform segment and its metadata,
-        with a full set of useful attributes and methods detailed here:
-        {{ THE_SEGMENT_OBJECT_WIKI_URL }}
+    :param: segment: an ObsPy `Stream` object, a container of ObsPy `Trace`s each
+        representing a Segment on the DB. In principle, this object should contain only
+        a single Trace (accessible via `segment[0]`) unless the Trace has gaps or
+        overlaps, or the users have specifically instructed to provide all three
+        components of a recording in a single segment.
+        For each Trace, the metadata stored in the DB is accessible via
+        the `Trace.stats.segment_metadata` attribute (for details, see
+        {{ THE_SEGMENT_OBJECT_WIKI_URL }})
 
-    :param: config: a dictionary representing the configuration parameters
+    :param station: the optional Inventory `Inventory` object, resulting from the
+        segment(s) StationXML stored in the DB. The inventory is used to remove the
+        waveform instrumental response and convert its data in physical units: as such,
+        it is most likely needed (see ObsPy doc in case). If None, the StationXML is not
+        available (see download config, where the default is to download StationXML)
+
+    :param event: an optional `Event` object, resulting from the segment(s) QuakeML
+        stored in the DB. Note that basic and often sufficient event information is
+        available in the Segment Metadata, e.g.:
+        `segment[0].stats.segment_meta.event_magnitude`.
+        If None, the QuakeML is not available (see download config, where the default
+        is not to download QuakeXML)
+
+    :param: config: an optional dictionary representing the configuration parameters
         accessible globally by all processed segments. The purpose of the `config`
         is to encourage decoupling of code and configuration for better and more
         maintainable code, avoiding, e.g., many similar processing functions differing
-        by few hard-coded parameters (this is one of the reasons why the config is
-        given as separate YAML file to be passed to the `s2s process` command)
+        by few hard-coded parameters. For a couple of simple parameters, a custom config
+        is usually an overkill, and you can implement your parameters here
 
-    :return: If the processing routine calling this function needs not to generate a
-        file output, the returned value of this function, if given, will be ignored.
-        Otherwise:
+    :return: a row of the resulting table:
 
-        * For CSV output, this function must return an iterable that will be written
-          as a row of the resulting file (e.g. list, tuple, numpy array, dict. You must
-          always return the same type of object, e.g. not lists or dicts conditionally).
+        * For CSV output, this function must return a dict that will be written
+          as a row of the resulting file. The dict keys will compose the column names
+          (CSV header) and must obviously be the same for each returned dict.
 
           Returning None or nothing is also valid: in this case the segment will be
           silently skipped
-
-          The CSV file will have a row header only if `dict`s are returned (the dict
-          keys will be the CSV header columns). For Python version < 3.6, if you want
-          to preserve in the CSV the order of the dict keys as the were inserted, use
-          `OrderedDict`.
-
-          A column with the segment database id (an integer uniquely identifying the
-          segment) will be automatically inserted as first element of the iterable,
-          before writing it to file.
 
           SUPPORTED TYPES as elements of the returned iterable: any Python object, but
           we suggest to use only strings or numbers: any other object will be converted
           to string via `str(object)`: if this is not what you want, convert it to the
           numeric or string representation of your choice. E.g., for Python `datetime`s
-          you might want to set `datetime.isoformat()` (string), for ObsPy `UTCDateTime`s
-          `float(utcdatetime)` (numeric)
+          you might want to set `datetime.isoformat()` (string), for ObsPy
+          `UTCDateTime`s `float(utcdatetime)` (numeric)
 
        * For HDF output, this function must return a dict, pandas Series or pandas
          DataFrame that will be written as a row of the resulting file (or rows, in case
@@ -104,10 +116,6 @@ def main(segment, config):
 
          Returning None or nothing is also valid: in this case the segment will be
          silently skipped.
-
-         A column named '{{ SEGMENT_ID_COLNAME }}' with the segment database id (an integer
-         uniquely identifying the segment) will be automatically added to the dict /
-         Series, or to each row of the DataFrame, before writing it to file.
 
          SUPPORTED TYPES as elements of the returned dict/Series/DataFrame: all types
          supported by pandas:
@@ -118,9 +126,10 @@ def main(segment, config):
          https://pandas.pydata.org/pandas-docs/stable/user_guide/io.html#io-hdf5
 
     """
-    stream = segment.stream()
-    assert1trace(stream)  # raise and return if stream has more than one trace
-    trace = stream[0]  # work with the (surely) one trace now
+
+    assert1trace(segment)  # raise and return if stream has more than one trace
+    trace = segment[0]  # work with the (surely) one trace now
+    segment_meta: SegmentMetadata = trace.stats.segment_metadata
 
     # discard saturated signals (according to the threshold set in the config file):
     amp_ratio = np.true_divide(np.nanmax(np.abs(trace.data)), 2**23)
@@ -132,24 +141,51 @@ def main(segment, config):
     # WARNING: this modifies the segment.stream() permanently!
     # If you want to preserve the original stream, store trace.copy() beforehand
     try:
-        trace = bandpass_remresp(segment, config)
+        trace = bandpass_remresp(segment, station, segment_meta.event_magnitude, config)
     except (TypeError, ObsPyException, ValueError) as resp_error:
         raise SkipSegment("Error in 'bandpass_remresp': %s" % str(resp_error))
 
-    spectra = signal_noise_spectra(segment, config)
+    spectra = signal_noise_spectra(segment, segment_meta.arrival_time, config)
     normal_f0, normal_df, normal_spe = spectra['Signal']
     noise_f0, noise_df, noise_spe = spectra['Noise']
-    evt = segment.event
-    fcmin = mag2freq(evt.magnitude)
+    fcmin = mag2freq(segment_meta.event_magnitude)
     fcmax = config['bandpass']['freq_max']  # used in bandpass_remresp
-    snr_min_max = snr(normal_spe, noise_spe, signals_form=config['sn_spectra']['type'],
-                      fmin=fcmin, fmax=fcmax, delta_signal=normal_df, delta_noise=noise_df)
-    snr_min_1 = snr(normal_spe, noise_spe, signals_form=config['sn_spectra']['type'],
-                    fmin=fcmin, fmax=1, delta_signal=normal_df, delta_noise=noise_df)
-    snr_1_10 = snr(normal_spe, noise_spe, signals_form=config['sn_spectra']['type'],
-                   fmin=1, fmax=10, delta_signal=normal_df, delta_noise=noise_df)
-    snr_10_max = snr(normal_spe, noise_spe, signals_form=config['sn_spectra']['type'],
-                     fmin=10, fmax=fcmax, delta_signal=normal_df, delta_noise=noise_df)
+    snr_min_max = snr(
+        normal_spe,
+        noise_spe,
+        signals_form=config['sn_spectra']['type'],
+        fmin=fcmin,
+        fmax=fcmax,
+        delta_signal=normal_df,
+        delta_noise=noise_df
+    )
+    snr_min_1 = snr(
+        normal_spe,
+        noise_spe,
+        signals_form=config['sn_spectra']['type'],
+        fmin=fcmin,
+        fmax=1,
+        delta_signal=normal_df,
+        delta_noise=noise_df
+    )
+    snr_1_10 = snr(
+        normal_spe,
+        noise_spe,
+        signals_form=config['sn_spectra']['type'],
+        fmin=1,
+        fmax=10,
+        delta_signal=normal_df,
+        delta_noise=noise_df
+    )
+    snr_10_max = snr(
+        normal_spe,
+        noise_spe,
+        signals_form=config['sn_spectra']['type'],
+        fmin=10,
+        fmax=fcmax,
+        delta_signal=normal_df,
+        delta_noise=noise_df
+    )
     if snr_min_max < config['snr_threshold']:
         raise SkipSegment('low snr %f' % snr_min_max)
 
@@ -159,21 +195,26 @@ def main(segment, config):
     # Note above: copy=True prevent original trace from being modified
     # get times when cumulative reaches specific values/labels
     _cumlabels = [0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99]
-    _cumtimes = (timeof(cum_trace, i) for i in np.searchsorted(cum_trace.data, _cumlabels))
+    _cumtimes = (
+        timeof(cum_trace, i) for i in np.searchsorted(cum_trace.data, _cumlabels)
+    )
     cumtime = {c: t for c, t in zip(_cumlabels, _cumtimes)}
 
     # double event (heuristic algorithm to filter out malformed data)
     try:
-        (score, t_double, tt1, tt2) = \
-            get_multievent_sg(
-                cum_trace, cumtime[0.05], cumtime[0.95],
-                config['savitzky_golay'], config['multievent_thresholds']
-            )
+        score, t_double, tt1, tt2 = get_multievent_sg(
+            cum_trace,
+            cumtime[0.05],
+            cumtime[0.95],
+            config['savitzky_golay'],
+            config['multievent_thresholds']
+        )
     except IndexError as _ierr:
         raise SkipSegment("Error in 'get_multievent_sg': %s" % str(_ierr))
     if score in {1, 3}:
-        raise SkipSegment('Double event detected %d %s %s %s' %
-                         (score, t_double, tt1, tt2))
+        raise SkipSegment(
+            'Double event detected %d %s %s %s' % (score, t_double, tt1, tt2)
+        )
 
     # calculate PGA and times of occurrence (t_PGA):
     # note: you can also provide tstart tend for slicing
@@ -194,17 +235,24 @@ def main(segment, config):
         raise SkipSegment('Unable to compute PGV: ' + str(verr))
     t_PGV = timeof(trace_cut_vel, _argmax)
     PGV = trace_cut_vel.data[_argmax]
-    meanoff = meanslice(trace_cut_vel, 100, cumtime[0.05], trace_cut_vel.stats.endtime)
+    meanoff = meanslice(
+        trace_cut_vel,
+        100,
+        cumtime[0.05],
+        trace_cut_vel.stats.endtime
+    )
 
     # calculates amplitudes at the frequency bins given in the config file:
     required_freqs = config['freqs_interp']
     ampspec_freqs = normal_f0 + np.arange(len(normal_spe)) * normal_df
-    required_amplitudes = np.interp(np.log10(required_freqs),
-                                    np.log10(ampspec_freqs),
-                                    normal_spe) / segment.sample_rate
+    required_amplitudes = np.interp(
+        np.log10(required_freqs),
+        np.log10(ampspec_freqs),
+        normal_spe
+    ) / trace.stats.sampling_rate
 
     # compute synthetic WA
-    trace_wa = synth_wood_anderson(trace.copy(), segment.inventory(), config)
+    trace_wa = synth_wood_anderson(trace.copy(), config)
     try:
         _argmax = np.nanargmax(np.abs(trace_wa.data))
     except ValueError as verr:
@@ -224,8 +272,8 @@ def main(segment, config):
     for _cumlabel in [0.05, 0.5, 0.95]:
         ret['cumtime__%.2f' % _cumlabel] = cumtime[_cumlabel].datetime
 
-    ret['dist_deg'] = segment.event_distance_deg        # dist
-    ret['dist_km'] = d2km(segment.event_distance_deg)  # dist_km
+    ret['dist_deg'] = segment_meta.event_distance_deg        # dist
+    ret['dist_km'] = segment_meta.event_distance_km  # dist_km
     # t_PGA is a obspy UTCDateTime. This type is not supported in HDF output, thus
     # convert it to Python datetime. Note that in CSV output, the value will be written
     # as str(t_PGA.datetime): another option might be to store it as string with
@@ -238,22 +286,22 @@ def main(segment, config):
     # (for t_WA, see note above for t_PGA)
     ret['t_WA'] = t_WA.datetime
     ret['maxWA'] = maxWA
-    ret['channel'] = segment.channel.channel
-    ret['channel_component'] = segment.channel.channel[-1]
+    ret['channel'] = segment_meta.channel_code
+    ret['channel_component'] = segment_meta.orientation_code
     # event metadata:
-    ret['ev_id'] = segment.event.id
-    ret['ev_lat'] = segment.event.latitude
-    ret['ev_lon'] = segment.event.longitude
-    ret['ev_dep'] = segment.event.depth_km
-    ret['ev_mag'] = segment.event.magnitude
-    ret['ev_mty'] = segment.event.mag_type
+    ret['ev_id'] = segment_meta.event_id
+    ret['ev_lat'] = segment_meta.event_latitude
+    ret['ev_lon'] = segment_meta.event_longitude
+    ret['ev_dep'] = segment_meta.event_depth_km
+    ret['ev_mag'] = segment_meta.event_magnitude
+    ret['ev_mty'] = segment_meta.event_magnitude_type
     # station metadata:
-    ret['st_id'] = segment.station.id
-    ret['st_name'] = segment.station.station
-    ret['st_net'] = segment.station.network
-    ret['st_lat'] = segment.station.latitude
-    ret['st_lon'] = segment.station.longitude
-    ret['st_ele'] = segment.station.elevation
+    # ret['st_id'] = segment.station.id
+    ret['st_name'] = segment_meta.station_code
+    ret['st_net'] = segment_meta.network_code
+    ret['st_lat'] = segment_meta.latitude
+    ret['st_lon'] = segment_meta.longitude
+    ret['st_ele'] = segment_meta.elevation
     ret['score'] = score
     ret['d2max'] = float(tt1)
     ret['offset'] = np.abs(meanoff/PGV)
@@ -263,34 +311,63 @@ def main(segment, config):
     return ret
 
 
-def assert1trace(stream):
+def assert1trace(segment: Stream):
     """Assert the stream has only one trace, raising an Exception if it's not the case,
     as this is the pre-condition for all processing functions implemented here.
     Note that, due to the way we download data, a stream with more than one trace his
     most likely due to gaps / overlaps
     """
     # stream.get_gaps() is slower as it does more than checking the stream length
-    if len(stream) != 1:
-        raise SkipSegment("%d traces (probably gaps/overlaps)" % len(stream))
+    if len(segment) != 1:
+        raise SkipSegment("%d traces (probably gaps/overlaps)" % len(segment))
 
 
-def bandpass_remresp(segment, config):
-    """{{ PROCESS_PY_BANDPASSFUNC | indent }}
+def bandpass_remresp(stream, inventory, magnitude, config):
     """
-    stream = segment.stream()
+    Apply a pre-process on the given segment waveform by filtering the signal and
+    removing the instrumental response, returning a new Trace in acceleration unit
+    (meters/second**2)
+
+    This function is used for processing (see `main` function) and visualization
+    (see the `@gui.preprocess` decorator and its documentation above)
+
+    The steps performed are:
+    1. Sets the max frequency to 0.9 of the Nyquist frequency (sampling rate /2)
+       (slightly less than Nyquist seems to avoid artifacts)
+    2. Offset removal (subtract the mean from the signal)
+    3. Tapering
+    4. Pad data with zeros at the END in order to accommodate the filter transient
+    5. Apply bandpass filter, where the lower frequency is magnitude dependent
+    6. Remove padded elements
+    7. Remove the instrumental response. For info see:
+       https://docs.obspy.org/packages/autogen/obspy.core.trace.Trace.remove_response.html
+
+    IMPORTANT: This function modifies the segment stream in-place: further calls to
+    `segment.stream()` will return the pre-processed stream. If needed, you
+    can store the raw stream beforehand (`raw_trace=segment.stream().copy()`)
+
+    :return: a Trace object
+    """
     assert1trace(stream)  # raise and return if stream has more than one trace
     trace = stream[0]
 
-    inv = segment.inventory()
-
     # define some parameters:
-    evt = segment.event
     bp_conf = config['bandpass']
     # note: bandpass here below copied the trace! important!
-    trace = bandpass(trace, mag2freq(evt.magnitude), freq_max=bp_conf['freq_max'],
-                     max_nyquist_ratio=bp_conf['max_nyquist_ratio'],
-                     corners=bp_conf['corners'], copy=False)
-    trace.remove_response(inventory=inv, output='ACC', water_level=None, pre_filt=None)
+    trace = bandpass(
+        trace,
+        mag2freq(magnitude),
+        freq_max=bp_conf['freq_max'],
+        max_nyquist_ratio=bp_conf['max_nyquist_ratio'],
+        corners=bp_conf['corners'],
+        copy=False
+    )
+    trace.remove_response(
+        inventory=inventory,
+        output='ACC',
+        water_level=None,
+        pre_filt=None
+    )
     return trace
 
 
@@ -367,7 +444,9 @@ def savitzky_golay(y, window_size, order, deriv=0, rate=1):
     order_range = range(order+1)
     half_window = (window_size-1) // 2
     # precompute coefficients
-    b = np.mat([[k**i for i in order_range] for k in range(-half_window, half_window+1)])
+    b = asmatrix(
+        [[k**i for i in order_range] for k in range(-half_window, half_window+1)]
+    )
     m = np.linalg.pinv(b).A[deriv] * rate**deriv * factorial(deriv)
     # pad the signal at the extremes with
     # values taken from the signal itself
@@ -377,13 +456,15 @@ def savitzky_golay(y, window_size, order, deriv=0, rate=1):
     return np.convolve(m[::-1], y, mode='valid')
 
 
-def get_multievent_sg(cum_trace, tmin, tmax, sg_params, multievent_thresholds):
-    """Return the tuple (or a list of tuples, if the first argument is a stream) of the
+def get_multievent_sg(cum_trace: Trace, tmin, tmax, sg_params, multievent_thresholds):
+    """
+    Return the tuple (or a list of tuples, if the first argument is a stream) of the
     values (score, UTCDateTime of arrival)
-    where scores is: 0: no double event, 1: double event inside tmin_tmax,
-        2: double event after tmax, 3: both double event previously defined are detected
-    If score is 2 or 3, the second argument is the UTCDateTime denoting the occurrence of
-    the first sample triggering the double event after tmax
+    where scores is:
+    0: no double event, 1: double event inside tmin_tmax, 2: double event after tmax,
+    3: both double event previously defined are detected
+    If score is 2 or 3, the second argument is the UTCDateTime denoting the occurrence
+    of the first sample triggering the double event after tmax
     """
     if tmin is not None:
         tmin = UTCDateTime(tmin)
@@ -416,8 +497,9 @@ def get_multievent_sg(cum_trace, tmin, tmax, sg_params, multievent_thresholds):
     result = 0
 
     # case A: see if after tmax we exceed a threshold
-    indices = np.where(second_derivs[1] >=
-                       multievent_thresholds['after_tmax_inpercent'])[0]
+    indices = np.where(
+        second_derivs[1] >= multievent_thresholds['after_tmax_inpercent']
+    )[0]
     if len(indices):
         result = 2
 
@@ -426,8 +508,9 @@ def get_multievent_sg(cum_trace, tmin, tmax, sg_params, multievent_thresholds):
     deltatime = 0
     starttime = tmin
     endtime = None
-    indices = np.where(second_derivs[0] >=
-                       multievent_thresholds['inside_tmin_tmax_inpercent'])[0]
+    indices = np.where(
+        second_derivs[0] >= multievent_thresholds['inside_tmin_tmax_inpercent']
+    )[0]
     if len(indices) >= 2:
         idx0 = indices[0]
         starttime = timeof(traces[0], idx0)
@@ -440,7 +523,7 @@ def get_multievent_sg(cum_trace, tmin, tmax, sg_params, multievent_thresholds):
     return result, deltatime, starttime, endtime
 
 
-def synth_wood_anderson(trace, inventory, config):
+def synth_wood_anderson(trace: Trace, config: dict):
     """Low-level function to calculate the synthetic wood-anderson of `trace` (which
     must be in acceleration units, see `bandpass_remresp`). The dict
     `config['simulate_wa']` must be implemented and houses the Wood-Anderson parameters:
@@ -460,18 +543,19 @@ def synth_wood_anderson(trace, inventory, config):
     return trace.simulate(paz_remove=None, paz_simulate=config_wa)
 
 
-def signal_noise_spectra(segment, config):
+def signal_noise_spectra(segment: Stream, arrival_time: datetime, config: dict):
     """Compute the signal and noise spectra, as dict of strings mapped to tuples
     (x0, dx, y). Does not modify the segment's stream or traces in-place
 
     :return: a dict with two keys, 'Signal' and 'Noise', mapped respectively to the
         tuples (f0, df, frequencies)
     """
-    arrival_time = UTCDateTime(segment.arrival_time) + \
-                   config['sn_windows']['arrival_time_shift']
+    arrival_time = (
+        UTCDateTime(arrival_time) + config['sn_windows']['arrival_time_shift']
+    )
     win_len = config['sn_windows']['signal_window']
     # assumes stream has only one trace:
-    signal_trace, noise_trace = sn_split(segment.stream()[0], arrival_time, win_len)
+    signal_trace, noise_trace = sn_split(segment[0], arrival_time, win_len)
     x0_sig, df_sig, sig = _spectrum(signal_trace, config)
     x0_noi, df_noi, noi = _spectrum(noise_trace, config)
     return {'Signal': (x0_sig, df_sig, sig), 'Noise': (x0_noi, df_noi, noi)}
@@ -504,8 +588,9 @@ def _spectrum(trace, config):
 
 
 def meanslice(trace, nptmin=100, starttime=None, endtime=None):
-    """Return the numpy nanmean of the trace data, optionally slicing the trace first.
-    If the trace number of points is lower than `nptmin`, returns NaN (numpy.nan)
+    """
+    Return the mean (ignoring NaNs) of the trace data, optionally slicing the trace
+    first. If the trace number of points is lower than `nptmin`, returns NaN (numpy.nan)
     """
     if starttime is not None or endtime is not None:
         trace = trace.slice(starttime, endtime)
@@ -566,7 +651,8 @@ if __name__ == "__main__":
 
     from stream2segment.process import imap, process
 
-    # run imap or process here. Example with process:
+    # run imap or process here. Example with process (see function `main` at the top
+    # of the module, that you can modify as you wish):
     process(main, dburl, segments_selection=segments_selection, config=config,
             outfile=outfile, append=append, writer_options=writer_options,
             logfile=logfile, verbose=verbose, multi_process=multiprocess,

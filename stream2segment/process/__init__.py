@@ -3,9 +3,10 @@
 # from stream2segment.process.db.models import (Segment, Event, Station, Channel,
 #                                               Download, Class, WebService)
 from stream2segment.process.sqlevalexpr import exprquery
-from stream2segment.process.main import (process, imap, SkipSegment,  # noqa
-                                         get_default_segments_selection,
-                                         create_processing_env as _create_processing_env)
+from stream2segment.process.main import (
+    process, imap, SkipSegment,  get_default_segments_selection,
+    SegmentMetadata, create_processing_env
+)
 from stream2segment.process.funclib import traces
 
 

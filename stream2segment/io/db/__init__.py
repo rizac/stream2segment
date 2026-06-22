@@ -93,7 +93,8 @@ def database_exists(engine: Engine):
     if is_sqlite(db_url, in_memory=False):
         # Sqlite file. 'select 1' below might create a db if it does not exist. So:
         file_path = db_url.removeprefix(sqlite_prefix)
-        return os.path.isfile(file_path)
+        if not os.path.isfile(file_path):
+            return False
 
     try:
         with engine.connect() as conn:  # noqa

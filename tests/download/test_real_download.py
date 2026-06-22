@@ -7,6 +7,8 @@ import os
 import shutil
 from collections import namedtuple
 from datetime import datetime, timedelta
+from io import StringIO
+from pathlib import Path
 from urllib.request import Request, urlopen
 from unittest.mock import patch
 
@@ -26,13 +28,16 @@ from stream2segment.download.main import _nothing_to_download_msg
 from stream2segment.download.stationsearch import (
     _no_station_found_within_search_area_msg
 )
-# from stream2segment.download.main import (
-#     download_and_save as original_download_download_save_segments
-# )
+from stream2segment.download.inputvalidation import (
+    get_engine as original_get_engine
+)
+from stream2segment.download.main import (
+    create_log_handlers as original_create_log_handlers
+)
 from stream2segment.download.utils import NoSegmentsToDownload, FailedDownload
 from stream2segment.download.inputvalidation import load_input as original_load_input
 from stream2segment.cli import cli
-from stream2segment.io.db import is_sqlite
+from stream2segment.io.db import is_sqlite, is_postgres
 from stream2segment.io.db.models import (
     Event, Channel, Segment, StationXML, QuakeML, SkippedSegment
 )
@@ -46,6 +51,70 @@ download_channels_path = 'stream2segment.download.channels.download_channels'
 get_events_path = 'stream2segment.download.main.get_events'
 read_url_path = "stream2segment.download.url.read_url"
 load_input_path = 'stream2segment.download.main.load_input'
+
+
+# intercept all create_engine calls in download and inject as input the db url
+# specified in the pytest options:
+
+@pytest.fixture
+def db(db_url):
+    """
+    create the db fixture (invoked once per db_url provided as
+    option in pytest command line)
+    """
+    return namedtuple(
+        "DB", ["url", "engine", "is_postgres", "is_sqlite"]
+    )(db_url, original_get_engine(db_url), is_postgres(db_url), is_sqlite(db_url))
+
+
+@pytest.fixture(autouse=True)
+def patch_engine(db):
+    """
+    inject our db url in create_engine. This fixture is auto executed
+    for each module test X each url passed as option in pytest command line
+    """
+    with patch(
+        "stream2segment.download.inputvalidation.get_engine",
+        return_value=db.engine,
+    ):
+        yield
+
+# intercept all create_log_handlers calls in download and inject as input a tmpfile
+
+@pytest.fixture
+def log_file(tmp_path):
+    """create the log tmp file"""
+    return tmp_path / 'test.log'
+
+
+@pytest.fixture(autouse=True)
+def patch_create_logger(log_file: Path):
+    """
+    inject our tmp log file path in create_log_handlers. This fixture is auto executed
+    for each module test
+    """
+    def wrapper(log_file_path, verbose):
+        if log_file_path:
+            log_file_path = log_file
+        return original_create_log_handlers(log_file_path, verbose)
+
+    with patch(
+        "stream2segment.download.main.create_log_handlers", side_effect=wrapper
+    ):
+        yield
+
+
+@pytest.fixture
+def log_capture(log_file: Path):
+    """create the log content fixture, accessible as log_capture.getvalue()"""
+    class StringIOProxy:
+        def getvalue(self):
+            return log_file.read_text()
+
+    return StringIOProxy()
+
+
+# ======== ACTUAL TESTS: ================================
 
 
 @patch(get_channels_path)
@@ -620,7 +689,8 @@ def test_real_download_segments_with_credentials(
 
     # delete segments table otheerwise we do not hit segments download
     with db.engine.begin() as conn:
-        Segment.__table__.drop(conn)
+        conn.execute(Segment.__table__.delete())
+
     with (patch(load_input_path) as _):
         def load_input(config_file_path: str, **override_params):
             override_params['credentials'] = str(test_data_dir / 'eidatoken')
@@ -712,7 +782,7 @@ def test_download_iris_caltec_up_to_segments_tmp(
     asd = 9
 
 
-def test_download_real_db(db_urls, tmp_path, test_data_dir, log_capture):
+def test_download_real_db(db_url, tmp_path, test_data_dir, log_capture):
 
     cfg_file = tmp_path / "download-iris-caltec-500.yaml"
     shutil.copyfile(test_data_dir / cfg_file.name, cfg_file)
@@ -720,28 +790,22 @@ def test_download_real_db(db_urls, tmp_path, test_data_dir, log_capture):
     curr_dir = os.getcwd()
     os.chdir(str(tmp_path))
 
-    # if we do not have a sqlite with disk file set, set it:
-    if not any(is_sqlite(u, in_memory=True) for u in db_urls):
-        db_urls = list(db_urls) + [f"sqlite:///./{cfg_file}.sqlite"]
-
     # now we have sqlite (to file) + anything else passed as option in the cli
     try:
-        for url in db_urls:
-            if is_sqlite(url, in_memory=True):  # skip in mem sqlite
-                continue
+        if is_sqlite(db_url, in_memory=True):  # skip in mem sqlite
+            pytest.skip('Im memory sqlite')
 
-            result = CliRunner().invoke(
-                cli, [
-                    'download', '-c', str(cfg_file),
-                    '--dburl', url,
-                    '--start', "2019-07-06T00:00:00",
-                    '--end', "2019-07-07T00:00:00",
-                    '--sta', "VOC,VOB,25282",
-                    '--cha', 'HNZ'
-                ]
-            )
-            assert result.exit_code == 0
-
+        result = CliRunner().invoke(
+            cli, [
+                'download', '-c', str(cfg_file),
+                '--dburl', db_url,
+                '--start', "2019-07-06T00:00:00",
+                '--end', "2019-07-07T00:00:00",
+                '--sta', "VOC,VOB,25282",
+                '--cha', 'HNZ'
+            ]
+        )
+        assert result.exit_code == 0
 
     finally:
         os.chdir(curr_dir)
