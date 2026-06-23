@@ -321,7 +321,7 @@ def imap(
                 time.sleep(0.5)
                 pbar.render_progress()
 
-            exec_process_func_args = (
+            exec_processing_func_args = (
                 (pyfunc, args, config, skip_exceptions) for args in get_segments(
                     engine,
                     segments_selection,
@@ -335,7 +335,7 @@ def imap(
 
             if not num_processes:
                 for (output, is_ok, ids) in map(
-                    execute_process_function, exec_process_func_args
+                    execute_processing_function, exec_processing_func_args
                 ):
                     pbar.update(len(ids))
                     if is_ok:
@@ -356,7 +356,7 @@ def imap(
                     try:
 
                         for (output, is_ok, ids) in pool.imap_unordered(
-                            execute_process_function, exec_process_func_args
+                            execute_processing_function, exec_processing_func_args
                         ):
                             pbar.update(len(ids))
                             if is_ok:
@@ -707,7 +707,7 @@ def get_default_segments_selection():
     }
 
 
-def execute_process_function(args: tuple[
+def execute_processing_function(args: tuple[
     Callable[[Stream, Inventory | None, Event | None, dict], Any],
     tuple[Stream, Inventory | None, Event | None],
     dict,
