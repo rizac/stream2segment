@@ -28,10 +28,10 @@ from obspy.core.event import Event
 from obspy.core.util.obspy_types import ObsPyException
 from stream2segment.process import SkipSegment, SegmentMetadata
 # functions to show how to import them:
-from stream2segment.process.funclib.traces import (
+from stream2segment.process.traces import (
     bandpass, cumsumsq, ampspec, powspec, timeof, sn_split
 )
-from stream2segment.process.funclib.ndarrays import triangsmooth, snr
+from stream2segment.process.ndarrays import triangsmooth, snr
 
 
 def main(
@@ -649,7 +649,7 @@ if __name__ == "__main__":
     # segment chunk size to load. Type help(process) on terminal or notebook for details.
     chunksize = None
 
-    from stream2segment.process import imap, process
+    from stream2segment.process import process
 
     # run imap or process here. Example with process (see function `main` at the top
     # of the module, that you can modify as you wish):

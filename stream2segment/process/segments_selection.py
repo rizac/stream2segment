@@ -54,7 +54,7 @@ def build_where_clause(conditions: dict) -> ColumnElement[bool]:
             # note that expressions MUST be strings
             continue
         if attname not in base_attrs:
-            raise AttributeError('Column "{attname}" not found in DB')
+            raise AttributeError(f'Column "{attname}" not found in DB')
 
         condition = binexpr(base_attrs[attname], expression)
         if parsed_conditions is None:
@@ -72,7 +72,7 @@ def binexpr(column, expr):
     :func:`stream2segment.io.db.sqlevalexpr.split` and the types given in
     `parsevals`: (`int`s, `float`s, `datetime`s, `bool`s and `str`s)
 
-    :param column: an sqlkalchemy model column
+    :param column: a sqlalchemy model column
     :param expr: a string expression (see `split`)
 
     Example:
@@ -108,7 +108,7 @@ def binexpr(column, expr):
                 raise ValueError("Invalid operator %s" % operator)
             return cond
     except (AssertionError, ValueError, IndexError, AttributeError, TypeError):
-        raise ValueError("Invalid expression for column '%s': %s" % (column, expr))
+        raise ValueError(f"Invalid expression for column '{column}': {expr}")
 
 
 def split(expr):

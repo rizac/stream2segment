@@ -2,6 +2,7 @@
 Module handling the Writers, i.e. classes handling the IO operation from the
 processing function into a file
 """
+from collections.abc import Iterable
 # 22 May 2018
 from pathlib import Path
 
@@ -20,7 +21,7 @@ def get_writer(
     if output_file is None:
         return BaseWriter(output_file, append)
     file_ext = Path(output_file).suffix.lower()
-    if  file_ext in hdf_file_extensions:
+    if file_ext in hdf_file_extensions:
         return HDFWriter(output_file, append, options)
     return CsvWriter(output_file, append, options)
 
@@ -34,19 +35,34 @@ class BaseWriter:
         self.file_handle = None  # must have a close method
         self.options = {} if options is None else options
 
-    def write(self, result: dict | pd.Series | pd.DataFrame | list[dict | pd.Series]):
+    def convert_to_df(
+        self, result: dict | pd.Series | pd.DataFrame | list[dict | pd.Series]
+    ):
         """Core function to write a processed segment result to the specified
         output
         """
-        if (
-            isinstance(result, (pd.DataFrame, dict, pd.Series)) or
-            (
-                isinstance(result, list) and
-                all(isinstance(r, (pd.DataFrame, dict, pd.Series)) for r in result)
-            )
-        ):
-            return
-        raise ValueError(f'Cannot write objects of type {type(result)}')
+        invalid = None
+        if isinstance(result, pd.DataFrame):
+            yield result
+        elif isinstance(result, (dict, pd.Series)):
+            yield pd.DataFrame([result])
+        elif isinstance(result, (list, tuple, set)):
+            for res in result:
+                if isinstance(res, pd.DataFrame):
+                    yield res
+                elif isinstance(res, (dict, pd.Series)):
+                    yield pd.DataFrame([res])
+                else:
+                    invalid = res
+                    break
+        else:
+            invalid = result
+
+        if invalid is not None:
+            raise ValueError(f'Cannot write objects of type {type(invalid)}')
+
+    def write(self, result: dict | pd.Series | pd.DataFrame | list[dict | pd.Series]):
+        pass  # no-op
 
     def __enter__(self):
         """Opens file handler"""
@@ -104,7 +120,7 @@ class CsvWriter(BaseWriter):
         self.file_handle = open(
             str(self.output_file),
             'a' if self.append else 'w',
-            buffering=10, # buffering=1: flush 10 lines
+            # buffering=10, # buffering=1: flush 10 lines
             encoding='utf-8',
             errors='replace',
             newline=''
@@ -112,19 +128,14 @@ class CsvWriter(BaseWriter):
         return self
 
     def write(self, result: dict | pd.Series | pd.DataFrame | list[dict | pd.Series]):
-        super().write(result)  # just to check type
 
-        if isinstance(result, (pd.Series, dict)):
-            result = pd.DataFrame([result])
-        elif isinstance(result, list):
-            result = pd.DataFrame(result)
-
-        result.to_csv(
-            self.file_handle,
-            header=self.file_handle.tell() == 0,
-            index=False,
-            **self.options
-        )
+        for res in self.convert_to_df(result):
+            res.to_csv(
+                self.file_handle,
+                header=self.file_handle.tell() == 0,
+                index=False,
+                **self.options
+            )
 
 
 class HDFWriter(BaseWriter):
@@ -157,12 +168,6 @@ class HDFWriter(BaseWriter):
         return self
 
     def write(self, result: dict | pd.Series | pd.DataFrame | list[dict | pd.Series]):
-        super().write(result)  # just to check type
-        if isinstance(result, list):
-            result = pd.DataFrame(result)
-
-        if isinstance(result, (dict, pd.Series)):
-            result = pd.DataFrame([result])
-
-        self.file_handle.append(value=result, **self.options)
+        for res in self.convert_to_df(result):
+            self.file_handle.append(value=res, **self.options)
 

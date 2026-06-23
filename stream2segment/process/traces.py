@@ -18,7 +18,7 @@ import numpy as np
 
 from obspy.core import Trace, UTCDateTime  # , Stats
 
-from stream2segment.process.funclib.ndarrays import fft as _fft, ampspec as _ampspec,\
+from stream2segment.process.ndarrays import fft as _fft, ampspec as _ampspec,\
     powspec as _powspec, cumsumsq as _cumsumsq, dfreq, freqs, \
     ResponseSpectrum as _ResponseSpectrum, NewmarkBeta as _NewmarkBeta, \
     NigamJennings as _NigamJennings

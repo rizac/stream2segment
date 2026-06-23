@@ -66,21 +66,18 @@ function's returned value which *must* be either:
   https://plotly.com/javascript/reference/)
 - a list of any object type described above
 """
-from datetime import datetime, timedelta
-from math import factorial  # for savitzky_golay function
 
 # import numpy for efficient computation:
-import numpy as np
 # import obspy core classes (when working with times, use obspy UTCDateTime when
 # possible):
-from obspy import Trace, Stream, UTCDateTime
+from obspy import UTCDateTime
 # decorators needed to setup this module @gui.preprocess @gui.plot:
 from stream2segment.process import gui
 # stream2segment functions for processing obspy Traces:
-from stream2segment.process.funclib.traces import bandpass, cumsumsq,\
-    fft, ampspec, powspec, timeof, sn_split
+from stream2segment.process.traces import bandpass, cumsumsq, \
+    ampspec, powspec, sn_split
 # stream2segment function for processing numpy arrays:
-from stream2segment.process.funclib.ndarrays import triangsmooth, snr
+from stream2segment.process.ndarrays import triangsmooth
 
 
 def assert1trace(stream):

@@ -7,7 +7,7 @@ from stream2segment.process.main import (
     process, imap, SkipSegment,  get_default_segments_selection,
     SegmentMetadata, create_processing_env
 )
-from stream2segment.process.funclib import traces
+from stream2segment.process import traces
 
 
 # # legacy code, allow map to be imported as `process`:

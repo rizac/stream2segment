@@ -67,7 +67,7 @@ def process(
     outfile: str | Path = None,
     append=False,
     writer_options=None,
-    logfile: str | Path = '',
+    logfile: str | Path | bool = '',
     verbose=False,
     multi_process=False,
     chunksize: int | None = None,
@@ -176,23 +176,21 @@ def process(
             raise BadParam('invalid output file path (check parent dir)')
         outfile = Path(outfile).resolve()
 
-    if config is None:
-        config = {}
-
     writer = get_writer(outfile, append, writer_options)
 
     num_ok = 0
     with writer:
 
-        logger.info(
-            ascii_decorate("\n".join([
-                f"Input database:      {secure_dburl(dburl)}",
-                f"Output file:         {str(outfile) if outfile else 'n/a'}",
-                f"Processing function: {pyfile or 'n/a'}",
-                f"Log file:            {str(logfile) if logfile else 'n/a'}",
-                f"Config. file:        {str(cfg_file) if cfg_file else 'n/a'}"
-            ]))
-        )
+        if verbose:
+            print(
+                ascii_decorate("\n".join([
+                    f"Input database:      {secure_dburl(dburl)}",
+                    f"Output file:         {str(outfile) if outfile else 'n/a'}",
+                    f"Processing function: {pyfile or 'n/a'}",
+                    f"Log file:            {str(logfile) if logfile else 'n/a'}",
+                    f"Config. file:        {str(cfg_file) if cfg_file else 'n/a'}"
+                ]))
+            )
 
         for output in imap(
             pyfunc,
@@ -217,9 +215,9 @@ def process(
 def imap(
     pyfunc: Callable,
     dburl: str,
-    segments_selection: dict | None=None,
+    segments_selection: dict | None = None,
     group_components: bool = False,
-    config: dict | None=None,
+    config: str | Path | dict | None = None,
     logfile: str='',
     verbose=False,
     multi_process=False,
@@ -269,7 +267,7 @@ def imap(
     """
 
     # check params:
-    if isinstance(config, str):
+    if isinstance(config, (str, Path)):
         try:
             with open(config) as _config:
                 config = yaml.safe_load(_config)
@@ -435,10 +433,7 @@ def get_engine(db_url: str) -> Engine:
     return create_engine(db_url, check_db_existence=True)
 
 
-def build_select(
-    where_conditions: dict | None = None,
-    segments_only: bool = False
-):
+def build_select(where_conditions: dict | None = None):
     """
     build select statement with provided where_conditions
     """
@@ -480,43 +475,9 @@ def build_select(
         .join(Event, Event.id == Segment.event_id)
         .join(MiniSeed, MiniSeed.id == Segment.id)
     )
-    # if segments_only:
-    #     stmt = (
-    #         select(
-    #             Segment.id,
-    #             MiniSeed.data.label("mseed"),
-    #             Channel,
-    #             Event
-    #         )
-    #         .select_from(Segment)
-    #         .join(Channel, Channel.id == Segment.channel_id)
-    #         .join(Event, Event.id == Segment.event_id)
-    #         .join(MiniSeed, MiniSeed.id == Segment.id)
-    #     )
-    #
-    # else:
-    #     stmt = (
-    #         select(
-    #             Segment.id,
-    #             MiniSeed.data.label("mseed"),
-    #             Channel,
-    #             Event,
-    #             StationXML.id.label("stationxml_id"),
-    #             QuakeML.id.label("quakeml_id")
-    #         )
-    #         .select_from(Segment)
-    #         .join(Channel, Channel.id == Segment.channel_id)
-    #         .join(Event, Event.id == Segment.event_id)
-    #         .join(MiniSeed, MiniSeed.id == Segment.id)
-    #         .outerjoin(StationXML, StationXML.id == Channel.stationxml_id)
-    #         .outerjoin(QuakeML, QuakeML.id == Event.id)
-    #     )
 
     if where_conditions:
         stmt = stmt.where(build_where_clause(where_conditions))
-
-    # if not segments_only:
-    #     stmt = stmt.where(Channel.stationxml_id.isnot(None))
 
     return stmt
 
@@ -549,7 +510,7 @@ def get_segments(
 
     buffer = []
     last_key = None
-    stmt_base = build_select(where_condition, segments_only).order_by(*orderby_columns)
+    stmt_base = build_select(where_condition).order_by(*orderby_columns)
 
     if chunksize is None:
         chunksize = estimate_buffer_size(50)
@@ -723,7 +684,9 @@ def db_to_obspy(
             event_depth_km=db_row.event_depth_km,
             event_time=db_row.event_time,
             event_magnitude=db_row.event_magnitude,
-            event_magnitude_type=db_row.event_magnitude_type
+            event_magnitude_type=db_row.event_magnitude_type,
+            noise_window_s=(arrival_time - start_time).total_seconds(),
+            signal_window_s=(end_time-arrival_time).total_seconds()
         )
         for t in _stream:
             t.stats.segment_metadata = s_meta
@@ -785,8 +748,8 @@ class SegmentMetadata:
     event_time: datetime
     event_magnitude: float
     event_magnitude_type: str
-    # noise_window_s: float
-    # signal_window_s: float
+    noise_window_s: float
+    signal_window_s: float
 
     @property
     def event_distance_deg(self) -> float:
