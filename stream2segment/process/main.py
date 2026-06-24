@@ -433,44 +433,48 @@ def get_engine(db_url: str) -> Engine:
     return create_engine(db_url, check_db_existence=True)
 
 
-def build_select(where_conditions: dict | None = None):
+def build_select(where_conditions: dict | None = None, group_components:bool = False):
     """
     build select statement with provided where_conditions
     """
+    select_cols = [
+        Segment.id,
+        Segment.noise_window_s,
+        Segment.signal_window_s,
+        MiniSeed.data,
+        # Channel stuff:
+        Segment.channel_id,
+        Channel.data_webservice_id,
+        Channel.stationxml_id,
+        Channel.network_code,
+        Channel.station_code,
+        Channel.latitude,
+        Channel.longitude,
+        Channel.elevation,
+        Channel.depth,
+        Channel.azimuth,
+        Channel.dip,
+        # event stuff:
+        Segment.event_id,
+        Event.webservice_id.label('event_webservice_id'),
+        Event.time.label('event_time'),
+        Event.latitude.label('event_latitude'),
+        Event.longitude.label('event_longitude'),
+        Event.depth_km.label('event_depth_km'),
+        Event.mag_type.label('event_magnitude_type'),
+        Event.magnitude.label('event_magnitude'),
+    ]
+
+    if group_components:
+        select_cols += [
+            Channel.location_code,
+            Channel.band_code,
+            Channel.instrument_code
+        ]
+
     stmt = (
-        select(
-            Segment.id,
-            Segment.noise_window_s,
-            Segment.signal_window_s,
-            MiniSeed.data,
-            Channel.id.label('channel_id'),
-            Channel.data_webservice_id,
-            Channel.stationxml_id ,
-            # Channel.network_code,
-            # Channel.station_code,
-            Channel.latitude,
-            Channel.longitude,
-            Channel.elevation,
-            # Channel.start_time,
-            # Channel.location_code,
-            # Channel.band_code,
-            # Channel.instrument_code ,
-            # Channel.orientation_code,
-            Channel.depth,
-            Channel.azimuth,
-            Channel.dip,
-            # Channel.sample_rate.label('channel_sample_rate'),
-            Event.id.label('event_id'),
-            # Event.webservice_id,
-            # Event.eventid,
-            Event.time.label('event_time'),
-            Event.latitude.label('event_latitude'),
-            Event.longitude.label('event_longitude'),
-            Event.depth_km.label('event_depth_km'),
-            Event.mag_type.label('event_magnitude_type'),
-            Event.magnitude.label('event_magnitude'),
-        )
-        .select_from(Segment)
+        select(*select_cols)
+        .select_from(Segment)  # probably unnecessary, set main table for clarity
         .join(Channel, Channel.id == Segment.channel_id)
         .join(Event, Event.id == Segment.event_id)
         .join(MiniSeed, MiniSeed.id == Segment.id)
@@ -495,8 +499,6 @@ def get_segments(
     else:
         engine = db
 
-    orderby_columns = (Channel.stationxml_id, Segment.event_id, Segment.id)
-
     if group_components:
         orderby_columns = (
             Channel.network_code,
@@ -504,13 +506,22 @@ def get_segments(
             Channel.location_code,
             Channel.instrument_code,
             Channel.band_code,
-            Event.id,
+            Segment.event_id,
+            Segment.id
+        )
+    else:
+        orderby_columns = (
+            Channel.network_code,
+            Channel.station_code,
+            Segment.event_id,
             Segment.id
         )
 
     buffer = []
     last_key = None
-    stmt_base = build_select(where_condition).order_by(*orderby_columns)
+    stmt_base = build_select(
+        where_condition, group_components
+    ).order_by(*orderby_columns)
 
     if chunksize is None:
         chunksize = estimate_buffer_size(50)
@@ -528,49 +539,42 @@ def get_segments(
         if not rows:
             break
 
+        last_key = tuple(getattr(rows[-1], c.key) for c in orderby_columns)
+        # (c.key resolves to c.label, if a label is set, otherwise column name)
+
         if not group_components:
-            last_key = (rows[-1].stationxml_id, rows[-1].event_id, rows[-1].id)
             for r in rows:
                 yield db_to_obspy(engine, segments_only, r)
-            continue
 
-        buffer.extend(rows)
+        else:
+            buffer.extend(rows)
 
-        split_idx = len(buffer) - 1
-        while split_idx > 0 and same_group(rows[split_idx], rows[split_idx - 1]):
-            split_idx -= 1
+            split_idx = len(buffer) - 1
+            while split_idx > 0 and same_group(buffer[split_idx], buffer[split_idx - 1]):
+                split_idx -= 1
 
-        if split_idx == 0:
-            continue
+            if split_idx == 0:
+                continue
 
-        to_yield = buffer[:split_idx]
-        buffer = buffer[split_idx:]
+            to_yield = buffer[:split_idx]
+            buffer = buffer[split_idx:]
 
-        last_key = (
-            rows[-1].Channel.network_code,
-            rows[-1].Channel.station_code,
-            rows[-1].Channel.location_code,
-            rows[-1].Channel.instrument_code,
-            rows[-1].Channel.band_code,
-            rows[-1].event_id,
-            rows[-1].id,
-        )
-        for r in split_in_same_group_chunks(to_yield):
-            yield db_to_obspy(engine, segments_only, *r)
+            for r in split_in_same_group_chunks(to_yield):
+                yield db_to_obspy(engine, segments_only, *r)
 
     if buffer:
-        # surely group by orientation:
+        # if buffer => we surely grouped components:
         for b in split_in_same_group_chunks(buffer):
             yield db_to_obspy(engine, segments_only, *b)
 
 
 def same_group(row1, row2):
     return (
-        row1.Channel.network_code == row2.Channel.network_code and
-        row1.Channel.station_code == row2.Channel.station_code and
-        row1.Channel.location_code == row2.Channel.location_code and
-        row1.Channel.band_code == row2.Channel.band_code and
-        row1.Channel.instrument_code == row2.Channel.instrument_code and
+        row1.network_code == row2.network_code and
+        row1.station_code == row2.station_code and
+        row1.location_code == row2.location_code and
+        row1.band_code == row2.band_code and
+        row1.instrument_code == row2.instrument_code and
         row1.event_id == row2.event_id
     )
 
@@ -681,6 +685,7 @@ def db_to_obspy(
             event_id=db_row.event_id,
             event_latitude=db_row.event_latitude,
             event_longitude=db_row.event_longitude,
+            event_webservice_id=db_row.event_webservice_id,
             event_depth_km=db_row.event_depth_km,
             event_time=db_row.event_time,
             event_magnitude=db_row.event_magnitude,
@@ -740,6 +745,7 @@ class SegmentMetadata:
     channel_code: str
     arrival_time: datetime
     data_webservice_id: int
+    event_webservice_id: int
     channel_id: int
     event_id: int
     event_latitude: float

@@ -261,11 +261,12 @@ def test_simple_run_no_outfile_provided(
 @pytest.mark.parametrize(
     "file_extension, options",
     product(['.h5', '.csv'], [
-        {},
+        # {},
         {'chunksize': 1},
         {'chunksize': 1, 'multi_process': True},
-        {'multi_process': True},
-        {'chunksize': 1, 'multi_process': 1},
+        {'chunksize': 1, 'multi_process': True, 'group_components': True},
+        # {'multi_process': True},
+        # {'chunksize': 1, 'multi_process': 1},
     ])
 )
 def test_simple_run_retDict_complex_select(

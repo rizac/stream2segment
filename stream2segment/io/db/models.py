@@ -184,13 +184,13 @@ class Channel(Base):
 
     __table_args__ = (
         Index(
-            'channel_without_orientation__index',
+            'channel_without_orientation_index',
             'network_code',
             'station_code',
             'location_code',
             'instrument_code',
             'band_code',
-            'orientation_code',
+            'id',
         ),
         UniqueConstraint(
             'network_code',
@@ -236,12 +236,12 @@ class Segment(Base):
     )
 
     event_distance_km = Column(SmallInteger, nullable=False, index=True)
-    noise_window_s = Column(SmallInteger, nullable=False)  # duration (in s) of start time relative to arrival_time (often < 0)  # noqa
-    signal_window_s = Column(SmallInteger, nullable=False)  # duration (in s) of end time relative to arrival_time (often > 0)  # noqa
+    noise_window_s = Column(SmallInteger, nullable=False)  # arrival_time - start_time
+    signal_window_s = Column(SmallInteger, nullable=False)  # end_time - arrival_time
     gap_score_percent = Column(SmallInteger, nullable=False)
 
     __table_args__ = (
-        Index("okseg_event_channel_index", "event_id", "channel_id"),
+        Index("segment_streaming_idx", "channel_id", "event_id", "id"),
         UniqueConstraint('event_id', 'channel_id', name='unique_evt_cha'),
     )
 
