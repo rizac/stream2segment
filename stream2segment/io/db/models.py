@@ -184,7 +184,7 @@ class Channel(Base):
 
     __table_args__ = (
         Index(
-            'channel_without_orientation_index',
+            'channel_ordering_index',
             'network_code',
             'station_code',
             'location_code',
@@ -241,7 +241,7 @@ class Segment(Base):
     gap_score_percent = Column(SmallInteger, nullable=False)
 
     __table_args__ = (
-        Index("segment_streaming_idx", "channel_id", "event_id", "id"),
+        Index("segment_ordering_index",  "event_id", "id"),
         UniqueConstraint('event_id', 'channel_id', name='unique_evt_cha'),
     )
 
@@ -292,7 +292,7 @@ class SkippedSegment(Base):
     download_code = Column(SmallInteger)
 
     __table_args__ = (
-        Index("skipseg_event_channel_index", "event_id", "channel_id"),
+        # Index("skipseg_event_channel_index", "event_id", "channel_id"),
         UniqueConstraint('event_id', 'channel_id', name='unique_evt_cha_2'),
     )
 

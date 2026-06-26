@@ -20,7 +20,7 @@ import inspect
 
 from typing import Any
 
-from sqlalchemy import select, func, tuple_, Engine
+from sqlalchemy import select, func, tuple_, Engine, Select
 import yaml
 from obspy.core.event import Event as ObspyEvent
 from obspy import Stream, Inventory, read, read_events, read_inventory
@@ -47,15 +47,7 @@ class SkipSegment(Exception):
     """Stream2segment exception indicating a segment processing error that should
     resume to the next segment without interrupting the whole routine
     """
-    pass  # (we can also pass an exception in the __init__, superclass converts it)
-
-
-# Disclaimer: this module is over-documented to keep track of all implementation
-# details addressing the following issues when handling big data and a RDBMS:
-# 1. Memory leaks (too many objects in the RDBMS session)
-# 2. Slowdowns (long RDBMS queries)
-# 3. Undesired printouts (external ObsPy C libraries that have to be caught)
-# 4. Python multiprocessing with RDBMS queries
+    pass
 
 
 def process(
@@ -86,10 +78,9 @@ def process(
         of Segments attributes mapped to a given selection expression, e.g.:
         ```
         {
-            'event.magnitude': '<=6',
-            'channel.channel': 'HHZ',
-            'maxgap_numsamples': '(-0.5, 0.5)',
-            'has_valid_data': 'true'
+            'event_magnitude': '<=6',
+            'station_code': 'AB',
+            'gap_score_percent': '[-0.5, 0.5]',
         }
         ```
         If None or missing, it defaults to a dict with the last two keys listed above
@@ -232,14 +223,13 @@ def imap(
         (arguments) `(segment, config)`
     :param dburl: str. The URL of the database where data has been previously downloaded
     :param segments_selection: The segments to be processed. It can be a sequence of
-        integers (tuple, list, numpy array) denoting the segment IDs, or a dict[str, str]
-        of Segments attributes mapped to a given selection expression, e.g.:
+        integers (tuple, list, numpy array) denoting the segment IDs, or a
+        dict[str, str] of Segments attributes mapped to a selection expression, e.g.:
         ```
         {
-            'event.magnitude': '<=6',
-            'channel.channel': 'HHZ',
-            'maxgap_numsamples': '(-0.5, 0.5)',
-            'has_valid_data': 'true'
+            'event_magnitude': '<=6',
+            'station_code': 'AB',
+            'gap_score_percent': '(-0.5, 0.5)'
         }
         ```
         If None or missing, it defaults to a dict with the last two keys listed above
@@ -249,7 +239,7 @@ def imap(
         Python `dict`. If missing or None, it will default to `{}` (empty dict, i.e. no
         config)
     :param logfile: string. the path of the file to log
-        :class:`stream2segmetn.process.SkipExeption`, when raised.
+        :class:`stream2segment.process.SkipException`, when raised.
         Empty string (the default) disables logging
     :param verbose: bool, default False. Print progress bar and estimated remaining time
         to standard output (usually, the terminal window)
@@ -263,31 +253,8 @@ def imap(
         increases memory consumption. None (the default) will set the size automatically
     :param skip_exceptions: tuple of Python exceptions that will not interrupt the whole
         execution but will be logged to file, with the relative segment id. When missing
-        or None, it defaults to :class:`stream2segmetn.process.SkipExeption`
+        or None, it defaults to :class:`stream2segment.process.SkipException`
     """
-
-    # check params:
-    if isinstance(config, (str, Path)):
-        try:
-            with open(config) as _config:
-                config = yaml.safe_load(_config)
-        except yaml.YAMLError as exc:
-            raise BadParam(f"invalid config: {exc}") from exc
-
-    elif not config:
-        config = {}
-
-    _valid_pyfunc(pyfunc)
-
-    stmt = build_select(segments_selection)
-
-    total = 0
-    engine = get_engine(dburl)
-    if verbose:
-        stmt_count = select(func.count()).select_from(stmt.subquery())
-        with engine.connect() as conn:
-            total = conn.execute(stmt_count).scalar_one()
-
     num_processes = 0
     if multi_process is True:
         num_processes = cpu_count()  # or None (let's set it directly here though)
@@ -308,74 +275,102 @@ def imap(
     with (
         start_logging(logger, logfile, verbose),
         create_processing_env(
-            total,
-            redirect_stderr=sys.stderr.isatty(),
-            warnings_filter=None
-        ) as pbar
+            redirect_stderr=sys.stderr.isatty(), warnings_filter=None
+        )
     ):
         try:
-            if verbose and total:
-                logger.info(f"{total:,} segment(s) to process found")
-                # Show the progressbar now, because the 1st chunk might be ready in min,
-                # and an empty screen might give the impression of a program hang:
-                time.sleep(0.5)
-                pbar.render_progress()
 
-            exec_processing_func_args = (
-                (pyfunc, args, config, skip_exceptions) for args in get_segments(
-                    engine,
-                    segments_selection,
-                    group_components,
-                    False,
-                    chunksize
+            # check params:
+            n_args = 4
+            if isinstance(config, (str, Path)):
+                try:
+                    with open(config) as _config:
+                        config = yaml.safe_load(_config)
+                except yaml.YAMLError as exc:
+                    raise BadParam(f"invalid config: {exc}") from exc
+            elif not config:
+                n_args = 3
+                config = {}
+
+            params = inspect.signature(pyfunc).parameters
+            # params is a sort of # dict[str, inspect.Parameter]. Check params:
+            if len(params) != n_args:
+                raise TypeError(
+                    f'"{pyfunc.__name__}" expects {n_args} parameters, '
+                    f'but {len(params)} were given (are you maybe using a '
+                    f'legacy s2s function, version <= 4)?'
                 )
-            )
 
-            stime = time.time()
+            total = 0
+            engine = get_engine(dburl)
+            if verbose:
+                total = get_segments_count(dburl, segments_selection)
 
-            if not num_processes:
-                for (output, is_ok, ids) in map(
-                    execute_processing_function, exec_processing_func_args
-                ):
-                    pbar.update(len(ids))
-                    if is_ok:
-                        oks += len(ids)
-                        yield output
-                    else:
-                        errors += len(ids)
-                        logger.warning(
-                            f"segment id(s)={' ,'.join(str(i) for i in ids)}): {output}"
-                        )
-            else:
+            with get_progressbar(total) as pbar:  # no-op if length not > 0
+                if verbose and total:
+                    logger.info(f"{total:,} segment(s) to process found")
+                    # Show the progressbar now, because the 1st chunk might be ready in
+                    # min, and an empty screen might give the impression of a program hang:
+                    time.sleep(0.5)
+                    pbar.render_progress()
 
-                with Pool(
-                    processes=num_processes,
-                    initializer=_mp_initializer
-                ) as pool:
+                exec_processing_func_args = (
+                    (pyfunc, args, config, skip_exceptions) for args in get_segments(
+                        engine,
+                        segments_selection,
+                        group_components,
+                        False,
+                        chunksize
+                    )
+                )
 
-                    try:
+                stime = time.time()
 
-                        for (output, is_ok, ids) in pool.imap_unordered(
-                            execute_processing_function, exec_processing_func_args
-                        ):
-                            pbar.update(len(ids))
-                            if is_ok:
-                                oks += len(ids)
-                                yield output
-                            else:
-                                errors += len(ids)
-                                logger.warning(
-                                    f"segment id(s)={' ,'.join(str(i) for i in ids)}): "
-                                    f"{output}"
-                                )
+                if not num_processes:
+                    for (output, is_ok, ids) in map(
+                        execute_processing_function, exec_processing_func_args
+                    ):
+                        pbar.update(len(ids))
+                        if is_ok:
+                            oks += len(ids)
+                            yield output
+                        else:
+                            errors += len(ids)
+                            logger.warning(
+                                f"segment id(s)="
+                                f"{' ,'.join(str(i) for i in ids)}): "
+                                f"{output}"
+                            )
+                else:
 
-                        pool.close()  # iterable fully exhausted, normal completion
-                    except Exception:
-                        # explicit terminate because we are yielding (generator)
-                        pool.terminate()
-                        raise
-                    finally:
-                        pool.join()
+                    with Pool(
+                        processes=num_processes, initializer=_mp_initializer
+                    ) as pool:
+
+                        try:
+
+                            for (output, is_ok, ids) in pool.imap_unordered(
+                                execute_processing_function, exec_processing_func_args
+                            ):
+                                pbar.update(len(ids))
+                                if is_ok:
+                                    oks += len(ids)
+                                    yield output
+                                else:
+                                    errors += len(ids)
+                                    logger.warning(
+                                        f"segment id(s)="
+                                        f"{' '.join(str(i) for i in ids)}): "
+                                        f"{output}"
+                                    )
+
+                            pool.close()  # iterable fully exhausted, normal completion
+                        except Exception:
+                            # explicit terminate because we are yielding (generator)
+                            pool.terminate()
+                            raise
+                        finally:
+                            pool.join()
 
             logger.info(
                 f"Completed in {timedelta(seconds=round((time.time()) - stime))}"
@@ -397,29 +392,6 @@ def imap(
             raise
 
 
-def _valid_pyfunc(pyfunc):
-    """
-    Check if the argument is a valid processing Python function by inspecting its
-    signature
-    """
-    params = inspect.signature(pyfunc).parameters  # dict[str, inspect.Parameter]
-    # less than two arguments? then function invalid:
-    if len(params) < 3:
-        raise BadParam(
-            f'Python function should have at least 3 arguments '
-            f'`(segment, station, event)`, {len(params)} found'
-        )
-    # more than 2 args? then we need to have them with a default set:
-    for pname, param in list(params.items())[2:]:
-        if param.kind not in (param.VAR_POSITIONAL, param.VAR_KEYWORD):
-            # it is not *args or **kwargs, does it have a default?
-            if not param.default == param.empty:
-                raise BadParam(
-                    f'Python function argument "{pname}" should have a default, '
-                    f'or be removed'
-                )
-
-
 def _mp_initializer():
     """
     Set up the worker processes to ignore SIGINT altogether,
@@ -433,7 +405,9 @@ def get_engine(db_url: str) -> Engine:
     return create_engine(db_url, check_db_existence=True)
 
 
-def build_select(where_conditions: dict | None = None, group_components:bool = False):
+def build_select(
+    segments_selection: dict | None = None, group_components:bool = False
+) -> Select:
     """
     build select statement with provided where_conditions
     """
@@ -480,15 +454,27 @@ def build_select(where_conditions: dict | None = None, group_components:bool = F
         .join(MiniSeed, MiniSeed.id == Segment.id)
     )
 
-    if where_conditions:
-        stmt = stmt.where(build_where_clause(where_conditions))
+    if segments_selection:
+        stmt = stmt.where(build_where_clause(segments_selection))
 
     return stmt
 
 
+def get_segments_count(db: str | Engine, segments_selection: dict) -> int:
+    engine = get_engine(db)
+    stmt = build_select(segments_selection)
+    stmt_count = select(func.count()).select_from(stmt.subquery())
+    try:
+        with engine.connect() as conn:
+            return conn.execute(stmt_count).scalar_one()
+    finally:
+        if isinstance(db, str):
+            engine.dispose()
+
+
 def get_segments(
     db: str | Engine,
-    where_condition,
+    segments_selection: dict,
     group_components: bool = False,
     segments_only: bool = False,
     chunksize: int | None = None
@@ -520,7 +506,7 @@ def get_segments(
     buffer = []
     last_key = None
     stmt_base = build_select(
-        where_condition, group_components
+        segments_selection, group_components
     ).order_by(*orderby_columns)
 
     if chunksize is None:
@@ -550,7 +536,7 @@ def get_segments(
             buffer.extend(rows)
 
             split_idx = len(buffer) - 1
-            while split_idx > 0 and same_group(buffer[split_idx], buffer[split_idx - 1]):
+            while split_idx > 0 and same_group(buffer[split_idx], buffer[split_idx-1]):
                 split_idx -= 1
 
             if split_idx == 0:
@@ -784,7 +770,7 @@ class SegmentMetadata:
 
 
 @contextmanager
-def create_processing_env(length=0, redirect_stderr=False, warnings_filter=None):
+def create_processing_env(redirect_stderr=False, warnings_filter=None):
     """Context manager to be used in a with statement, returns the progress bar
     which can be called with pbar.update(int). The latter is no-op if length ==0
 
@@ -818,15 +804,14 @@ def create_processing_env(length=0, redirect_stderr=False, warnings_filter=None)
     :param warnings_filter: if None, it does not capture Python warnings. Otherwise it
         denotes the Python filter. E.g. 'ignore'. (FIXME: add link)
     """
-    with get_progressbar(length) as pbar:  # no-op if length not > 0
-        with redirect(sys.stderr if redirect_stderr else None):
-            # redirect is no-op if redirect_stderr=None
-            if warnings_filter:
-                with warnings.catch_warnings():
-                    warnings.simplefilter(warnings_filter)
-                    yield pbar
-            else:
-                yield pbar
+    with redirect(sys.stderr if redirect_stderr else None):
+        # redirect is no-op if redirect_stderr=None
+        if warnings_filter:
+            with warnings.catch_warnings():
+                warnings.simplefilter(warnings_filter)
+                yield
+        else:
+            yield
 
 
 @contextmanager

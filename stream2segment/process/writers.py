@@ -169,5 +169,5 @@ class HDFWriter(BaseWriter):
 
     def write(self, result: dict | pd.Series | pd.DataFrame | list[dict | pd.Series]):
         for res in self.convert_to_df(result):
-            self.file_handle.append(value=res, **self.options)
+            res.to_df(self.file_handle, **self.options)
 

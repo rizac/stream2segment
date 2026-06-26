@@ -3,16 +3,25 @@
 Stream2segment processing module generating a segment-based parametric table
 ============================================================================
 
-This file exemplifies how to process downloaded data by generating a parametric table.
-It can be run as Python script from the terminal:
+Customize the section `if __name__ == "__main__"` at the end of the module and then
+run it as Python script from the terminal:
 `python <this_file_path>`
-See section `if __name__ == "__main__"` at the end of the module for details
 
-Remember that you are not bound to table generations, you can use this module as
-backbone for any kind of processing (e.g., process and save waveforms).
+Remember that you are not bound to table generations or output files, you can use this
+module as backbone for any kind of processing.
 
 For a general overview on segment processing (applicable e.g., in custom code, Jupyter
 Notebook), see {{ USING_S2S_IN_YOUR_PYTHON_CODE_WIKI_URL }}
+
+General hint with big datasets: if you run this module with a lot of segments, handling
+and tracking exceptions might become complex. We recommend in this case to try to run
+your code on a smaller and possibly heterogeneous dataset first: change temporarily the
+segment selection (See section `if __name__ == "__main__"` at the end of the module),
+and inspect the logfile: for any exception that is not a bug and should simply be
+ignored, wrap only the part of code affected in a "try ... except" statement, and
+raise a `SkipSegment` (see details in the `main` function). Also, please spend some
+time on refining the selection of segments: you might find that your code runs smoothly
+and faster by simply skipping unwanted segments in the first place
 """
 from datetime import datetime
 from math import factorial  # for savitzky_golay function
@@ -42,10 +51,7 @@ def main(
 ):
     """
     Main processing function, called iteratively for any segment selected from `imap`
-    or `process` functions of stream2segment. If you just created this file with
-    `s2s init`, see section `if __name__ == "__main__"` at the end of the module for
-    details (remember that you can implement here any routine to be applied to your
-    selection of segments).
+    or `process` functions of stream2segment.
 
     IMPORTANT: Any exception raised here or from any sub-function will interrupt the
     whole processing routine (`imap` or `process`) with one special case:
@@ -55,30 +61,34 @@ def main(
     if segment.sample_rate < 60:
         raise SkipSegment("segment sample rate too low")`
     ```
-    General hint: Because handling exceptions at any point of a time-consuming processing is
-    complex, we recommend to try to run your code on a smaller and possibly
-    heterogeneous dataset first: change temporarily the segment selection (See section
-    `if __name__ == "__main__"` at the end of the module), and inspect the logfile:
-    for any exception that is not a bug and should simply be ignored, wrap only the
-    part of code affected in a "try ... except" statement, and raise a `SkipSegment`.
-    Also, please spend some time on refining the selection of segments: you might
-    find that your code runs smoothly and faster by simply skipping certain segments in
-    the first place.
 
     :param: segment: an ObsPy `Stream` object, a container of ObsPy `Trace`s each
-        representing a Segment on the DB. In principle, this object should contain only
-        a single Trace (accessible via `segment[0]`) unless the Trace has gaps or
-        overlaps, or the users have specifically instructed to provide all three
-        components of a recording in a single segment.
+        representing a Segment on the DB. Depending on the users input configuration ,
+        this object should contain only a single Trace (accessible via `segment[0]`), or
+        all (usually three) components of a recorded waveform segment.
         For each Trace, the metadata stored in the DB is accessible via
         the `Trace.stats.segment_metadata` attribute (for details, see
         {{ THE_SEGMENT_OBJECT_WIKI_URL }})
+        Please note that any Trace with gaps or overlaps will be
+        included separately in this object, so the total Trace count might be bigger.
+        To quickly check, you can map a dict to all traces:
+        ```
+        # create a dict trace_id -> list of traces:
+        traces = {}
+        for t in segment:
+            traces.setdefault(t.id, []).append(t)
+        # check gaps / overlaps:
+        for t_list in traces.values():
+            if len(t_list) > 1:
+                # trace has gaps or overlaps. You can merge, raise and so on...
+        ```
 
     :param station: the optional Inventory `Inventory` object, resulting from the
         segment(s) StationXML stored in the DB. The inventory is used to remove the
         waveform instrumental response and convert its data in physical units: as such,
-        it is most likely needed (see ObsPy doc in case). If None, the StationXML is not
-        available (see download config, where the default is to download StationXML)
+        it is most likely needed (see ObsPy doc for details). If None, the StationXML
+        is not available (see download config, where the default is to download
+        StationXML)
 
     :param event: an optional `Event` object, resulting from the segment(s) QuakeML
         stored in the DB. Note that basic and often sufficient event information is
@@ -94,40 +104,38 @@ def main(
         by few hard-coded parameters. For a couple of simple parameters, a custom config
         is usually an overkill, and you can implement your parameters here
 
-    :return: a row of the resulting table:
+    :return: a row of the resulting table, as dict, pandas Series, or -
+        if a single segment should produce several rows - a pandas DataFrame or a
+        list/ tuple of the those object types.
+        The dict / Series keys, or DataFrame column names will compose the column names
+        (table header); you are not forced to always return the same type of object,
+        as long as the column names are always the same.
 
-        * For CSV output, this function must return a dict that will be written
-          as a row of the resulting file. The dict keys will compose the column names
-          (CSV header) and must obviously be the same for each returned dict.
+        Returning None or nothing is also valid: in this case the segment will be
+        silently skipped
 
-          Returning None or nothing is also valid: in this case the segment will be
-          silently skipped
+        The output format file, if an output file is provided, will be inferred from
+        the file extension. Supported formats are 'csv' and 'hdf'. For details, see:
+        - https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.to_csv.html
+        - https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.to_hdf.html
 
-          SUPPORTED TYPES as elements of the returned iterable: any Python object, but
-          we suggest to use only strings or numbers: any other object will be converted
-          to string via `str(object)`: if this is not what you want, convert it to the
-          numeric or string representation of your choice. E.g., for Python `datetime`s
-          you might want to set `datetime.isoformat()` (string), for ObsPy
-          `UTCDateTime`s `float(utcdatetime)` (numeric)
-
-       * For HDF output, this function must return a dict, pandas Series or pandas
-         DataFrame that will be written as a row of the resulting file (or rows, in case
-         of DataFrame).
-
-         Returning None or nothing is also valid: in this case the segment will be
-         silently skipped.
-
-         SUPPORTED TYPES as elements of the returned dict/Series/DataFrame: all types
-         supported by pandas:
-         https://pandas.pydata.org/pandas-docs/stable/getting_started/basics.html#dtypes
-
-         For info on hdf and the pandas library (included in the package), see:
-         https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.read_hdf.html
-         https://pandas.pydata.org/pandas-docs/stable/user_guide/io.html#io-hdf5
-
+        Supported data types are int, float, bool, str and - with HDF - date times
+        (see pandas `to_datetime`). `str` should be avoided when possible (e.g. use int
+        ids to track the uniqueness of a row, not string). HDF are recommended because
+        more lightweight and better at preserving data types. The only drawback is that
+        string columns must be pre-allocated via `min_itemsize`. For instance, if you
+        want to write the network name of the segment under the column `network`, you
+        must provide `min_itemsize = {'network': 8 }` (assuming no network name will be
+        longer as 8 characters)
     """
+    # Assure the stream has only one trace by simply counting the traces in stream
+    # (stream.get_gaps() does this more accurately, but it's slower)
+    if len(segment) != 1:
+        raise SkipSegment(f"{len(segment)} traces (probably gaps/overlaps)")
 
-    assert1trace(segment)  # raise and return if stream has more than one trace
+    if station is None:
+        raise SkipSegment("no inventory provided")
+
     trace = segment[0]  # work with the (surely) one trace now
     segment_meta: SegmentMetadata = trace.stats.segment_metadata
 
@@ -141,7 +149,7 @@ def main(
     # WARNING: this modifies the segment.stream() permanently!
     # If you want to preserve the original stream, store trace.copy() beforehand
     try:
-        trace = bandpass_remresp(segment, station, segment_meta.event_magnitude, config)
+        trace = bandpass_remresp(trace, station, segment_meta.event_magnitude, config)
     except (TypeError, ObsPyException, ValueError) as resp_error:
         raise SkipSegment("Error in 'bandpass_remresp': %s" % str(resp_error))
 
@@ -311,18 +319,7 @@ def main(
     return ret
 
 
-def assert1trace(segment: Stream):
-    """Assert the stream has only one trace, raising an Exception if it's not the case,
-    as this is the pre-condition for all processing functions implemented here.
-    Note that, due to the way we download data, a stream with more than one trace his
-    most likely due to gaps / overlaps
-    """
-    # stream.get_gaps() is slower as it does more than checking the stream length
-    if len(segment) != 1:
-        raise SkipSegment("%d traces (probably gaps/overlaps)" % len(segment))
-
-
-def bandpass_remresp(stream, inventory, magnitude, config):
+def bandpass_remresp(trace: Trace, inventory: Inventory, magnitude:float, config: dict):
     """
     Apply a pre-process on the given segment waveform by filtering the signal and
     removing the instrumental response, returning a new Trace in acceleration unit
@@ -348,9 +345,6 @@ def bandpass_remresp(stream, inventory, magnitude, config):
 
     :return: a Trace object
     """
-    assert1trace(stream)  # raise and return if stream has more than one trace
-    trace = stream[0]
-
     # define some parameters:
     bp_conf = config['bandpass']
     # note: bandpass here below copied the trace! important!
@@ -604,35 +598,33 @@ if __name__ == "__main__":
     # execute the code below only if this module is run as a script
     # (python <this_file_path>)
 
-    # Remove the following line and edit the remaining code
-    raise ValueError('The module is not yet implemented to be run as script. '
-                     'Please open the file and edit the code in the script '
-                     'section at the end of the module ')
-
-    # Example code: Check and customize before run
+    from pathlib import Path
     # ------------------------------------
     # Setup config: you can build your own dict of parameters or load it from a YAML
     # file as in the example below (change path according to your needs):
     import yaml
-    config_path = os.path.splitext(os.path.abspath(__file__))[0] + '.yaml'
-    with open(config_path, 'r') as fpt:
-        config = yaml.safe_load(fpt)
+    config_path = Path(__file__).with_suffix('.yaml')
+    config = yaml.safe_load(config_path.read_text())
     # get the database URL. Do NOT TYPE anywhere URLs with passwords (e.g. postgres), or
     # if you do, do not COMMIT the file and keep it local. A good solution is to read
     # the db URL used for downloading the data from its config. Example:
-    download_path = os.path.join(os.path.dirname(__file__), 'download.yaml')
-    with open(download_path, 'r') as fpt:
-        dburl = yaml.safe_load(fpt)['dburl']
+    download_path = Path(__file__).parent / 'download.yaml'
+    dburl = yaml.safe_load(download_path.read_text())['dburl']
     # segments to process
     # For details, see {{ THE_SEGMENT_OBJECT_WIKI_URL_SEGMENT_SELECTION }}
     # The variable below can also be a list/numpy array of integers denoting the
     # database IDs of the segments to process (e.g., IDs read from a file)
     segments_selection = {
-        'has_valid_data': 'true',
-        'maxgap_numsamples': '[-0.5, 0.5]',
+        'gap_score_percent': '[-50, 50]',
     }
     # output file
-    outfile = 'enter_your_csv_or_hdf_path_here'
+    outfile = '__enter_your_csv_or_hdf_path_here__'  # None, valid file str, or Path
+    if outfile == '__enter_your_csv_or_hdf_path_here__':
+        raise ValueError(
+            'The module is not yet implemented to be run as script. '
+            'Please open the file and edit the variables in the script '
+            'section (e.g., config_file, outfile, dburl) at the end of the module'
+        )
     # provide a log file path to track all skipped segment (SkipSegment exceptions).
     # Here we input the boolean True, which automatically creates a log file in the
     # same directory 'outfile' above. To skip logging, type "" or False
@@ -653,7 +645,16 @@ if __name__ == "__main__":
 
     # run imap or process here. Example with process (see function `main` at the top
     # of the module, that you can modify as you wish):
-    process(main, dburl, segments_selection=segments_selection, config=config,
-            outfile=outfile, append=append, writer_options=writer_options,
-            logfile=logfile, verbose=verbose, multi_process=multiprocess,
-            chunksize=chunksize)
+    process(
+        main,
+        dburl,
+        segments_selection=segments_selection,
+        config=config,
+        outfile=outfile,
+        append=append,
+        writer_options=writer_options,
+        logfile=logfile,
+        verbose=verbose,
+        multi_process=multiprocess,
+        chunksize=chunksize
+    )

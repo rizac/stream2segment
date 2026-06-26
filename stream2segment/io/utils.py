@@ -103,8 +103,8 @@ def start_logging(logger: Logger, logfile_path='', verbose=False):
 
     # https://docs.python.org/2/howto/logging.html#optimization:  # FIXME really needed?
     logging._srcfile = None  # noqa
-    logging.logThreads = 0
-    logging.logProcesses = 0
+    # logging.logThreads = 0
+    # logging.logProcesses = 0
 
     handlers = []
     if logfile_path:
@@ -123,6 +123,7 @@ def start_logging(logger: Logger, logfile_path='', verbose=False):
         )
         handlers.append(stdout_streamer)
 
+    old_level = logger.level
     if handlers:
         # necessary as entry-point filter, if default (unset) nothing
         # is propagated to handlers
@@ -133,6 +134,7 @@ def start_logging(logger: Logger, logfile_path='', verbose=False):
     try:
         yield
     finally:
+        logger.setLevel(old_level)
         for handler in handlers:
             try:
                 handler.flush()
