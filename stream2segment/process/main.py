@@ -167,21 +167,39 @@ def process(
             raise BadParam('invalid output file path (check parent dir)')
         outfile = Path(outfile).resolve()
 
-    writer = get_writer(outfile, append, writer_options)
+    # print summary (if verbose is on):
+    if verbose:
 
+        out_file_str = f"{str(outfile) if outfile else 'n/a'}"
+        log_file_str = f"{str(logfile) if logfile else 'n/a'}"
+        cfg_file_str = f"{str(cfg_file) if cfg_file else 'n/a'}"
+        py_file_str = f"{pyfile or 'n/a'}"
+
+        if outfile is not None:
+            if outfile.exists():
+                if append:
+                    out_file_str = f"(write mode: append) {outfile}"
+                else:
+                    out_file_str = f"(write mode: overwrite) {outfile}"
+            else:
+                if append:
+                    out_file_str = f"(new file, 'append' ignored) {outfile}"
+                else:
+                    out_file_str = f"(new file) {outfile}"
+
+        print(
+            ascii_decorate("\n".join([
+                f"Input database:      {secure_dburl(dburl)}",
+                f"Output file:         {out_file_str}",
+                f"Processing function: {py_file_str}",
+                f"Log file:            {log_file_str}",
+                f"Config. file:        {cfg_file_str}"
+            ]))
+        )
+
+    writer = get_writer(outfile, append, writer_options)
     num_ok = 0
     with writer:
-
-        if verbose:
-            print(
-                ascii_decorate("\n".join([
-                    f"Input database:      {secure_dburl(dburl)}",
-                    f"Output file:         {str(outfile) if outfile else 'n/a'}",
-                    f"Processing function: {pyfile or 'n/a'}",
-                    f"Log file:            {str(logfile) if logfile else 'n/a'}",
-                    f"Config. file:        {str(cfg_file) if cfg_file else 'n/a'}"
-                ]))
-            )
 
         for output in imap(
             pyfunc,
@@ -308,7 +326,7 @@ def imap(
 
             with get_progressbar(total) as pbar:  # no-op if length not > 0
                 if verbose and total:
-                    logger.info(f"{total:,} segment(s) to process found")
+                    logger.info(f"{total:,} segment(s) found to process")
                     # Show the progressbar now, because the 1st chunk might be ready in
                     # min, and an empty screen might give the impression of a program hang:
                     time.sleep(0.5)

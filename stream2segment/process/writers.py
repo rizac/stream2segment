@@ -119,7 +119,7 @@ class CsvWriter(BaseWriter):
     def __enter__(self):
         self.file_handle = open(
             str(self.output_file),
-            'a' if self.append else 'w',
+            'a' if self.append and self.output_file.exists() else 'w',
             # buffering=10, # buffering=1: flush 10 lines
             encoding='utf-8',
             errors='replace',
@@ -163,11 +163,12 @@ class HDFWriter(BaseWriter):
 
     def __enter__(self):
         self.file_handle = pd.HDFStore(
-            str(self.output_file), mode='a' if self.append else 'w'
+            str(self.output_file),
+            mode='a' if self.append and self.output_file.exists() else 'w'
         )
         return self
 
     def write(self, result: dict | pd.Series | pd.DataFrame | list[dict | pd.Series]):
         for res in self.convert_to_df(result):
-            res.to_df(self.file_handle, **self.options)
+            res.to_hdf(self.file_handle, **self.options)
 

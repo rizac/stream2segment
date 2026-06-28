@@ -54,8 +54,8 @@ def spectra(segment, config)
 ```
 The 'position' argument controls where the plot will be placed in the GUI ('b' means
 bottom, the default, 'r' means next to the main plot, on its right) and the other two,
-`xaxis` and `yaxis`, are dict (defaulting to the empty dict: {}) controlling the x and y
-axis of the plot (for info, see: https://plotly.com/javascript/axes/).
+`xaxis` and `yaxis`, are dict (defaulting to the empty dict: {}) controlling the x and
+y-axis of the plot (for info, see: https://plotly.com/javascript/axes/).
 
 When not given, axis types (e.g., date time vs numeric) will be inferred from the
 function's returned value which *must* be either:
@@ -105,9 +105,14 @@ def bandpass_remresp(segment, config):
     evt = segment.event
     bp_conf = config['bandpass']
     # note: bandpass here below copied the trace! important!
-    trace = bandpass(trace, mag2freq(evt.magnitude), freq_max=bp_conf['freq_max'],
-                     max_nyquist_ratio=bp_conf['max_nyquist_ratio'],
-                     corners=bp_conf['corners'], copy=False)
+    trace = bandpass(
+        trace,
+        mag2freq(evt.magnitude),
+        freq_max=bp_conf['freq_max'],
+        max_nyquist_ratio=bp_conf['max_nyquist_ratio'],
+        corners=bp_conf['corners'],
+        copy=False
+    )
     trace.remove_response(inventory=inv, output='ACC', water_level=None, pre_filt=None)
     return trace
 

@@ -110,7 +110,21 @@ def start_logging(logger: Logger, logfile_path='', verbose=False):
     if logfile_path:
         db_streamer = logging.FileHandler(logfile_path, mode='w+')
         db_streamer.setLevel(logging.INFO)  # do not print debug, print others
-        db_streamer.setFormatter(logging.Formatter('[%(levelname).1s]  %(message)s'))
+
+        class _Formatter(logging.Formatter):
+            def format(self, r):
+                c = r.levelno
+                if c == logging.INFO:
+                    p = ""
+                elif c == logging.WARNING:
+                    p = "WARNING: "
+                else:
+                    p = "ERROR: "
+                return f"{p}{r.getMessage()}"
+
+        db_streamer.setFormatter(_Formatter())
+        # db_streamer.setFormatter(logging.Formatter('[%(levelname).1s]  %(message)s'))
+        # db_streamer.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
         handlers.append(db_streamer)
 
     if verbose:
@@ -134,7 +148,8 @@ def start_logging(logger: Logger, logfile_path='', verbose=False):
     try:
         yield
     finally:
-        logger.setLevel(old_level)
+        if handlers:
+            logger.setLevel(old_level)
         for handler in handlers:
             try:
                 handler.flush()

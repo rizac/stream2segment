@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 import sys
 import os
-# from stream2segment.process.main import redirect
+from stream2segment.process.main import redirect as redirect2
 
 
 @contextmanager
@@ -181,3 +181,17 @@ def test_fd_restored_after_exception(stream_name, tmp_path):
 
     with open(dst, 'rb') as f:
         assert b"restored" in f.read()
+
+
+if __name__ == "__main__":
+    import time
+    import subprocess
+
+    print("You should see 'ls: /does/not/exist: No such file or directory':")
+    subprocess.Popen(["ls", "/does/not/exist"])
+    time.sleep(3)
+    print("You should **NOT** see 'ls: /does/not/exist: No such file or directory':")
+    with redirect(sys.stderr):
+        subprocess.Popen(["ls", "/does/not/exist"])
+        #time.sleep(2)
+    print('Done, exiting (no line above me right?)')

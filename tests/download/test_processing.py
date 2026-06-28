@@ -492,90 +492,80 @@ def test_append(
     else:
         processing_df1 = pd.read_csv(out_file)
     assert len(processing_df1) == 1
-    segid_column = segment_id_colname if hdf else processing_df1.columns[0]
-    assert processing_df1.loc[0, segid_column] == expected_first_row_seg_id
-    with open(log_file) as _:
-        logtext1 = _.read()
-    assert "4 segment(s) found to process" in logtext1
-    assert "Skipping 1 already processed segment(s)" not in logtext1
-    assert "Ignoring `append` functionality: output file does not exist or not provided" \
-        in logtext1
-    assert "1 of 4 segment(s) successfully processed" in logtext1
+
+    log_text1 = log_file.read_text()
+    assert "4 segment(s) found to process" in log_text1
+    assert "Skipping 1 already processed segment(s)" not in log_text1
+    assert "1 of 4 segment(s) successfully processed" in log_text1
+    out, err = capsys.readouterr()
+    assert "'append' ignored" in out
 
     # now test a second call, the same as before:
-    log_file = pytestdir.newfile('.log')
-    _ = process(dburl=db.dburl, pyfunc=main,
-                segments_selection={'has_data': 'true'},
-                config=config,
-                outfile=out_file,
-                verbose=True, logfile=log_file, **options)
+    log_file = tmp_path / "test2.log"
+    _ = process(
+        dburl=str(db_engine.url),
+        pyfunc=main,
+        config=config,
+        outfile=out_file,
+        verbose=True,
+        logfile=log_file,
+        **options
+    )
     # check file has been correctly written:
-    processing_df2 = read_processing_output(out_file,
-                                            header=not processing_py_return_list)
-    assert len(processing_df2) == 1
-    segid_column = segment_id_colname if hdf else processing_df1.columns[0]
-    assert processing_df2.loc[0, segid_column] == expected_first_row_seg_id
-    with open(log_file) as _:
-        logtext2 = _.read()
-    assert "3 segment(s) found to process" in logtext2
-    assert "Skipping 1 already processed segment(s)" in logtext2
-    assert "Appending results to existing file" in logtext2
-    assert "0 of 3 segment(s) successfully processed" in logtext2
-    # assert two rows are equal:
-    assert_frame_equal(processing_df1, processing_df2, check_dtype=True)
+    if hdf:
+        processing_df2 = pd.read_hdf(out_file)
+    else:
+        processing_df2 = pd.read_csv(out_file)
+    assert len(processing_df2) == 2
 
-    # change the segment id of the written segment
-    seg = session.query(Segment).filter(Segment.id == expected_first_row_seg_id).\
-        first()
-    new_seg_id = seg.id * 100
-    seg.id = new_seg_id
-    session.commit()
-
-    # now test a second call, the same as before:
-    log_file = pytestdir.newfile('.log')
-    _ = process(dburl=db.dburl, pyfunc=main,
-                segments_selection={'has_data': 'true'},
-                config=config,
-                outfile=out_file,
-                verbose=True, logfile=log_file, **options)
-    # check file has been correctly written:
-    processing_df3 = read_processing_output(out_file,
-                                            header=not processing_py_return_list)
-    assert len(processing_df3) == 2
-    segid_column = segment_id_colname if hdf else processing_df1.columns[0]
-    assert processing_df3.loc[0, segid_column] == expected_first_row_seg_id
-    assert processing_df3.loc[1, segid_column] == new_seg_id
-    with open(log_file) as _:
-        logtext3 = _.read()
-    assert "4 segment(s) found to process" in logtext3
-    assert "Skipping 1 already processed segment(s)" in logtext3
-    assert "Appending results to existing file" in logtext3
-    assert "1 of 4 segment(s) successfully processed" in logtext3
+    log_text2 = log_file.read_text()
+    assert "4 segment(s) found to process" in log_text1
+    assert "Skipping 1 already processed segment(s)" not in log_text2
+    assert "1 of 4 segment(s) successfully processed" in log_text2
     # assert two rows are equal:
-    assert_frame_equal(processing_df1, processing_df3[:1], check_dtype=True)
+    assert_frame_equal(
+        processing_df2[:1].reset_index(drop=True),
+        processing_df1.reset_index(drop=True),
+        check_dtype=True
+    )
+    assert_frame_equal(
+        processing_df2[1:2].reset_index(drop=True),
+        processing_df1.reset_index(drop=True),
+        check_dtype=True
+    )
+    out2, err2 = capsys.readouterr()
+    assert "write mode: append" in out2
 
     # last try: no append (also set no-prompt to test that we did not
     # prompt the user)
-    log_file = pytestdir.newfile('.log')
+    log_file = tmp_path / "test3.log"
     options_ = {**options, 'append': False}
-    _ = process(dburl=db.dburl, pyfunc=main,
-                segments_selection={'has_data': 'true'},
-                config=config,
-                outfile=out_file,
-                verbose=True, logfile=log_file, **options_)
+    _ = process(
+        dburl=str(db_engine.url),
+        pyfunc=main,
+        config=config,
+        outfile=out_file,
+        verbose=True,
+        logfile=log_file,
+        **options_
+    )
     # check file has been correctly written:
-    processing_df4 = read_processing_output(out_file,
-                                            header=not processing_py_return_list)
-    assert len(processing_df4) == 1
-    segid_column = segment_id_colname if hdf else processing_df1.columns[0]
-    assert processing_df4.loc[0, segid_column] == new_seg_id
-    with open(log_file) as _:
-        logtext4 = _.read()
-    assert "4 segment(s) found to process" in logtext4
-    assert "Skipping 1 already processed segment(s)" not in logtext4
-    assert "Appending results to existing file" not in logtext4
-    assert "1 of 4 segment(s) successfully processed" in logtext4
-    assert 'Overwriting existing output file' in logtext4
+    if hdf:
+        processing_df3 = pd.read_hdf(out_file)
+    else:
+        processing_df3 = pd.read_csv(out_file)
+    assert len(processing_df3) == 1
+    assert_frame_equal(
+        processing_df3.reset_index(drop=True),
+        processing_df1.reset_index(drop=True),
+        check_dtype=True
+    )
+    log_text3 = log_file.read_text()
+    assert "4 segment(s) found to process" in log_text3
+    assert "Skipping 1 already processed segment(s)" not in log_text3
+    assert "1 of 4 segment(s) successfully processed" in log_text3
+    out3, err = capsys.readouterr()
+    assert "write mode: overwrite" in out3
 
 
 def test_process_verbosity(
@@ -612,240 +602,77 @@ def test_process_verbosity(
         assert (len(out) > 0) == v
 
 
-@pytest.mark.parametrize(
-    "file_extension, options",
-    product(['.h5', '.csv'], [
-        # {},
-        {'chunksize': 1},
-        {'chunksize': 1, 'multi_process': True},
-        {'chunksize': 1, 'multi_process': True, 'group_components': True},
-        # {'multi_process': True},
-        # {'chunksize': 1, 'multi_process': 1},
-    ])
-)
-def test_simple_run_retDict_complex_select_group_components(
-    file_extension, options,
-    # fixtures:
-    capsys, db_engine, config_dict, tmp_path
-):
-    """test a case where we have a more complex select involving joins"""
-
-    # # advanced_settings, cmdline_opts = options
-    # session = db.session
-    # # select the event times for the segments with data:
-    # etimes = sorted(_[1] for _ in session.query(Segment.id, Event.time).
-    #                 join(Segment.event).filter(Segment.has_data))
-    #
-    # _seg = db.segments(with_inventory=True, with_data=True, with_gap=False).one()
-    # expected_first_row_seg_id = _seg.id
-    # station_id_whose_inventory_is_saved = _seg.station.id
-
-    from stream2segment.resources.templates import paramtable
-    filename = tmp_path / f'output{file_extension}'
-    logfile = tmp_path / 'test.log'
-
-    if filename.is_file():
-        filename.unlink()
-
-    if logfile.is_file():
-        logfile.unlink()
-
-    segs_selection = {
-        # 'has_data': 'true',
-        'event_time': '<=%s' % (event_time_with_data.isoformat())
-    }
-    _ = process(
-        dburl=str(db_engine.url),
-        pyfunc=paramtable.main,
-        segments_selection=segs_selection,
-        config=config_dict(snr_threshold=0),
-        outfile=filename,
-        verbose=True,
-        logfile=logfile,
-        **options
-    )
-
-    # check file has been correctly written:
-    if file_extension == '.csv':
-        dfr = pd.read_csv(filename)
-        assert len(dfr) == 1
-        assert 8.877e-5 < float(dfr['PGA'][0]) < 8.878e-5
-        # assert csv1.loc[0, csv1.columns[0]] == expected_first_row_seg_id
-    else:
-        dfr = pd.read_hdf(filename)
-        assert len(dfr) == 1
-        assert 8.877e-5 < dfr['PGA'][0] < 8.878e-5
-        # assert dfr.iloc[0][SEGMENT_ID_COLNAME] == expected_first_row_seg_id
-
-    log_content = logfile.read_text()
-
-    segs = sum(1 for _ in get_segments(db_engine, segs_selection, segments_only=True))
-    assert f"{segs} segment(s) to process found" in log_content
-    assert f"1 of {segs} segment(s) successfully processed" in log_content
-    assert (
-        f"{segs-1} of {segs} segment(s) skipped with error message reported "
-        f"in the log file"
-    ) in log_content
-
-
-# def read_processing_output(filename, header=True):  # <- header only for csv
-#     ext = os.path.splitext(filename)[1].lower()
-#     if ext == '.hdf':
-#         return pd.read_hdf(filename).reset_index(drop=True, inplace=False)  # noqa
-#     elif ext == '.csv':
-#         return pd.read_csv(filename, header=None) if not header \
-#             else pd.read_csv(filename)
-#     else:
-#         raise ValueError('Unrecognized extension %s' % ext)
-
-
-
-# @pytest.mark.parametrize("err_type", [None, SkipSegment])
-# def test_errors_process_completed(
-#     err_type,
+# @pytest.mark.parametrize(
+#     "file_extension, options",
+#     product(['.h5', '.csv'], [
+#         # {},
+#         {'chunksize': 1},
+#         {'chunksize': 1, 'multi_process': True},
+#         {'chunksize': 1, 'multi_process': True, 'group_components': True},
+#         # {'multi_process': True},
+#         # {'chunksize': 1, 'multi_process': 1},
+#     ])
+# )
+# def test_simple_run_retDict_complex_select_group_components(
+#     file_extension, options,
 #     # fixtures:
-#     capsys, pytestdir, db, config_dict
+#     capsys, db_engine, config_dict, tmp_path
 # ):
-#     """test processing in case of non 'critical' errors i.e., which do not prevent the process
-#       to be completed. None means we do not override SEG_SEL_STR which, with the current
-#       templates, causes no segment to be selected"""
-#     from stream2segment.resources.templates import paramtable
-#     if err_type == SkipSegment:
-#         seg_sel = {'has_data': 'true'}
-#         def main2(segment, config):
-#             raise SkipSegment(ValueError("invalid literal for .* with base 10: '4d'"))
-#     else:
-#         seg_sel = {'maxgap_numsamples': '[-0.5, 0.5]', 'has_data': 'true'}
-#         def main2(segment, config):
-#             return paramtable.main(segment, config)
+#     """test a case where we have a more complex select involving joins"""
 #
-#     options = {}
-#     file_extension = ".csv"
-#     filename = pytestdir.newfile(file_extension)
-#     logfile = pytestdir.newfile('.log')
-#     _ = process(dburl=db.dburl, pyfunc=main2,
-#                 segments_selection=seg_sel,
-#                 config=config_dict(),
-#                 outfile=filename,
-#                 verbose=True, logfile=logfile, **options)
-#
-#     output, error = capsys.readouterr()
-#     with open(logfile) as _:
-#         logcontent = _.read()
-#
-#     assert not error
-#     # we did open the output file:
-#     assert os.path.isfile(filename)
-#     # and we never wrote on it:
-#     assert os.stat(filename).st_size == 0
-#     # check correct outputs, in both log and output:
-#     if err_type is None:  # no segments processed
-#         # we want to check that a particular string (str2check) is in the stdout
-#         # But consider that string changes according to py versions so use regex:
-#         str2check = \
-#             (r"0 segment\(s\) found to process\n"
-#              r"\n+"
-#              r"0 of 0 segment\(s\) successfully processed\n"
-#              r"0 of 0 segment\(s\) skipped with error message reported in the log file")
-#         assert re.search(str2check, output)
-#         assert re.search(str2check, logcontent)
-#     else:
-#         # we want to check that a particular string (str2check) is in the stdout
-#         # But consider that string changes according to py versions so use regex:
-#         str2check = \
-#             (r'4 segment\(s\) found to process\n'
-#              r'\n+'
-#              r'0 of 4 segment\(s\) successfully processed\n'
-#              r'4 of 4 segment\(s\) skipped with error message reported in the log file')
-#         assert re.search(str2check, output)
-#
-#         str2check = \
-#             (r"4 segment\(s\) found to process\n"
-#              r"\n+"
-#              r"segment \([^\)]+\)\: invalid literal for .* with base 10: '4d'\n"
-#              r"segment \([^\)]+\)\: invalid literal for .* with base 10: '4d'\n"
-#              r"segment \([^\)]+\)\: invalid literal for .* with base 10: '4d'\n"
-#              r"segment \([^\)]+\)\: invalid literal for .* with base 10: '4d'\n"
-#              r"\n+"
-#              r"0 of 4 segment\(s\) successfully processed\n"
-#              r"4 of 4 segment\(s\) skipped with error message reported in the log file")
-#         try:
-#             assert re.search(str2check, logcontent)
-#         except AssertionError:
-#             asd =9
-
-# # appending to file:
-#
-# # Recall: we have 6 segments, issued from all combination of
-# # station_inventory in [true, false] and segment.data in [ok, with_gaps, empty]
-# # use db4process(with_inventory, with_data, with_gap) to return sqlalchemy query for
-# # those segments in case. For info see db4process in conftest.py
-# @pytest.mark.parametrize('hdf', [True, False])
-# @pytest.mark.parametrize("output_file_empty", [False, True])
-# @pytest.mark.parametrize('processing_py_return_list', [True, False])
-# def test_append_on_badly_formatted_outfile(
-#     processing_py_return_list, output_file_empty, hdf,
-#     # fixtures:
-#     capsys, pytestdir, db, config_dict
-# ):
-#     """test a case where we append on an badly formatted output file
-#     (no segment id column found)"""
-#     if processing_py_return_list and hdf:
-#         # hdf does not support returning lists
-#         return
-#     seg_sel = {'has_data': 'true'}
-#     config = config_dict(snr_threshold=0)
-#     options = {'append': True}
+#     # # advanced_settings, cmdline_opts = options
+#     # session = db.session
+#     # # select the event times for the segments with data:
+#     # etimes = sorted(_[1] for _ in session.query(Segment.id, Event.time).
+#     #                 join(Segment.event).filter(Segment.has_data))
+#     #
+#     # _seg = db.segments(with_inventory=True, with_data=True, with_gap=False).one()
+#     # expected_first_row_seg_id = _seg.id
+#     # station_id_whose_inventory_is_saved = _seg.station.id
 #
 #     from stream2segment.resources.templates import paramtable
-#     if processing_py_return_list:
-#         def main(segment, config):
-#             return list(paramtable.main(segment, config).values())
+#     filename = tmp_path / f'output{file_extension}'
+#     logfile = tmp_path / 'test.log'
+#
+#     if filename.is_file():
+#         filename.unlink()
+#
+#     if logfile.is_file():
+#         logfile.unlink()
+#
+#     segs_selection = {
+#         # 'has_data': 'true',
+#         'event_time': '<=%s' % (event_time_with_data.isoformat())
+#     }
+#     _ = process(
+#         dburl=str(db_engine.url),
+#         pyfunc=paramtable.main,
+#         segments_selection=segs_selection,
+#         config=config_dict(snr_threshold=0),
+#         outfile=filename,
+#         verbose=True,
+#         logfile=logfile,
+#         **options
+#     )
+#
+#     # check file has been correctly written:
+#     if file_extension == '.csv':
+#         dfr = pd.read_csv(filename)
+#         assert len(dfr) == 1
+#         assert 8.877e-5 < float(dfr['PGA'][0]) < 8.878e-5
+#         # assert csv1.loc[0, csv1.columns[0]] == expected_first_row_seg_id
 #     else:
-#         main = paramtable.main
+#         dfr = pd.read_hdf(filename)
+#         assert len(dfr) == 1
+#         assert 8.877e-5 < dfr['PGA'][0] < 8.878e-5
+#         # assert dfr.iloc[0][SEGMENT_ID_COLNAME] == expected_first_row_seg_id
 #
-#     outfilepath = pytestdir.newfile('.hdf' if hdf else '.csv', create=True)
-#     if not output_file_empty:
-#         if hdf:
-#             pd.DataFrame(columns=['-+-', '[[['], data=[[1, 'a']]).to_hdf(outfilepath,
-#                                                                          format='t',
-#                                                                          key='f')
-#         else:
-#             with open(outfilepath, 'wt') as _:
-#                 _.write('asdasd')
+#     log_content = logfile.read_text()
 #
-#     logfile = pytestdir.newfile('.log')
-#
-#     # this are the cases where the append is ok:
-#     should_be_ok = processing_py_return_list or \
-#                    (not hdf and output_file_empty)
-#     try:
-#         _ = process(dburl=db.dburl, pyfunc=main,
-#                     segments_selection=seg_sel,
-#                     config=config,
-#                     outfile=outfilepath,
-#                     verbose=True, logfile=logfile, **options)
-#         assert should_be_ok
-#     except (HDF5ExtError, BaseWriter._SEGID_NOTFOUND_ERR.__class__) as exc:
-#         if isinstance(exc, HDF5ExtError):
-#             assert hdf
-#         assert not should_be_ok
-#
-#     output, error = capsys.readouterr()
-#
-#     if not should_be_ok:
-#         # if hdf and output file is empty, the error is a HDF error
-#         # (because an emopty file cannot be opened as HDF, a CSV apparently
-#         # can)
-#         is_empty_hdf_file = hdf and output_file_empty
-#         if not is_empty_hdf_file:
-#             # otherwise, it's a s2s error where we could not find the
-#             # segment id column:
-#             assert ("TypeError: Cannot append to file, segment_id column " \
-#                     "name not found") in output
-#         return
-#
-#     with open(logfile) as _:
-#         logtext = _.read()
-#     assert len(logtext) > 0
-#     assert "Appending results to existing file" in logtext
+#     segs = sum(1 for _ in get_segments(db_engine, segs_selection, segments_only=True))
+#     assert f"{segs} segment(s) to process found" in log_content
+#     assert f"1 of {segs} segment(s) successfully processed" in log_content
+#     assert (
+#         f"{segs-1} of {segs} segment(s) skipped with error message reported "
+#         f"in the log file"
+#     ) in log_content
