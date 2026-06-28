@@ -32,7 +32,8 @@ try:
 except ImportError:
     from numpy import mat as asmatrix  # numpy < 2
 
-from obspy import Trace, Stream, UTCDateTime, Inventory
+from obspy import Trace, Stream, UTCDateTime
+from obspy.core.inventory.inventory import Inventory
 from obspy.core.event import Event
 from obspy.core.util.obspy_types import ObsPyException
 from stream2segment.process import SkipSegment, SegmentMetadata
@@ -134,9 +135,9 @@ def main(
         raise SkipSegment(f"{len(segment)} traces (probably gaps/overlaps)")
 
     if station is None:
-        raise SkipSegment("no inventory provided")
+        raise SkipSegment("no station inventory provided")
 
-    trace = segment[0]  # work with the (surely) one trace now
+    trace = segment[0]  # work with the (surely) single trace now
     segment_meta: SegmentMetadata = trace.stats.segment_metadata
 
     # discard saturated signals (according to the threshold set in the config file):

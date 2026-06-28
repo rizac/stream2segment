@@ -354,7 +354,7 @@ def test_simple_run_retDict_high_snr_threshold(
     assert idx2 > -1
 
     assert 'low snr' in log_content
-    assert 'no inventory provided' in log_content
+    assert 'no station inventory provided' in log_content
 
     assert "0 of 4 segment(s) successfully processed" in log_content
     assert (
