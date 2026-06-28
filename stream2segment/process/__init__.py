@@ -5,7 +5,7 @@
 from stream2segment.process.segments_selection import build_where_clause
 from stream2segment.process.main import (
     process, imap, SkipSegment,  get_default_segments_selection,
-    SegmentMetadata, create_processing_env
+    SegmentMetadata, suppress_printouts
 )
 from stream2segment.process import traces
 

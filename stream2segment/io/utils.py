@@ -112,15 +112,16 @@ def start_logging(logger: Logger, logfile_path='', verbose=False):
         db_streamer.setLevel(logging.INFO)  # do not print debug, print others
 
         class _Formatter(logging.Formatter):
-            def format(self, r):
-                c = r.levelno
-                if c == logging.INFO:
-                    p = ""
-                elif c == logging.WARNING:
-                    p = "WARNING: "
-                else:
-                    p = "ERROR: "
-                return f"{p}{r.getMessage()}"
+            def __init__(self):
+                super().__init__("%(message)s")
+
+            def format(self, record):
+                msg = super().format(record)
+                if record.levelno in {logging.ERROR, logging.CRITICAL}:
+                    msg = f"[ERROR] {msg}"
+                elif record.levelno == logging.WARNING:
+                    msg = f"[WARNING] {msg}"
+                return msg
 
         db_streamer.setFormatter(_Formatter())
         # db_streamer.setFormatter(logging.Formatter('[%(levelname).1s]  %(message)s'))

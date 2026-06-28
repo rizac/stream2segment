@@ -9,7 +9,7 @@ import time
 import sys
 import logging
 from collections.abc import Callable, Iterable
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from datetime import timedelta, datetime, UTC
 import warnings
@@ -285,6 +285,13 @@ def imap(
 
     oks = 0
     errors = 0
+
+    if num_processes > 1:
+        capture = suppress_printouts
+    else:
+        capture = nullcontext
+
+
     # `create_processing_env` redirects Python BUT ALSO external libraries errors which
     # might mess up the terminal printout (e.g. progressbar). Python warnings should be
     # redirected as well because normally printed to `stderr`, so avoid capturing them
@@ -292,9 +299,7 @@ def imap(
     # subprocesses, if present. For info see :func:`process_segments_mp`
     with (
         start_logging(logger, logfile, verbose),
-        create_processing_env(
-            redirect_stderr=sys.stderr.isatty(), warnings_filter=None
-        )
+        capture(),
     ):
         try:
 
@@ -333,7 +338,7 @@ def imap(
                     pbar.render_progress()
 
                 exec_processing_func_args = (
-                    (pyfunc, args, config, skip_exceptions) for args in get_segments(
+                    (pyfunc, args, config, skip_exceptions, num_processes > 1) for args in get_segments(
                         engine,
                         segments_selection,
                         group_components,
@@ -344,7 +349,7 @@ def imap(
 
                 stime = time.time()
 
-                if not num_processes:
+                if num_processes <= 1:
                     for (output, is_ok, ids) in map(
                         execute_processing_function, exec_processing_func_args
                     ):
@@ -720,18 +725,27 @@ def execute_processing_function(args: tuple[
     Callable[[Stream, Inventory | None, Event | None, dict], Any],
     tuple[Stream, Inventory | None, Event | None],
     dict,
-    tuple[Exception]
+    tuple[Exception],
+    bool
 ]) -> tuple[Any, bool, set[int]]:
 
     pyfunc: Callable[[Stream, Inventory | None, Event | None, dict], Any] = args[0]
     pyfunc_args: tuple[Stream, Inventory | None, Event | None] = args[1]
     config: dict = args[2]
     safe_exceptions_tuple: tuple[Exception] = args[3]
+    suppress_stout_err: bool = args[4]
     ids = set(t.stats.segment_metadata.id for t in pyfunc_args[0])
-    try:
-        return pyfunc(*pyfunc_args, config), True, ids
-    except safe_exceptions_tuple as exc:
-        return exc, False, ids
+
+    if suppress_stout_err:
+        capture = suppress_printouts
+    else:
+        capture = nullcontext
+
+    with capture():
+        try:
+            return pyfunc(*pyfunc_args, config), True, ids
+        except safe_exceptions_tuple as exc:
+            return exc, False, ids
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -788,112 +802,90 @@ class SegmentMetadata:
 
 
 @contextmanager
-def create_processing_env(redirect_stderr=False, warnings_filter=None):
-    """Context manager to be used in a with statement, returns the progress bar
-    which can be called with pbar.update(int). The latter is no-op if length ==0
-
-    Typical usage without multi-processing from the main function (activate all 'with'
-    statements):
-    ```
-        with create_proc_env(10, redirect_stderr=True, 'ignore') as pbar:
-            ...
-            pbar.update(1)
-    ```
-    Typical usage with multi-processing from the main function (activate only
-    progressbar 's 'with' statement):
-    ```
-        with create_proc_env(10, redirect_stderr=True, None) as pbar:
-            ...
-            pbar.update(1)
-    ```
-    Typical usage with multi-processing from a child process  (activate only ignore
-    warnings):
-    ```
-        with create_proc_env(0, redirect_stderr=False, 'ignore') as pbar:
-            ...
-            pbar.update(1)
-    ```
-
-    :param length: the number of tasks to be done. If zero, the returned progressbar will
-        be no-op. Otherwise, it is an object which updates a progressbar on terminal
-    :param redirect_stderr: if True, captures the output of all C external functions and
-        does not print them to the screen, as it might be the case with some ObsPy
-        C-imported libraries
-    :param warnings_filter: if None, it does not capture Python warnings. Otherwise it
-        denotes the Python filter. E.g. 'ignore'. (FIXME: add link)
-    """
-    with redirect(sys.stderr if redirect_stderr else None):
-        # redirect is no-op if redirect_stderr=None
-        if warnings_filter:
-            with warnings.catch_warnings():
-                warnings.simplefilter(warnings_filter)
+def suppress_printouts(*, suppress_warnings=False):
+    if suppress_warnings:
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')
+            with redirect(sys.stderr):
+                with redirect(sys.stdout):
+                    yield
+    else:
+        with redirect(sys.stderr):
+            with redirect(sys.stdout):
                 yield
-        else:
-            yield
 
 
 @contextmanager
-def redirect(src=None, dst=os.devnull):
-    """Prevent Python AND external C shared library to print to stdout/stderr in Python,
-    preventing also leaking file descriptors.
-    If the first argument is None or any object not having a fileno() argument, this
-    context manager is simply no-op and will yield and then return
+def redirect(src=None, dst: str | Path = os.devnull):
+    """Redirect the OS-level file descriptor of `src` (sys.stdout or sys.stderr)
+    to `dst` for the duration of the block. This silences C shared libraries that
+    write directly to the underlying fd, while Python's own sys.stdout/sys.stderr
+    objects are preserved and restored unchanged.
 
-    See (in this order):
-    https://stackoverflow.com/a/14797594
-    and (final solution modified here):
+    No-op when:
+      - src is None
+      - src has no real fileno() (e.g. pytest's StringIO replacement for sys.stderr)
 
-    Example:
-
-    with redirect(sys.stdout):
-        print("from Python")
-        os.system("echo non-Python applications are also supported")
-
-    :param src: file-like object with a fileno() method. Usually is either `sys.stdout`
-        or `sys.stderr`.
+    :param src: sys.stdout or sys.stderr
+    :param dst: destination path, default os.devnull
     """
-    # some tools (e.g., pytest) change sys.stderr. In that case, we do want this
-    # function to yield and return without changing anything
-    # Moreover, passing None as first argument means no redirection
     if src is None:
         yield
         return
 
     try:
         file_desc = src.fileno()
-    except (AttributeError, OSError, ValueError) as _:
+    except (AttributeError, OSError, ValueError):
+        # pytest and similar tools replace sys.stderr/stdout with objects that
+        # have no real file descriptor; treat as no-op
         yield
         return
 
-    # if you want to assert that Python and C stdio write using the same file descriptor:
-    # assert libc.fileno(ctypes.c_void_p.in_dll(libc, "stdout")) == file_desc == 1
+    # Save the current Python wrapper so we can restore it exactly (same object,
+    # no new wrapper created, no GC leak).
+    # ORIGINAL BUG: created new wrappers via os.fdopen() on both redirect and restore
+    old_stream = sys.stderr if src is sys.stderr else sys.stdout
 
-    def _redirect_stderr_to(fileobject):
-        sys.stderr.close()  # + implicit flush()
-        # make `file_desc` point to the same file as `fileobject`.
-        # First closes file_desc if necessary:
-        os.dup2(fileobject.fileno(), file_desc)
-        # Make Python write to file_desc
-        sys.stderr = os.fdopen(file_desc, 'w')
+    # Flush before touching the fd so no buffered Python output goes to dst.
+    # Use the current stream object (old_stream), not src, which may be stale
+    # if sys.stderr was already replaced (though here they are the same).
+    old_stream.flush()
 
-    def _redirect_stdout_to(fileobject):
-        sys.stdout.close()  # + implicit flush()
-        # make `file_desc` point to the same file as `fileobject`.
-        # First closes file_desc if necessary:
-        os.dup2(fileobject.fileno(), file_desc)
-        # Make Python write to file_desc
-        sys.stdout = os.fdopen(file_desc, 'w')
+    # Save a duplicate of the original fd so we can restore it later.
+    saved_fd = os.dup(file_desc)
+    try:
+        # Open dst and dup2 it onto file_desc, then close the temporary dst_fd.
+        # ORIGINAL BUG: used `with open(dst) as dst_fileobject` which closed dst
+        # before yield, leaving file_desc pointing to a closed fd during the block.
+        dst_fd = os.open(dst, os.O_WRONLY)
+        os.dup2(dst_fd, file_desc)
+        os.close(dst_fd)
+        # At this point file_desc points to dst at the OS level.
+        # The existing Python wrapper (old_stream) still holds the same fd number
+        # and will now write to dst — no new wrapper needed.
 
-    _redirect_to = _redirect_stderr_to if src is sys.stderr else _redirect_stdout_to
-
-    with os.fdopen(os.dup(file_desc), 'w') as src_fileobject:
-        with open(dst, 'w') as dst_fileobject:
-            _redirect_to(dst_fileobject)
         try:
-            yield  # allow code to be run with the redirected stdout/err
+            yield
         finally:
-            # restore stdout/err. buffering and flags such as CLOEXEC may be different:
-            _redirect_to(src_fileobject)
+            # Flush whatever is currently assigned to the stream (which is
+            # old_stream, now writing to dst) before restoring.
+            # ORIGINAL BUG: called src.flush() where src was the stale reference
+            # captured at function entry, not the currently assigned stream.
+            if src is sys.stderr:
+                sys.stderr.flush()
+            else:
+                sys.stdout.flush()
+
+            # Restore the original fd at OS level.
+            os.dup2(saved_fd, file_desc)
+
+            # Restore the original Python wrapper (same object, no new allocation).
+            if src is sys.stderr:
+                sys.stderr = old_stream
+            else:
+                sys.stdout = old_stream
+    finally:
+        os.close(saved_fd)
 
 
 # def get_slices(array, chunksize):

@@ -1,34 +1,27 @@
 """
-Created on Feb 14, 2017
-
-@author: riccardo
+test processing routine
 """
+# Feb 14, 2017
 import os
 import re
-from pathlib import Path
 from datetime import datetime, UTC, timedelta
 from itertools import product
 from unittest.mock import patch
-import warnings
-import numpy as np
 import pandas as pd
 import pytest
 import yaml
 from pandas._testing import assert_frame_equal
 from pandas.errors import EmptyDataError
 from sqlalchemy.orm import sessionmaker
-from tables import HDF5ExtError, NaturalNameWarning
 
-from stream2segment.io.db import create_engine, database_exists, is_postgres, is_sqlite
+from stream2segment.io.db import create_engine, database_exists, is_sqlite
 from stream2segment.io.db.models import (
     DownloadRun, WebService, Channel, StationXML, MiniSeed, SkippedSegment,Event,
     Segment
 )
 from stream2segment.process.main import get_segments
-from stream2segment.process import SkipSegment
 from stream2segment.resources import get_templates_fpath
 from stream2segment.process.main import process
-# from stream2segment.process.writers import SEGMENT_ID_COLNAME, BaseWriter
 
 
 @pytest.fixture
@@ -229,10 +222,7 @@ class patches:
 
 # ======== ACTUAL TESTS: ================================
 
-# Recall: we have 6 segments, issued from all combination of
-# station_inventory in [true, false] and segment.data in [ok, with_gaps, empty]
-# use db4process(with_inventory, with_data, with_gap) to return sqlalchemy query for
-# those segments in case. For info see db4process in conftest.py
+
 def test_simple_run_no_outfile_provided(
     # fixtures:
     capsys, db_engine, config_dict
@@ -276,16 +266,6 @@ def test_simple_run_retDict_complex_select(
 ):
     """test a case where we have a more complex select involving joins"""
 
-    # # advanced_settings, cmdline_opts = options
-    # session = db.session
-    # # select the event times for the segments with data:
-    # etimes = sorted(_[1] for _ in session.query(Segment.id, Event.time).
-    #                 join(Segment.event).filter(Segment.has_data))
-    #
-    # _seg = db.segments(with_inventory=True, with_data=True, with_gap=False).one()
-    # expected_first_row_seg_id = _seg.id
-    # station_id_whose_inventory_is_saved = _seg.station.id
-
     from stream2segment.resources.templates import paramtable
     filename = tmp_path / f'output{file_extension}'
     logfile = tmp_path / 'test.log'
@@ -326,7 +306,7 @@ def test_simple_run_retDict_complex_select(
     log_content = logfile.read_text()
 
     segs = sum(1 for _ in get_segments(db_engine, segs_selection, segments_only=True))
-    assert f"{segs} segment(s) to process found" in log_content
+    assert f"{segs} segment(s) found to process" in log_content
     assert f"1 of {segs} segment(s) successfully processed" in log_content
     assert (
         f"{segs-1} of {segs} segment(s) skipped with error message reported "
@@ -334,10 +314,6 @@ def test_simple_run_retDict_complex_select(
     ) in log_content
 
 
-# Recall: we have 6 segments, issued from all combination of
-# station_inventory in [true, false] and segment.data in [ok, with_gaps, empty]
-# use db4process(with_inventory, with_data, with_gap) to return sqlalchemy query for
-# those segments in case. For info see db4process in conftest.py
 def test_simple_run_retDict_high_snr_threshold(
     # fixtures:
     capsys, db_engine, tmp_path, config_dict
@@ -369,15 +345,16 @@ def test_simple_run_retDict_high_snr_threshold(
 
     log_content = log_file.read_text()
 
-    idx1 = log_content.find('4 traces (probably gaps/overlaps)')
+
+    sentence = '4 traces (probably gaps/overlaps)'
+    # assert we find 2 times the sentence above in log content:
+    idx1 = log_content.find(sentence)
     assert idx1 > -1
-    idx2 = log_content[idx1+1:].find('4 traces (probably gaps/overlaps)')
-    assert idx2 > idx1
-    idx3 = log_content[idx2 + 1:].find('4 traces (probably gaps/overlaps)')
-    assert idx3 == -1
+    idx2 = log_content[idx1+1:].find(sentence)
+    assert idx2 > -1
 
     assert 'low snr' in log_content
-    assert 'no onventory provided' in log_content
+    assert 'no inventory provided' in log_content
 
     assert "0 of 4 segment(s) successfully processed" in log_content
     assert (
@@ -386,12 +363,6 @@ def test_simple_run_retDict_high_snr_threshold(
     )
 
 
-# Even though we are not interested here to check what is there on the created db,
-# because we test errors,
-# Recall: we have 6 segments, issued from all combination of
-# station_inventory in [true, false] and segment.data in [ok, with_gaps, empty]
-# use db4process(with_inventory, with_data, with_gap) to return sqlalchemy query for
-# those segments in case. For info see db4process in conftest.py
 @pytest.mark.parametrize(
     "err_type", [ImportError, AttributeError, TypeError]
 )
@@ -456,12 +427,7 @@ def test_errors_process_not_run(
         assert err_name in output
 
 
-# Recall: we have 6 segments, issued from all combination of
-# station_inventory in [true, false] and segment.data in [ok, with_gaps, empty]
-# use db4process(with_inventory, with_data, with_gap) to return sqlalchemy query for
-# those segments in case. For info see db4process in conftest.py
 @pytest.mark.parametrize('hdf', [True, False])
-# @patch('stream2segment.cli.click.confirm', return_value=True)
 def test_append(
     hdf,
     # fixtures:
@@ -600,79 +566,3 @@ def test_process_verbosity(
         if l:
             log_file.unlink()
         assert (len(out) > 0) == v
-
-
-# @pytest.mark.parametrize(
-#     "file_extension, options",
-#     product(['.h5', '.csv'], [
-#         # {},
-#         {'chunksize': 1},
-#         {'chunksize': 1, 'multi_process': True},
-#         {'chunksize': 1, 'multi_process': True, 'group_components': True},
-#         # {'multi_process': True},
-#         # {'chunksize': 1, 'multi_process': 1},
-#     ])
-# )
-# def test_simple_run_retDict_complex_select_group_components(
-#     file_extension, options,
-#     # fixtures:
-#     capsys, db_engine, config_dict, tmp_path
-# ):
-#     """test a case where we have a more complex select involving joins"""
-#
-#     # # advanced_settings, cmdline_opts = options
-#     # session = db.session
-#     # # select the event times for the segments with data:
-#     # etimes = sorted(_[1] for _ in session.query(Segment.id, Event.time).
-#     #                 join(Segment.event).filter(Segment.has_data))
-#     #
-#     # _seg = db.segments(with_inventory=True, with_data=True, with_gap=False).one()
-#     # expected_first_row_seg_id = _seg.id
-#     # station_id_whose_inventory_is_saved = _seg.station.id
-#
-#     from stream2segment.resources.templates import paramtable
-#     filename = tmp_path / f'output{file_extension}'
-#     logfile = tmp_path / 'test.log'
-#
-#     if filename.is_file():
-#         filename.unlink()
-#
-#     if logfile.is_file():
-#         logfile.unlink()
-#
-#     segs_selection = {
-#         # 'has_data': 'true',
-#         'event_time': '<=%s' % (event_time_with_data.isoformat())
-#     }
-#     _ = process(
-#         dburl=str(db_engine.url),
-#         pyfunc=paramtable.main,
-#         segments_selection=segs_selection,
-#         config=config_dict(snr_threshold=0),
-#         outfile=filename,
-#         verbose=True,
-#         logfile=logfile,
-#         **options
-#     )
-#
-#     # check file has been correctly written:
-#     if file_extension == '.csv':
-#         dfr = pd.read_csv(filename)
-#         assert len(dfr) == 1
-#         assert 8.877e-5 < float(dfr['PGA'][0]) < 8.878e-5
-#         # assert csv1.loc[0, csv1.columns[0]] == expected_first_row_seg_id
-#     else:
-#         dfr = pd.read_hdf(filename)
-#         assert len(dfr) == 1
-#         assert 8.877e-5 < dfr['PGA'][0] < 8.878e-5
-#         # assert dfr.iloc[0][SEGMENT_ID_COLNAME] == expected_first_row_seg_id
-#
-#     log_content = logfile.read_text()
-#
-#     segs = sum(1 for _ in get_segments(db_engine, segs_selection, segments_only=True))
-#     assert f"{segs} segment(s) to process found" in log_content
-#     assert f"1 of {segs} segment(s) successfully processed" in log_content
-#     assert (
-#         f"{segs-1} of {segs} segment(s) skipped with error message reported "
-#         f"in the log file"
-#     ) in log_content

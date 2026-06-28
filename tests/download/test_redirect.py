@@ -5,80 +5,73 @@ from pathlib import Path
 import pytest
 import sys
 import os
-from stream2segment.process.main import redirect as redirect2
+from stream2segment.process.main import redirect
 
 
 @contextmanager
-def redirect(src=None, dst: str | Path = os.devnull):
-    """Redirect the OS-level file descriptor of `src` (sys.stdout or sys.stderr)
-    to `dst` for the duration of the block. This silences C shared libraries that
-    write directly to the underlying fd, while Python's own sys.stdout/sys.stderr
-    objects are preserved and restored unchanged.
+def legacy_redirect(src=None, dst=os.devnull):
+    """Prevent Python AND external C shared library to print to stdout/stderr in Python,
+    preventing also leaking file descriptors.
+    If the first argument is None or any object not having a fileno() argument, this
+    context manager is simply no-op and will yield and then return
 
-    No-op when:
-      - src is None
-      - src has no real fileno() (e.g. pytest's StringIO replacement for sys.stderr)
+    See (in this order):
+    https://stackoverflow.com/a/14797594
+    and (final solution modified here):
 
-    :param src: sys.stdout or sys.stderr
-    :param dst: destination path, default os.devnull
+    Example:
+
+    with redirect(sys.stdout):
+        print("from Python")
+        os.system("echo non-Python applications are also supported")
+
+    :param src: file-like object with a fileno() method. Usually is either `sys.stdout`
+        or `sys.stderr`.
     """
+    # some tools (e.g., pytest) change sys.stderr. In that case, we do want this
+    # function to yield and return without changing anything
+    # Moreover, passing None as first argument means no redirection
     if src is None:
         yield
         return
 
     try:
         file_desc = src.fileno()
-    except (AttributeError, OSError, ValueError):
-        # pytest and similar tools replace sys.stderr/stdout with objects that
-        # have no real file descriptor; treat as no-op
+    except (AttributeError, OSError, ValueError) as _:
         yield
         return
 
-    # Save the current Python wrapper so we can restore it exactly (same object,
-    # no new wrapper created, no GC leak).
-    # ORIGINAL BUG: created new wrappers via os.fdopen() on both redirect and restore
-    old_stream = sys.stderr if src is sys.stderr else sys.stdout
+    # if you want to assert that Python and C stdio write using the same file descriptor:
+    # assert libc.fileno(ctypes.c_void_p.in_dll(libc, "stdout")) == file_desc == 1
 
-    # Flush before touching the fd so no buffered Python output goes to dst.
-    # Use the current stream object (old_stream), not src, which may be stale
-    # if sys.stderr was already replaced (though here they are the same).
-    old_stream.flush()
+    def _redirect_stderr_to(fileobject):
+        sys.stderr.close()  # + implicit flush()
+        # make `file_desc` point to the same file as `fileobject`.
+        # First closes file_desc if necessary:
+        os.dup2(fileobject.fileno(), file_desc)
+        # Make Python write to file_desc
+        sys.stderr = os.fdopen(file_desc, 'w')
 
-    # Save a duplicate of the original fd so we can restore it later.
-    saved_fd = os.dup(file_desc)
-    try:
-        # Open dst and dup2 it onto file_desc, then close the temporary dst_fd.
-        # ORIGINAL BUG: used `with open(dst) as dst_fileobject` which closed dst
-        # before yield, leaving file_desc pointing to a closed fd during the block.
-        dst_fd = os.open(dst, os.O_WRONLY)
-        os.dup2(dst_fd, file_desc)
-        os.close(dst_fd)
-        # At this point file_desc points to dst at the OS level.
-        # The existing Python wrapper (old_stream) still holds the same fd number
-        # and will now write to dst — no new wrapper needed.
+    def _redirect_stdout_to(fileobject):
+        sys.stdout.close()  # + implicit flush()
+        # make `file_desc` point to the same file as `fileobject`.
+        # First closes file_desc if necessary:
+        os.dup2(fileobject.fileno(), file_desc)
+        # Make Python write to file_desc
+        sys.stdout = os.fdopen(file_desc, 'w')
 
+    _redirect_to = _redirect_stderr_to if src is sys.stderr else _redirect_stdout_to
+
+    with os.fdopen(os.dup(file_desc), 'w') as src_fileobject:
+        with open(dst, 'w') as dst_fileobject:
+            _redirect_to(dst_fileobject)
         try:
-            yield
+            yield  # allow code to be run with the redirected stdout/err
         finally:
-            # Flush whatever is currently assigned to the stream (which is
-            # old_stream, now writing to dst) before restoring.
-            # ORIGINAL BUG: called src.flush() where src was the stale reference
-            # captured at function entry, not the currently assigned stream.
-            if src is sys.stderr:
-                sys.stderr.flush()
-            else:
-                sys.stdout.flush()
+            # restore stdout/err. buffering and flags such as CLOEXEC may be different:
+            _redirect_to(src_fileobject)
 
-            # Restore the original fd at OS level.
-            os.dup2(saved_fd, file_desc)
 
-            # Restore the original Python wrapper (same object, no new allocation).
-            if src is sys.stderr:
-                sys.stderr = old_stream
-            else:
-                sys.stdout = old_stream
-    finally:
-        os.close(saved_fd)
 
 
 # @pytest.fixture(autouse=True)
