@@ -19,6 +19,7 @@ from stream2segment.io.db.models import (
     DownloadRun, WebService, Channel, StationXML, MiniSeed, SkippedSegment,Event,
     Segment
 )
+from stream2segment.process import imap
 from stream2segment.process.main import get_segments
 from stream2segment.resources import get_templates_fpath
 from stream2segment.process.main import process
@@ -566,3 +567,39 @@ def test_process_verbosity(
         if l:
             log_file.unlink()
         assert (len(out) > 0) == v
+
+
+@pytest.mark.parametrize('mp', [True, False])
+def test_suppress_output(
+    mp,
+    # fixtures
+    capsys, tmp_path, db_engine, config_dict
+):
+    class CustomProcessingError(Exception):
+        pass
+
+    x = 0
+    log_file = tmp_path / 'test.log'
+
+    def worker_task(segment, station, event, config):
+        # ctx = redirect_both() if suppress else nullcontext()
+        os.write(1, f"[pid={os.getpid()}] noisy C stdout for task {x}\n".encode())
+        os.write(2, f"[pid={os.getpid()}] noisy C stderr for task {x}\n".encode())
+        print(f"[pid={os.getpid()}] a plain Python print(), task {x}")
+        if segment.stats.segment_metadata.event_id == 3:
+            raise CustomProcessingError(f"task {x} hit a known bad-data condition")
+        return os.getpid(), x * x
+
+    for _ in imap(
+        dburl=str(db_engine.url),
+        pyfunc=worker_task,
+        config={},
+        logfile=log_file,
+        multi_process=mp,
+        verbose=True,
+    ):
+        pass
+
+    out, err = capsys.readouterr()
+    assert True
+

@@ -100,22 +100,12 @@ def process(
         or non-existing, otherwise: if False, overwrite the existing output
         file. If True, process unprocessed segments only (checking the segment
         id), and append to the given file, without replacing existing data.
-    :param writer_options: dict of options for the writer. When None or missing, it
-        defaults to the empty dict (no options). As option, you can pass any keyword
-        argument of the functions linked below.
-        For CSV output:
-        https://docs.python.org/3/library/csv.html#csv.writer     (any CSV)
-        https://docs.python.org/3/library/csv.html#csv.DictWriter (CSV with header, e.g.
-        your processing function returns dicts). Note that some arguments are ignored
-        ('f', 'fieldnames', 'csvfile') and other set by default if missing:
-        `delimiter` (","), `quotechar` ('"') and `quoting` (`csv.QUOTE_MINIMAL`).
-        For HDF output:
-        https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.HDFStore.append.html
-        with the exception of the arguments `value` and `append`, which are not
-        configurable and will be overwritten (also note that `format` and `key`
-        will be set by default and do not need to be input). Example of such a dict:
+    :param writer_options: dict of options for the writer, i.e. optional keyword
+        arguments that will be passed to pandas Dataframe `to_hdf` or `to_csv` (
+        depending on the desired file format). See pandas doc for details (note that
+        some options might be overwritten). Example (for HDF output):
         ```
-        {
+        writer_options = {
             'chunksize': 1200,
             'min_itemsize': {
                 'network': 2
@@ -126,7 +116,7 @@ def process(
         }
         ```
     :param logfile: str or boolean (default: False). The path of the file to log
-        :class:`stream2segmetn.process.SkipExeption`, when raised.
+        :class:`stream2segment.process.SkipException`, when raised.
         If True, it will be inferred from the output file or the Python file of the
         processing function, if given, by appending ".[now].log" to the file path ([now]
         denotes the current UTC timestamp). If False, empty string or in any case where
@@ -143,7 +133,7 @@ def process(
         increases memory consumption. None (the default) will set the size automatically
     :param skip_exceptions: tuple of Python exceptions that will not interrupt the whole
         execution but will be logged to file, with the relative segment id. When missing
-        or None, it defaults to :class:`stream2segmetn.process.SkipExeption`
+        or None, it defaults to :class:`stream2segment.process.SkipException`
 
     :return: the number of successfully processed segments. If a file is provided, it
         is the number of written rows
@@ -332,13 +322,14 @@ def imap(
             with get_progressbar(total) as pbar:  # no-op if length not > 0
                 if verbose and total:
                     logger.info(f"{total:,} segment(s) found to process")
-                    # Show the progressbar now, because the 1st chunk might be ready in
-                    # min, and an empty screen might give the impression of a program hang:
-                    time.sleep(0.5)
+                    # Show the progress bar immediately to avoid an empty screen being
+                    # mistaken for a program hang if 1st chunk takes time:
+                    time.sleep(0.25)
                     pbar.render_progress()
 
                 exec_processing_func_args = (
-                    (pyfunc, args, config, skip_exceptions, num_processes > 1) for args in get_segments(
+                    (pyfunc, args, config, skip_exceptions, num_processes > 1)
+                    for args in get_segments(
                         engine,
                         segments_selection,
                         group_components,
