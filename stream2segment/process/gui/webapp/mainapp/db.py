@@ -10,8 +10,10 @@ from sqlalchemy import func
 from datetime import datetime
 
 from stream2segment.io.db import secure_dburl, sqlalchemy_version
-from stream2segment.io.db.models import (get_classlabels)
-from stream2segment.process.segments_selection import build_where_clause, get_pytype, get_sqltype
+from stream2segment.io.db.models import get_classlabels
+from stream2segment.process.segments_selection import (
+    build_where_clause, get_pytype, get_sqltype
+)
 
 # import atexit
 

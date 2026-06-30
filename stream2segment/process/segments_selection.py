@@ -4,59 +4,300 @@ statements from config files, command line or via GUI input controls
 via string expression on database tables columns
 """
 # Mar 6, 2017
+from dataclasses import dataclass, fields
 from datetime import datetime
 import shlex
 import warnings
 
 import numpy as np
-from sqlalchemy import and_, ColumnElement
+from sqlalchemy import and_, ColumnElement, select, func, tuple_, Engine, Select
 
-from stream2segment.io.db.models import Event, Channel, Segment
+from stream2segment.io.db import s2s_db_version
+from stream2segment.io.db import models
+from stream2segment.io.db.legacy import models as legacy_models  # v <= 4
 
-base_attrs = {
-    "event_time": Event.time,
-    "event_latitude": Event.latitude,
-    "event_longitude": Event.longitude,
-    "event_depth_km": Event.depth_km,
-    # author = Column(String)
-    # catalog = Column(String, nullable=False)
-    # contributor = Column(String)
-    # contributor_id = Column(String)
-    "event_mag_type": Event.mag_type,
-    "event_magnitude_type": Event.mag_type,
-    "event_magnitude": Event.magnitude,
-    "network_code": Channel.network_code,
-    "station_code": Channel.station_code,
-    "latitude": Channel.latitude,
-    "longitude": Channel.longitude,
-    "elevation": Channel.elevation,
-    # start_time = Channel.start_time,
-    "location_code": Channel.location_code,
-    "band_code": Channel.band_code,
-    "instrument_code": Channel.instrument_code,
-    "orientation_code": Channel.orientation_code,
-    "channel_code": Channel.channel_code,
-    "depth": Channel.depth,
-    "azimuth": Channel.azimuth,
-    "dip": Channel.dip,
-    "event_distance_km": Segment.event_distance_km,
-    "noise_window_s": Segment.noise_window_s,
-    "signal_window_s": Segment.signal_window_s,
-    "gap_score_percent": Segment.gap_score_percent
+
+def build_select(
+    db: Engine,
+    segments_selection: dict | None = None,
+    group_components: bool = False,
+) -> Select:
+    """
+    Build the segments-selection SELECT statement, transparently supporting
+    both the current and the legacy (v<=4) database schema.
+
+    :param db: an Engine. See sqlalchemy `create_engine(db_url)`
+    :param segments_selection: optional dict of selection filters, forwarded
+        to `build_where_clause` exactly as before.
+    :param group_components: if True, also selects per-component channel
+        codes (location/band/instrument). NOT supported on legacy databases
+        (this option did not exist in any legacy s2s version) - raises
+        NotImplementedError if `db` is a legacy database.
+    """
+    legacy = s2s_db_version(db) < 5
+
+    if legacy:
+        if group_components:
+            raise NotImplementedError(
+                "`group_components` is not supported on "
+                "legacy (v<=4) databases: Either omit `group_components` and handle it "
+                "in your code, or re-download the data with this program"
+            )
+        stmt = _build_select_legacy(db, segments_selection)
+    else:
+        stmt = _build_select_new(db, segments_selection, group_components)
+
+    return stmt
+
+
+def _build_select_new(
+    db: Engine, segments_selection: dict | None = None, group_components:bool = False
+) -> Select:
+    """
+    build select statement with provided where_conditions
+    """
+    Segment = models.Segment
+    Channel = models.Channel
+    MiniSeed = models.MiniSeed
+    Event = models.Event
+
+    select_cols = [
+        Segment.id,
+        Segment.noise_window_s,
+        Segment.signal_window_s,
+        MiniSeed.data,
+        # Channel stuff:
+        Segment.channel_id,
+        Channel.data_webservice_id,
+        Channel.stationxml_id,
+        Channel.network_code,
+        Channel.station_code,
+        Channel.latitude,
+        Channel.longitude,
+        Channel.elevation,
+        Channel.depth,
+        Channel.azimuth,
+        Channel.dip,
+        # event stuff:
+        Segment.event_id,
+        Event.webservice_id.label('event_webservice_id'),
+        Event.time.label('event_time'),
+        Event.latitude.label('event_latitude'),
+        Event.longitude.label('event_longitude'),
+        Event.depth_km.label('event_depth_km'),
+        Event.mag_type.label('event_magnitude_type'),
+        Event.magnitude.label('event_magnitude'),
+    ]
+
+    if group_components:
+        select_cols += [
+            Channel.location_code,
+            Channel.band_code,
+            Channel.instrument_code
+        ]
+
+    stmt = (
+        select(*select_cols)
+        .select_from(Segment)  # probably unnecessary, set main table for clarity
+        .join(Channel, Channel.id == Segment.channel_id)
+        .join(Event, Event.id == Segment.event_id)
+        .join(MiniSeed, MiniSeed.id == Segment.id)
+    )
+
+    if segments_selection:
+        stmt = stmt.where(build_where_clause(db, segments_selection))
+
+    return stmt
+
+
+def _build_select_legacy(db: Engine, segments_selection) -> Select:
+    """
+    Legacy-schema equivalent of `_build_select_new`, producing the SAME
+    labeled output columns. Mapping notes:
+
+    - MiniSeed.data (new, separate table, INNER JOIN -> only segments with
+      a data row are returned) maps to legacy Segment.data (nullable, same
+      table). To preserve the same RESULT SEMANTICS (not just same column),
+      this query filters on `Segment.has_valid_data` instead of returning
+      raw possibly-null/empty data - this is the closest legacy equivalent
+      of "a MiniSeed row exists for this segment".
+    - Channel.data_webservice_id (new) maps to legacy
+      StationXML.datacenter_id (reached via Channel.station_id). See the
+      WebService/DataCenter docstring in legacy_models.py: this is a
+      SEPARATE id space from Event.webservice_id below, do not assume they
+      are comparable.
+    - Channel.stationxml_id (new) maps to legacy Channel.station_id - see
+      the StationXML docstring in legacy_models.py.
+    - Channel.network_code/station_code/latitude/longitude/elevation (new,
+      live on Channel) map to legacy StationXML.network_code/station_code/
+      latitude/longitude/elevation (live on the Station/StationXML row,
+      reached via Channel.station_id).
+    - Event.webservice_id (new) maps to legacy Event.webservice_id
+      directly - but again, see the id-space-overlap caveat above: this is
+      NOT guaranteed comparable to Channel.data_webservice_id / DataCenter.id.
+    """
+    Segment = legacy_models.Segment
+    Channel = legacy_models.Channel
+    Event = legacy_models.Event
+    StationXML = legacy_models.StationXML
+
+    select_cols = [
+        Segment.id,
+        Segment.noise_window_s,
+        Segment.signal_window_s,
+        Segment.data,
+        Segment.channel_id,
+        StationXML.datacenter_id.label('data_webservice_id'),
+        Channel.station_id.label('stationxml_id'),
+        StationXML.network_code,
+        StationXML.station_code,
+        StationXML.latitude,
+        StationXML.longitude,
+        StationXML.elevation,
+        Channel.depth,
+        Channel.azimuth,
+        Channel.dip,
+        Segment.event_id,
+        Event.webservice_id.label('event_webservice_id'),
+        Event.time.label('event_time'),
+        Event.latitude.label('event_latitude'),
+        Event.longitude.label('event_longitude'),
+        Event.depth_km.label('event_depth_km'),
+        Event.mag_type.label('event_magnitude_type'),
+        Event.magnitude.label('event_magnitude'),
+    ]
+
+    stmt = (
+        select(*select_cols)
+        .select_from(Segment)
+        .join(Channel, Channel.id == Segment.channel_id)
+        .join(StationXML, StationXML.id == Channel.station_id)
+        .join(Event, Event.id == Segment.event_id)
+        .where(Segment.has_valid_data)
+    )
+
+    if segments_selection:
+        stmt = stmt.where(build_where_clause(db, segments_selection))
+
+    return stmt
+
+
+def get_segments_count(db: Engine, segments_selection: dict) -> int:
+    stmt = build_select(db, segments_selection)
+    stmt_count = select(func.count()).select_from(stmt.subquery())
+    with db.connect() as conn:
+        return conn.execute(stmt_count).scalar_one()
+
+
+@dataclass(frozen = True, slots = True, kw_only=True)
+class SelectableAttributes:
+    event_time: ColumnElement
+    event_latitude: ColumnElement
+    event_longitude: ColumnElement
+    event_depth_km: ColumnElement
+    # author = ColumnElement
+    # catalog = ColumnElement
+    # contributor = ColumnElement
+    # contributor_id = ColumnElement
+    event_mag_type: ColumnElement
+    event_magnitude_type: ColumnElement
+    event_magnitude: ColumnElement
+    network_code: ColumnElement
+    station_code: ColumnElement
+    latitude: ColumnElement
+    longitude: ColumnElement
+    elevation: ColumnElement
+    # start_time = ColumnElement
+    location_code: ColumnElement
+    band_code: ColumnElement
+    instrument_code: ColumnElement
+    orientation_code: ColumnElement
+    channel_code: ColumnElement
+    depth: ColumnElement
+    azimuth: ColumnElement
+    dip: ColumnElement
+    event_distance_km: ColumnElement
+    noise_window_s: ColumnElement
+    signal_window_s: ColumnElement
+    gap_score_percent: ColumnElement
     # sample_rate = Column(Float, nullable=False)
-}
 
-def build_where_clause(conditions: dict) -> ColumnElement[bool]:
+
+def build_where_clause(db: Engine, conditions: dict) -> ColumnElement[bool]:
     """"""
+    if s2s_db_version(db) < 5:
+        Segment = legacy_models.Segment
+        Channel = models.Channel
+        Event = models.Event
+
+        base_attrs = SelectableAttributes(**{
+            "event_time": Event.time,
+            "event_latitude": Event.latitude,
+            "event_longitude": Event.longitude,
+            "event_depth_km": Event.depth_km,
+            "event_mag_type": Event.mag_type,
+            "event_magnitude_type": Event.mag_type,
+            "event_magnitude": Event.magnitude,
+            "network_code": Channel.network_code,
+            "station_code": Channel.station_code,
+            "latitude": Channel.latitude,
+            "longitude": Channel.longitude,
+            "elevation": Channel.elevation,
+            "location_code": Channel.location_code,
+            "band_code": Channel.band_code,
+            "instrument_code": Channel.instrument_code,
+            "orientation_code": Channel.orientation_code,
+            "channel_code": Channel.channel_code,
+            "depth": Channel.depth,
+            "azimuth": Channel.azimuth,
+            "dip": Channel.dip,
+            "event_distance_km": Segment.event_distance_km,
+            "noise_window_s": Segment.noise_window_s,
+            "signal_window_s": Segment.signal_window_s,
+            "gap_score_percent": Segment.gap_score_percent
+        })
+    else:
+        Segment = models.Segment
+        Channel = models.Channel
+        Event = models.Event
+
+        base_attrs = SelectableAttributes(**{
+            "event_time": Event.time,
+            "event_latitude": Event.latitude,
+            "event_longitude": Event.longitude,
+            "event_depth_km": Event.depth_km,
+            "event_mag_type": Event.mag_type,
+            "event_magnitude_type": Event.mag_type,
+            "event_magnitude": Event.magnitude,
+            "network_code": Channel.network_code,
+            "station_code": Channel.station_code,
+            "latitude": Channel.latitude,
+            "longitude": Channel.longitude,
+            "elevation": Channel.elevation,
+            "location_code": Channel.location_code,
+            "band_code": Channel.band_code,
+            "instrument_code": Channel.instrument_code,
+            "orientation_code": Channel.orientation_code,
+            "channel_code": Channel.channel_code,
+            "depth": Channel.depth,
+            "azimuth": Channel.azimuth,
+            "dip": Channel.dip,
+            "event_distance_km": Segment.event_distance_km,
+            "noise_window_s": Segment.noise_window_s,
+            "signal_window_s": Segment.signal_window_s,
+            "gap_score_percent": Segment.gap_score_percent
+        })
+
+    f_names = {f.name for f in fields(SelectableAttributes)}
     parsed_conditions = None
     for attname, expression in conditions.items():
         if not expression:  # discard empty strings, None's, ...
             # note that expressions MUST be strings
             continue
-        if attname not in base_attrs:
-            raise AttributeError(f'Column "{attname}" not found in DB')
+        if attname not in f_names:
+            raise AttributeError(f'Column "{attname}" not found or not implemented')
 
-        condition = binexpr(base_attrs[attname], expression)
+        condition = binexpr(getattr(base_attrs, attname), expression)
         if parsed_conditions is None:
             parsed_conditions = condition
         else:

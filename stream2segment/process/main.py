@@ -20,18 +20,18 @@ import inspect
 
 from typing import Any
 
-from sqlalchemy import select, func, tuple_, Engine, Select
+from sqlalchemy import select, tuple_, Engine
 import yaml
 from obspy.core.event import Event as ObspyEvent
 from obspy import Stream, Inventory, read, read_events, read_inventory
 from obspy.geodetics import locations2degrees, degrees2kilometers
 
 from stream2segment.io.db import secure_dburl, create_engine
-from stream2segment.io.db.models import (
-    StationXML, Channel, Segment, Event, QuakeML, MiniSeed
-)
+# from stream2segment.io.db.models import (
+#     StationXML, Channel, Segment, Event, QuakeML, MiniSeed
+# )
 
-from stream2segment.process.segments_selection import build_where_clause
+from stream2segment.process.segments_selection import get_segments_count, build_select
 from stream2segment.io.utils import (
     get_progressbar, ascii_decorate, start_logging, BadParam, estimate_buffer_size
 )
@@ -419,73 +419,6 @@ def get_engine(db_url: str) -> Engine:
     return create_engine(db_url, check_db_existence=True)
 
 
-def build_select(
-    segments_selection: dict | None = None, group_components:bool = False
-) -> Select:
-    """
-    build select statement with provided where_conditions
-    """
-    select_cols = [
-        Segment.id,
-        Segment.noise_window_s,
-        Segment.signal_window_s,
-        MiniSeed.data,
-        # Channel stuff:
-        Segment.channel_id,
-        Channel.data_webservice_id,
-        Channel.stationxml_id,
-        Channel.network_code,
-        Channel.station_code,
-        Channel.latitude,
-        Channel.longitude,
-        Channel.elevation,
-        Channel.depth,
-        Channel.azimuth,
-        Channel.dip,
-        # event stuff:
-        Segment.event_id,
-        Event.webservice_id.label('event_webservice_id'),
-        Event.time.label('event_time'),
-        Event.latitude.label('event_latitude'),
-        Event.longitude.label('event_longitude'),
-        Event.depth_km.label('event_depth_km'),
-        Event.mag_type.label('event_magnitude_type'),
-        Event.magnitude.label('event_magnitude'),
-    ]
-
-    if group_components:
-        select_cols += [
-            Channel.location_code,
-            Channel.band_code,
-            Channel.instrument_code
-        ]
-
-    stmt = (
-        select(*select_cols)
-        .select_from(Segment)  # probably unnecessary, set main table for clarity
-        .join(Channel, Channel.id == Segment.channel_id)
-        .join(Event, Event.id == Segment.event_id)
-        .join(MiniSeed, MiniSeed.id == Segment.id)
-    )
-
-    if segments_selection:
-        stmt = stmt.where(build_where_clause(segments_selection))
-
-    return stmt
-
-
-def get_segments_count(db: str | Engine, segments_selection: dict) -> int:
-    engine = get_engine(db)
-    stmt = build_select(segments_selection)
-    stmt_count = select(func.count()).select_from(stmt.subquery())
-    try:
-        with engine.connect() as conn:
-            return conn.execute(stmt_count).scalar_one()
-    finally:
-        if isinstance(db, str):
-            engine.dispose()
-
-
 def get_segments(
     db: str | Engine,
     segments_selection: dict,
@@ -520,7 +453,7 @@ def get_segments(
     buffer = []
     last_key = None
     stmt_base = build_select(
-        segments_selection, group_components
+        db, segments_selection, group_components
     ).order_by(*orderby_columns)
 
     if chunksize is None:
