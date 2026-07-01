@@ -23,7 +23,7 @@ def is_legacy_db(db: Engine):
 
 
 @dataclass(frozen = True, slots = True, kw_only=True)
-class SelectFields:
+class CommonFields:
     id: ColumnElement
     webservice_id: ColumnElement
     # Event-related stuff:
@@ -37,8 +37,6 @@ class SelectFields:
     event_webservice_id: ColumnElement
     # channel-related stuff:
     channel_id: ColumnElement
-    network_code: ColumnElement
-    station_code: ColumnElement
     latitude: ColumnElement
     longitude: ColumnElement
     elevation: ColumnElement
@@ -46,6 +44,10 @@ class SelectFields:
     azimuth: ColumnElement
     dip: ColumnElement
 
+
+@dataclass(frozen = True, slots = True, kw_only=True)
+class SelectFields(CommonFields):
+    data: ColumnElement
 
 def get_select_fields(db: Engine) -> SelectFields:
     """"""
@@ -64,14 +66,13 @@ def get_select_fields(db: Engine) -> SelectFields:
             event_webservice_id=lm.Event.webservice_id,
             channel_id=lm.Segment.channel_id,
             webservice_id=lm.Station.datacenter_id,
-            network_code=lm.Station.network,
-            station_code=lm.Station.station,
             latitude=lm.Station.latitude,
             longitude=lm.Station.longitude,
             elevation=lm.Station.elevation,
             depth=lm.Channel.depth,
             azimuth=lm.Channel.azimuth,
-            dip=lm.Channel.dip
+            dip=lm.Channel.dip,
+            data=lm.Segment.data
         )
 
     else:
@@ -89,24 +90,25 @@ def get_select_fields(db: Engine) -> SelectFields:
             event_webservice_id=m.Event.webservice_id,
             channel_id=m.Segment.channel_id,
             webservice_id=m.Channel.data_webservice_id,
-            network_code=m.Channel.network_code,
-            station_code=m.Channel.station_code,
             latitude=m.Channel.latitude,
             longitude=m.Channel.longitude,
             elevation=m.Channel.elevation,
             depth=m.Channel.depth,
             azimuth=m.Channel.azimuth,
-            dip=m.Channel.dip
+            dip=m.Channel.dip,
+            data=m.MiniSeed.data
         )
 
 
 @dataclass(frozen = True, slots = True, kw_only=True)
-class WhereFields(SelectFields):
+class WhereFields(CommonFields):
     event_distance_km: ColumnElement | hybrid_property
     event_distance_deg: ColumnElement | hybrid_property
     noise_window_s: ColumnElement | hybrid_property
     signal_window_s: ColumnElement | hybrid_property
     gap_score_percent: ColumnElement | hybrid_property
+    network_code: ColumnElement
+    station_code: ColumnElement
     location_code: ColumnElement
     band_code: ColumnElement | hybrid_property
     instrument_code: ColumnElement | hybrid_property

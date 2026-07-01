@@ -22,13 +22,15 @@ from typing import Any
 
 from sqlalchemy import select, tuple_, Engine
 import yaml
-from obspy.core.event import Event as ObspyEvent
+from obspy.core.event import Event
 from obspy import Stream, Inventory, read, read_events, read_inventory
 from obspy.geodetics import locations2degrees, degrees2kilometers
 
-from stream2segment.io.db import secure_dburl, create_engine
-from stream2segment.process.segments_selection import get_segments_count, build_select, \
-    get_orderby_columns
+from stream2segment.io.db import secure_dburl, create_engine, s2s_db_version, models
+from stream2segment.io.db.legacy import models as legacy_models
+from stream2segment.process.segments_selection import (
+    get_segments_count, build_select, get_orderby_columns
+)
 from stream2segment.io.utils import (
     get_progressbar, ascii_decorate, start_logging, BadParam, estimate_buffer_size
 )
@@ -326,7 +328,7 @@ def imap(
 
                 exec_processing_func_args = (
                     (pyfunc, args, config, skip_exceptions, num_processes > 1)
-                    for args in get_segments(
+                    for args in get_segments_chunks(
                         engine,
                         segments_selection,
                         group_components,
@@ -416,18 +418,37 @@ def get_engine(db_url: str) -> Engine:
     return create_engine(db_url, check_db_existence=True)
 
 
-def get_segments(
+def _get_segments(
     db: str | Engine,
     segments_selection: dict,
     group_components: bool = False,
     segments_only: bool = False,
     chunksize: int | None = None
-) -> Iterable[tuple[Stream, Inventory | None, ObspyEvent | None]]:
+) -> Iterable[tuple[Stream, Inventory | None, Event | None]]:
+    for chunk in get_segments_chunks(
+        db,
+        segments_selection,
+        group_components,
+        segments_only,
+        chunksize
+    ):
+        yield from chunk
+
+
+def get_segments_chunks(
+    db: str | Engine,
+    segments_selection: dict,
+    group_components: bool = False,
+    segments_only: bool = False,
+    chunksize: int | None = None
+) -> Iterable[list[tuple[Stream, Inventory | None, Event | None]]]:
 
     if isinstance(db, str):
         engine = get_engine(db)
     else:
         engine = db
+
+    is_legacy_db = s2s_db_version(engine) < 5
 
     orderby_columns = get_orderby_columns(db, group_components)
 
@@ -453,101 +474,170 @@ def get_segments(
         if not rows:
             break
 
-        last_key = tuple(getattr(rows[-1], c.key) for c in orderby_columns)
+        buffer.extend(get_obspy_stream(r) for r in rows)
+        buffer.sort(key = stream_key)
+
+        last_key = tuple(stream_key[buffer[-1][0]])
         # (c.key resolves to c.label, if a label is set, otherwise column name)
 
         if not group_components:
-            for r in rows:
-                yield db_to_obspy(engine, segments_only, r)
+            new_buffer = []
+            for stream in buffer:
+                sta = None
+                if not segments_only:
+                    sta = get_obspy_inventory(engine, stream, is_legacy_db)
+                evt = None
+                if not segments_only:
+                    evt = get_obspy_event(engine, stream)
+                new_buffer.append((stream, sta, evt))
+            yield new_buffer
+            buffer.clear()
 
         else:
-            buffer.extend(rows)
 
-            # split_idx = len(buffer) - 1
-            # while split_idx > 0 and same_group(buffer[split_idx], buffer[split_idx-1]):
-            #     split_idx -= 1
-            #
-            # if split_idx == 0:
-            #     continue
-            #
-            # to_yield = buffer[:split_idx]
-            # buffer = buffer[split_idx:]
-
-            for (start, end) in split_in_same_group_chunks(buffer):
-                if end == len(buffer):
-                    buffer = buffer[start:]
-                    break
-                yield db_to_obspy(engine, segments_only, *buffer[start: end])
+            start = 0
+            end = 0
+            new_buffer = []
+            while end < len(buffer):
+                if stream_key(buffer[start]) != stream_key(buffer[end]):
+                    stream = Stream()
+                    for buf in buffer[start: end]:
+                        stream += buf[0]
+                    sta = None
+                    if not segments_only:
+                        sta = get_obspy_inventory(engine, stream, is_legacy_db)
+                    evt = None
+                    if not segments_only:
+                        evt = get_obspy_event(engine, stream)
+                    new_buffer.append((stream, sta, evt))
+                    start = end
+                end += 1
+            buffer = buffer[start:end]
+            yield new_buffer
 
     if buffer:
         # if buffer => we surely grouped components:
-        yield db_to_obspy(engine, segments_only, *buffer)
+        yield buffer
 
 
-def same_group(row1, row2):
+def stream_key(stream: Stream):
+    seg_meta = stream[0].stats.segment_metadata
     return (
-        row1.data_webservice_id == row2.data_webservice_id and
-        row1.network_code == row2.network_code and
-        row1.station_code == row2.station_code and
-        row1.location_code == row2.location_code and
-        row1.band_code == row2.band_code and
-        row1.instrument_code == row2.instrument_code and
-        row1.event_id == row2.event_id
+        seg_meta.webservice_id,
+        seg_meta.network_code,
+        seg_meta.station_code,
+        seg_meta.location_code,
+        seg_meta.band_code,
+        seg_meta.instrument_code,
+        seg_meta.event_id,
+        seg_meta.id
     )
 
 
-def split_in_same_group_chunks(rows):
-    start = 0
-    end = 0
-    while end < len(rows):
-        if not same_group(rows[start], rows[end]):
-            yield start, end
-            start = end
-        end += 1
-    if end < len(rows):
-        yield end, len(rows)
-
-
-_inventory_cache = {}
-_inventory_cache_maxsize = estimate_buffer_size('stationxml')
-_event_cache = {}
-_event_cache_maxsize = estimate_buffer_size('quakeml')
-
-
-def db_to_obspy(
-    engine: Engine, segments_only: bool, *db_rows
-) -> tuple[Stream, Inventory | None, ObspyEvent | None]:
+def get_obspy_stream(db_row) -> Stream:  # tuple[Stream, Inventory | None, ObspyEvent | None]:
     """
     return the tuple
         (segment: Stream, station: Inventory, event: Event)
     from the given db_rows
     """
-    first_row = db_rows[0]
+    stream = Stream()
+    db_row = db_row
+    _stream = read(db_row.data, format='MSEED')
+    start_time = _stream[0].stats.starttime.datetime
+    end_time = _stream[0].stats.endtime.datetime
+    arr_time1 = start_time + timedelta(seconds=db_row.noise_window_s)
+    arr_time2 = end_time - timedelta(seconds=db_row.signal_window_s)
+    min_time = min(arr_time1, arr_time2)
+    max_time = max(arr_time1, arr_time2)
+    arrival_time = min_time + ((max_time - min_time)/ 2)
+    try:
+        net = _stream[0].stats.network
+        sta = _stream[0].stats.station
+        loc = _stream[0].stats.location
+        cha = _stream[0].stats.channel
+    except AttributeError:  # legacy Obspy? FIXME check!
+        net, sta, loc, cha = _stream[0].stats.id.split('.')
+    s_meta = SegmentMetadata(
+        id=db_row.id,
+        network_code=net,
+        station_code=sta,
+        location_code=loc,
+        channel_code=cha,
+        latitude=db_row.latitude,
+        longitude=db_row.longitude,
+        depth=db_row.depth,
+        station_id=db_row.stationxml_id,
+        dip=db_row.dip,
+        azimuth=db_row.azimuth,
+        webservice_id=db_row.webservice_id,
+        elevation=db_row.elevation,
+        arrival_time=arrival_time,
+        channel_id=db_row.channel_id,
+        event_id=db_row.event_id,
+        event_latitude=db_row.event_latitude,
+        event_longitude=db_row.event_longitude,
+        event_webservice_id=db_row.event_webservice_id,
+        event_depth_km=db_row.event_depth_km,
+        event_time=db_row.event_time,
+        event_magnitude=db_row.event_magnitude,
+        event_magnitude_type=db_row.event_magnitude_type,
+        noise_window_s=(arrival_time - start_time).total_seconds(),
+        signal_window_s=(end_time-arrival_time).total_seconds()
+    )
+    for t in _stream:
+        t.stats.segment_metadata = s_meta
 
-    inventory=None
-    if not segments_only:
-        stationxml_id = first_row.stationxml_id
-        if stationxml_id is not None:
-            inventory = _inventory_cache.get(stationxml_id)
-            if inventory is None:
-                while len(_inventory_cache) >= _inventory_cache_maxsize:
-                    _inventory_cache.pop(next(iter(_inventory_cache)))
-                try:
-                    with engine.connect() as conn:
-                        data = conn.execute(select(StationXML.data).where(
-                            StationXML.id == stationxml_id)
-                        ).scalar_one_or_none()
-                    if data is not None:
-                        inventory = read_inventory(BytesIO(data), format='STATIONXML')
-                    else:
-                        inventory = None
-                    _inventory_cache[stationxml_id] = inventory
-                except Exception as e:
-                    logger.warning(e)  # FIXME automatize
+    return stream
 
+
+_inventory_cache = {}
+_inventory_cache_maxsize = estimate_buffer_size('stationxml')
+
+
+def get_obspy_inventory(engine: Engine, stream: Stream, is_legacy_db: bool) -> Inventory:
+    """
+    return the tuple
+        (segment: Stream, station: Inventory, event: Event)
+    from the given db_rows
+    """
+    inventory = None
+    station_table = models.StationXML
+    station_data_col = models.StationXML.data
+    if is_legacy_db:
+        station_table = legacy_models.Station
+        station_data_col = legacy_models.Station.inventory_xml
+
+    stationxml_id = getattr(stream[0].stats.segment_metadata, 'station_id', None)
+    if stationxml_id is not None:
+        inventory = _inventory_cache.get(stationxml_id)
+        if inventory is None:
+            while len(_inventory_cache) >= _inventory_cache_maxsize:
+                _inventory_cache.pop(next(iter(_inventory_cache)))
+            try:
+                with engine.connect() as conn:
+                    data = conn.execute(select(station_data_col).where(
+                        station_table.id == stationxml_id)
+                    ).scalar_one_or_none()
+                if data is not None:
+                    inventory = read_inventory(BytesIO(data), format='STATIONXML')
+                else:
+                    inventory = None
+                _inventory_cache[stationxml_id] = inventory
+            except Exception as e:
+                logger.warning(e)  # FIXME automatize
+
+    return inventory
+
+
+_event_cache = {}
+_event_cache_maxsize = estimate_buffer_size('quakeml')
+
+
+def get_obspy_event(engine, stream: Stream):
+    is_legacy_db = s2s_db_version(engine) < 5
     event=None
-    if not segments_only:
-        quakeml_id = first_row.event_id
+    if not is_legacy_db:
+        quakeml_id = getattr(stream[0].stats.segment_metadata, 'event_id', None)
         if quakeml_id is not None:
             event = _event_cache.get(quakeml_id)
             if event is None:
@@ -555,8 +645,8 @@ def db_to_obspy(
                     _event_cache.pop(next(iter(_event_cache)))
                 try:
                     with engine.connect() as conn:
-                        data = conn.execute(select(QuakeML.data).where(
-                            QuakeML.id == quakeml_id)
+                        data = conn.execute(select(models.QuakeML.data).where(
+                            models.QuakeML.id == quakeml_id)
                         ).scalar_one_or_none()
                     if data is not None:
                         event = read_events(BytesIO(data), format='QUAKEML')
@@ -565,60 +655,7 @@ def db_to_obspy(
                     _event_cache[quakeml_id] = event
                 except Exception as e:
                     logger.warning(e)  # FIXME automatize else:
-
-    stream = Stream()
-    for db_row in db_rows:
-        _stream = read(db_row.data, format='MSEED')
-        start_time = _stream[0].stats.starttime.datetime
-        end_time = _stream[0].stats.endtime.datetime
-        arr_time1 = start_time + timedelta(seconds=db_row.noise_window_s)
-        arr_time2 = end_time - timedelta(seconds=db_row.signal_window_s)
-        min_time = min(arr_time1, arr_time2)
-        max_time = max(arr_time1, arr_time2)
-        arrival_time = min_time + ((max_time - min_time)/ 2)
-        try:
-            net = _stream[0].stats.network
-            sta = _stream[0].stats.station
-            loc = _stream[0].stats.location
-            cha = _stream[0].stats.channel
-        except AttributeError:  # legacy Obspy? FIXME check!
-            net, sta, loc, cha = _stream[0].stats.id.split('.')
-        s_meta = SegmentMetadata(
-            id=db_row.id,
-            network_code=net,
-            station_code=sta,
-            location_code=loc,
-            channel_code=cha,
-            latitude=db_row.latitude,
-            longitude=db_row.longitude,
-            depth=db_row.depth,
-            dip=db_row.dip,
-            azimuth=db_row.azimuth,
-            data_webservice_id=db_row.data_webservice_id,
-            elevation=db_row.elevation,
-            arrival_time=arrival_time,
-            channel_id=db_row.channel_id,
-            event_id=db_row.event_id,
-            event_latitude=db_row.event_latitude,
-            event_longitude=db_row.event_longitude,
-            event_webservice_id=db_row.event_webservice_id,
-            event_depth_km=db_row.event_depth_km,
-            event_time=db_row.event_time,
-            event_magnitude=db_row.event_magnitude,
-            event_magnitude_type=db_row.event_magnitude_type,
-            noise_window_s=(arrival_time - start_time).total_seconds(),
-            signal_window_s=(end_time-arrival_time).total_seconds()
-        )
-        for t in _stream:
-            t.stats.segment_metadata = s_meta
-
-        stream += _stream
-
-    return (
-        stream,
-        inventory,
-        event
-    )
+    return event
 
 
 def get_default_segments_selection():
@@ -630,18 +667,17 @@ def get_default_segments_selection():
 
 def execute_processing_function(args: tuple[
     Callable[[Stream, Inventory | None, Event | None, dict], Any],
-    tuple[Stream, Inventory | None, Event | None],
+    Iterable[tuple[Stream, Inventory | None, Event | None]],
     dict,
     tuple[Exception],
     bool
-]) -> tuple[Any, bool, set[int]]:
+]) -> Iterable[tuple[Any, bool, set[int]]]:
 
     pyfunc: Callable[[Stream, Inventory | None, Event | None, dict], Any] = args[0]
-    pyfunc_args: tuple[Stream, Inventory | None, Event | None] = args[1]
+    pyfunc_args_list: Iterable[tuple[Stream, Inventory | None, Event | None]] = args[1]
     config: dict = args[2]
     safe_exceptions_tuple: tuple[Exception] = args[3]
     suppress_stout_err: bool = args[4]
-    ids = set(t.stats.segment_metadata.id for t in pyfunc_args[0])
 
     if suppress_stout_err:
         capture = suppress_printouts
@@ -649,10 +685,12 @@ def execute_processing_function(args: tuple[
         capture = nullcontext
 
     with capture():
-        try:
-            return pyfunc(*pyfunc_args, config), True, ids
-        except safe_exceptions_tuple as exc:
-            return exc, False, ids
+        for pyfunc_args in pyfunc_args_list:
+            ids = set(t.stats.segment_metadata.id for t in pyfunc_args[0])
+            try:
+                yield pyfunc(*pyfunc_args, config), True, ids
+            except safe_exceptions_tuple as exc:
+                yield exc, False, ids
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -669,9 +707,10 @@ class SegmentMetadata:
     location_code: str
     channel_code: str
     arrival_time: datetime
-    data_webservice_id: int
+    webservice_id: int
     event_webservice_id: int
     channel_id: int
+    station_id: int
     event_id: int
     event_latitude: float
     event_longitude: float
