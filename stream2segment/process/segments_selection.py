@@ -11,122 +11,180 @@ import warnings
 
 import numpy as np
 from sqlalchemy import and_, ColumnElement, select, func, tuple_, Engine, Select
+from sqlalchemy.ext.hybrid import hybrid_property
 
 from stream2segment.io.db import s2s_db_version
 from stream2segment.io.db import models
 from stream2segment.io.db.legacy import models as legacy_models  # v <= 4
 
 
+def is_legacy_db(db: Engine):
+    return s2s_db_version(db) < 5
+
+
 @dataclass(frozen = True, slots = True, kw_only=True)
-class SelectableAttributes:
+class SelectFields:
+    id: ColumnElement
+    webservice_id: ColumnElement
+    # Event-related stuff:
+    event_id: ColumnElement
     event_time: ColumnElement  # sqlalchemy.sql.elements.SQLColumnExpression
     event_latitude: ColumnElement
     event_longitude: ColumnElement
     event_depth_km: ColumnElement
-    event_id: ColumnElement
-    # author = ColumnElement
-    # catalog = ColumnElement
-    # contributor = ColumnElement
-    # contributor_id = ColumnElement
-    event_mag_type: ColumnElement
     event_magnitude_type: ColumnElement
     event_magnitude: ColumnElement
+    event_webservice_id: ColumnElement
+    # channel-related stuff:
     channel_id: ColumnElement
     network_code: ColumnElement
     station_code: ColumnElement
     latitude: ColumnElement
     longitude: ColumnElement
     elevation: ColumnElement
-    # start_time = ColumnElement
-    location_code: ColumnElement
-    band_code: ColumnElement
-    instrument_code: ColumnElement
-    orientation_code: ColumnElement
-    channel_code: ColumnElement
     depth: ColumnElement
     azimuth: ColumnElement
     dip: ColumnElement
-    event_distance_km: ColumnElement
-    noise_window_s: ColumnElement
-    signal_window_s: ColumnElement
-    gap_score_percent: ColumnElement
-    # sample_rate = Column(Float, nullable=False)
 
 
-def get_selectable_attributes(db: Engine) -> SelectableAttributes:
+def get_select_fields(db: Engine) -> SelectFields:
     """"""
-    if s2s_db_version(db) < 5:
-        Segment = legacy_models.Segment
-        Channel = models.Channel
-        Event = legacy_models.Event
-        Station = legacy_models.Station
+    if is_legacy_db(db):
+        lm = legacy_models
 
-        return SelectableAttributes(**{
-            'id': Segment.id,
-            "event_id": Segment.event_id.label('event_id'),
-            "event_time": Event.time.label('event_time'),
-            "event_latitude": Event.latitude.label('event_latitude'),
-            "event_longitude": Event.longitude.label('event_longitude'),
-            "event_depth_km": Event.depth_km.label('event_depth_km'),
-            "event_mag_type": Event.mag_type.label('event_magnitude_type'),
-            # "event_magnitude": Event.magnitude.label('event_magnitude'),
-            "event_webservice_id": Event.webservice_id.label('event_webservice_id'),
-            "channel_id": Segment.channel_id,
-            'data_webservice_id': Station.datacenter_id.label('data_webservice_id'),
-            "network_code": Station.network.label('network_code'),
-            "station_code": Station.station.label('station_code'),
-            "latitude": Station.latitude,
-            "longitude": Station.longitude,
-            "elevation": Station.elevation,
-            "location_code": Channel.location.label('location_code'),
-            "band_code": Channel.band_code,
-            "instrument_code": Channel.instrument_code,
-            "orientation_code": Channel.orientation_code,
-            "channel_code": Channel.channel_code,
-            "depth": Channel.depth,
-            "azimuth": Channel.azimuth,
-            "dip": Channel.dip,
-            "event_distance_km": Segment.event_distance_km,
-            "noise_window_s": Segment.noise_window_s,
-            "signal_window_s": Segment.signal_window_s,
-            "gap_score_percent": Segment.gap_score_percent
-        })
+        return SelectFields(
+            id=lm.Segment.id,
+            event_id=lm.Segment.event_id,
+            event_time=lm.Event.time,
+            event_latitude=lm.Event.latitude,
+            event_longitude=lm.Event.longitude,
+            event_depth_km=lm.Event.depth_km,
+            event_magnitude=lm.Event.magnitude,
+            event_magnitude_type=lm.Event.mag_type,
+            event_webservice_id=lm.Event.webservice_id,
+            channel_id=lm.Segment.channel_id,
+            webservice_id=lm.Station.datacenter_id,
+            network_code=lm.Station.network,
+            station_code=lm.Station.station,
+            latitude=lm.Station.latitude,
+            longitude=lm.Station.longitude,
+            elevation=lm.Station.elevation,
+            depth=lm.Channel.depth,
+            azimuth=lm.Channel.azimuth,
+            dip=lm.Channel.dip
+        )
+
     else:
-        Segment = models.Segment
-        Channel = models.Channel
-        Event = models.Event
+        m = models
 
-        return SelectableAttributes(**{
-            'id': Segment.id,
-            "event_id": Segment.event_id.label('event_id'),
-            "event_time": Event.time.label('event_time'),
-            "event_latitude": Event.latitude.label('event_latitude'),
-            "event_longitude": Event.longitude.label('event_longitude'),
-            "event_depth_km": Event.depth_km.label('event_depth_km'),
-            "event_mag_type": Event.mag_type.label('event_magnitude_type'),
-            # "event_magnitude_type": Event.mag_type.label('event_magnitude_type'),
-            "event_magnitude": Event.magnitude.label('event_magnitude'),
-            "event_webservice_id": Event.webservice_id.label('event_webservice_id'),
-            "channel_id": Segment.channel_id,
-            'data_webservice_id': Channel.data_webservice_id,
-            "network_code": Channel.network_code,
-            "station_code": Channel.station_code,
-            "latitude": Channel.latitude,
-            "longitude": Channel.longitude,
-            "elevation": Channel.elevation,
-            "location_code": Channel.location_code,
-            "band_code": Channel.band_code,
-            "instrument_code": Channel.instrument_code,
-            "orientation_code": Channel.orientation_code,
-            "channel_code": Channel.channel_code,
-            "depth": Channel.depth,
-            "azimuth": Channel.azimuth,
-            "dip": Channel.dip,
-            "event_distance_km": Segment.event_distance_km,
-            "noise_window_s": Segment.noise_window_s,
-            "signal_window_s": Segment.signal_window_s,
-            "gap_score_percent": Segment.gap_score_percent
-        })
+        return SelectFields(
+            id=m.Segment.id,
+            event_id=m.Segment.event_id,
+            event_time=m.Event.time,
+            event_latitude=m.Event.latitude,
+            event_longitude=m.Event.longitude,
+            event_depth_km=m.Event.depth_km,
+            event_magnitude_type=m.Event.mag_type,
+            event_magnitude=m.Event.magnitude,
+            event_webservice_id=m.Event.webservice_id,
+            channel_id=m.Segment.channel_id,
+            webservice_id=m.Channel.data_webservice_id,
+            network_code=m.Channel.network_code,
+            station_code=m.Channel.station_code,
+            latitude=m.Channel.latitude,
+            longitude=m.Channel.longitude,
+            elevation=m.Channel.elevation,
+            depth=m.Channel.depth,
+            azimuth=m.Channel.azimuth,
+            dip=m.Channel.dip
+        )
+
+
+@dataclass(frozen = True, slots = True, kw_only=True)
+class WhereFields(SelectFields):
+    event_distance_km: ColumnElement | hybrid_property
+    event_distance_deg: ColumnElement | hybrid_property
+    noise_window_s: ColumnElement | hybrid_property
+    signal_window_s: ColumnElement | hybrid_property
+    gap_score_percent: ColumnElement | hybrid_property
+    location_code: ColumnElement
+    band_code: ColumnElement | hybrid_property
+    instrument_code: ColumnElement | hybrid_property
+    orientation_code: ColumnElement | hybrid_property
+    channel_code: ColumnElement | hybrid_property
+
+
+def get_where_fields(db: Engine) -> WhereFields:
+    """"""
+    if is_legacy_db(db):
+        lm = legacy_models
+
+        return WhereFields(
+            id=lm.Segment.id,
+            event_id=lm.Segment.event_id,
+            event_time=lm.Event.time,
+            event_latitude=lm.Event.latitude,
+            event_longitude=lm.Event.longitude,
+            event_depth_km=lm.Event.depth_km,
+            event_magnitude=lm.Event.magnitude,
+            event_magnitude_type=lm.Event.mag_type,
+            event_webservice_id=lm.Event.webservice_id,
+            channel_id=lm.Segment.channel_id,
+            webservice_id=lm.Station.datacenter_id,
+            network_code=lm.Station.network,
+            station_code=lm.Station.station,
+            latitude=lm.Station.latitude,
+            longitude=lm.Station.longitude,
+            elevation=lm.Station.elevation,
+            location_code=lm.Channel.location,
+            band_code=lm.Channel.band_code,
+            instrument_code=lm.Channel.instrument_code,
+            orientation_code=lm.Channel.orientation_code,
+            channel_code=lm.Channel.channel_code,
+            depth=lm.Channel.depth,
+            azimuth=lm.Channel.azimuth,
+            dip=lm.Channel.dip,
+            event_distance_deg=lm.Segment.event_distance_deg,
+            event_distance_km=lm.Segment.event_distance_km,
+            noise_window_s=lm.Segment.noise_window_s,
+            signal_window_s=lm.Segment.signal_window_s,
+            gap_score_percent=lm.Segment.gap_score_percent,
+        )
+
+    else:
+        m = models
+
+        return WhereFields(
+            id=m.Segment.id,
+            event_id=m.Segment.event_id,
+            event_time=m.Event.time,
+            event_latitude=m.Event.latitude,
+            event_longitude=m.Event.longitude,
+            event_depth_km=m.Event.depth_km,
+            event_magnitude_type=m.Event.mag_type,
+            event_magnitude=m.Event.magnitude,
+            event_webservice_id=m.Event.webservice_id,
+            channel_id=m.Segment.channel_id,
+            webservice_id=m.Channel.data_webservice_id,
+            network_code=m.Channel.network_code,
+            station_code=m.Channel.station_code,
+            latitude=m.Channel.latitude,
+            longitude=m.Channel.longitude,
+            elevation=m.Channel.elevation,
+            location_code=m.Channel.location_code,
+            band_code=m.Channel.band_code,
+            instrument_code=m.Channel.instrument_code,
+            orientation_code=m.Channel.orientation_code,
+            channel_code=m.Channel.channel_code,
+            depth=m.Channel.depth,
+            azimuth=m.Channel.azimuth,
+            dip=m.Channel.dip,
+            event_distance_deg=m.Segment.event_distance_deg,
+            event_distance_km=m.Segment.event_distance_km,
+            noise_window_s=m.Segment.noise_window_s,
+            signal_window_s=m.Segment.signal_window_s,
+            gap_score_percent=m.Segment.gap_score_percent,
+        )
 
 
 def build_select(
@@ -155,43 +213,15 @@ def build_select(
                 "legacy (v<=4) databases: Either omit `group_components` and handle it "
                 "in your code, or re-download the data with this program"
             )
-        stmt = _build_select_legacy(db, segments_selection)
-    else:
-        stmt = _build_select_new(db, segments_selection, group_components)
 
-    return stmt
-
-
-def _build_select_new(
-    db: Engine, segments_selection: dict | None = None, group_components:bool = False
-) -> Select:
-    """
-    build select statement with provided where_conditions
-    """
-    Segment = models.Segment
-    Channel = models.Channel
-    MiniSeed = models.MiniSeed
-    Event = models.Event
-
-    sel_attrs = get_selectable_attributes(db)
+    sel_attrs = get_select_fields(db)
     select_cols = [
         getattr(sel_attrs, f.name) for f in fields(sel_attrs)
     ]
-
-    if group_components:
-        select_cols += [
-            Channel.location_code,
-            Channel.band_code,
-            Channel.instrument_code
-        ]
-
-    stmt = (
-        select(*select_cols)
-        .select_from(Segment)  # probably unnecessary, set main table for clarity
-        .join(Channel, Channel.id == Segment.channel_id)
-        .join(Event, Event.id == Segment.event_id)
-        .join(MiniSeed, MiniSeed.id == Segment.id)
-    )
+    if legacy:
+        stmt = _build_select_legacy(select_cols)
+    else:
+        stmt = _build_select_new(select_cols)
 
     if segments_selection:
         stmt = stmt.where(build_where_clause(db, segments_selection))
@@ -199,7 +229,20 @@ def _build_select_new(
     return stmt
 
 
-def _build_select_legacy(db: Engine, segments_selection) -> Select:
+def _build_select_new(select_cols) -> Select:
+    """
+    build select statement with provided where_conditions
+    """
+    return (
+        select(*select_cols)
+        .select_from(models.Segment)  # probably unnecessary, set main table for clarity
+        .join(models.Channel, models.Channel.id == models.Segment.channel_id)
+        .join(models.Event, models.Event.id == models.Segment.event_id)
+        .join(models.MiniSeed, models.MiniSeed.id == models.Segment.id)
+    )
+
+
+def _build_select_legacy(select_cols) -> Select:
     """
     Legacy-schema equivalent of `_build_select_new`, producing the SAME
     labeled output columns. Mapping notes:
@@ -225,29 +268,16 @@ def _build_select_legacy(db: Engine, segments_selection) -> Select:
       directly - but again, see the id-space-overlap caveat above: this is
       NOT guaranteed comparable to Channel.data_webservice_id / DataCenter.id.
     """
-    Segment = legacy_models.Segment
-    Channel = legacy_models.Channel
-    Event = legacy_models.Event
-    StationXML = legacy_models.StationXML
+    l_models = legacy_models
 
-    sel_attrs = get_selectable_attributes(db)
-    select_cols = [
-        getattr(sel_attrs, f.name) for f in fields(sel_attrs)
-    ]
-
-    stmt = (
+    return (
         select(*select_cols)
-        .select_from(Segment)
-        .join(Channel, Channel.id == Segment.channel_id)
-        .join(StationXML, StationXML.id == Channel.station_id)
-        .join(Event, Event.id == Segment.event_id)
-        .where(Segment.has_valid_data)
+        .select_from(l_models.Segment)
+        .join(l_models.Channel, l_models.Channel.id == l_models.Segment.channel_id)
+        .join(l_models.Station, l_models.Station.id == l_models.Channel.station_id)
+        .join(l_models.Event, l_models.Event.id == l_models.Segment.event_id)
+        .where(l_models.Segment.has_valid_data)
     )
-
-    if segments_selection:
-        stmt = stmt.where(build_where_clause(db, segments_selection))
-
-    return stmt
 
 
 def get_segments_count(db: Engine, segments_selection: dict) -> int:
@@ -259,17 +289,17 @@ def get_segments_count(db: Engine, segments_selection: dict) -> int:
 
 def build_where_clause(db: Engine, conditions: dict) -> ColumnElement[bool]:
     """"""
-    base_attrs = get_selectable_attributes(db)
-    f_names = {f.name for f in fields(SelectableAttributes)}
+    where_fields = get_where_fields(db)
+    f_names = {f.name for f in fields(WhereFields)}
     parsed_conditions = None
-    for attname, expression in conditions.items():
+    for f_name, expression in conditions.items():
         if not expression:  # discard empty strings, None's, ...
             # note that expressions MUST be strings
             continue
-        if attname not in f_names:
-            raise AttributeError(f'Column "{attname}" not found or not implemented')
+        if f_name not in f_names:
+            raise AttributeError(f'Column "{f_name}" not found or not implemented')
 
-        condition = binexpr(getattr(base_attrs, attname), expression)
+        condition = binexpr(getattr(where_fields, f_name), expression)
         if parsed_conditions is None:
             parsed_conditions = condition
         else:
@@ -279,36 +309,27 @@ def build_where_clause(db: Engine, conditions: dict) -> ColumnElement[bool]:
 
 
 def get_orderby_columns(db, group_components):
-    if s2s_db_version(db) > 4:
-        Channel = models.Channel
-        Segment = models.Segment
 
-        if group_components:
-            return (
-                Channel.data_webservice_id,
-                Channel.network_code,
-                Channel.station_code,
-                Channel.location_code,
-                Channel.instrument_code,
-                Channel.band_code,
-                Segment.event_id,
-                Segment.id
-            )
-        else:
-            return (
-                Channel.network_code,
-                Channel.station_code,
-                Segment.event_id,
-                Segment.id
-            )
+    seg_attrs = get_where_fields(db)
 
-    return (
-        legacy_models.Station.network,
-        legacy_models.Station.station,
-        legacy_models.Segment.event_id,
-        legacy_models.Segment.id
-    )
-    return orderby_columns
+    if group_components:
+        return (
+            seg_attrs.webservice_id,
+            seg_attrs.network_code,
+            seg_attrs.station_code,
+            seg_attrs.location_code,
+            seg_attrs.instrument_code,
+            seg_attrs.band_code,
+            seg_attrs.event_id,
+            seg_attrs.id
+        )
+    else:
+        return (
+            seg_attrs.network_code,
+            seg_attrs.station_code,
+            seg_attrs.event_id,
+            seg_attrs.id
+        )
 
 
 def binexpr(column, expr):

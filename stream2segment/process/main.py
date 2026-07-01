@@ -438,7 +438,7 @@ def get_segments(
     ).order_by(*orderby_columns)
 
     if chunksize is None:
-        chunksize = estimate_buffer_size(50)
+        chunksize = estimate_buffer_size(5)  # 5 Mb per row
 
     while True:
         stmt = stmt_base
