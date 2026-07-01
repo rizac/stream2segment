@@ -603,3 +603,18 @@ def test_suppress_output(
     out, err = capsys.readouterr()
     assert True
 
+
+
+def test_tmp():
+    from sqlalchemy import select
+    from stream2segment.io.db.models import Channel
+
+    with pytest.raises(Exception):
+        select('rt')
+
+    select(Channel.latitude.label('a')).order_by(Channel.latitude.label('a'))
+    select(Channel.latitude).order_by(Channel.latitude.label('a'))
+    select(Channel.channel_code).order_by(Channel.channel_code)
+    select(Channel.channel_code.label('a')).order_by(Channel.channel_code.label('a'))
+
+    asd = 9

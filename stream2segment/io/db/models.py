@@ -185,6 +185,7 @@ class Channel(Base):
     __table_args__ = (
         Index(
             'channel_ordering_index',
+            'data_webservice_id',
             'network_code',
             'station_code',
             'location_code',

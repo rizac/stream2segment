@@ -27,11 +27,8 @@ from obspy import Stream, Inventory, read, read_events, read_inventory
 from obspy.geodetics import locations2degrees, degrees2kilometers
 
 from stream2segment.io.db import secure_dburl, create_engine
-# from stream2segment.io.db.models import (
-#     StationXML, Channel, Segment, Event, QuakeML, MiniSeed
-# )
-
-from stream2segment.process.segments_selection import get_segments_count, build_select
+from stream2segment.process.segments_selection import get_segments_count, build_select, \
+    get_orderby_columns
 from stream2segment.io.utils import (
     get_progressbar, ascii_decorate, start_logging, BadParam, estimate_buffer_size
 )
@@ -432,23 +429,7 @@ def get_segments(
     else:
         engine = db
 
-    if group_components:
-        orderby_columns = (
-            Channel.network_code,
-            Channel.station_code,
-            Channel.location_code,
-            Channel.instrument_code,
-            Channel.band_code,
-            Segment.event_id,
-            Segment.id
-        )
-    else:
-        orderby_columns = (
-            Channel.network_code,
-            Channel.station_code,
-            Segment.event_id,
-            Segment.id
-        )
+    orderby_columns = get_orderby_columns(db, group_components)
 
     buffer = []
     last_key = None
@@ -482,27 +463,30 @@ def get_segments(
         else:
             buffer.extend(rows)
 
-            split_idx = len(buffer) - 1
-            while split_idx > 0 and same_group(buffer[split_idx], buffer[split_idx-1]):
-                split_idx -= 1
+            # split_idx = len(buffer) - 1
+            # while split_idx > 0 and same_group(buffer[split_idx], buffer[split_idx-1]):
+            #     split_idx -= 1
+            #
+            # if split_idx == 0:
+            #     continue
+            #
+            # to_yield = buffer[:split_idx]
+            # buffer = buffer[split_idx:]
 
-            if split_idx == 0:
-                continue
-
-            to_yield = buffer[:split_idx]
-            buffer = buffer[split_idx:]
-
-            for r in split_in_same_group_chunks(to_yield):
-                yield db_to_obspy(engine, segments_only, *r)
+            for (start, end) in split_in_same_group_chunks(buffer):
+                if end == len(buffer):
+                    buffer = buffer[start:]
+                    break
+                yield db_to_obspy(engine, segments_only, *buffer[start: end])
 
     if buffer:
         # if buffer => we surely grouped components:
-        for b in split_in_same_group_chunks(buffer):
-            yield db_to_obspy(engine, segments_only, *b)
+        yield db_to_obspy(engine, segments_only, *buffer)
 
 
 def same_group(row1, row2):
     return (
+        row1.data_webservice_id == row2.data_webservice_id and
         row1.network_code == row2.network_code and
         row1.station_code == row2.station_code and
         row1.location_code == row2.location_code and
@@ -516,13 +500,12 @@ def split_in_same_group_chunks(rows):
     start = 0
     end = 0
     while end < len(rows):
-        if same_group(rows[start], rows[end]):
-            end += 1
-            continue
-        yield rows[start:end]
-        start = end
-    if start < len(rows):
-        yield rows[start:]
+        if not same_group(rows[start], rows[end]):
+            yield start, end
+            start = end
+        end += 1
+    if end < len(rows):
+        yield end, len(rows)
 
 
 _inventory_cache = {}

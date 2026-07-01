@@ -182,14 +182,14 @@ class DataCenter(Base):
         )
 
 
-class StationXML(Base):
+class Station(Base):
     """Model representing a Station"""
     __tablename__ = 'stations'
 
     id = Column('id', Integer, primary_key=True, autoincrement=True)
     datacenter_id = Column(Integer, ForeignKey("data_centers.id"), nullable=False)
-    network_code = Column('network', String, nullable=False)
-    station_code = Column('station', String, nullable=False)
+    network_code = Column(String, nullable=False)
+    station_code = Column(String, nullable=False)
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)
     elevation = Column(Float)
@@ -271,8 +271,8 @@ class Channel(Base):
 
     id = Column('id', Integer, primary_key=True, autoincrement=True)
     station_id = Column(Integer, ForeignKey("stations.id"), nullable=False)
-    location_code = Column('location', String, nullable=False)
-    channel_code = Column('channel', String, nullable=False)
+    location = Column( String, nullable=False)
+    channel = Column(String, nullable=False)
     depth = Column(Float)
     azimuth = Column(Float)
     dip = Column(Float)
@@ -285,7 +285,7 @@ class Channel(Base):
     @hybrid_property
     def band_code(self):
         """Return the first letter of the channel field"""
-        return self.channel_code[0:1]  # if len(self.channel) == 3 else None
+        return self.channel[0:1]  # if len(self.channel) == 3 else None
 
     @band_code.expression
     def band_code(cls):
@@ -293,12 +293,12 @@ class Channel(Base):
         field"""
         # return a sql expression matching the last char or None if not three
         # letter channel
-        return func.substr(cls.channel_code, 1, 1)
+        return func.substr(cls.channel, 1, 1)
 
     @hybrid_property
     def instrument_code(self):
         """Return the second letter of the channel field"""
-        return self.channel_code[1:2]  # if len(self.channel) == 3 else None
+        return self.channel[1:2]  # if len(self.channel) == 3 else None
 
     @instrument_code.expression
     def instrument_code(cls):
@@ -306,13 +306,13 @@ class Channel(Base):
         field"""
         # return an sql expression matching the last char or None if not three
         # letter channel
-        return func.substr(cls.channel_code, 2, 1)
+        return func.substr(cls.channel, 2, 1)
 
     @hybrid_property
     def band_instrument_code(self):
         """Return the first two letters of the channel field. Useful when we
         want to get the same record on different orientations/components"""
-        return self.channel_code[0:2]
+        return self.channel[0:2]
 
     @band_instrument_code.expression
     def band_instrument_code(cls):
@@ -321,12 +321,12 @@ class Channel(Base):
         on different orientations/components"""
         # return an sql expression matching the last char or None if not three
         # letter channel
-        return func.substr(cls.channel_code, 1, 2)
+        return func.substr(cls.channel, 1, 2)
 
     @hybrid_property
     def orientation_code(self):
         """Return the third letter of the channel field"""
-        return self.channel_code[2:3]
+        return self.channel[2:3]
 
     @orientation_code.expression
     def orientation_code(cls):
@@ -334,7 +334,7 @@ class Channel(Base):
         field"""
         # return an sql expression matching the last char or None if not three
         # letter channel
-        return func.substr(cls.channel_code, 3, 1)
+        return func.substr(cls.channel, 3, 1)
 
     @declared_attr
     def __table_args__(cls):  # noqa  # https://stackoverflow.com/a/43993950

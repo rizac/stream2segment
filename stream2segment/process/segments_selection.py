@@ -17,6 +17,118 @@ from stream2segment.io.db import models
 from stream2segment.io.db.legacy import models as legacy_models  # v <= 4
 
 
+@dataclass(frozen = True, slots = True, kw_only=True)
+class SelectableAttributes:
+    event_time: ColumnElement  # sqlalchemy.sql.elements.SQLColumnExpression
+    event_latitude: ColumnElement
+    event_longitude: ColumnElement
+    event_depth_km: ColumnElement
+    event_id: ColumnElement
+    # author = ColumnElement
+    # catalog = ColumnElement
+    # contributor = ColumnElement
+    # contributor_id = ColumnElement
+    event_mag_type: ColumnElement
+    event_magnitude_type: ColumnElement
+    event_magnitude: ColumnElement
+    channel_id: ColumnElement
+    network_code: ColumnElement
+    station_code: ColumnElement
+    latitude: ColumnElement
+    longitude: ColumnElement
+    elevation: ColumnElement
+    # start_time = ColumnElement
+    location_code: ColumnElement
+    band_code: ColumnElement
+    instrument_code: ColumnElement
+    orientation_code: ColumnElement
+    channel_code: ColumnElement
+    depth: ColumnElement
+    azimuth: ColumnElement
+    dip: ColumnElement
+    event_distance_km: ColumnElement
+    noise_window_s: ColumnElement
+    signal_window_s: ColumnElement
+    gap_score_percent: ColumnElement
+    # sample_rate = Column(Float, nullable=False)
+
+
+def get_selectable_attributes(db: Engine) -> SelectableAttributes:
+    """"""
+    if s2s_db_version(db) < 5:
+        Segment = legacy_models.Segment
+        Channel = models.Channel
+        Event = legacy_models.Event
+        Station = legacy_models.Station
+
+        return SelectableAttributes(**{
+            'id': Segment.id,
+            "event_id": Segment.event_id.label('event_id'),
+            "event_time": Event.time.label('event_time'),
+            "event_latitude": Event.latitude.label('event_latitude'),
+            "event_longitude": Event.longitude.label('event_longitude'),
+            "event_depth_km": Event.depth_km.label('event_depth_km'),
+            "event_mag_type": Event.mag_type.label('event_magnitude_type'),
+            # "event_magnitude": Event.magnitude.label('event_magnitude'),
+            "event_webservice_id": Event.webservice_id.label('event_webservice_id'),
+            "channel_id": Segment.channel_id,
+            'data_webservice_id': Station.datacenter_id.label('data_webservice_id'),
+            "network_code": Station.network.label('network_code'),
+            "station_code": Station.station.label('station_code'),
+            "latitude": Station.latitude,
+            "longitude": Station.longitude,
+            "elevation": Station.elevation,
+            "location_code": Channel.location.label('location_code'),
+            "band_code": Channel.band_code,
+            "instrument_code": Channel.instrument_code,
+            "orientation_code": Channel.orientation_code,
+            "channel_code": Channel.channel_code,
+            "depth": Channel.depth,
+            "azimuth": Channel.azimuth,
+            "dip": Channel.dip,
+            "event_distance_km": Segment.event_distance_km,
+            "noise_window_s": Segment.noise_window_s,
+            "signal_window_s": Segment.signal_window_s,
+            "gap_score_percent": Segment.gap_score_percent
+        })
+    else:
+        Segment = models.Segment
+        Channel = models.Channel
+        Event = models.Event
+
+        return SelectableAttributes(**{
+            'id': Segment.id,
+            "event_id": Segment.event_id.label('event_id'),
+            "event_time": Event.time.label('event_time'),
+            "event_latitude": Event.latitude.label('event_latitude'),
+            "event_longitude": Event.longitude.label('event_longitude'),
+            "event_depth_km": Event.depth_km.label('event_depth_km'),
+            "event_mag_type": Event.mag_type.label('event_magnitude_type'),
+            # "event_magnitude_type": Event.mag_type.label('event_magnitude_type'),
+            "event_magnitude": Event.magnitude.label('event_magnitude'),
+            "event_webservice_id": Event.webservice_id.label('event_webservice_id'),
+            "channel_id": Segment.channel_id,
+            'data_webservice_id': Channel.data_webservice_id,
+            "network_code": Channel.network_code,
+            "station_code": Channel.station_code,
+            "latitude": Channel.latitude,
+            "longitude": Channel.longitude,
+            "elevation": Channel.elevation,
+            "location_code": Channel.location_code,
+            "band_code": Channel.band_code,
+            "instrument_code": Channel.instrument_code,
+            "orientation_code": Channel.orientation_code,
+            "channel_code": Channel.channel_code,
+            "depth": Channel.depth,
+            "azimuth": Channel.azimuth,
+            "dip": Channel.dip,
+            "event_distance_km": Segment.event_distance_km,
+            "noise_window_s": Segment.noise_window_s,
+            "signal_window_s": Segment.signal_window_s,
+            "gap_score_percent": Segment.gap_score_percent
+        })
+
+
 def build_select(
     db: Engine,
     segments_selection: dict | None = None,
@@ -61,32 +173,9 @@ def _build_select_new(
     MiniSeed = models.MiniSeed
     Event = models.Event
 
+    sel_attrs = get_selectable_attributes(db)
     select_cols = [
-        Segment.id,
-        Segment.noise_window_s,
-        Segment.signal_window_s,
-        MiniSeed.data,
-        # Channel stuff:
-        Segment.channel_id,
-        Channel.data_webservice_id,
-        Channel.stationxml_id,
-        Channel.network_code,
-        Channel.station_code,
-        Channel.latitude,
-        Channel.longitude,
-        Channel.elevation,
-        Channel.depth,
-        Channel.azimuth,
-        Channel.dip,
-        # event stuff:
-        Segment.event_id,
-        Event.webservice_id.label('event_webservice_id'),
-        Event.time.label('event_time'),
-        Event.latitude.label('event_latitude'),
-        Event.longitude.label('event_longitude'),
-        Event.depth_km.label('event_depth_km'),
-        Event.mag_type.label('event_magnitude_type'),
-        Event.magnitude.label('event_magnitude'),
+        getattr(sel_attrs, f.name) for f in fields(sel_attrs)
     ]
 
     if group_components:
@@ -141,30 +230,9 @@ def _build_select_legacy(db: Engine, segments_selection) -> Select:
     Event = legacy_models.Event
     StationXML = legacy_models.StationXML
 
+    sel_attrs = get_selectable_attributes(db)
     select_cols = [
-        Segment.id,
-        Segment.noise_window_s,
-        Segment.signal_window_s,
-        Segment.data,
-        Segment.channel_id,
-        StationXML.datacenter_id.label('data_webservice_id'),
-        Channel.station_id.label('stationxml_id'),
-        StationXML.network_code,
-        StationXML.station_code,
-        StationXML.latitude,
-        StationXML.longitude,
-        StationXML.elevation,
-        Channel.depth,
-        Channel.azimuth,
-        Channel.dip,
-        Segment.event_id,
-        Event.webservice_id.label('event_webservice_id'),
-        Event.time.label('event_time'),
-        Event.latitude.label('event_latitude'),
-        Event.longitude.label('event_longitude'),
-        Event.depth_km.label('event_depth_km'),
-        Event.mag_type.label('event_magnitude_type'),
-        Event.magnitude.label('event_magnitude'),
+        getattr(sel_attrs, f.name) for f in fields(sel_attrs)
     ]
 
     stmt = (
@@ -189,105 +257,9 @@ def get_segments_count(db: Engine, segments_selection: dict) -> int:
         return conn.execute(stmt_count).scalar_one()
 
 
-@dataclass(frozen = True, slots = True, kw_only=True)
-class SelectableAttributes:
-    event_time: ColumnElement
-    event_latitude: ColumnElement
-    event_longitude: ColumnElement
-    event_depth_km: ColumnElement
-    # author = ColumnElement
-    # catalog = ColumnElement
-    # contributor = ColumnElement
-    # contributor_id = ColumnElement
-    event_mag_type: ColumnElement
-    event_magnitude_type: ColumnElement
-    event_magnitude: ColumnElement
-    network_code: ColumnElement
-    station_code: ColumnElement
-    latitude: ColumnElement
-    longitude: ColumnElement
-    elevation: ColumnElement
-    # start_time = ColumnElement
-    location_code: ColumnElement
-    band_code: ColumnElement
-    instrument_code: ColumnElement
-    orientation_code: ColumnElement
-    channel_code: ColumnElement
-    depth: ColumnElement
-    azimuth: ColumnElement
-    dip: ColumnElement
-    event_distance_km: ColumnElement
-    noise_window_s: ColumnElement
-    signal_window_s: ColumnElement
-    gap_score_percent: ColumnElement
-    # sample_rate = Column(Float, nullable=False)
-
-
 def build_where_clause(db: Engine, conditions: dict) -> ColumnElement[bool]:
     """"""
-    if s2s_db_version(db) < 5:
-        Segment = legacy_models.Segment
-        Channel = models.Channel
-        Event = models.Event
-
-        base_attrs = SelectableAttributes(**{
-            "event_time": Event.time,
-            "event_latitude": Event.latitude,
-            "event_longitude": Event.longitude,
-            "event_depth_km": Event.depth_km,
-            "event_mag_type": Event.mag_type,
-            "event_magnitude_type": Event.mag_type,
-            "event_magnitude": Event.magnitude,
-            "network_code": Channel.network_code,
-            "station_code": Channel.station_code,
-            "latitude": Channel.latitude,
-            "longitude": Channel.longitude,
-            "elevation": Channel.elevation,
-            "location_code": Channel.location_code,
-            "band_code": Channel.band_code,
-            "instrument_code": Channel.instrument_code,
-            "orientation_code": Channel.orientation_code,
-            "channel_code": Channel.channel_code,
-            "depth": Channel.depth,
-            "azimuth": Channel.azimuth,
-            "dip": Channel.dip,
-            "event_distance_km": Segment.event_distance_km,
-            "noise_window_s": Segment.noise_window_s,
-            "signal_window_s": Segment.signal_window_s,
-            "gap_score_percent": Segment.gap_score_percent
-        })
-    else:
-        Segment = models.Segment
-        Channel = models.Channel
-        Event = models.Event
-
-        base_attrs = SelectableAttributes(**{
-            "event_time": Event.time,
-            "event_latitude": Event.latitude,
-            "event_longitude": Event.longitude,
-            "event_depth_km": Event.depth_km,
-            "event_mag_type": Event.mag_type,
-            "event_magnitude_type": Event.mag_type,
-            "event_magnitude": Event.magnitude,
-            "network_code": Channel.network_code,
-            "station_code": Channel.station_code,
-            "latitude": Channel.latitude,
-            "longitude": Channel.longitude,
-            "elevation": Channel.elevation,
-            "location_code": Channel.location_code,
-            "band_code": Channel.band_code,
-            "instrument_code": Channel.instrument_code,
-            "orientation_code": Channel.orientation_code,
-            "channel_code": Channel.channel_code,
-            "depth": Channel.depth,
-            "azimuth": Channel.azimuth,
-            "dip": Channel.dip,
-            "event_distance_km": Segment.event_distance_km,
-            "noise_window_s": Segment.noise_window_s,
-            "signal_window_s": Segment.signal_window_s,
-            "gap_score_percent": Segment.gap_score_percent
-        })
-
+    base_attrs = get_selectable_attributes(db)
     f_names = {f.name for f in fields(SelectableAttributes)}
     parsed_conditions = None
     for attname, expression in conditions.items():
@@ -304,6 +276,39 @@ def build_where_clause(db: Engine, conditions: dict) -> ColumnElement[bool]:
             parsed_conditions &= condition
 
     return parsed_conditions
+
+
+def get_orderby_columns(db, group_components):
+    if s2s_db_version(db) > 4:
+        Channel = models.Channel
+        Segment = models.Segment
+
+        if group_components:
+            return (
+                Channel.data_webservice_id,
+                Channel.network_code,
+                Channel.station_code,
+                Channel.location_code,
+                Channel.instrument_code,
+                Channel.band_code,
+                Segment.event_id,
+                Segment.id
+            )
+        else:
+            return (
+                Channel.network_code,
+                Channel.station_code,
+                Segment.event_id,
+                Segment.id
+            )
+
+    return (
+        legacy_models.Station.network,
+        legacy_models.Station.station,
+        legacy_models.Segment.event_id,
+        legacy_models.Segment.id
+    )
+    return orderby_columns
 
 
 def binexpr(column, expr):
