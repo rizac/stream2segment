@@ -44,6 +44,8 @@ class CommonFields:
     depth: ColumnElement
     azimuth: ColumnElement
     dip: ColumnElement
+    noise_window_s: ColumnElement | hybrid_property
+    signal_window_s: ColumnElement | hybrid_property
 
 
 @dataclass(frozen = True, slots = True, kw_only=True)
@@ -74,7 +76,9 @@ def get_select_fields(db: Engine) -> SelectFields:
             depth=lm.Channel.depth,
             azimuth=lm.Channel.azimuth,
             dip=lm.Channel.dip,
-            data=lm.Segment.data
+            data=lm.Segment.data,
+            noise_window_s=lm.Segment.noise_window_s,
+            signal_window_s = lm.Segment.signal_window_s
         )
 
     else:
@@ -99,7 +103,9 @@ def get_select_fields(db: Engine) -> SelectFields:
             depth=m.Channel.depth,
             azimuth=m.Channel.azimuth,
             dip=m.Channel.dip,
-            data=m.MiniSeed.data
+            data=m.MiniSeed.data,
+            noise_window_s=m.Segment.noise_window_s,
+            signal_window_s=m.Segment.signal_window_s
         )
 
 
@@ -223,7 +229,7 @@ def build_select(
 
     sel_attrs = get_select_fields(db)
     select_cols = [
-        getattr(sel_attrs, f.name) for f in fields(sel_attrs)
+        getattr(sel_attrs, f.name).label(f.name) for f in fields(sel_attrs)
     ]
     if legacy:
         stmt = _build_select_legacy(select_cols)

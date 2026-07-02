@@ -4,6 +4,7 @@ Processing functions
 # Feb 2, 2017
 from __future__ import annotations
 import os
+import itertools
 from pathlib import Path
 import time
 import sys
@@ -14,7 +15,7 @@ from dataclasses import dataclass
 from datetime import timedelta, datetime, UTC
 import warnings
 from io import BytesIO
-from multiprocessing import Pool, cpu_count
+from multiprocessing import Pool, cpu_count, Semaphore
 import signal
 import inspect
 
@@ -37,8 +38,6 @@ from stream2segment.io.utils import (
 from stream2segment.process.writers import get_writer
 
 
-# make the logger refer to the parent of this package (`rfind` below. For info:
-# https://docs.python.org/3/howto/logging.html#advanced-logging-tutorial):
 logger = logging.getLogger(__name__[:__name__.rfind('.')])
 
 
@@ -156,9 +155,7 @@ def process(
             raise BadParam('invalid output file path (check parent dir)')
         outfile = Path(outfile).resolve()
 
-    # print summary (if verbose is on):
     if verbose:
-
         out_file_str = f"{str(outfile) if outfile else 'n/a'}"
         log_file_str = f"{str(logfile) if logfile else 'n/a'}"
         cfg_file_str = f"{str(cfg_file) if cfg_file else 'n/a'}"
@@ -189,7 +186,6 @@ def process(
     writer = get_writer(outfile, append, writer_options)
     num_ok = 0
     with writer:
-
         for output in imap(
             pyfunc,
             dburl,
@@ -216,7 +212,7 @@ def imap(
     segments_selection: dict | None = None,
     group_components: bool = False,
     config: str | Path | dict | None = None,
-    logfile: str='',
+    logfile: str = '',
     verbose=False,
     multi_process=False,
     chunksize=None,
@@ -264,13 +260,13 @@ def imap(
     """
     num_processes = 0
     if multi_process is True:
-        num_processes = cpu_count()  # or None (let's set it directly here though)
+        num_processes = cpu_count()
     elif multi_process not in (0, False):
         num_processes = max(0, int(multi_process))
 
     if skip_exceptions is None:
         skip_exceptions = [SkipSegment]
-    skip_exceptions = tuple(skip_exceptions)  # for safety, in case list
+    skip_exceptions = tuple(skip_exceptions)
 
     oks = 0
     errors = 0
@@ -280,18 +276,11 @@ def imap(
     else:
         capture = nullcontext
 
-
-    # `create_processing_env` redirects Python BUT ALSO external libraries errors which
-    # might mess up the terminal printout (e.g. progressbar). Python warnings should be
-    # redirected as well because normally printed to `stderr`, so avoid capturing them
-    # (`warnings_filter=None`). `create_processing_env` is also called in Python
-    # subprocesses, if present. For info see :func:`process_segments_mp`
     with (
         start_logging(logger, logfile, verbose),
         capture(),
     ):
         try:
-
             # check params:
             n_args = 4
             if isinstance(config, (str, Path)):
@@ -305,7 +294,6 @@ def imap(
                 config = {}
 
             params = inspect.signature(pyfunc).parameters
-            # params is a sort of # dict[str, inspect.Parameter]. Check params:
             if len(params) != n_args:
                 raise TypeError(
                     f'"{pyfunc.__name__}" expects {n_args} parameters, '
@@ -316,9 +304,9 @@ def imap(
             total = 0
             engine = get_engine(dburl)
             if verbose:
-                total = get_segments_count(dburl, segments_selection)
+                total = get_segments_count(engine, segments_selection)
 
-            with get_progressbar(total) as pbar:  # no-op if length not > 0
+            with get_progressbar(total) as pbar:
                 if verbose and total:
                     logger.info(f"{total:,} segment(s) found to process")
                     # Show the progress bar immediately to avoid an empty screen being
@@ -326,60 +314,106 @@ def imap(
                     time.sleep(0.25)
                     pbar.render_progress()
 
+                # `chunksize`: number of segments (DB rows) fetched from the DB in one
+                # page, AND the number of segments bundled into a single task handed
+                # to a worker process. Defaults to a size estimated to keep one page's
+                # worth of inflated Stream/Inventory/Event objects within a target
+                # memory budget (~5 Mb/row estimate).
+                if chunksize is None:
+                    chunksize = estimate_buffer_size(5)
+
+                # `get_segments` is a single flat, lazy iterator of (stream, inv, evt)
+                # tuples. It fetches from the DB one `chunksize`-page at a time
+                # internally, and only ever holds one page's worth of objects in
+                # memory at once, regardless of how the caller consumes it below.
+                segments_iter = get_segments(
+                    engine, segments_selection, group_components, False, chunksize
+                )
+
+                # Re-bundle the flat segment iterator into `chunksize`-sized lists,
+                # one per task, for the workers (or for the sequential map() call).
                 exec_processing_func_args = (
-                    (pyfunc, args, config, skip_exceptions, num_processes > 1)
-                    for args in get_segments_chunks(
-                        engine,
-                        segments_selection,
-                        group_components,
-                        False,
-                        chunksize
-                    )
+                    (pyfunc, batch, config, skip_exceptions, num_processes > 1)
+                    for batch in batched(segments_iter, chunksize)
                 )
 
                 stime = time.time()
 
                 if num_processes <= 1:
-                    for (output, is_ok, ids) in map(
+                    # Sequential path: execute_processing_function returns a *list*
+                    # of (output, is_ok, ids) tuples for the whole batch; unpack it.
+                    for chunk_result in map(
                         execute_processing_function, exec_processing_func_args
                     ):
-                        pbar.update(len(ids))
-                        if is_ok:
-                            oks += len(ids)
-                            yield output
-                        else:
-                            errors += len(ids)
-                            logger.warning(
-                                f"segment id(s)="
-                                f"{' ,'.join(str(i) for i in ids)}): "
-                                f"{output}"
-                            )
+                        for output, is_ok, ids in chunk_result:
+                            pbar.update(len(ids))
+                            if is_ok:
+                                oks += len(ids)
+                                yield output
+                            else:
+                                errors += len(ids)
+                                logger.warning(
+                                    f"segment id(s)="
+                                    f"{' ,'.join(str(i) for i in ids)}): "
+                                    f"{output}"
+                                )
                 else:
+                    # Multiprocess path.
+                    #
+                    # `pool.imap_unordered` is lazy - it only calls next() on its
+                    # input iterable as fast as its internal task-handler THREAD
+                    # (running in this main process) can push tasks into the
+                    # worker queue, which can be much faster than workers actually
+                    # finish them. Left unchecked, that thread can race ahead of
+                    # `get_segments` far more chunks than are being consumed,
+                    # materializing many pages' worth of Stream/Inventory/Event
+                    # objects in the main process before they're even sent off -
+                    # defeating the purpose of `chunksize`.
+                    #
+                    # Fix: gate task *generation* with a semaphore. `inflight`
+                    # tracks how many submitted-but-not-yet-consumed tasks exist.
+                    # `gen_args()` blocks (in the task-handler thread) once that
+                    # count reaches `num_processes + 1`, so at most a small,
+                    # bounded lookahead of chunks is ever pulled from
+                    # `get_segments` ahead of what's been consumed here.
+                    #
+                    # This is `threading.Semaphore`, not `multiprocessing.Semaphore`,
+                    # because both sides of it (the task-handler thread and this
+                    # main-thread loop) live in the SAME process; no worker
+                    # subprocess ever touches it.
+                    inflight = Semaphore(num_processes + 1)
+
+                    def gen_args():
+                        for batch in exec_processing_func_args:
+                            inflight.acquire()  # blocks if too many tasks outstanding
+                            yield batch
 
                     with Pool(
                         processes=num_processes, initializer=_mp_initializer
                     ) as pool:
-
                         try:
-
-                            for (output, is_ok, ids) in pool.imap_unordered(
-                                execute_processing_function, exec_processing_func_args
+                            for chunk_result in pool.imap_unordered(
+                                execute_processing_function, gen_args()
                             ):
-                                pbar.update(len(ids))
-                                if is_ok:
-                                    oks += len(ids)
-                                    yield output
-                                else:
-                                    errors += len(ids)
-                                    logger.warning(
-                                        f"segment id(s)="
-                                        f"{' '.join(str(i) for i in ids)}): "
-                                        f"{output}"
-                                    )
+                                # a slot freed up: allow one more chunk to be
+                                # pulled from get_segments / submitted to the pool
+                                inflight.release()
+
+                                for output, is_ok, ids in chunk_result:
+                                    pbar.update(len(ids))
+                                    if is_ok:
+                                        oks += len(ids)
+                                        yield output
+                                    else:
+                                        errors += len(ids)
+                                        logger.warning(
+                                            f"segment id(s)="
+                                            f"{' '.join(str(i) for i in ids)}): "
+                                            f"{output}"
+                                        )
 
                             pool.close()  # iterable fully exhausted, normal completion
                         except Exception:
-                            # explicit terminate because we are yielding (generator)
                             pool.terminate()
                             raise
                         finally:
@@ -388,7 +422,6 @@ def imap(
             logger.info(
                 f"Completed in {timedelta(seconds=round((time.time()) - stime))}"
             )
-
             logger.info('')
             logger.info(f"{oks} of {oks+errors} segment(s) successfully processed")
             logger.info(
@@ -397,12 +430,20 @@ def imap(
             )
 
         except KeyboardInterrupt:
-            logger.critical("Aborted by user")  # see comment above
+            logger.critical("Aborted by user")
+            raise
+        except:  # noqa
+            logger.critical("Process aborted", exc_info=True)
             raise
 
-        except:  # noqa
-            logger.critical("Process aborted", exc_info=True)  # see comment above
-            raise
+
+def batched(iterable, n):
+    """Yield successive lists of up to `n` items from `iterable`.
+    Only ever holds one batch (<= n items) in memory at a time.
+    """
+    it = iter(iterable)
+    while batch := list(itertools.islice(it, n)):
+        yield batch
 
 
 def _mp_initializer():
@@ -425,36 +466,31 @@ def get_segments(
     segments_only: bool = False,
     chunksize: int | None = None
 ) -> Iterable[tuple[Stream, Inventory | None, Event | None]]:
-    for chunk in get_segments_chunks(
-        db,
-        segments_selection,
-        group_components,
-        segments_only,
-        chunksize
-    ):
-        yield from chunk
+    """Yield (stream, inventory, event) tuples for every selected segment.
 
-
-def get_segments_chunks(
-    db: str | Engine,
-    segments_selection: dict,
-    group_components: bool = False,
-    segments_only: bool = False,
-    chunksize: int | None = None
-) -> Iterable[list[tuple[Stream, Inventory | None, Event | None]]]:
-
+    Internally, fetches rows from the DB in pages of at most `chunksize` rows
+    (a fresh SELECT per page, keyset-paginated via `orderby_columns`), builds
+    obspy objects for that page only, yields them one at a time, then discards
+    the page and fetches the next. Peak memory is therefore bounded to
+    roughly one page's worth of objects, no matter how the caller consumes
+    this iterator (single item at a time, or re-batched via `batched()`).
+    """
     if isinstance(db, str):
         engine = get_engine(db)
     else:
         engine = db
 
     is_legacy_db = s2s_db_version(engine) < 5
-
     orderby_columns = get_orderby_columns(db, group_components)
 
     def stream_key(strm: Stream) -> tuple:
         seg_meta = strm[0].stats.segment_metadata
         return tuple(getattr(seg_meta, c) for c in orderby_columns.keys())
+
+    def make_tuple(strm: Stream) -> tuple[Stream, Inventory | None, Event | None]:
+        sta = None if segments_only else get_obspy_inventory(engine, strm, is_legacy_db)
+        evt = None if segments_only else get_obspy_event(engine, strm)
+        return strm, sta, evt
 
     buffer = []
     last_key = None
@@ -468,8 +504,8 @@ def get_segments_chunks(
     while True:
         stmt = stmt_base
         if last_key is not None:
+            # keyset pagination: fetch rows strictly after the last one we saw
             stmt = stmt.where(tuple_(*orderby_columns.values()) > last_key)
-
         stmt = stmt.limit(chunksize)
 
         with engine.connect() as conn:
@@ -479,49 +515,39 @@ def get_segments_chunks(
             break
 
         buffer.extend(get_obspy_stream(r) for r in rows)
-        buffer.sort(key=stream_key)
-
         last_key = stream_key(buffer[-1])
-        # (c.key resolves to c.label, if a label is set, otherwise column name)
 
         if not group_components:
-            new_buffer = []
+            # simple case: each stream in the buffer is already one segment
             for stream in buffer:
-                sta = None
-                if not segments_only:
-                    sta = get_obspy_inventory(engine, stream, is_legacy_db)
-                evt = None
-                if not segments_only:
-                    evt = get_obspy_event(engine, stream)
-                new_buffer.append((stream, sta, evt))
-            yield new_buffer
+                yield make_tuple(stream)
             buffer.clear()
-
         else:
-
+            # group_components case: consecutive streams sharing the same
+            # "grouping key" (all orderby columns except the last) belong to
+            # the same segment and must be merged into one Stream before
+            # yielding. We can only be sure a group is *complete* once we see
+            # the first row of a following group - so the last (possibly
+            # incomplete) group of each page is deferred to the next page.
             start = 0
             end = 1
-            new_buffer = []
             while end < len(buffer):
                 if stream_key(buffer[start])[:-1] != stream_key(buffer[end])[:-1]:
-                    stream = Stream()
-                    for buf in buffer[start: end]:
-                        stream += buf
-                    sta = None
-                    if not segments_only:
-                        sta = get_obspy_inventory(engine, stream, is_legacy_db)
-                    evt = None
-                    if not segments_only:
-                        evt = get_obspy_event(engine, stream)
-                    new_buffer.append((stream, sta, evt))
+                    grouped = Stream()
+                    for buf in buffer[start:end]:
+                        grouped += buf
+                    yield make_tuple(grouped)
                     start = end
                 end += 1
-            buffer = buffer[start:end]
-            yield new_buffer
+            buffer = buffer[start:end]  # keep the possibly-incomplete tail group
 
     if buffer:
-        # if buffer => we surely grouped components:
-        yield buffer
+        # leftover group from the very last page: it's complete since there's
+        # no more data coming, so merge and yield it like every other group.
+        grouped = Stream()
+        for buf in buffer:
+            grouped += buf
+        yield make_tuple(grouped)
 
 
 def get_obspy_stream(db_row) -> Stream:  # tuple[Stream, Inventory | None, ObspyEvent | None]:
@@ -530,34 +556,32 @@ def get_obspy_stream(db_row) -> Stream:  # tuple[Stream, Inventory | None, Obspy
         (segment: Stream, station: Inventory, event: Event)
     from the given db_rows
     """
-    stream = Stream()
-    db_row = db_row
-    _stream = read(db_row.data, format='MSEED')
+    stream = read(BytesIO(db_row.data), format='MSEED')
     gap_score_percent = 0
-    if len(_stream) > 1:
-        s = sorted(_stream, key=lambda s: s.stats.starttime)
+    if len(stream) > 1:
+        s = sorted(stream, key=lambda s: s.stats.starttime)
         max_diff = max(
             (
                 float(s[i].stats.starttime - s[i-1].stats.endtime)
                 for i in range(1, len(s))
             ),
-            key = abs
+            key=abs
         )
-        gap_score_percent = int(.5 + 100 * max_diff / _stream[0].stats.delta)
-    start_time = _stream[0].stats.starttime.datetime
-    end_time = _stream[0].stats.endtime.datetime
+        gap_score_percent = int(.5 + 100 * max_diff / stream[0].stats.delta)
+    start_time = stream[0].stats.starttime.datetime
+    end_time = stream[0].stats.endtime.datetime
     arr_time1 = start_time + timedelta(seconds=db_row.noise_window_s)
     arr_time2 = end_time - timedelta(seconds=db_row.signal_window_s)
     min_time = min(arr_time1, arr_time2)
     max_time = max(arr_time1, arr_time2)
-    arrival_time = min_time + ((max_time - min_time)/ 2)
+    arrival_time = min_time + ((max_time - min_time) / 2)
     try:
-        net = _stream[0].stats.network
-        sta = _stream[0].stats.station
-        loc = _stream[0].stats.location
-        cha = _stream[0].stats.channel
+        net = stream[0].stats.network
+        sta = stream[0].stats.station
+        loc = stream[0].stats.location
+        cha = stream[0].stats.channel
     except AttributeError:  # legacy Obspy? FIXME check!
-        net, sta, loc, cha = _stream[0].stats.id.split('.')
+        net, sta, loc, cha = stream[0].stats.id.split('.')
     s_meta = SegmentMetadata(
         id=db_row.id,
         network_code=net,
@@ -567,7 +591,7 @@ def get_obspy_stream(db_row) -> Stream:  # tuple[Stream, Inventory | None, Obspy
         latitude=db_row.latitude,
         longitude=db_row.longitude,
         depth=db_row.depth,
-        station_id=db_row.stationxml_id,
+        station_id=db_row.station_id,
         dip=db_row.dip,
         azimuth=db_row.azimuth,
         webservice_id=db_row.webservice_id,
@@ -583,12 +607,11 @@ def get_obspy_stream(db_row) -> Stream:  # tuple[Stream, Inventory | None, Obspy
         event_magnitude=db_row.event_magnitude,
         event_magnitude_type=db_row.event_magnitude_type,
         noise_window_s=(arrival_time - start_time).total_seconds(),
-        signal_window_s=(end_time-arrival_time).total_seconds(),
+        signal_window_s=(end_time - arrival_time).total_seconds(),
         gap_score_percent=gap_score_percent
     )
-    for t in _stream:
+    for t in stream:
         t.stats.segment_metadata = s_meta
-
     return stream
 
 
@@ -637,7 +660,7 @@ _event_cache_maxsize = estimate_buffer_size('quakeml')
 
 def get_obspy_event(engine, stream: Stream):
     is_legacy_db = s2s_db_version(engine) < 5
-    event=None
+    event = None
     if not is_legacy_db:
         quakeml_id = getattr(stream[0].stats.segment_metadata, 'event_id', None)
         if quakeml_id is not None:
@@ -673,26 +696,29 @@ def execute_processing_function(args: tuple[
     dict,
     tuple[Exception],
     bool
-]) -> Iterable[tuple[Any, bool, set[int]]]:
+]) -> list[tuple[Any, bool, set[int]]]:
+    """Run `pyfunc` on every (stream, inv, evt) tuple in the batch and RETURN
+    (not yield) the list of results. Must be a concrete list, not a generator:
+    when this runs in a worker subprocess, its return value has to be pickled
+    to be sent back to the parent, and generator objects aren't picklable.
+    """
+    pyfunc = args[0]
+    pyfunc_args_list = args[1]
+    config = args[2]
+    safe_exceptions_tuple = args[3]
+    suppress_stout_err = args[4]
 
-    pyfunc: Callable[[Stream, Inventory | None, Event | None, dict], Any] = args[0]
-    pyfunc_args_list: Iterable[tuple[Stream, Inventory | None, Event | None]] = args[1]
-    config: dict = args[2]
-    safe_exceptions_tuple: tuple[Exception] = args[3]
-    suppress_stout_err: bool = args[4]
+    capture = suppress_printouts if suppress_stout_err else nullcontext
 
-    if suppress_stout_err:
-        capture = suppress_printouts
-    else:
-        capture = nullcontext
-
+    results = []
     with capture():
         for pyfunc_args in pyfunc_args_list:
             ids = set(t.stats.segment_metadata.id for t in pyfunc_args[0])
             try:
-                yield pyfunc(*pyfunc_args, config), True, ids
+                results.append((pyfunc(*pyfunc_args, config), True, ids))
             except safe_exceptions_tuple as exc:
-                yield exc, False, ids
+                results.append((exc, False, ids))
+    return results
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
