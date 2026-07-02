@@ -188,8 +188,8 @@ class Station(Base):
 
     id = Column('id', Integer, primary_key=True, autoincrement=True)
     datacenter_id = Column(Integer, ForeignKey("data_centers.id"), nullable=False)
-    network_code = Column(String, nullable=False)
-    station_code = Column(String, nullable=False)
+    network = Column(String, nullable=False)
+    station = Column(String, nullable=False)
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)
     elevation = Column(Float)

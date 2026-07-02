@@ -4,6 +4,7 @@ test processing routine
 # Feb 14, 2017
 import os
 import re
+from dataclasses import fields
 from datetime import datetime, UTC, timedelta
 from itertools import product
 from unittest.mock import patch
@@ -19,8 +20,10 @@ from stream2segment.io.db.models import (
     DownloadRun, WebService, Channel, StationXML, MiniSeed, SkippedSegment,Event,
     Segment
 )
-from stream2segment.process import imap
+from stream2segment.process import imap, SegmentMetadata
 from stream2segment.process.main import get_segments
+from stream2segment.process.segments_selection import SelectFields, WhereFields, \
+    get_orderby_columns
 from stream2segment.resources import get_templates_fpath
 from stream2segment.process.main import process
 
@@ -605,16 +608,49 @@ def test_suppress_output(
 
 
 
-def test_tmp():
-    from sqlalchemy import select
-    from stream2segment.io.db.models import Channel
+def test_fields():
+    select_fnames = {_.name for _ in fields(SelectFields)}
+    where_fnames = {_.name for _ in fields(WhereFields)}
 
-    with pytest.raises(Exception):
-        select('rt')
+    # fields that I need to fetch but do not want in where clause:
+    assert select_fnames - where_fnames == {'data'}
+    assert where_fnames - select_fnames == {
+        'band_code', 'channel_code', 'event_distance_deg', 'event_distance_km',
+        'gap_score_percent', 'instrument_code', 'location_code', 'network_code',
+        'noise_window_s', 'orientation_code', 'signal_window_s', 'station_code'
+    }
 
-    select(Channel.latitude.label('a')).order_by(Channel.latitude.label('a'))
-    select(Channel.latitude).order_by(Channel.latitude.label('a'))
-    select(Channel.channel_code).order_by(Channel.channel_code)
-    select(Channel.channel_code.label('a')).order_by(Channel.channel_code.label('a'))
+    metadata_fnames = {_.name for _ in fields(SegmentMetadata)}
+    metadata_props = {
+        name
+        for name, value in vars(SegmentMetadata).items()
+        if isinstance(value, property)
+    }
+    metadata_all = metadata_fnames | metadata_props
 
-    asd = 9
+    # fields that I want in where clause but do not expose in processing
+    # or that are defined as properties
+    assert where_fnames - metadata_fnames == {
+        'band_code', 'event_distance_deg', 'event_distance_km',
+        'instrument_code', 'orientation_code'
+    }
+    assert metadata_fnames - where_fnames == {'arrival_time'}
+
+    assert metadata_all - where_fnames == {'arrival_time'}
+    assert where_fnames - metadata_all == set()
+
+    # FIXME try to get all metadata from all DBs
+    # FIXME gap_score test across download and process
+
+    with patch('stream2segment.process.segments_selection.is_legacy_db') as is_leg_db:
+        for leg_db, group_c in product([True, False], [True, False]):
+            is_leg_db.return_value = leg_db
+            cols = get_orderby_columns(None, group_c)
+            assert list(cols.keys())[-1] == 'id'
+            assert len(cols) > 1
+            for c in cols:
+                try:
+                    assert (c in metadata_all)
+                    assert (c in where_fnames)
+                except AssertionError:
+                    raise

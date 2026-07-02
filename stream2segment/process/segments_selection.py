@@ -36,6 +36,7 @@ class CommonFields:
     event_magnitude: ColumnElement
     event_webservice_id: ColumnElement
     # channel-related stuff:
+    station_id: ColumnElement
     channel_id: ColumnElement
     latitude: ColumnElement
     longitude: ColumnElement
@@ -64,6 +65,7 @@ def get_select_fields(db: Engine) -> SelectFields:
             event_magnitude=lm.Event.magnitude,
             event_magnitude_type=lm.Event.mag_type,
             event_webservice_id=lm.Event.webservice_id,
+            station_id=lm.Channel.station_id,
             channel_id=lm.Segment.channel_id,
             webservice_id=lm.Station.datacenter_id,
             latitude=lm.Station.latitude,
@@ -88,6 +90,7 @@ def get_select_fields(db: Engine) -> SelectFields:
             event_magnitude_type=m.Event.mag_type,
             event_magnitude=m.Event.magnitude,
             event_webservice_id=m.Event.webservice_id,
+            station_id=m.Channel.stationxml_id,
             channel_id=m.Segment.channel_id,
             webservice_id=m.Channel.data_webservice_id,
             latitude=m.Channel.latitude,
@@ -123,6 +126,7 @@ def get_where_fields(db: Engine) -> WhereFields:
 
         return WhereFields(
             id=lm.Segment.id,
+            station_id=lm.Channel.station_id,
             event_id=lm.Segment.event_id,
             event_time=lm.Event.time,
             event_latitude=lm.Event.latitude,
@@ -142,7 +146,7 @@ def get_where_fields(db: Engine) -> WhereFields:
             band_code=lm.Channel.band_code,
             instrument_code=lm.Channel.instrument_code,
             orientation_code=lm.Channel.orientation_code,
-            channel_code=lm.Channel.channel_code,
+            channel_code=lm.Channel.channel,
             depth=lm.Channel.depth,
             azimuth=lm.Channel.azimuth,
             dip=lm.Channel.dip,
@@ -158,6 +162,7 @@ def get_where_fields(db: Engine) -> WhereFields:
 
         return WhereFields(
             id=m.Segment.id,
+            station_id=m.Channel.stationxml_id,
             event_id=m.Segment.event_id,
             event_time=m.Event.time,
             event_latitude=m.Event.latitude,
@@ -310,28 +315,41 @@ def build_where_clause(db: Engine, conditions: dict) -> ColumnElement[bool]:
     return parsed_conditions
 
 
-def get_orderby_columns(db, group_components):
+def get_orderby_columns(
+    db, group_components
+) -> dict[str, ColumnElement | hybrid_property]:
 
     seg_attrs = get_where_fields(db)
 
     if group_components:
-        return (
-            seg_attrs.webservice_id,
-            seg_attrs.network_code,
-            seg_attrs.station_code,
-            seg_attrs.location_code,
-            seg_attrs.instrument_code,
-            seg_attrs.band_code,
-            seg_attrs.event_id,
-            seg_attrs.id
-        )
+        return {
+            c: getattr(seg_attrs, c) for c in [
+                'webservice_id',
+                'network_code',
+                'station_code',
+                'location_code',
+                'instrument_code',
+                'band_code',
+                'event_id',
+                'id'
+            ]
+        }
+    elif is_legacy_db(db):
+        return {
+            c: getattr(seg_attrs, c) for c in [
+                'station_id',
+                'id'
+            ]
+        }
     else:
-        return (
-            seg_attrs.network_code,
-            seg_attrs.station_code,
-            seg_attrs.event_id,
-            seg_attrs.id
-        )
+        return {
+            c: getattr(seg_attrs, c) for c in [
+                'webservice_id',
+                'network_code',
+                'station_code',
+                'id'
+            ]
+        }
 
 
 def binexpr(column, expr):

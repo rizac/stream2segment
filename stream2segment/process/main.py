@@ -29,7 +29,7 @@ from obspy.geodetics import locations2degrees, degrees2kilometers
 from stream2segment.io.db import secure_dburl, create_engine, s2s_db_version, models
 from stream2segment.io.db.legacy import models as legacy_models
 from stream2segment.process.segments_selection import (
-    get_segments_count, build_select, get_orderby_columns
+    get_segments_count, build_select, get_orderby_columns, WhereFields, CommonFields
 )
 from stream2segment.io.utils import (
     get_progressbar, ascii_decorate, start_logging, BadParam, estimate_buffer_size
@@ -418,7 +418,7 @@ def get_engine(db_url: str) -> Engine:
     return create_engine(db_url, check_db_existence=True)
 
 
-def _get_segments(
+def get_segments(
     db: str | Engine,
     segments_selection: dict,
     group_components: bool = False,
@@ -452,11 +452,15 @@ def get_segments_chunks(
 
     orderby_columns = get_orderby_columns(db, group_components)
 
+    def stream_key(strm: Stream) -> tuple:
+        seg_meta = strm[0].stats.segment_metadata
+        return tuple(getattr(seg_meta, c) for c in orderby_columns.keys())
+
     buffer = []
     last_key = None
     stmt_base = build_select(
         db, segments_selection, group_components
-    ).order_by(*orderby_columns)
+    ).order_by(*orderby_columns.values())
 
     if chunksize is None:
         chunksize = estimate_buffer_size(5)  # 5 Mb per row
@@ -464,7 +468,7 @@ def get_segments_chunks(
     while True:
         stmt = stmt_base
         if last_key is not None:
-            stmt = stmt.where(tuple_(*orderby_columns) > last_key)
+            stmt = stmt.where(tuple_(*orderby_columns.values()) > last_key)
 
         stmt = stmt.limit(chunksize)
 
@@ -475,9 +479,9 @@ def get_segments_chunks(
             break
 
         buffer.extend(get_obspy_stream(r) for r in rows)
-        buffer.sort(key = stream_key)
+        buffer.sort(key=stream_key)
 
-        last_key = tuple(stream_key[buffer[-1][0]])
+        last_key = stream_key(buffer[-1])
         # (c.key resolves to c.label, if a label is set, otherwise column name)
 
         if not group_components:
@@ -496,13 +500,13 @@ def get_segments_chunks(
         else:
 
             start = 0
-            end = 0
+            end = 1
             new_buffer = []
             while end < len(buffer):
-                if stream_key(buffer[start]) != stream_key(buffer[end]):
+                if stream_key(buffer[start])[:-1] != stream_key(buffer[end])[:-1]:
                     stream = Stream()
                     for buf in buffer[start: end]:
-                        stream += buf[0]
+                        stream += buf
                     sta = None
                     if not segments_only:
                         sta = get_obspy_inventory(engine, stream, is_legacy_db)
@@ -520,20 +524,6 @@ def get_segments_chunks(
         yield buffer
 
 
-def stream_key(stream: Stream):
-    seg_meta = stream[0].stats.segment_metadata
-    return (
-        seg_meta.webservice_id,
-        seg_meta.network_code,
-        seg_meta.station_code,
-        seg_meta.location_code,
-        seg_meta.band_code,
-        seg_meta.instrument_code,
-        seg_meta.event_id,
-        seg_meta.id
-    )
-
-
 def get_obspy_stream(db_row) -> Stream:  # tuple[Stream, Inventory | None, ObspyEvent | None]:
     """
     return the tuple
@@ -543,6 +533,17 @@ def get_obspy_stream(db_row) -> Stream:  # tuple[Stream, Inventory | None, Obspy
     stream = Stream()
     db_row = db_row
     _stream = read(db_row.data, format='MSEED')
+    gap_score_percent = 0
+    if len(_stream) > 1:
+        s = sorted(_stream, key=lambda s: s.stats.starttime)
+        max_diff = max(
+            (
+                float(s[i].stats.starttime - s[i-1].stats.endtime)
+                for i in range(1, len(s))
+            ),
+            key = abs
+        )
+        gap_score_percent = int(.5 + 100 * max_diff / _stream[0].stats.delta)
     start_time = _stream[0].stats.starttime.datetime
     end_time = _stream[0].stats.endtime.datetime
     arr_time1 = start_time + timedelta(seconds=db_row.noise_window_s)
@@ -582,7 +583,8 @@ def get_obspy_stream(db_row) -> Stream:  # tuple[Stream, Inventory | None, Obspy
         event_magnitude=db_row.event_magnitude,
         event_magnitude_type=db_row.event_magnitude_type,
         noise_window_s=(arrival_time - start_time).total_seconds(),
-        signal_window_s=(end_time-arrival_time).total_seconds()
+        signal_window_s=(end_time-arrival_time).total_seconds(),
+        gap_score_percent=gap_score_percent
     )
     for t in _stream:
         t.stats.segment_metadata = s_meta
@@ -696,6 +698,9 @@ def execute_processing_function(args: tuple[
 @dataclass(frozen=True, slots=True, kw_only=True)
 class SegmentMetadata:
     id: int
+    noise_window_s: float
+    signal_window_s: float
+    gap_score_percent: float
     latitude: float
     longitude: float
     depth: float
@@ -708,18 +713,16 @@ class SegmentMetadata:
     channel_code: str
     arrival_time: datetime
     webservice_id: int
-    event_webservice_id: int
     channel_id: int
     station_id: int
     event_id: int
+    event_webservice_id: int
     event_latitude: float
     event_longitude: float
     event_depth_km: float
     event_time: datetime
     event_magnitude: float
     event_magnitude_type: str
-    noise_window_s: float
-    signal_window_s: float
 
     @property
     def event_distance_deg(self) -> float:
