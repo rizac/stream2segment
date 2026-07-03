@@ -589,7 +589,7 @@ def test_suppress_output(
         os.write(1, f"[pid={os.getpid()}] noisy C stdout for task {x}\n".encode())
         os.write(2, f"[pid={os.getpid()}] noisy C stderr for task {x}\n".encode())
         print(f"[pid={os.getpid()}] a plain Python print(), task {x}")
-        if segment.stats.segment_metadata.event_id == 3:
+        if segment[0].stats.segment_metadata.event_id == 3:
             raise CustomProcessingError(f"task {x} hit a known bad-data condition")
         return os.getpid(), x * x
 
@@ -615,9 +615,8 @@ def test_fields():
     # fields that I need to fetch but do not want in where clause:
     assert select_fnames - where_fnames == {'data'}
     assert where_fnames - select_fnames == {
-        'band_code', 'channel_code', 'event_distance_deg', 'event_distance_km',
-        'gap_score_percent', 'instrument_code', 'location_code', 'network_code',
-        'noise_window_s', 'orientation_code', 'signal_window_s', 'station_code'
+        'channel_code', 'event_distance_deg',
+        'event_distance_km', 'gap_score_percent',
     }
 
     metadata_fnames = {_.name for _ in fields(SegmentMetadata)}
@@ -632,12 +631,12 @@ def test_fields():
     # or that are defined as properties
     assert where_fnames - metadata_fnames == {
         'band_code', 'event_distance_deg', 'event_distance_km',
-        'instrument_code', 'orientation_code'
+        'instrument_code', 'orientation_code', 'gap_score_percent',
     }
     assert metadata_fnames - where_fnames == {'arrival_time'}
 
     assert metadata_all - where_fnames == {'arrival_time'}
-    assert where_fnames - metadata_all == set()
+    assert where_fnames - metadata_all == {'gap_score_percent'}
 
     # FIXME try to get all metadata from all DBs
     # FIXME gap_score test across download and process

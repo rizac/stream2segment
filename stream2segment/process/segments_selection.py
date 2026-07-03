@@ -38,12 +38,18 @@ class CommonFields:
     # channel-related stuff:
     station_id: ColumnElement
     channel_id: ColumnElement
+    network_code: ColumnElement
+    station_code: ColumnElement
+    location_code: ColumnElement
+    band_code: ColumnElement | hybrid_property
+    instrument_code: ColumnElement | hybrid_property
+    orientation_code: ColumnElement | hybrid_property
     latitude: ColumnElement
     longitude: ColumnElement
     elevation: ColumnElement
     depth: ColumnElement
-    azimuth: ColumnElement
-    dip: ColumnElement
+    # azimuth: ColumnElement
+    # dip: ColumnElement
     noise_window_s: ColumnElement | hybrid_property
     signal_window_s: ColumnElement | hybrid_property
 
@@ -70,12 +76,18 @@ def get_select_fields(db: Engine) -> SelectFields:
             station_id=lm.Channel.station_id,
             channel_id=lm.Segment.channel_id,
             webservice_id=lm.Station.datacenter_id,
+            network_code=lm.Station.network,
+            station_code=lm.Station.station,
+            location_code=lm.Channel.location,
+            band_code=lm.Channel.band_code,
+            instrument_code=lm.Channel.instrument_code,
+            orientation_code=lm.Channel.orientation_code,
             latitude=lm.Station.latitude,
             longitude=lm.Station.longitude,
             elevation=lm.Station.elevation,
             depth=lm.Channel.depth,
-            azimuth=lm.Channel.azimuth,
-            dip=lm.Channel.dip,
+            # azimuth=lm.Channel.azimuth,
+            # dip=lm.Channel.dip,
             data=lm.Segment.data,
             noise_window_s=lm.Segment.noise_window_s,
             signal_window_s = lm.Segment.signal_window_s
@@ -97,12 +109,18 @@ def get_select_fields(db: Engine) -> SelectFields:
             station_id=m.Channel.stationxml_id,
             channel_id=m.Segment.channel_id,
             webservice_id=m.Channel.data_webservice_id,
+            network_code=m.Channel.network_code,
+            station_code=m.Channel.station_code,
+            location_code=m.Channel.location_code,
+            band_code=m.Channel.band_code,
+            instrument_code=m.Channel.instrument_code,
+            orientation_code=m.Channel.orientation_code,
             latitude=m.Channel.latitude,
             longitude=m.Channel.longitude,
             elevation=m.Channel.elevation,
             depth=m.Channel.depth,
-            azimuth=m.Channel.azimuth,
-            dip=m.Channel.dip,
+            # azimuth=m.Channel.azimuth,
+            # dip=m.Channel.dip,
             data=m.MiniSeed.data,
             noise_window_s=m.Segment.noise_window_s,
             signal_window_s=m.Segment.signal_window_s
@@ -116,11 +134,6 @@ class WhereFields(CommonFields):
     noise_window_s: ColumnElement | hybrid_property
     signal_window_s: ColumnElement | hybrid_property
     gap_score_percent: ColumnElement | hybrid_property
-    network_code: ColumnElement
-    station_code: ColumnElement
-    location_code: ColumnElement
-    band_code: ColumnElement | hybrid_property
-    instrument_code: ColumnElement | hybrid_property
     orientation_code: ColumnElement | hybrid_property
     channel_code: ColumnElement | hybrid_property
 
@@ -145,17 +158,17 @@ def get_where_fields(db: Engine) -> WhereFields:
             webservice_id=lm.Station.datacenter_id,
             network_code=lm.Station.network,
             station_code=lm.Station.station,
-            latitude=lm.Station.latitude,
-            longitude=lm.Station.longitude,
-            elevation=lm.Station.elevation,
             location_code=lm.Channel.location,
             band_code=lm.Channel.band_code,
             instrument_code=lm.Channel.instrument_code,
+            latitude=lm.Station.latitude,
+            longitude=lm.Station.longitude,
+            elevation=lm.Station.elevation,
             orientation_code=lm.Channel.orientation_code,
             channel_code=lm.Channel.channel,
             depth=lm.Channel.depth,
-            azimuth=lm.Channel.azimuth,
-            dip=lm.Channel.dip,
+            # azimuth=lm.Channel.azimuth,
+            # dip=lm.Channel.dip,
             event_distance_deg=lm.Segment.event_distance_deg,
             event_distance_km=lm.Segment.event_distance_km,
             noise_window_s=lm.Segment.noise_window_s,
@@ -181,17 +194,17 @@ def get_where_fields(db: Engine) -> WhereFields:
             webservice_id=m.Channel.data_webservice_id,
             network_code=m.Channel.network_code,
             station_code=m.Channel.station_code,
-            latitude=m.Channel.latitude,
-            longitude=m.Channel.longitude,
-            elevation=m.Channel.elevation,
             location_code=m.Channel.location_code,
             band_code=m.Channel.band_code,
             instrument_code=m.Channel.instrument_code,
+            latitude=m.Channel.latitude,
+            longitude=m.Channel.longitude,
+            elevation=m.Channel.elevation,
             orientation_code=m.Channel.orientation_code,
             channel_code=m.Channel.channel_code,
             depth=m.Channel.depth,
-            azimuth=m.Channel.azimuth,
-            dip=m.Channel.dip,
+            # azimuth=m.Channel.azimuth,
+            # dip=m.Channel.dip,
             event_distance_deg=m.Segment.event_distance_deg,
             event_distance_km=m.Segment.event_distance_km,
             noise_window_s=m.Segment.noise_window_s,

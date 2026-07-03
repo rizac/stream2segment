@@ -7,6 +7,7 @@ from __future__ import annotations
 from collections import namedtuple
 from collections.abc import Iterable
 from datetime import timedelta, datetime
+import struct
 import logging
 from enum import IntEnum
 from io import BytesIO
@@ -421,7 +422,7 @@ def unpack_miniseed(data: bytes) -> Iterable[unpacked_miniseed]:
                 f'{rec.cha.strip()}'
             )
             unpacked_records.setdefault(seed_id, []).append(rec)
-    except UnicodeDecodeError as exc:
+    except (struct.error, UnicodeDecodeError) as exc:
         # invalidate all miniseed. though harsh, it allows us to track problems
         raise MSeedError()
 
@@ -460,12 +461,16 @@ def unpack_miniseed(data: bytes) -> Iterable[unpacked_miniseed]:
                         # abs cause we count also overlaps (negative numbers)
                         max_gap_ratio = gap_ratio
 
+            # fix end_time to be consistent with obspy. miniseedlite endtime
+            # is sort of start_time + n_pts * delta, but it should be
+            # (n_pts-1) * delta, so:
+            end_time = records[-1].end_time - timedelta(seconds=1.0/fsamp)
 
             yield unpacked_miniseed(
                 seed_id=seed_id,
                 data=bytesio.getvalue(),
                 start=records[0].begin_time,
-                end=records[-1].end_time,
+                end=end_time,
                 fsamp=fsamp,
                 maxgap=max_gap_ratio
             )
