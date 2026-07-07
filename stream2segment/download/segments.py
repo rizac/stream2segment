@@ -20,7 +20,7 @@ from sqlalchemy import Engine
 
 from stream2segment.download import url
 from stream2segment.download.channels import (
-    url_col, net_col, sta_col, loc_col, cha_col
+    url_col, net_col, sta_col, loc_col, cha_col, sta_id_col
 )
 from stream2segment.download.mseedlite import MSeedError, Input
 from stream2segment.download.stationsearch import (
@@ -515,6 +515,7 @@ def prepare_segment_to_insert(
 
     return{
         Segment.id.key: db_id,
+        Segment.stationxml_id.key: int(segments.at[idx, sta_id_col]),
         dist_col: int(segments.at[idx, dist_col]),
         # Segment.webservice_id.key: int(segments.at[idx, Segment.webservice_id.key]),
         ev_id_col: int(segments.at[idx, ev_id_col]),

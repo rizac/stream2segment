@@ -25,7 +25,8 @@ from stream2segment.download.channels import (
     start_col,
     end_col,
     cha_col,
-    url_col
+    url_col,
+    sta_id_col
 )
 
 atime_col = "arrival_time"
@@ -113,7 +114,7 @@ def merge_events_stations(
     ret = pd.concat(ret, axis=0, ignore_index=True)
 
     # check categorical dtypes are preserved (for safety):
-    for c in [net_col, sta_col, loc_col, cha_col, url_col]:
+    for c in [net_col, sta_col, loc_col, cha_col, url_col, sta_id_col]:
         if not pd.api.types.is_categorical_dtype(ret[c]):
             ret[c] = ret[c].astype('category')
 
@@ -167,7 +168,8 @@ def merge_events_stations(
         dist_col,
         # Channel.data_webservice_id.key,
         ch_id_col,
-        ev_id_col
+        ev_id_col,
+        sta_id_col,
     ]]
 
 # global msg implemented for easier testing:

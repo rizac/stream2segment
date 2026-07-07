@@ -12,14 +12,16 @@ from multiprocessing.pool import ThreadPool
 from urllib.request import urlopen
 
 import pandas as pd
-from sqlalchemy import and_, Select
+from sqlalchemy import and_, Select, insert
+from sqlalchemy.exc import IntegrityError
 
 from stream2segment.download.events import (
     sync_webservice_urls_and_assign_ids, insert_id_col_na_values_to_db
 )
 from stream2segment.io.utils import get_progressbar
-from stream2segment.io.db.pdsql import apply_table_dtypes, fetch_df, select, Engine
-from stream2segment.io.db.models import Channel, WebService
+from stream2segment.io.db.pdsql import apply_table_dtypes, fetch_df, select, Engine, \
+    get_col_max
+from stream2segment.io.db.models import Channel, WebService, StationXML
 from stream2segment.download.url import read_url, build_and_read_urls
 from stream2segment.download.utils import (
     fdsn_url,
@@ -45,6 +47,7 @@ orient_col = Channel.orientation_code.key
 url_col = WebService.url.key
 lat_col = Channel.latitude.key
 lon_col = Channel.longitude.key
+sta_id_col = Channel.stationxml_id.key
 end_time_replacement = (
     datetime.now(UTC).replace(microsecond=0, tzinfo=None) + timedelta(days=30)
 )  # some random margin in the future
@@ -153,6 +156,8 @@ def get_channels(
         if c in channels.columns and not pd.api.types.is_categorical_dtype(channels[c]):
             channels[c] = channels[c].astype('str').astype('category')
 
+    channels[sta_id_col] = channels[sta_id_col].astype('category')
+
     # return a copy of relevant columns only:
     return channels[[
         Channel.id.key,
@@ -164,7 +169,8 @@ def get_channels(
         lon_col,
         start_col,
         end_col,
-        url_col
+        url_col,
+        sta_id_col
     ]]
 
 
@@ -698,11 +704,13 @@ def save_channels(engine: Engine, channels: pd.DataFrame):
     select_stmt = get_db_select_statement(channels)
 
     channels[id_col] = pd.Series(pd.NA, index = channels.index, dtype = "Int64")
+    channels[sta_id_col] = pd.Series(pd.NA, index=channels.index, dtype="Int64")
     _suf = '_.db._'
     for saved_channels in fetch_df(engine, select_stmt):
         channels = channels.merge(
             saved_channels, how='left', on=uc_cols, suffixes = ('', _suf)
         )
+        channels[sta_id_col] = channels[sta_id_col].fillna(channels[sta_id_col + _suf])
         on_db = channels[id_col + _suf].notna()
         ws_id_mismatch =  (channels[ws_id_col] != channels[ws_id_col + _suf])
         mismatch = on_db & (
@@ -743,6 +751,28 @@ def save_channels(engine: Engine, channels: pd.DataFrame):
         # for safety:
         channels.dropna(subset=[url_col], inplace=True)
 
+    # sync NULL stationxml_ids:
+    sta_id_na = channels[sta_id_col].isna()
+    if sta_id_na.any():
+        sta_id = get_col_max(engine, StationXML.id) + 1
+        for (net, sta, ws_id), cha in channels[sta_id_na].groupby(
+            [net_col, sta_col, ws_id_col]
+        ):
+            try:
+                with engine.begin() as conn:   # noqa
+                    conn.execute(insert(StationXML), {
+                        StationXML.id.key: sta_id,
+                        StationXML.data.key: None,
+                        StationXML.last_updated.key: None
+                    })
+            except IntegrityError:
+                pass
+            channels.loc[cha.index, sta_id_col] = sta_id
+            sta_id += 1
+    # for safety:
+    channels.dropna(subset=[sta_id_col], inplace=True)
+
+    # finally, insert new elements (= missing id_col):
     channels = insert_id_col_na_values_to_db(engine, Channel, channels, id_col)
 
     return channels
@@ -779,8 +809,8 @@ def get_db_select_statement(channels) -> Select:
         Channel.latitude,
         Channel.longitude,
         Channel.start_time,
-        # Channel.depth,
-        Channel.data_webservice_id
+        Channel.data_webservice_id,
+        Channel.stationxml_id
     )
     if conditions:
         select_stmt = select_stmt.where(and_(*conditions))

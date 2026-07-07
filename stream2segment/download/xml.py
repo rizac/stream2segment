@@ -4,6 +4,8 @@ StationsXML download
 from __future__ import annotations
 import logging
 from collections.abc import Iterable, Callable
+from datetime import datetime, UTC
+
 from sqlalchemy.exc import IntegrityError
 
 from stream2segment.download.segments import DownloadStats
@@ -31,32 +33,27 @@ def save_stationxml(
     show_progress=False
 ) -> DownloadStats:
     """Save StationXML data. stations_df must not be empty (not checked here)"""
-    staxml_id_col = Channel.stationxml_id.key
+
     stmt = (
         select(
             Channel.network_code,
             Channel.station_code,
             Channel.data_webservice_id,
-            func.max(Channel.stationxml_id).label(staxml_id_col),
-            # WebService.url
-        ).
-        where(
-            exists(
-                # select(1) is hust a convention, e.g. *, Event also work
-                select(1).where(Segment.channel_id == Channel.id)
-            )
-        ).
-        group_by(
-            Channel.network_code,
-            Channel.station_code,
-            Channel.data_webservice_id,
-        ).having(
-            func.sum(case((Channel.stationxml_id.is_(None), 1), else_=0)) > 0
+            Channel.stationxml_id
+            # func.max(Channel.stationxml_id).label(staxml_id_col),
+        )
+        .distinct()
+        .select_from(Segment)
+        .join(Event, Segment.event_id == Event.id)  # (*) inner join
+        .join(Channel, Segment.channel_id == Channel.id)  # (*) inner join
+        .join(StationXML, Segment.stationxml_id == StationXML.id)  # (*) inner join
+        .where(
+            StationXML.last_updated.is_(None) |
+            StationXML.data.is_(None) |
+            (Event.time > StationXML.last_updated)
         )
     )
 
-    db_stationxml_id = get_col_max(engine, StationXML.id)
-    ws_id_col = Channel.data_webservice_id.key
     # query all webservice ids and urls in one shot (also avoids to query it inside
     # url_iterator, which is run in a worker thread and might cause problems):
     ws_stmt = select(WebService.id, WebService.url).where(
@@ -84,6 +81,7 @@ def save_stationxml(
 
     stats = DownloadStats(get_host(w) for w in ws_urls.values())
     saved = 0
+    now = datetime.now(UTC).replace(microsecond=0, tzinfo=None)
     with engine.begin() as conn:  # noqa
         for response in download_xml(
             engine = engine,
@@ -100,30 +98,12 @@ def save_stationxml(
 
             try:
                 with conn.begin_nested():
-                    if sta_id is not None:
-                        conn.execute(
-                            update(StationXML).where(
-                                (StationXML.id==sta_id)
-                            ).values({
-                                StationXML.data: response.data
-                            })
-                        )
-                    else:
-                        db_stationxml_id += 1
-                        sta_id = db_stationxml_id
-                        conn.execute(insert(StationXML), {
-                            'id': sta_id, 'data': response.data
-                        })
-
                     conn.execute(
-                        update(  # update_channel_fk
-                            Channel
-                        ).where(
-                            Channel.network_code == net,
-                            Channel.station_code == sta,
-                            Channel.data_webservice_id == ws_id
+                        update(StationXML).where(
+                            (StationXML.id==sta_id)
                         ).values({
-                            Channel.stationxml_id: sta_id
+                            "data": response.data,
+                            "last_updated": now
                         })
                     )
                     saved += 1
@@ -156,7 +136,6 @@ def save_quakeml(
     )
     # (*) only channels with at least one matching Segment row are included
 
-    ws_id_col = Event.webservice_id.key
     # query all webservice ids and urls in one shot (also avoids to query it inside
     # url_iterator, which is run in a worker thread and might cause problems):
     ws_stmt = select(WebService.id, WebService.url).where(

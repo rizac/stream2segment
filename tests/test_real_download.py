@@ -41,6 +41,9 @@ from stream2segment.io.db.models import (
     Event, Channel, Segment, StationXML, QuakeML, SkippedSegment
 )
 from stream2segment.io.db.pdsql import get_row_count, fetch_df
+from stream2segment.download.xml import (
+    build_and_read_urls as xml_build_and_read_urls
+)
 
 
 # DEFINE PATHS GLOBALLY (SO IN CASE OF REFACTORING, WE CHANGE STR HERE ONCE):
@@ -475,8 +478,9 @@ def test_real_download_segments(
     count = count_from_db(db_engine)
     assert count.event > 0
     assert count.channel > 0
+    assert count.stationxml > 0
     assert (
-        count.segment == count.skipped_segment == count.stationxml == count.quakeml == 0
+        count.segment == count.skipped_segment == count.quakeml == 0
     )
     assert mock_download_segments_read_urls.called
 
@@ -508,8 +512,9 @@ def test_real_download_segments(
     count = count_from_db(db_engine)
     assert count.event == prev_count.event
     assert count.channel == prev_count.channel
+    assert count.stationxml == prev_count.stationxml
     assert count.skipped_segment > 0
-    assert (count.segment == count.stationxml == count.quakeml == 0)
+    assert (count.segment == count.quakeml == 0)
     assert mock_download_segments_read_urls.called
 
     # now adjust the config to get some real segments (Http 200):
@@ -540,66 +545,88 @@ def test_real_download_segments(
     assert mock_download_segments_read_urls.called
 
     # test compressed binary function in models.py also when reading back:
-    stmt = select(StationXML.data).limit(1)
+    stmt = select(StationXML.id, StationXML.data)
     with db_engine.connect() as conn:
-        result = conn.execute(stmt).scalar_one_or_none()
-    assert b"<?xml " in result  # check it is not compressed
+        result = {_[0]: _[1] for _ in conn.execute(stmt).fetchall()}
+    result_with_xml = {k :v for k, v in result.items() if v is not None}
+    assert len(result_with_xml)
+    # check XML is not compressed (should only be saved as compressed)
+    assert  b"<?xml " in list(result_with_xml.values())[0]
 
-    # same as before, we check that nothing is downloaded again:
-    mock_download_segments_read_urls.reset_mock()
-    result = CliRunner().invoke(cli, cli_options)
-    assert result.exit_code == 0
-    assert count == count_from_db(db_engine)  # nothing changed on DB
-    assert _nothing_to_download_msg in result.output
-    assert not mock_download_segments_read_urls.called  # NOTE: NOT CALLED!
+    # xml_build_and_read_urls should be called when we have XML to download.
+    # So mock it and check we call it or not depending on our input:
+    with patch(
+        'stream2segment.download.xml.build_and_read_urls',
+        side_effect=xml_build_and_read_urls
+    ) as mock_download_xml:
 
-    # get channels with stationxm_id, set to null one stationxml id
-    # and check that we have 1 stationxml more. Also delete one quakeml from db
-    # so that we will download 1 stationxml and 1 quakeml
+        # same as before, we check that nothing is downloaded again:
+        mock_download_segments_read_urls.reset_mock()
+        result = CliRunner().invoke(cli, cli_options)
+        assert result.exit_code == 0
+        assert count == count_from_db(db_engine)  # nothing changed on DB
+        assert _nothing_to_download_msg in result.output
+        assert not mock_download_segments_read_urls.called  # NOTE: NOT CALLED!
+        assert not mock_download_xml.called
 
-    # get cha ids and quakeml ids:
-    with db_engine.connect() as conn:
-        channel_ids_0 = conn.execute(
-            select(Channel.id).where(Channel.stationxml_id.is_not(None))
-        ).scalars().all()
-        quakeml_ids_0 = conn.execute(select(QuakeML.id)).scalars().all()
+        # get channels with stationxm_id, set to null one stationxml id
+        # and check that we have 1 stationxml more. Also delete one quakeml from db
+        # so that we will download 1 stationxml and 1 quakeml
 
-    with db_engine.begin() as conn:
-        with conn.begin_nested():
-            try:
-                conn.execute(update(Channel).where(
-                    Channel.id == list(channel_ids_0)[0]
-                ).values({'stationxml_id': None}))
-                conn.execute(delete(QuakeML).where(
-                    QuakeML.id == list(quakeml_ids_0)[0]
+        # get cha ids and quakeml ids:
+        def get_ids() -> tuple[list[int], dict[int, int]]:
+            with db_engine.connect() as conn:
+                cha_ids_ = {_[0]: _[1] for _ in conn.execute(
+                    select(Channel.id, StationXML.id).join(
+                        StationXML, StationXML.id == Channel.stationxml_id
+                    ).where(StationXML.data.is_not(None))
+                )}
+                ev_ids_ = sorted(set(
+                    conn.execute(select(QuakeML.id)).scalars().all()
                 ))
-            except IntegrityError as e:
-                raise
+            return ev_ids_, cha_ids_
 
-    # recompute cha ids and quakeml ids:
-    with db_engine.connect() as conn:
-        channel_ids = conn.execute(
-            select(Channel.id).where(Channel.stationxml_id.is_not(None))
-        ).scalars().all()
-        quakeml_ids = conn.execute(select(QuakeML.id)).scalars().all()
+        ev_ids, cha_ids = get_ids()
+        # check three cases where we should call download_xml again:
+        for change in ['event', 'sta_none', 'sta_time']:
+            with db_engine.begin() as conn:
+                with conn.begin_nested():
+                    try:
+                        if change == 'event':
+                            conn.execute(delete(QuakeML).where(
+                                QuakeML.id == ev_ids[0]
+                            ))
+                        elif change == 'sta_none':
+                            conn.execute(update(StationXML).where(
+                                StationXML.id == list(cha_ids.values())[0]
+                            ).values({'data': None}))
+                        else:
+                            past = datetime.fromisoformat(
+                                '1900-01-01T00:00:00Z'
+                            ).replace(tzinfo=None)
+                            conn.execute(update(StationXML).where(
+                                StationXML.id == list(cha_ids.values())[0]
+                            ).values({
+                                'last_updated':past
+                            }))
 
-    # same as before, we check that nothing is downloaded again:
-    mock_download_segments_read_urls.reset_mock()
-    result = CliRunner().invoke(cli, cli_options)
-    assert result.exit_code == 0
-    assert count == count_from_db(db_engine)  # nothing changed on DB
-    assert _nothing_to_download_msg in result.output
-    assert not mock_download_segments_read_urls.called  # NOTE: NOT CALLED!
+                    except IntegrityError as e:
+                        raise
 
-    # recompute cha ids and quakeml ids:
-    with db_engine.connect() as conn:
-        channel_ids2 = conn.execute(
-            select(Channel.id).where(Channel.stationxml_id.is_not(None))
-        ).scalars().all()
-        quakeml_ids2 = conn.execute(select(QuakeML.id)).scalars().all()
+            # same as before, we check that nothing is downloaded again:
+            mock_download_segments_read_urls.reset_mock()
+            mock_download_xml.reset_mock()
+            result = CliRunner().invoke(cli, cli_options)
+            assert result.exit_code == 0
+            assert count == count_from_db(db_engine)  # nothing changed on DB
+            assert _nothing_to_download_msg in result.output
+            assert not mock_download_segments_read_urls.called  # NOTE: NOT CALLED!
+            assert mock_download_xml.called
 
-    assert len(set(channel_ids2) - set(channel_ids)) == 1
-    assert len(set(quakeml_ids2) - set(quakeml_ids)) == 1
+            # recompute cha ids and quakeml ids:
+            ev_ids2, cha_ids2 = get_ids()
+            assert sorted(cha_ids2) == sorted(cha_ids)
+            assert sorted(ev_ids2) == sorted(ev_ids)
 
 
 @patch("stream2segment.download.segments.build_and_read_urls")
@@ -729,7 +756,7 @@ def test_download_iris_caltec_up_to_segments(
 
 
 @pytest.mark.skip('Huge download - tested only once in debug mode with pydev')
-def test_download_iris_caltec_up_to_segments_tmp(
+def test_download_iris_caltec_up_to_segments_skip(
     # fixtures:
     online_only, db, log_capture, test_data_dir
 ):

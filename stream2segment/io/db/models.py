@@ -147,7 +147,8 @@ class StationXML(Base):
     __tablename__ = 'stationxml'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    data = Column(CompressedBinary, nullable=False)
+    data = Column(CompressedBinary, nullable=True)
+    last_updated = Column(DateTime, nullable=True)  # = channel start time
 
 
 class Channel(Base):
@@ -158,8 +159,9 @@ class Channel(Base):
     data_webservice_id = Column(Integer, ForeignKey(WebService.id), nullable=False)
     stationxml_id = Column(
         Integer,
-        ForeignKey(StationXML.id, ondelete="SET NULL", onupdate="CASCADE"),
-        nullable=True
+        ForeignKey(StationXML.id, **on_del_upd_cascade),
+        index=True,
+        nullable=False
     )
     network_code = Column(String(8), nullable=False, index=True)
     station_code = Column(String(8), nullable=False, index=True)
@@ -230,10 +232,19 @@ class Segment(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     event_id = Column(
-        Integer, ForeignKey(Event.id, **on_del_upd_cascade), nullable=False
+        Integer, ForeignKey(Event.id, **on_del_upd_cascade), nullable=False, index=True
     )
     channel_id = Column(
-        Integer, ForeignKey(Channel.id, **on_del_upd_cascade), nullable=False
+        Integer,
+        ForeignKey(Channel.id, **on_del_upd_cascade),
+        nullable=False,
+        index=True
+    )
+    stationxml_id = Column(
+        Integer,
+        ForeignKey(StationXML.id, **on_del_upd_cascade),
+        index=True,
+        nullable=False
     )
 
     event_distance_km = Column(SmallInteger, nullable=False, index=True)
@@ -242,7 +253,8 @@ class Segment(Base):
     gap_score_percent = Column(SmallInteger, nullable=False)
 
     __table_args__ = (
-        Index("segment_ordering_index",  "event_id", "id"),
+        Index("sta_evt_seg_index",  "stationxml_id", "event_id", "id"),
+        Index("evt_sta_seg_index", "event_id", "stationxml_id", "id"),
         UniqueConstraint('event_id', 'channel_id', name='unique_evt_cha'),
     )
 
