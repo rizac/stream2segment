@@ -100,7 +100,7 @@ def get_select_fields(db: Engine) -> SelectFields:
             event_magnitude_type=m.Event.mag_type,
             event_magnitude=m.Event.magnitude,
             event_webservice_id=m.Event.webservice_id,
-            station_id=m.Channel.station_id,
+            station_id=m.Segment.station_id,
             channel_id=m.Segment.channel_id,
             webservice_id=m.Channel.data_webservice_id,
             latitude=m.Channel.latitude,
@@ -175,7 +175,7 @@ def get_where_fields(db: Engine) -> WhereFields:
 
         return WhereFields(
             id=m.Segment.id,
-            station_id=m.Channel.station_id,
+            station_id=m.Segment.station_id,
             event_id=m.Segment.event_id,
             event_time=m.Event.time,
             event_latitude=m.Event.latitude,
@@ -231,7 +231,7 @@ def build_select(
             raise NotImplementedError(
                 "`group_components` is not supported on "
                 "legacy (v<=4) databases: Either omit `group_components` and handle it "
-                "in your code, or re-download the data with this program"
+                "in your code, or re-download the data with this program version"
             )
 
     sel_attrs = get_select_fields(db)

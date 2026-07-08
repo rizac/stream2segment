@@ -17,15 +17,15 @@ from pandas._testing import assert_frame_equal
 from pandas.errors import EmptyDataError
 from sqlalchemy.orm import sessionmaker
 
-from stream2segment.io.db import create_engine, database_exists, is_sqlite
+from stream2segment.io.db import create_engine, database_exists, is_sqlite, is_postgres
 from stream2segment.io.db.models import (
     DownloadRun, WebService, Channel, StationXML, MiniSeed, SkippedSegment,Event,
     Segment
 )
-from stream2segment.process import imap, SegmentMetadata
+from stream2segment.process import imap, SegmentMetadata, build_where_clause
 from stream2segment.process.main import get_segments
 from stream2segment.process.segments_selection import SelectFields, WhereFields, \
-    get_orderby_columns
+    get_orderby_columns, build_select
 from stream2segment.resources import get_templates_fpath
 from stream2segment.process.main import process
 
@@ -615,6 +615,51 @@ def test_suppress_output(
     out, err = capsys.readouterr()
     assert True
 
+
+def test_query(db_engine):
+    """test that iour query does not use a b-tree for sorting (performant)"""
+    if not is_sqlite(str(db_engine.url)):
+        pytest.skip("Postgres not supported")
+    orderby_cols = get_orderby_columns(db_engine)
+    stmt = build_select(
+        db_engine, {}, True
+    ).order_by(*orderby_cols.values())
+
+    with db_engine.connect() as conn:
+        # res = conn.execute(stmt.prefix_with("EXPLAIN QUERY PLAN ")).all()
+
+        compiled = stmt.compile(
+            dialect=conn.dialect,
+            compile_kwargs={"literal_binds": True},
+        )
+
+        plan1 = conn.exec_driver_sql(
+            f"EXPLAIN QUERY PLAN {compiled}"
+        ).fetchall()
+    assert not any('USE TEMP B-TREE FOR ORDER BY' in p for p in plan1)
+
+    orderby_cols={
+        'network_code': Channel.network_code,
+        'station_code': Channel.station_code,
+        'event_id': Segment.event_id,
+        'id': Segment.id
+    }
+    stmt = build_select(
+        db_engine, {}, True
+    ).order_by(*orderby_cols.values())
+
+    with db_engine.connect() as conn:
+        # res = conn.execute(stmt.prefix_with("EXPLAIN QUERY PLAN ")).all()
+
+        compiled = stmt.compile(
+            dialect=conn.dialect,
+            compile_kwargs={"literal_binds": True},
+        )
+
+        plan2 = conn.exec_driver_sql(
+            f"EXPLAIN QUERY PLAN {compiled}"
+        ).fetchall()
+        assert any('USE TEMP B-TREE FOR ORDER BY' in p for p in plan2)
 
 
 def test_fields():
