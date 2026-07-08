@@ -515,7 +515,7 @@ def prepare_segment_to_insert(
 
     return{
         Segment.id.key: db_id,
-        Segment.stationxml_id.key: int(segments.at[idx, sta_id_col]),
+        Segment.station_id.key: int(segments.at[idx, sta_id_col]),
         dist_col: int(segments.at[idx, dist_col]),
         # Segment.webservice_id.key: int(segments.at[idx, Segment.webservice_id.key]),
         ev_id_col: int(segments.at[idx, ev_id_col]),

@@ -47,7 +47,7 @@ orient_col = Channel.orientation_code.key
 url_col = WebService.url.key
 lat_col = Channel.latitude.key
 lon_col = Channel.longitude.key
-sta_id_col = Channel.stationxml_id.key
+sta_id_col = Channel.station_id.key
 end_time_replacement = (
     datetime.now(UTC).replace(microsecond=0, tzinfo=None) + timedelta(days=30)
 )  # some random margin in the future
@@ -810,7 +810,7 @@ def get_db_select_statement(channels) -> Select:
         Channel.longitude,
         Channel.start_time,
         Channel.data_webservice_id,
-        Channel.stationxml_id
+        Channel.station_id
     )
     if conditions:
         select_stmt = select_stmt.where(and_(*conditions))

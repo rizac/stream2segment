@@ -100,7 +100,7 @@ def get_select_fields(db: Engine) -> SelectFields:
             event_magnitude_type=m.Event.mag_type,
             event_magnitude=m.Event.magnitude,
             event_webservice_id=m.Event.webservice_id,
-            station_id=m.Channel.stationxml_id,
+            station_id=m.Channel.station_id,
             channel_id=m.Segment.channel_id,
             webservice_id=m.Channel.data_webservice_id,
             latitude=m.Channel.latitude,
@@ -175,7 +175,7 @@ def get_where_fields(db: Engine) -> WhereFields:
 
         return WhereFields(
             id=m.Segment.id,
-            station_id=m.Channel.stationxml_id,
+            station_id=m.Channel.station_id,
             event_id=m.Segment.event_id,
             event_time=m.Event.time,
             event_latitude=m.Event.latitude,

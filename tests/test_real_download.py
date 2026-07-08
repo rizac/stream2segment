@@ -578,7 +578,7 @@ def test_real_download_segments(
             with db_engine.connect() as conn:
                 cha_ids_ = {_[0]: _[1] for _ in conn.execute(
                     select(Channel.id, StationXML.id).join(
-                        StationXML, StationXML.id == Channel.stationxml_id
+                        StationXML, StationXML.id == Channel.station_id
                     ).where(StationXML.data.is_not(None))
                 )}
                 ev_ids_ = sorted(set(

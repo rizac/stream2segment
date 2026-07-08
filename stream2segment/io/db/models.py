@@ -157,7 +157,7 @@ class Channel(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     data_webservice_id = Column(Integer, ForeignKey(WebService.id), nullable=False)
-    stationxml_id = Column(
+    station_id = Column(
         Integer,
         ForeignKey(StationXML.id, **on_del_upd_cascade),
         index=True,
@@ -240,7 +240,7 @@ class Segment(Base):
         nullable=False,
         index=True
     )
-    stationxml_id = Column(
+    station_id = Column(
         Integer,
         ForeignKey(StationXML.id, **on_del_upd_cascade),
         index=True,
@@ -253,8 +253,8 @@ class Segment(Base):
     gap_score_percent = Column(SmallInteger, nullable=False)
 
     __table_args__ = (
-        Index("sta_evt_seg_index",  "stationxml_id", "event_id", "id"),
-        Index("evt_sta_seg_index", "event_id", "stationxml_id", "id"),
+        Index("sta_evt_seg_index",  "station_id", "event_id", "id"),
+        Index("evt_sta_seg_index", "event_id", "station_id", "id"),
         UniqueConstraint('event_id', 'channel_id', name='unique_evt_cha'),
     )
 

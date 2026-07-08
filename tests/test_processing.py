@@ -121,7 +121,7 @@ def db_engine(db_url, test_data_dir):
     net, sta, loc, cha = read(BytesIO(trace_ok), format='MSEED')[0].get_id().split('.')
 
     c_ok = Channel(
-        stationxml_id=s_ok.id,
+        station_id=s_ok.id,
         data_webservice_id=dtc.id,
         latitude=11,
         longitude=12,
@@ -143,7 +143,7 @@ def db_engine(db_url, test_data_dir):
     c_gap = Channel(
         latitude=-31,
         longitude=-32,
-        stationxml_id=s_no.id,
+        station_id=s_no.id,
         data_webservice_id=dtc.id,
         network_code=net,
         station_code=sta,
@@ -166,10 +166,10 @@ def db_engine(db_url, test_data_dir):
     }
     for ch_ in (c_ok, c_gap):
         sg1 = Segment(
-            channel_id=ch_.id, event_id=ev1.id, stationxml_id=s_ok.id, **atts
+            channel_id=ch_.id, event_id=ev1.id, station_id=s_ok.id, **atts
         )
         sg2 = Segment(
-            channel_id=ch_.id, event_id=ev2.id, stationxml_id=s_no.id, **atts
+            channel_id=ch_.id, event_id=ev2.id, station_id=s_no.id, **atts
         )
         sg3 = SkippedSegment(
             channel_id=ch_.id, event_id=ev3.id, download_code=204

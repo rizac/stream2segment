@@ -39,14 +39,14 @@ def save_stationxml(
             Channel.network_code,
             Channel.station_code,
             Channel.data_webservice_id,
-            Channel.stationxml_id
+            Channel.station_id
             # func.max(Channel.stationxml_id).label(staxml_id_col),
         )
         .distinct()
         .select_from(Segment)
         .join(Event, Segment.event_id == Event.id)  # (*) inner join
         .join(Channel, Segment.channel_id == Channel.id)  # (*) inner join
-        .join(StationXML, Segment.stationxml_id == StationXML.id)  # (*) inner join
+        .join(StationXML, Segment.station_id == StationXML.id)  # (*) inner join
         .where(
             StationXML.last_updated.is_(None) |
             StationXML.data.is_(None) |
