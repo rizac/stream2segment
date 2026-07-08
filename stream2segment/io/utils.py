@@ -3,6 +3,7 @@ Utilities for I/O operations
 """
 import sys
 import logging
+from pathlib import Path
 from logging import Logger
 from contextlib import contextmanager
 from itertools import chain
@@ -25,12 +26,12 @@ def ascii_decorate(string, frame=None):
     and returns the decorated string
 
     :param string: a single- or multi-line string
-    :param frame: list of characters or string. The string/list can have length 1,3 or 7:
-        1 character/list defines the decorator character. E.g. '#' or ('#',)
-        3 characters/lists define the (top, mid, bottom) characters. E.g. ("=", "|", "-")
-        7 characters define the (topleft, topcenter, topright, midleft, midright
-          bottomleft, bottomcenter, bottomright) characters. When None or missing,
-          this argument defaults to "╔═╗║║╚═╝"
+    :param frame: list of 1-len characters or string of length:
+        1: E.g. '#' or ('#', ) to define the decorator character.
+        3: E.g. ("=", "|", "-") to define the (top, mid, bottom) decorator characters.
+        7: E.g. "╔═╗║║╚═╝" to define the (topleft, topcenter, topright, midleft,
+           midright bottomleft, bottomcenter, bottomright) characters. When None or
+           missing, this is the default
     """
     if not string:
         return ''
@@ -99,7 +100,11 @@ def get_progressbar(length, **kw):
 
 
 @contextmanager
-def start_logging(logger: Logger, logfile_path='', verbose=False):
+def start_logging(
+    logger: Logger,
+    logfile_path: str | Path | None ='',
+    verbose=False
+):
 
     # https://docs.python.org/2/howto/logging.html#optimization:  # FIXME really needed?
     logging._srcfile = None  # noqa

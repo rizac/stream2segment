@@ -213,7 +213,7 @@ def imap(
     segments_selection: dict | None = None,
     group_components: bool = False,
     config: str | Path | dict | None = None,
-    logfile: str = '',
+    logfile: str | Path | None = '',
     verbose=False,
     multi_process=False,
     chunksize=None,
@@ -479,7 +479,7 @@ def get_segments(
         engine = db
 
     is_legacy_db = s2s_db_version(engine) < 5
-    orderby_columns = get_orderby_columns(db, group_components)
+    orderby_columns = get_orderby_columns(db)
 
     def stream_key(db_row) -> tuple:
         return tuple(getattr(db_row, c) for c in orderby_columns.keys())
@@ -540,14 +540,14 @@ def get_segments(
             end = 1
             while end < len(buffer):
                 if stream_key(buffer[start])[:-1] != stream_key(buffer[end])[:-1]:
-                    grouped = Stream()
-                    for db_row in buffer[start:end]:
-                        grouped += get_obspy_stream(db_row)
-                    yield make_tuple(
-                        grouped,
-                        buffer[start].station_id,
-                        buffer[start].event_id
-                    )
+                    for stream in group_and_yield(
+                        get_obspy_stream(buffer[i]) for i in range(start, end)
+                    ):
+                        yield make_tuple(
+                            stream,
+                            buffer[start].station_id,
+                            buffer[start].event_id
+                        )
                     start = end
                 end += 1
             buffer = buffer[start:end]  # keep the possibly-incomplete tail group
@@ -555,14 +555,14 @@ def get_segments(
     if buffer:
         # leftover group from the very last page: it's complete since there's
         # no more data coming, so merge and yield it like every other group.
-        grouped = Stream()
-        for db_row in buffer:
-            grouped += get_obspy_stream(db_row)
-        yield make_tuple(
-            grouped,
-            buffer[0].station_id,
-            buffer[0].event_id
-        )
+        for stream in group_and_yield(
+            get_obspy_stream(db_row) for db_row in buffer
+        ):
+            yield make_tuple(
+                stream,
+                buffer[0].station_id,
+                buffer[0].event_id
+            )
 
 
 def get_obspy_stream(db_row) -> Stream:
@@ -590,13 +590,13 @@ def get_obspy_stream(db_row) -> Stream:
     min_time = min(arr_time1, arr_time2)
     max_time = max(arr_time1, arr_time2)
     arrival_time = min_time + ((max_time - min_time) / 2)
-    cha = db_row.band_code + db_row.instrument_code + db_row.orientation_code
+    # cha = db_row.band_code + db_row.instrument_code + db_row.orientation_code
     s_meta = SegmentMetadata(
         id=db_row.id,
-        network_code=db_row.network_code,
-        station_code=db_row.station_code,
-        location_code=db_row.location_code,
-        channel_code=cha,
+        network_code=stream[0].stats.network,
+        station_code=stream[0].stats.station,
+        location_code=stream[0].stats.location,
+        channel_code=stream[0].stats.channel,
         latitude=db_row.latitude,
         longitude=db_row.longitude,
         depth=db_row.depth,
@@ -677,6 +677,22 @@ class SegmentMetadata:
     @property
     def orientation_code(self):
         return self.channel_code[2:3]
+
+
+def group_and_yield(streams: Iterable[Stream]) -> Iterable[Stream]:
+    streams_cache = {}
+    for stream in streams:
+        stream_id = (
+            stream[0].stats.network,
+            stream[0].stats.station,
+            stream[0].stats.location,
+            stream[0].stats.channel[:-1]
+        )
+        if stream_id not in streams:
+            streams_cache[stream_id] = stream
+        else:
+            streams_cache[stream_id] = streams_cache[stream_id] + stream
+    yield from streams_cache.values()
 
 
 _inventory_cache = {}

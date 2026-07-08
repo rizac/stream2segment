@@ -6,11 +6,13 @@ import os
 import re
 from dataclasses import fields
 from datetime import datetime, UTC, timedelta
+from io import BytesIO
 from itertools import product
 from unittest.mock import patch
 import pandas as pd
 import pytest
 import yaml
+from obspy import read
 from pandas._testing import assert_frame_equal
 from pandas.errors import EmptyDataError
 from sqlalchemy.orm import sessionmaker
@@ -107,42 +109,8 @@ def db_engine(db_url, test_data_dir):
     with open(test_data_dir / "inventory_GE.APE.xml", 'rb') as f:
         inv_xml = f.read()
     s_ok = StationXML(data=inv_xml)
-    session.add(s_ok)
-    session.commit()
-
-    c_ok = Channel(
-        stationxml_id=s_ok.id,
-        data_webservice_id=dtc.id,
-        latitude=11,
-        longitude=12,
-        network_code='ok',
-        station_code='ok',
-        location_code='ok',
-        # legacy channel_code="ok" becomes:
-        band_code="o",
-        instrument_code="k",
-        orientation_code="",
-        start_time=now,
-        sample_rate=56.7
-    )
-    session.add(c_ok)
-    session.commit()
-
-    c_none = Channel(
-        latitude=-31,
-        longitude=-32,
-        data_webservice_id=dtc.id,
-        network_code='no',
-        station_code='no',
-        location_code='no',
-        # legacy channel_code="no" becomes:
-        band_code="n",
-        instrument_code="o",
-        orientation_code="",
-        start_time=now,
-        sample_rate=56.7
-    )
-    session.add(c_none)
+    s_no = StationXML(data=None)
+    session.add_all([s_ok, s_no])
     session.commit()
 
     with open(test_data_dir / 'trace_GE.APE.mseed', 'rb') as f:
@@ -150,18 +118,58 @@ def db_engine(db_url, test_data_dir):
     with open(test_data_dir / 'IA.BAKI..BHZ.D.2016.004.head', 'rb') as f:
         trace_gap = f.read()
 
+    net, sta, loc, cha = read(BytesIO(trace_ok), format='MSEED')[0].get_id().split('.')
+
+    c_ok = Channel(
+        stationxml_id=s_ok.id,
+        data_webservice_id=dtc.id,
+        latitude=11,
+        longitude=12,
+        network_code=net,
+        station_code=sta,
+        location_code=loc,
+        # legacy channel_code="ok" becomes:
+        band_code=cha[0],
+        instrument_code=cha[1],
+        orientation_code=cha[2],
+        start_time=now,
+        sample_rate=56.7
+    )
+    session.add(c_ok)
+    session.commit()
+
+    net, sta, loc, cha = read(BytesIO(trace_gap), format='MSEED')[0].get_id().split('.')
+
+    c_gap = Channel(
+        latitude=-31,
+        longitude=-32,
+        stationxml_id=s_no.id,
+        data_webservice_id=dtc.id,
+        network_code=net,
+        station_code=sta,
+        location_code=loc,
+        # legacy channel_code="no" becomes:
+        band_code=cha[0],
+        instrument_code=cha[1],
+        orientation_code=cha[2],
+        start_time=now,
+        sample_rate=56.7
+    )
+    session.add(c_gap)
+    session.commit()
+
     atts = {
         'event_distance_km': 35*110,
         'gap_score_percent': 0,
         'noise_window_s': 10,
         'signal_window_s': 30,
     }
-    for ch_ in (c_ok, c_none):
+    for ch_ in (c_ok, c_gap):
         sg1 = Segment(
-            channel_id=ch_.id, event_id=ev1.id, **atts
+            channel_id=ch_.id, event_id=ev1.id, stationxml_id=s_ok.id, **atts
         )
         sg2 = Segment(
-            channel_id=ch_.id, event_id=ev2.id, **atts
+            channel_id=ch_.id, event_id=ev2.id, stationxml_id=s_no.id, **atts
         )
         sg3 = SkippedSegment(
             channel_id=ch_.id, event_id=ev3.id, download_code=204
@@ -282,7 +290,8 @@ def test_simple_run_retDict_complex_select(
 
     segs_selection = {
         # 'has_data': 'true',
-        'event_time': '<=%s' % (event_time_with_data.isoformat())
+        'event_time': '<=%s' % (event_time_with_data.isoformat()),
+        'network_code': 'GE'
     }
     _ = process(
         dburl=str(db_engine.url),
@@ -615,8 +624,9 @@ def test_fields():
     # fields that I need to fetch but do not want in where clause:
     assert select_fnames - where_fnames == {'data'}
     assert where_fnames - select_fnames == {
-        'channel_code', 'event_distance_deg',
-        'event_distance_km', 'gap_score_percent',
+        'band_code', 'channel_code', 'event_distance_deg', 'event_distance_km',
+        'gap_score_percent', 'instrument_code', 'location_code', 'network_code',
+        'orientation_code', 'station_code'
     }
 
     metadata_fnames = {_.name for _ in fields(SegmentMetadata)}
@@ -642,9 +652,9 @@ def test_fields():
     # FIXME gap_score test across download and process
 
     with patch('stream2segment.process.segments_selection.is_legacy_db') as is_leg_db:
-        for leg_db, group_c in product([True, False], [True, False]):
+        for leg_db in [True, False]:
             is_leg_db.return_value = leg_db
-            cols = get_orderby_columns(None, group_c)
+            cols = get_orderby_columns(None)  # <- arg is irrelevant
             assert list(cols.keys())[-1] == 'id'
             assert len(cols) > 1
             for c in cols:

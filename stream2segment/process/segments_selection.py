@@ -38,12 +38,12 @@ class CommonFields:
     # channel-related stuff:
     station_id: ColumnElement
     channel_id: ColumnElement
-    network_code: ColumnElement
-    station_code: ColumnElement
-    location_code: ColumnElement
-    band_code: ColumnElement | hybrid_property
-    instrument_code: ColumnElement | hybrid_property
-    orientation_code: ColumnElement | hybrid_property
+    # network_code: ColumnElement
+    # station_code: ColumnElement
+    # location_code: ColumnElement
+    # band_code: ColumnElement | hybrid_property
+    # instrument_code: ColumnElement | hybrid_property
+    # orientation_code: ColumnElement | hybrid_property
     latitude: ColumnElement
     longitude: ColumnElement
     elevation: ColumnElement
@@ -76,12 +76,6 @@ def get_select_fields(db: Engine) -> SelectFields:
             station_id=lm.Channel.station_id,
             channel_id=lm.Segment.channel_id,
             webservice_id=lm.Station.datacenter_id,
-            network_code=lm.Station.network,
-            station_code=lm.Station.station,
-            location_code=lm.Channel.location,
-            band_code=lm.Channel.band_code,
-            instrument_code=lm.Channel.instrument_code,
-            orientation_code=lm.Channel.orientation_code,
             latitude=lm.Station.latitude,
             longitude=lm.Station.longitude,
             elevation=lm.Station.elevation,
@@ -109,12 +103,6 @@ def get_select_fields(db: Engine) -> SelectFields:
             station_id=m.Channel.stationxml_id,
             channel_id=m.Segment.channel_id,
             webservice_id=m.Channel.data_webservice_id,
-            network_code=m.Channel.network_code,
-            station_code=m.Channel.station_code,
-            location_code=m.Channel.location_code,
-            band_code=m.Channel.band_code,
-            instrument_code=m.Channel.instrument_code,
-            orientation_code=m.Channel.orientation_code,
             latitude=m.Channel.latitude,
             longitude=m.Channel.longitude,
             elevation=m.Channel.elevation,
@@ -134,6 +122,12 @@ class WhereFields(CommonFields):
     noise_window_s: ColumnElement | hybrid_property
     signal_window_s: ColumnElement | hybrid_property
     gap_score_percent: ColumnElement | hybrid_property
+    network_code: ColumnElement
+    station_code: ColumnElement
+    location_code: ColumnElement
+    band_code: ColumnElement | hybrid_property
+    instrument_code: ColumnElement | hybrid_property
+    orientation_code: ColumnElement | hybrid_property
     orientation_code: ColumnElement | hybrid_property
     channel_code: ColumnElement | hybrid_property
 
@@ -161,11 +155,11 @@ def get_where_fields(db: Engine) -> WhereFields:
             location_code=lm.Channel.location,
             band_code=lm.Channel.band_code,
             instrument_code=lm.Channel.instrument_code,
+            orientation_code=lm.Channel.orientation_code,
+            channel_code=lm.Channel.channel,
             latitude=lm.Station.latitude,
             longitude=lm.Station.longitude,
             elevation=lm.Station.elevation,
-            orientation_code=lm.Channel.orientation_code,
-            channel_code=lm.Channel.channel,
             depth=lm.Channel.depth,
             # azimuth=lm.Channel.azimuth,
             # dip=lm.Channel.dip,
@@ -197,11 +191,11 @@ def get_where_fields(db: Engine) -> WhereFields:
             location_code=m.Channel.location_code,
             band_code=m.Channel.band_code,
             instrument_code=m.Channel.instrument_code,
+            orientation_code=m.Channel.orientation_code,
+            channel_code=m.Channel.channel_code,
             latitude=m.Channel.latitude,
             longitude=m.Channel.longitude,
             elevation=m.Channel.elevation,
-            orientation_code=m.Channel.orientation_code,
-            channel_code=m.Channel.channel_code,
             depth=m.Channel.depth,
             # azimuth=m.Channel.azimuth,
             # dip=m.Channel.dip,
@@ -334,26 +328,11 @@ def build_where_clause(db: Engine, conditions: dict) -> ColumnElement[bool]:
     return parsed_conditions
 
 
-def get_orderby_columns(
-    db, group_components
-) -> dict[str, ColumnElement | hybrid_property]:
+def get_orderby_columns(db) -> dict[str, ColumnElement | hybrid_property]:
 
     seg_attrs = get_where_fields(db)
 
-    if group_components:
-        return {
-            c: getattr(seg_attrs, c) for c in [
-                'webservice_id',
-                'network_code',
-                'station_code',
-                'location_code',
-                'instrument_code',
-                'band_code',
-                'event_id',
-                'id'
-            ]
-        }
-    elif is_legacy_db(db):
+    if is_legacy_db(db):
         return {
             c: getattr(seg_attrs, c) for c in [
                 'station_id',
@@ -363,9 +342,8 @@ def get_orderby_columns(
     else:
         return {
             c: getattr(seg_attrs, c) for c in [
-                'webservice_id',
-                'network_code',
-                'station_code',
+                'station_id',
+                'event_id',
                 'id'
             ]
         }
