@@ -34,6 +34,7 @@ class BaseWriter:
         self.output_file = Path(output_file).resolve() if output_file else None
         self.file_handle = None  # must have a close method
         self.options = {} if options is None else options
+        self.delete_if_empty = not output_file.exists()  # see close
 
     def convert_to_df(
         self, result: dict | pd.Series | pd.DataFrame | list[dict | pd.Series]
@@ -87,6 +88,17 @@ class BaseWriter:
             return False
         finally:
             self.file_handle = None
+
+        # if file was new, and empty (nothing written) delete it:
+        if (
+            self.delete_if_empty and
+            self.output_file.is_file() and
+            self.output_file.stat().st_size == 0
+        ):
+            try:
+                self.output_file.unlink()
+            except:
+                pass
         return True
 
     def __str__(self):

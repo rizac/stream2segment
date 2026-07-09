@@ -376,24 +376,27 @@ def imap(
                     # subprocess ever touches it.
                     inflight = Semaphore(num_processes + 1)
 
-                    segments_iter = list(segments_iter)
-
                     def gen_args() -> Iterable[tuple[
                         Callable,
                         list[tuple[Stream, Inventory | None, Event | None]],
                         dict,
                         tuple
                     ]]:
-                        _chunksize = chunksize // 3 if group_components else chunksize
+                        _chunksize = chunksize
+                        if group_components:
+                            _chunksize = max(1, chunksize // 3)  # assuming 3 components
                         batch = []
-                        for (stream, inv, evt) in segments_iter:
-                            batch.append((stream, inv, evt))
+                        for seg in segments_iter:
+                            batch.append(seg)
                             if len(batch) >= _chunksize:
                                 # blocks if too many tasks outstanding:
                                 inflight.acquire()
                                 # now it's free, yield:
                                 yield pyfunc, batch, config, skip_exceptions
-                            batch.clear()
+                                batch = []
+                        if batch:  # flush the trailing partial batch
+                            inflight.acquire()
+                            yield pyfunc, batch, config, skip_exceptions
 
                     with Pool(
                         processes=num_processes, initializer=_mp_initializer

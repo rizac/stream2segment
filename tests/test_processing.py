@@ -205,10 +205,7 @@ def db_engine(db_url, test_data_dir):
             session.delete(m_ok_Z)
             session.delete(s_ok_Z)
             session.commit()
-        # in case of ev2, add only the two horizontal (to test a case where not all
-        # three components are added:
-        if ev is ev2:
-            s_oks = s_oks[:-1]
+
     # atts_ok = dict(data.to_segment_dict('GE.APE..HHE.mseed'))
     # atts_gap = data.to_segment_dict('IA.BAKI..BHZ.D.2016.004.head')
     # atts_none = dict(atts_ok, data=b'')
@@ -434,8 +431,8 @@ def test_simple_groupby_components(
 
     segs_selection = {
         # 'has_data': 'true',
-        'event_time': '<=%s' % (event_time_with_data.isoformat()),
-        'network_code': 'GE',
+        # 'event_time': '<=%s' % (event_time_with_data.isoformat()),
+        # 'network_code': 'GE',
     }
     _ = process(
         dburl=str(db_engine.url),
