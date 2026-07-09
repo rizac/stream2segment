@@ -445,25 +445,22 @@ def test_simple_groupby_components(
         **options
     )
 
-    # check file has been correctly written:
-    if file_extension == '.csv':
-        dfr = pd.read_csv(filename)
-        assert len(dfr) == 1
-        assert 8.877e-5 < float(dfr['PGA'][0]) < 8.878e-5
-        # assert csv1.loc[0, csv1.columns[0]] == expected_first_row_seg_id
-    else:
-        dfr = pd.read_hdf(filename)
-        assert len(dfr) == 1
-        assert 8.877e-5 < dfr['PGA'][0] < 8.878e-5
-        # assert dfr.iloc[0][SEGMENT_ID_COLNAME] == expected_first_row_seg_id
+    # check file has NOT been written (all traces with gaps):
+    # this means that files are not readable (empty r with few bytes):
+    with pytest.raises(ValueError):
+        if file_extension == '.csv':
+            dfr = pd.read_csv(filename)
+        else:
+            dfr = pd.read_hdf(filename)
+        assert filename.stat().st_size <= 1024
 
     log_content = logfile.read_text()
 
     segs = sum(1 for _ in get_segments(db_engine, segs_selection, segments_only=True))
     assert f"{segs} segment(s) found to process" in log_content
-    assert f"1 of {segs} segment(s) successfully processed" in log_content
+    assert f"0 of {segs} segment(s) successfully processed" in log_content
     assert (
-        f"{segs-1} of {segs} segment(s) skipped with error message reported "
+        f"{segs} of {segs} segment(s) skipped with error message reported "
         f"in the log file"
     ) in log_content
 
