@@ -510,7 +510,7 @@ def get_segments(
             # keyset pagination: fetch rows strictly after the last one we saw
             stmt = stmt.where(tuple_(*orderby_columns.values()) > last_key)
         stmt = stmt.limit(chunksize)
-        from sqlalchemy import text
+
         with engine.connect() as conn:
             rows = conn.execute(stmt).fetchall()
 
@@ -688,7 +688,7 @@ def group_and_yield(streams: Iterable[Stream]) -> Iterable[Stream]:
             stream[0].stats.location,
             stream[0].stats.channel[:-1]
         )
-        if stream_id not in streams:
+        if stream_id not in streams_cache:
             streams_cache[stream_id] = stream
         else:
             streams_cache[stream_id] = streams_cache[stream_id] + stream

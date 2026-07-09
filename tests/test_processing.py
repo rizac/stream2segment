@@ -113,29 +113,34 @@ def db_engine(db_url, test_data_dir):
     session.add_all([s_ok, s_no])
     session.commit()
 
-    with open(test_data_dir / 'trace_GE.APE.mseed', 'rb') as f:
-        trace_ok = f.read()
+    with open(test_data_dir / 'GE.APE..HHE.mseed', 'rb') as f:
+        trace_ok_E = f.read()
+
+    trace_ok_Z = re.sub(rb'HHE', b'HHZ', trace_ok_E)
+    trace_ok_N = re.sub(rb'HHE', b'HHN', trace_ok_E)
+
+    assert read(BytesIO(trace_ok_N), format='MSEED')[0].stats.channel == 'HHN'
+    assert read(BytesIO(trace_ok_Z), format='MSEED')[0].stats.channel == 'HHZ'
+
     with open(test_data_dir / 'IA.BAKI..BHZ.D.2016.004.head', 'rb') as f:
         trace_gap = f.read()
 
-    net, sta, loc, cha = read(BytesIO(trace_ok), format='MSEED')[0].get_id().split('.')
-
-    c_ok = Channel(
+    c_oks = {o: Channel(
         station_id=s_ok.id,
         data_webservice_id=dtc.id,
         latitude=11,
         longitude=12,
-        network_code=net,
-        station_code=sta,
-        location_code=loc,
+        network_code='GE',
+        station_code='APE',
+        location_code='',
         # legacy channel_code="ok" becomes:
-        band_code=cha[0],
-        instrument_code=cha[1],
-        orientation_code=cha[2],
+        band_code='H',
+        instrument_code='H',
+        orientation_code=o,
         start_time=now,
         sample_rate=56.7
-    )
-    session.add(c_ok)
+    ) for o in 'ENZ'}
+    session.add_all(c_oks.values())
     session.commit()
 
     net, sta, loc, cha = read(BytesIO(trace_gap), format='MSEED')[0].get_id().split('.')
@@ -164,25 +169,47 @@ def db_engine(db_url, test_data_dir):
         'noise_window_s': 10,
         'signal_window_s': 30,
     }
-    for ch_ in (c_ok, c_gap):
-        sg1 = Segment(
-            channel_id=ch_.id, event_id=ev1.id, station_id=s_ok.id, **atts
+    for ev in (ev1, ev2):
+        s_gap = Segment(
+            channel_id=c_gap.id, event_id=ev.id, station_id=s_no.id, **atts
         )
-        sg2 = Segment(
-            channel_id=ch_.id, event_id=ev2.id, station_id=s_no.id, **atts
+        s_skip = SkippedSegment(
+            channel_id=list(c_oks.values())[0].id, event_id=ev.id, download_code=204
         )
-        sg3 = SkippedSegment(
-            channel_id=ch_.id, event_id=ev3.id, download_code=204
-        )
-        session.add_all([sg1, sg2, sg3])
+        session.add_all([s_gap, s_skip])
+        session.commit()
+        ms_gap = MiniSeed(data=trace_gap, id=s_gap.id)
+        session.add_all([ms_gap])
         session.commit()
 
-        ms_ok = MiniSeed(data=trace_ok, id=sg1.id)
-        ms_gap = MiniSeed(data=trace_gap, id= sg2.id)
-        session.add_all([ms_ok, ms_gap])
+        # add segments with orientation:
+        s_ok_E = Segment(
+            channel_id=c_oks['E'].id, event_id=ev.id, station_id=s_ok.id, **atts
+        )
+        s_ok_N = Segment(
+            channel_id=c_oks['N'].id, event_id=ev.id, station_id=s_ok.id, **atts
+        )
+        s_ok_Z = Segment(
+            channel_id=c_oks['Z'].id, event_id=ev.id, station_id=s_ok.id, **atts
+        )
+        session.add_all([s_ok_E, s_ok_N, s_ok_Z])
         session.commit()
 
-    # atts_ok = dict(data.to_segment_dict('trace_GE.APE.mseed'))
+        m_ok_E = MiniSeed(data=trace_ok_E, id=s_ok_E.id)
+        m_ok_N = MiniSeed(data=trace_ok_N, id=s_ok_N.id)
+        m_ok_Z = MiniSeed(data=trace_ok_Z, id=s_ok_Z.id)
+        session.add_all([m_ok_E, m_ok_N, m_ok_Z])
+        session.commit()
+
+        if ev == ev2:
+            session.delete(m_ok_Z)
+            session.delete(s_ok_Z)
+            session.commit()
+        # in case of ev2, add only the two horizontal (to test a case where not all
+        # three components are added:
+        if ev is ev2:
+            s_oks = s_oks[:-1]
+    # atts_ok = dict(data.to_segment_dict('GE.APE..HHE.mseed'))
     # atts_gap = data.to_segment_dict('IA.BAKI..BHZ.D.2016.004.head')
     # atts_none = dict(atts_ok, data=b'')
 
@@ -291,7 +318,8 @@ def test_simple_run_retDict_complex_select(
     segs_selection = {
         # 'has_data': 'true',
         'event_time': '<=%s' % (event_time_with_data.isoformat()),
-        'network_code': 'GE'
+        'network_code': 'GE',
+        'orientation_code': 'Z'
     }
     _ = process(
         dburl=str(db_engine.url),
@@ -374,6 +402,73 @@ def test_simple_run_retDict_high_snr_threshold(
         "4 of 4 segment(s) skipped with error message reported in the log file"
         in log_content
     )
+
+
+@pytest.mark.parametrize(
+    "file_extension, options",
+    product(['.h5', '.csv'], [
+        # {},
+        # {'chunksize': 1},
+        # {'chunksize': 1, 'multi_process': True},
+        {'chunksize': 1, 'multi_process': True, 'group_components': True},
+        # {'multi_process': True},
+        # {'chunksize': 1, 'multi_process': 1},
+    ])
+)
+def test_simple_groupby_components(
+    file_extension, options,
+    # fixtures:
+    capsys, db_engine, config_dict, tmp_path
+):
+    """test a case where we have a more complex select involving joins"""
+
+    from stream2segment.resources.templates import paramtable
+    filename = tmp_path / f'output{file_extension}'
+    logfile = tmp_path / 'test.log'
+
+    if filename.is_file():
+        filename.unlink()
+
+    if logfile.is_file():
+        logfile.unlink()
+
+    segs_selection = {
+        # 'has_data': 'true',
+        'event_time': '<=%s' % (event_time_with_data.isoformat()),
+        'network_code': 'GE',
+    }
+    _ = process(
+        dburl=str(db_engine.url),
+        pyfunc=paramtable.main,
+        segments_selection=segs_selection,
+        config=config_dict(snr_threshold=0),
+        outfile=filename,
+        verbose=True,
+        logfile=logfile,
+        **options
+    )
+
+    # check file has been correctly written:
+    if file_extension == '.csv':
+        dfr = pd.read_csv(filename)
+        assert len(dfr) == 1
+        assert 8.877e-5 < float(dfr['PGA'][0]) < 8.878e-5
+        # assert csv1.loc[0, csv1.columns[0]] == expected_first_row_seg_id
+    else:
+        dfr = pd.read_hdf(filename)
+        assert len(dfr) == 1
+        assert 8.877e-5 < dfr['PGA'][0] < 8.878e-5
+        # assert dfr.iloc[0][SEGMENT_ID_COLNAME] == expected_first_row_seg_id
+
+    log_content = logfile.read_text()
+
+    segs = sum(1 for _ in get_segments(db_engine, segs_selection, segments_only=True))
+    assert f"{segs} segment(s) found to process" in log_content
+    assert f"1 of {segs} segment(s) successfully processed" in log_content
+    assert (
+        f"{segs-1} of {segs} segment(s) skipped with error message reported "
+        f"in the log file"
+    ) in log_content
 
 
 @pytest.mark.parametrize(

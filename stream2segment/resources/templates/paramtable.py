@@ -650,6 +650,7 @@ if __name__ == "__main__":
         main,
         dburl,
         segments_selection=segments_selection,
+        group_components=False,
         config=config,
         outfile=outfile,
         append=append,

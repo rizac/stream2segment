@@ -149,7 +149,7 @@ def test_data_dir():  # n
 #             session.add(c_none)
 #             session.commit()
 #
-#             atts_ok = dict(data.to_segment_dict('trace_GE.APE.mseed'))
+#             atts_ok = dict(data.to_segment_dict('GE.APE..HHE.mseed'))
 #             atts_gap = data.to_segment_dict('IA.BAKI..BHZ.D.2016.004.head')
 #             atts_none = dict(atts_ok, data=b'')
 #

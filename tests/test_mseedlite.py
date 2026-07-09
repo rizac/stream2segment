@@ -18,7 +18,7 @@ def unpack(data) -> dict[str, unpacked_miniseed]:
     return {_.seed_id: _ for _ in unpack_miniseed(data)}
 
 mseed_gaps = "IA.BAKI..BHZ.D.2016.004.head"
-mseed_nogaps = "trace_GE.APE.mseed"
+mseed_nogaps = "GE.APE..HHE.mseed"
 
 
 def get_s2s_stream(unpacked_mseed: dict[str, unpacked_miniseed]):
