@@ -24,8 +24,9 @@ time on refining the selection of segments: you might find that your code runs s
 and faster by simply skipping unwanted segments in the first place
 """
 from datetime import datetime
+from pathlib import Path
 from math import factorial  # for savitzky_golay function
-
+import sys
 import numpy as np
 try:
     from numpy.matrixlib.defmatrix import asmatrix  # FIXME CHECK!!!
@@ -36,7 +37,7 @@ from obspy import Trace, Stream, UTCDateTime
 from obspy.core.inventory.inventory import Inventory
 from obspy.core.event import Event
 from obspy.core.util.obspy_types import ObsPyException
-from stream2segment.process import SkipSegment, SegmentMetadata
+from stream2segment.process import SkipSegment, SegmentMetadata, process_segments
 # functions to show how to import them:
 from stream2segment.process.traces import (
     bandpass, cumsumsq, ampspec, powspec, timeof, sn_split
@@ -44,15 +45,75 @@ from stream2segment.process.traces import (
 from stream2segment.process.ndarrays import triangsmooth, snr
 
 
-def main(
+def run():
+    """Generate a parametric table"""
+
+    # ------------------------------------
+    # Setup config: you can build your own dict of parameters or load it from a YAML
+    # file as in the example below (change path according to your needs):
+    import yaml
+    config_path = Path(__file__).with_suffix('.yaml')
+    config = yaml.safe_load(config_path.read_text())
+    # get the database URL. Do NOT TYPE anywhere URLs with passwords (e.g. postgres), or
+    # if you do, do not COMMIT the file and keep it local. A good solution is to read
+    # the db URL used for downloading the data from its config. Example:
+    download_path = Path(__file__).parent / 'download.yaml'
+    dburl = yaml.safe_load(download_path.read_text())['db']
+    # segments to process
+    # For details, see {{ THE_SEGMENT_OBJECT_WIKI_URL_SEGMENT_SELECTION }}
+    # The variable below can also be a list/numpy array of integers denoting the
+    # database IDs of the segments to process (e.g., IDs read from a file)
+    segments_selection = {
+        'gap_score_percent': '[-50, 50]',
+    }
+    # output file
+    outfile = sys.argv[1]  # argument passed to this script python <this_script> arg
+    if not outfile:
+        raise ValueError(
+            'Please provide an output file path, either via the command line'
+            '(python paramtable.py <output_file_path>, or modifying the code directly'
+            '(variable `outfile` inside `def run()`)'
+        )
+
+    # run imap or process here calling `run_segment` (see below) on each selected
+    # segment:
+    process_segments(
+        run_segment,
+        dburl,
+        segments_selection=segments_selection,
+        # each segment passed to your processing function is an obpsy Stream made of one
+        # single Trace. Set you want a stream with all three component in each Stream:
+        group_components=False,
+        config=config,
+        outfile=outfile,
+        # append=False will overwrite existing outfile, if present (If True and
+        # outfile exists, already processed segments will be skipped):
+        append=False,
+        # csv or hdf options ({} = no options. Type help(process) on terminal or
+        # notebook for details):
+        writer_options={},
+        # provide a log file path to track all skipped segment (SkipSegment exceptions).
+        # Set a file path here below, or True to automatically create a log file in the
+        # same directory of 'outfile' above (to skip logging, type "" or False):
+        logfile=True,
+        # show progressbar on the terminal and additional info:
+        verbose=True,
+        # use parallel sub-processes to speed up the routine:
+        multi_process=True,
+        # segment chunk size to load (None: let the program handle it):
+        chunksize=None
+    )
+
+
+def run_segment(
     segment: Stream,
     station: Inventory | None,
     event: Event | None,
     config: dict
 ):
     """
-    Main processing function, called iteratively for any segment selected from `imap`
-    or `process` functions of stream2segment.
+    Run processing on a single segment, returning one or more row(s) of the final
+    parametric table.
 
     IMPORTANT: Any exception raised here or from any sub-function will interrupt the
     whole processing routine (`imap` or `process`) with one special case:
@@ -596,67 +657,7 @@ def meanslice(trace, nptmin=100, starttime=None, endtime=None):
 
 
 if __name__ == "__main__":
-    # execute the code below only if this module is run as a script
-    # (python <this_file_path>)
-
-    from pathlib import Path
-    # ------------------------------------
-    # Setup config: you can build your own dict of parameters or load it from a YAML
-    # file as in the example below (change path according to your needs):
-    import yaml
-    config_path = Path(__file__).with_suffix('.yaml')
-    config = yaml.safe_load(config_path.read_text())
-    # get the database URL. Do NOT TYPE anywhere URLs with passwords (e.g. postgres), or
-    # if you do, do not COMMIT the file and keep it local. A good solution is to read
-    # the db URL used for downloading the data from its config. Example:
-    download_path = Path(__file__).parent / 'download.yaml'
-    dburl = yaml.safe_load(download_path.read_text())['dburl']
-    # segments to process
-    # For details, see {{ THE_SEGMENT_OBJECT_WIKI_URL_SEGMENT_SELECTION }}
-    # The variable below can also be a list/numpy array of integers denoting the
-    # database IDs of the segments to process (e.g., IDs read from a file)
-    segments_selection = {
-        'gap_score_percent': '[-50, 50]',
-    }
-    # output file
-    outfile = '__enter_your_csv_or_hdf_path_here__'  # None, valid file str, or Path
-    if outfile == '__enter_your_csv_or_hdf_path_here__':
-        raise ValueError(
-            'The module is not yet implemented to be run as script. '
-            'Please open the file and edit the variables in the script '
-            'section (e.g., config_file, outfile, dburl) at the end of the module'
-        )
-    # provide a log file path to track all skipped segment (SkipSegment exceptions).
-    # Here we input the boolean True, which automatically creates a log file in the
-    # same directory 'outfile' above. To skip logging, type "" or False
-    logfile = True
-    # show progressbar on the terminal and additional info
-    verbose = True
-    # overwrite existing outfile, if present. If True and outfile exists, already
-    # processed segments will be skipped
-    append = False
-    # csv or hdf options. Type help(process) on terminal or notebook for details
-    writer_options = {}
-    # use sub-processes to speed up the routine
-    multiprocess = True
-    # segment chunk size to load. Type help(process) on terminal or notebook for details.
-    chunksize = None
-
-    from stream2segment.process import process
-
-    # run imap or process here. Example with process (see function `main` at the top
-    # of the module, that you can modify as you wish):
-    process(
-        main,
-        dburl,
-        segments_selection=segments_selection,
-        group_components=False,
-        config=config,
-        outfile=outfile,
-        append=append,
-        writer_options=writer_options,
-        logfile=logfile,
-        verbose=verbose,
-        multi_process=multiprocess,
-        chunksize=chunksize
-    )
+    """When this module is invoked as script (python <this_file> on the terminal), 
+    execute `run`:
+     """
+    run()

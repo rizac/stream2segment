@@ -48,7 +48,7 @@ class SkipSegment(Exception):
     pass
 
 
-def process(
+def process_segments(
     pyfunc: Callable,
     dburl: str,
     segments_selection: dict | None = None,
@@ -187,7 +187,7 @@ def process(
     writer = get_writer(outfile, append, writer_options)
     num_ok = 0
     with writer:
-        for output in imap(
+        for output in map_segments(
             pyfunc,
             dburl,
             segments_selection=segments_selection,
@@ -207,7 +207,7 @@ def process(
     return num_ok
 
 
-def imap(
+def map_segments(
     pyfunc: Callable,
     dburl: str,
     segments_selection: dict | None = None,

@@ -8,6 +8,7 @@ from dataclasses import fields
 from datetime import datetime, UTC, timedelta
 from io import BytesIO
 from itertools import product
+from pathlib import Path
 from unittest.mock import patch
 import pandas as pd
 import pytest
@@ -17,17 +18,17 @@ from pandas._testing import assert_frame_equal
 from pandas.errors import EmptyDataError
 from sqlalchemy.orm import sessionmaker
 
-from stream2segment.io.db import create_engine, database_exists, is_sqlite, is_postgres
+from stream2segment.io.db import create_engine, database_exists, is_sqlite
 from stream2segment.io.db.models import (
     DownloadRun, WebService, Channel, StationXML, MiniSeed, SkippedSegment,Event,
     Segment
 )
-from stream2segment.process import imap, SegmentMetadata, build_where_clause
-from stream2segment.process.main import get_segments
+from stream2segment.process import (
+    process_segments, SegmentMetadata, map_segments, get_segments
+)
 from stream2segment.process.segments_selection import SelectFields, WhereFields, \
     get_orderby_columns, build_select
 from stream2segment.resources import get_templates_fpath
-from stream2segment.process.main import process
 
 
 @pytest.fixture
@@ -265,7 +266,7 @@ def test_simple_run_no_outfile_provided(
 ):
     """test a case where save inventory is True, and that we saved inventories"""
     from stream2segment.resources.templates import paramtable
-    _ = process(
+    _ = process_segments(
         dburl=str(db_engine.url), pyfunc=paramtable.main,
         # segments_selection={'has_data': 'true'},
         segments_selection={},
@@ -298,7 +299,7 @@ def test_simple_run_no_outfile_provided(
 def test_simple_run_retDict_complex_select(
     file_extension, options,
     # fixtures:
-    capsys, db_engine, config_dict, tmp_path
+    capsys, db_engine, config_dict, tmp_path, monkeypatch
 ):
     """test a case where we have a more complex select involving joins"""
 
@@ -312,15 +313,19 @@ def test_simple_run_retDict_complex_select(
     if logfile.is_file():
         logfile.unlink()
 
+    monkeypatch.setattr('sys.argv', [
+        Path(paramtable.__file__).name, str(filename.resolve())
+    ])
+
     segs_selection = {
         # 'has_data': 'true',
         'event_time': '<=%s' % (event_time_with_data.isoformat()),
         'network_code': 'GE',
         'orientation_code': 'Z'
     }
-    _ = process(
+    _ = process_segments(
         dburl=str(db_engine.url),
-        pyfunc=paramtable.main,
+        pyfunc=paramtable.run_segment,
         segments_selection=segs_selection,
         config=config_dict(snr_threshold=0),
         outfile=filename,
@@ -366,9 +371,9 @@ def test_simple_run_retDict_high_snr_threshold(
     filename = tmp_path / ('test' + file_extension)
     log_file = tmp_path / 'test.log'
 
-    _ = process(
+    _ = process_segments(
         dburl=str(db_engine.url),
-        pyfunc=paramtable.main,
+        pyfunc=paramtable.run_segment,
         # segments_selection={'has_data': 'true'},
         config=config_dict(snr_threshold=3),
         outfile=filename,
@@ -434,9 +439,9 @@ def test_simple_groupby_components(
         # 'event_time': '<=%s' % (event_time_with_data.isoformat()),
         # 'network_code': 'GE',
     }
-    _ = process(
+    _ = process_segments(
         dburl=str(db_engine.url),
-        pyfunc=paramtable.main,
+        pyfunc=paramtable.run_segment,
         segments_selection=segs_selection,
         config=config_dict(snr_threshold=0),
         outfile=filename,
@@ -463,6 +468,17 @@ def test_simple_groupby_components(
         f"{segs} of {segs} segment(s) skipped with error message reported "
         f"in the log file"
     ) in log_content
+
+    # test imap (just for safety):
+    list(map_segments(
+        dburl=str(db_engine.url),
+        pyfunc=paramtable.run_segment,
+        segments_selection=segs_selection,
+        config=config_dict(snr_threshold=0),
+        verbose=True,
+        logfile=logfile,
+        **options
+    ))
 
 
 @pytest.mark.parametrize(
@@ -497,7 +513,7 @@ def test_errors_process_not_run(
     out_file = tmp_path / ("test" + file_extension)
     log_file = tmp_path / "test.log"
     with pytest.raises(Exception) as excinfo:
-        _ = process(
+        _ = process_segments(
             dburl=str(db_engine.url),
             pyfunc=main,
             # segments_selection=seg_sel,
@@ -545,7 +561,7 @@ def test_append(
     from stream2segment.resources.templates import paramtable
     main = paramtable.main
 
-    _ = process(
+    _ = process_segments(
         dburl=str(db_engine.url),
         pyfunc=main,
         config=config,
@@ -570,7 +586,7 @@ def test_append(
 
     # now test a second call, the same as before:
     log_file = tmp_path / "test2.log"
-    _ = process(
+    _ = process_segments(
         dburl=str(db_engine.url),
         pyfunc=main,
         config=config,
@@ -608,7 +624,7 @@ def test_append(
     # prompt the user)
     log_file = tmp_path / "test3.log"
     options_ = {**options, 'append': False}
-    _ = process(
+    _ = process_segments(
         dburl=str(db_engine.url),
         pyfunc=main,
         config=config,
@@ -655,7 +671,7 @@ def test_process_verbosity(
         # run verbosity = True, with output file. This configures a logger
         # to log file and a logger stdout
         config = config_dict()
-        _ = process(
+        _ = process_segments(
             dburl=str(db_engine.url),
             pyfunc=main,
             config=config,
@@ -691,7 +707,7 @@ def test_suppress_output(
             raise CustomProcessingError(f"task {x} hit a known bad-data condition")
         return os.getpid(), x * x
 
-    for _ in imap(
+    for _ in map_segments(
         dburl=str(db_engine.url),
         pyfunc=worker_task,
         config={},
