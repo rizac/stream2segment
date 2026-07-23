@@ -1,5 +1,6 @@
 """
-Stream2segment processing module generating a segment-based parametric table
+Stream2segment processing module generating a parametric table
+based on the two horizontal components of a segment
 
 Modify `run()` and optionally `run_segment()` and execute `python <this_file_path>`
 
@@ -68,12 +69,12 @@ def run():
         # Each segment is passed to the processing function as an ObsPy Stream
         # containing a single component (e.g. vertical). Set True to group all
         # available components (usually 3) into one Stream:
-        group_components=False,
+        group_components=True,
         config=config,
         outfile=outfile,
         # Append to existing table, if file exists (if False, overwrite file):
         append=False,
-        # Csv or hdf options ({} = no options. See pandas to_hdf or to_csv for details):
+        # Csv or Hdf options ({} = no options. See pandas to_hdf or to_csv for details):
         writer_options={},
         # Set the log file path to track all skipped segment (SkipSegment exceptions).
         # Set to True to automatically create a log file in the same directory of your
@@ -82,7 +83,7 @@ def run():
         # Show progressbar on the terminal and additional info:
         verbose=True,
         # Use parallel sub-processes to speed up the routine:
-        multi_process=True,
+        multi_process=False,
         # Segment chunk size to load (None: let the program handle it):
         chunksize=None
     )
@@ -174,193 +175,196 @@ def run_segment(
         raise SkipSegment("no station inventory provided")
     # Check the stream has only one trace (stream.get_gaps() does this more accurately,
     # but it's slower)
-    if len(segment) != 1:
-        raise SkipSegment(f"{len(segment)} traces (probably gaps/overlaps)")
+    ids = [t.get_id() for t in segment]
+    if len(ids) != len(set(ids)):
+       raise SkipSegment('gaps / overlaps in some component')
+    # Get the two horizontal components:
+    horizontal = [t for t in segment if t.stats.channel[-1] not in ("Z", "3")]
+    if len(horizontal) != 2:
+        raise SkipSegment(f'{len(horizontal)} horizontal component(s) found')
+    outputs = []
+    scores = []
+    for trace in horizontal:
+        segment_metadata = trace.stats.segment_metadata
 
-    trace = segment[0]  # work with the (surely) single trace now
-    segment_metadata = trace.stats.segment_metadata
+        # discard saturated signals (according to the threshold set in the config file):
+        amp_ratio = np.true_divide(np.nanmax(np.abs(trace.data)), 2**23)
+        if amp_ratio >= config['amp_ratio_threshold']:
+            raise SkipSegment('possibly saturated (amp. ratio exceeds)')
 
-    # discard saturated signals (according to the threshold set in the config file):
-    amp_ratio = np.true_divide(np.nanmax(np.abs(trace.data)), 2**23)
-    if amp_ratio >= config['amp_ratio_threshold']:
-        raise SkipSegment('possibly saturated (amp. ratio exceeds)')
+        # bandpass the trace, according to the event magnitude.
+        # trace will be in acceleration units
+        try:
+            trace = bandpass_remresp(
+                trace,
+                station,
+                segment_metadata.event_magnitude,
+                config
+            )
+        except (TypeError, ObsPyException, ValueError) as resp_error:
+            raise SkipSegment("Error in 'bandpass_remresp': %s" % str(resp_error))
+        try:
+            spectra = signal_noise_spectra(trace, segment_metadata.arrival_time, config)
+        except (ValueError,) as spectra_error:
+            raise SkipSegment("Error in 'signal_noise_spectra': %s" % str(spectra_error))
 
-    # preprocess the trace: apply a bandpass filter (mag dependent), remove the
-    # instrumental response and RETURN A TRACE IN ACCELERATION UNITS (m/s**2)
-    # WARNING: this modifies the segment.stream() permanently!
-    # If you want to preserve the original stream, store trace.copy() beforehand
-    try:
-        trace = bandpass_remresp(
-            trace,
-            station,
-            segment_metadata.event_magnitude,
-            config
+        normal_f0, normal_df, normal_spe = spectra['Signal']
+        noise_f0, noise_df, noise_spe = spectra['Noise']
+
+        fcmin = mag2freq(segment_metadata.event_magnitude)
+        fcmax = config['bandpass']['freq_max']  # used in bandpass_remresp
+        snr_ = snr(
+            normal_spe,
+            noise_spe,
+            signals_form=config['sn_spectra']['type'],
+            fmin=fcmin,
+            fmax=fcmax,
+            delta_signal=normal_df,
+            delta_noise=noise_df
         )
-    except (TypeError, ObsPyException, ValueError) as resp_error:
-        raise SkipSegment("Error in 'bandpass_remresp': %s" % str(resp_error))
-
-    spectra = signal_noise_spectra(trace, segment_metadata.arrival_time, config)
-    normal_f0, normal_df, normal_spe = spectra['Signal']
-    noise_f0, noise_df, noise_spe = spectra['Noise']
-    fcmin = mag2freq(segment_metadata.event_magnitude)
-    fcmax = config['bandpass']['freq_max']  # used in bandpass_remresp
-    snr_min_max = snr(
-        normal_spe,
-        noise_spe,
-        signals_form=config['sn_spectra']['type'],
-        fmin=fcmin,
-        fmax=fcmax,
-        delta_signal=normal_df,
-        delta_noise=noise_df
-    )
-    snr_min_1 = snr(
-        normal_spe,
-        noise_spe,
-        signals_form=config['sn_spectra']['type'],
-        fmin=fcmin,
-        fmax=1,
-        delta_signal=normal_df,
-        delta_noise=noise_df
-    )
-    snr_1_10 = snr(
-        normal_spe,
-        noise_spe,
-        signals_form=config['sn_spectra']['type'],
-        fmin=1,
-        fmax=10,
-        delta_signal=normal_df,
-        delta_noise=noise_df
-    )
-    snr_10_max = snr(
-        normal_spe,
-        noise_spe,
-        signals_form=config['sn_spectra']['type'],
-        fmin=10,
-        fmax=fcmax,
-        delta_signal=normal_df,
-        delta_noise=noise_df
-    )
-    if snr_min_max < config['snr_threshold']:
-        raise SkipSegment('low snr %f' % snr_min_max)
-
-    # calculate cumulative
-
-    cum_trace = cumsumsq(trace, normalize=True, copy=True)
-    # Note above: copy=True prevent original trace from being modified
-    # get times when cumulative reaches specific values/labels
-    _cumlabels = [0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99]
-    _cumtimes = (
-        timeof(cum_trace, i) for i in np.searchsorted(cum_trace.data, _cumlabels)
-    )
-    cumtime = {c: t for c, t in zip(_cumlabels, _cumtimes)}
-
-    # double event (heuristic algorithm to filter out malformed data)
-    try:
-        score, t_double, tt1, tt2 = get_multievent_sg(
-            cum_trace,
-            cumtime[0.05],
-            cumtime[0.95],
-            config['savitzky_golay'],
-            config['multievent_thresholds']
+        snr1_ = snr(
+            normal_spe,
+            noise_spe,
+            signals_form=config['sn_spectra']['type'],
+            fmin=fcmin,
+            fmax=1,
+            delta_signal=normal_df,
+            delta_noise=noise_df
         )
-    except IndexError as _ierr:
-        raise SkipSegment("Error in 'get_multievent_sg': %s" % str(_ierr))
-    if score in {1, 3}:
-        raise SkipSegment(
-            'Double event detected %d %s %s %s' % (score, t_double, tt1, tt2)
+        snr2_ = snr(
+            normal_spe,
+            noise_spe,
+            signals_form=config['sn_spectra']['type'],
+            fmin=1,
+            fmax=10,
+            delta_signal=normal_df,
+            delta_noise=noise_df
         )
+        snr3_ = snr(
+            normal_spe,
+            noise_spe,
+            signals_form=config['sn_spectra']['type'],
+            fmin=10,
+            fmax=fcmax,
+            delta_signal=normal_df,
+            delta_noise=noise_df
+        )
+        if snr_ < config['snr_threshold']:
+            raise SkipSegment('low snr %f (%s)' % (snr_, trace.meta.channel))
 
-    # calculate PGA and times of occurrence (t_PGA):
-    # note: you can also provide tstart tend for slicing
-    trace_cut = trace.slice(cumtime[0.05], cumtime[0.95])
-    try:
-        _argmax = np.nanargmax(np.abs(trace_cut.data))
-    except ValueError as verr:
-        raise SkipSegment('Unable to compute PGA: ' + str(verr))
-    t_PGA = timeof(trace_cut, _argmax)
-    PGA = trace_cut.data[_argmax]
+        # calculate cumulative
+        cum_trace = cumsumsq(trace, normalize=True, copy=True)
+        # Note above: copy=True prevent original trace from being modified
+        # get times where cumulative reaches specific values/labels
+        _cumlabels = [0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99]
+        _cumtimes = (
+            timeof(cum_trace, i) for i in np.searchsorted(cum_trace.data, _cumlabels)
+        )
+        cumtime = {c: t for c, t in zip(_cumlabels, _cumtimes)}
 
-    # PGV:
-    trace_cut_vel = trace_cut.copy()
-    trace_cut_vel.integrate()
-    try:
-        _argmax = np.nanargmax(np.abs(trace_cut_vel.data))
-    except ValueError as verr:
-        raise SkipSegment('Unable to compute PGV: ' + str(verr))
-    t_PGV = timeof(trace_cut_vel, _argmax)
-    PGV = trace_cut_vel.data[_argmax]
-    meanoff = meanslice(
-        trace_cut_vel,
-        100,
-        cumtime[0.05],
-        trace_cut_vel.stats.endtime
-    )
+        # double event (heuristic algorithm to filter out malformed data)
+        try:
+            score, t_double, tt1, tt2 = get_multievent_sg(
+                cum_trace,
+                cumtime[0.05],
+                cumtime[0.95],
+                config['savitzky_golay'],
+                config['multievent_thresholds']
+            )
+        except IndexError as _ierr:
+            raise SkipSegment(f"Error in 'get_multievent_sg': {_ierr}")
+        if score in {1, 3}:
+            raise SkipSegment(f'Double event detected {score} {t_double} {tt1} {tt2}')
+        scores.append(score)
 
-    # calculates amplitudes at the frequency bins given in the config file:
-    required_freqs = config['freqs_interp']
-    ampspec_freqs = normal_f0 + np.arange(len(normal_spe)) * normal_df
-    required_amplitudes = np.interp(
-        np.log10(required_freqs),
-        np.log10(ampspec_freqs),
-        normal_spe
-    ) / trace.stats.sampling_rate
+        # calculate PGA and times of occurrence (t_PGA):
+        # note: you can also provide tstart tend for slicing
+        trace_cut = trace.slice(cumtime[0.05], cumtime[0.95])
+        try:
+            _argmax = np.nanargmax(np.abs(trace_cut.data))
+        except ValueError as verr:
+            raise SkipSegment('Unable to compute PGA: ' + str(verr))
+        #t_PGA = timeof(trace_cut, _argmax)
+        PGA = trace_cut.data[_argmax]
 
-    # compute synthetic WA
-    trace_wa = synth_wood_anderson(trace.copy(), config)
-    try:
-        _argmax = np.nanargmax(np.abs(trace_wa.data))
-    except ValueError as verr:
-        raise SkipSegment('Unable to compute max WoodAnderson: ' + str(verr))
-    t_WA = timeof(trace_wa, _argmax)
-    maxWA = trace_wa.data[_argmax]
+        # PGV:
+        trace_cut_vel = trace_cut.copy()
+        trace_cut_vel.integrate()
+        try:
+            _argmax = np.nanargmax(np.abs(trace_cut_vel.data))
+        except ValueError as verr:
+            raise SkipSegment('Unable to compute PGV: ' + str(verr))
+        #t_PGV = timeof(trace_cut_vel, _argmax)
+        PGV = trace_cut_vel.data[_argmax]
+        meanoff = meanslice(trace_cut_vel, 100, cumtime[0.05], trace_cut_vel.stats.endtime)
+        # calculates amplitudes at the frequency bins given in the config file:
+        required_freqs = np.array(config['freqs_interp'])
+        ampspec_freqs = normal_f0 + np.arange(len(normal_spe)) * normal_df
+        required_amplitudes = np.interp(
+            np.log10(required_freqs),
+            np.log10(ampspec_freqs),
+            normal_spe
+        ) / trace.stats.sampling_rate
 
+        #required_periods = np.array(config['resp_spec_periods'])
+        #dt = 1.0 / trace_cut.meta.sampling_rate
+        #response_spectrum = get_response_spectrum(trace_cut.data, dt, required_periods,
+        #                                          units="m/s/s")[0]
+        outputs.append({
+            "channel": trace_cut.meta.channel,
+            "FAS": {"f": required_freqs, "amp": required_amplitudes},
+        #    "SA": {"T": required_periods, "amp": response_spectrum["Pseudo-Acceleration"]},
+            "PGA": PGA,
+            "PGV": PGV,
+        #    "time-history": trace_cut.data,
+        #    "dt": dt
+        })
+    final_output = {
+        "PGA": np.sqrt(outputs[0]["PGA"] * outputs[1]["PGA"]) * 100.0, # Geometric mean -> to cm/s/s
+        "PGV": np.sqrt(outputs[0]["PGV"] * outputs[1]["PGV"]) * 100.0, # Geometric mean -> to cm/s/s
+       # "SA": np.sqrt(outputs[0]["SA"]["amp"] * outputs[1]["SA"]["amp"]), # Geometric mean
+        "EAS": np.sqrt(0.5 * (outputs[0]["FAS"]["amp"] ** 2.0 +
+                              outputs[1]["FAS"]["amp"] ** 2.0))  # Effective Amplitude Spectrum
+    }
     # write stuff to csv / hdf:
-    ret = {}
+    ref_trace = segment[0]  # which trace is irrelevant for the metadata we will need
+    net = ref_trace.stats.network
+    sta = ref_trace.stats.station
+    loc = ref_trace.stats.location
+    cha = ref_trace.stats.channel
 
-    ret['snr_fmin_fmax'] = snr_min_max
-    ret['snr_fmin_1'] = snr_min_1
-    ret['snr_1_10'] = snr_1_10
-    ret['snr_10_fmax'] = snr_10_max
+    segment_meta = ref_trace.stats.segment_metadata
 
-    # cumulative times:
-    for _cumlabel in [0.05, 0.5, 0.95]:
-        ret['cumtime__%.2f' % _cumlabel] = cumtime[_cumlabel].datetime
+    station_id = f"{net}.{sta}.{loc}.{cha[:-1]}"
+    score = "|".join("{:.4f}".format(score) for score in scores)
+    wfid = f"{segment_meta.event_id}|{segment_meta.station_id}"
+    repi = segment_meta.event_distance_km  # d2km(segment.event_distance_deg)
+    rhypo = np.sqrt(repi ** 2.0 + segment_meta.event_depth_km ** 2.0)
+    ret = {
+        "wfid": wfid,
+        "event_id": segment_meta.event_id,
+        "event_time": segment_meta.event_time.isoformat(),
+        "event_longitude": segment_meta.event_longitude,
+        "event_latitude": segment_meta.event_latitude,
+        "event_hypo_depth": segment_meta.event_depth_km,
+        "event_preferred_mag": segment_meta.event_magnitude,
+        "event_preferred_mag_type": segment_meta.event_magnitude_type,
+        "repi": repi, "rhypo": rhypo,
+        "station_id": station_id,
+        "network": net,
+        "station": sta,
+        "location": loc,
+        "channel": cha[:-1],
+        "station_longitude": segment_meta.longitude,
+        "station_latitude": segment_meta.latitude,
+        "station_elevation": segment_meta.elevation,
+        "score": score,
+        "PGA": final_output["PGA"],
+        "PGV": final_output["PGV"],
+    }
 
-    ret['dist_deg'] = segment_metadata.event_distance_deg        # dist
-    ret['dist_km'] = segment_metadata.event_distance_km  # dist_km
-    # t_PGA is a obspy UTCDateTime. This type is not supported in HDF output, thus
-    # convert it to Python datetime. Note that in CSV output, the value will be written
-    # as str(t_PGA.datetime): another option might be to store it as string with
-    # str(t_PGA) (returns the iso-formatted string, supported in all output formats):
-    ret['t_PGA'] = t_PGA.datetime  # peak info
-    ret['PGA'] = PGA
-    # (for t_PGV, see note above for t_PGA)
-    ret['t_PGV'] = t_PGV.datetime  # peak info
-    ret['PGV'] = PGV
-    # (for t_WA, see note above for t_PGA)
-    ret['t_WA'] = t_WA.datetime
-    ret['maxWA'] = maxWA
-    ret['channel'] = segment_metadata.channel_code
-    ret['channel_component'] = segment_metadata.orientation_code
-    # event metadata:
-    ret['ev_id'] = segment_metadata.event_id
-    ret['ev_lat'] = segment_metadata.event_latitude
-    ret['ev_lon'] = segment_metadata.event_longitude
-    ret['ev_dep'] = segment_metadata.event_depth_km
-    ret['ev_mag'] = segment_metadata.event_magnitude
-    ret['ev_mty'] = segment_metadata.event_magnitude_type
-    # station metadata:
-    # ret['st_id'] = segment.station.id
-    ret['st_name'] = segment_metadata.station_code
-    ret['st_net'] = segment_metadata.network_code
-    ret['st_lat'] = segment_metadata.latitude
-    ret['st_lon'] = segment_metadata.longitude
-    ret['st_ele'] = segment_metadata.elevation
-    ret['score'] = score
-    ret['d2max'] = float(tt1)
-    ret['offset'] = np.abs(meanoff/PGV)
-    for freq, amp in zip(required_freqs, required_amplitudes):
-        ret['f_%.5f' % freq] = float(amp)
+    for freq, amp in zip(required_freqs, final_output["EAS"]):
+        ret[f"EAS_{freq:.5f}"] = float(amp)
 
     return ret
 
@@ -560,28 +564,7 @@ def get_multievent_sg(cum_trace: Trace, tmin, tmax, sg_params, multievent_thresh
     return result, deltatime, starttime, endtime
 
 
-def synth_wood_anderson(trace: Trace, config: dict):
-    """Low-level function to calculate the synthetic Wood-Anderson
-    response of `trace` (which must be in acceleration units).
-    The dict `config['simulate_wa']` must be implemented and contains
-    the Wood-Anderson parameters: 'sensitivity', 'zeros', 'poles' and 'gain'.
-    This function modifies the trace in place
-    """
-    config_wa = dict(config['paz_wa'])
-    # parse complex string to complex numbers:
-    zeros_parsed = map(complex, (c.replace(' ', '') for c in config_wa['zeros']))
-    config_wa['zeros'] = list(zeros_parsed)
-    poles_parsed = map(complex, (c.replace(' ', '') for c in config_wa['poles']))
-    config_wa['poles'] = list(poles_parsed)
-    # compute synthetic WA response. This modifies the trace in-place!
-
-    # double integration (move to displacement):
-    trace.integrate().integrate()
-
-    return trace.simulate(paz_remove=None, paz_simulate=config_wa)
-
-
-def signal_noise_spectra(trace: Trace, arrival_time: datetime, config: dict):
+def signal_noise_spectra(trace: Trace, arrival_time: datetime, config):
     """Compute the signal and noise spectra.
     Does not modify the segment's stream or traces in-place
 

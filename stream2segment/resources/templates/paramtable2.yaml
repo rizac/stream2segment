@@ -1,0 +1,205 @@
+# ======================================================
+# Stream2segment configuration file / processing routine
+# ======================================================
+#
+# This is a configuration file for the stream2segment `imap` and `process` functions.
+# See associated Python module (generated via `s2s init`) for details
+#
+# This file is written in YAML syntax. For info see: http://docs.ansible.com/ansible/latest/YAMLSyntax.html
+dburl: 'sqlite:///./s2s_UtahFORGE/UUtah_FORGE_1980_2018.db'
+outfile:  "./Utah_FORGE_GES_Catalogue_UU_flatfile.csv"
+# settings for computing the 'signal' and 'noise' time windows on a segment waveform
+sn_windows:
+  # set the separator between noise part and signal part, in seconds relative to each
+  # segment arrival time:
+  arrival_time_shift: -2.0
+  # define the signal window [start, end] within the signal part (see above). Each number
+  # is given as ratio of the total signal sum of squares (so 0.1 is the time when the
+  # signal cumulative reaches 10% of the total)
+  signal_window: [0.1, 0.9]
+
+# settings for the sn (signal-to-noise) spectra implemented in the associated python module
+sn_spectra:
+  taper:
+    max_percentage: 0.05
+    type: 'hann'
+  smoothing_wlen_ratio: 0.05  # 0 for no smoothing
+  type: 'amp'  # if 'pow', then power spectra are computed, otherwise if 'amp', amplitude spectra are computed
+
+# settings for the bandpass function using in pre-processing the waveform trace
+bandpass:
+  freq_max: 30  # the max frequency, in Hz
+  max_nyquist_ratio: 0.9
+  corners: 2
+
+# settings for the wood-anderson implemented in the associated python module
+paz_wa:
+  sensitivity: 2800
+  zeros:
+    - '0j'
+  poles:
+    - '-6.2832-4.7124j'
+    - '-6.2832+4.7124j'
+  gain: 1
+
+# savitzky_golay:
+savitzky_golay:
+  wsize: 31  # window size in pts
+  order: 4   # polynomial order to use to fit and smooth data
+  deriv: 2   # the derivative (1st, second, ...)
+
+# thresholds for the multievent (heuristic) algorithm
+multievent_thresholds:
+  inside_tmin_tmax_inpercent: 0.90
+  inside_tmin_tmax_insec: 10.0
+  after_tmax_inpercent: 0.10
+
+# other custom parameters used in the associated python module
+amp_ratio_threshold: 0.8
+snr_threshold: 3
+freqs_interp:
+ - 0.1
+ - 0.106365
+ - 0.113136
+ - 0.120337
+ - 0.127997
+ - 0.136145
+ - 0.144811
+ - 0.154028
+ - 0.163833
+ - 0.174261
+ - 0.185354
+ - 0.197152
+ - 0.209701
+ - 0.22305
+ - 0.237248
+ - 0.252349
+ - 0.268412
+ - 0.285497
+ - 0.30367
+ - 0.323
+ - 0.34356
+ - 0.365429
+ - 0.388689
+ - 0.413431
+ - 0.439747
+ - 0.467739
+ - 0.497512
+ - 0.52918
+ - 0.562864
+ - 0.598692
+ - 0.636801
+ - 0.677336
+ - 0.72045
+ - 0.766309
+ - 0.815088
+ - 0.866971
+ - 0.922156
+ - 0.980855
+ - 1.04329
+ - 1.1097
+ - 1.18033
+ - 1.25547
+ - 1.33538
+ - 1.42038
+ - 1.5108
+ - 1.60696
+ - 1.70925
+ - 1.81805
+ - 1.93378
+ - 2.05687
+ - 2.18779
+ - 2.32705
+ - 2.47518
+ - 2.63273
+ - 2.80031
+ - 2.97856
+ - 3.16816
+ - 3.36982
+ - 3.58432
+ - 3.81248
+ - 4.05516
+ - 4.31328
+ - 4.58784
+ - 4.87987
+ - 5.19049
+ - 5.52088
+ - 5.8723
+ - 6.24609
+ - 6.64368
+ - 7.06657
+ - 7.51638
+ - 7.99483
+ - 8.50372
+ - 9.04501
+ - 9.62076
+ - 10.2332
+ - 10.8845
+ - 11.5774
+ - 12.3143
+ - 13.0982
+ - 13.9319
+ - 14.8187
+ - 15.762
+ - 16.7653
+ - 17.8324
+ - 18.9675
+ - 20.1749
+ - 21.4591
+ - 22.825
+ - 24.2779
+ - 25.8233
+ - 27.467
+ - 29.2154
+ - 31.075
+ - 33.0531
+ - 35.157
+ - 37.3949
+ - 39.7752
+ - 42.307
+ - 45.
+
+resp_spec_periods:
+ - 0.01
+ - 0.02
+ - 0.03
+ - 0.04
+ - 0.05
+ - 0.06
+ - 0.07
+ - 0.08
+ - 0.09
+ - 0.10
+ - 0.11
+ - 0.12
+ - 0.13
+ - 0.14
+ - 0.15
+ - 0.16
+ - 0.17
+ - 0.18
+ - 0.19
+ - 0.20 
+ - 0.21
+ - 0.22
+ - 0.23
+ - 0.24
+ - 0.25
+ - 0.26
+ - 0.27
+ - 0.28
+ - 0.29
+ - 0.30
+ - 0.35
+ - 0.40
+ - 0.50
+ - 0.75
+ - 1.00
+ - 1.50
+ - 2.00
+ - 3.00
+ - 4.00
+ - 5.00
+ - 7.50
+ - 10.0
+

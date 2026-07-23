@@ -47,8 +47,14 @@ def _add_processing_info(trace, func_name, **kwargs):
     proc.append(info)
 
 
-def bandpass(trace, freq_min, freq_max, max_nyquist_ratio=0.9,
-             corners=2, copy=True):
+def bandpass(
+    trace,
+    freq_min,
+    freq_max,
+    max_nyquist_ratio=0.9,
+    corners=2,
+    copy=True
+):
     """Filter a signal trace with a bandpass and other pre-processing.
     The algorithm steps are:
      1. Set the max frequency to 0.9 of the nyquist (sampling rate /2)
