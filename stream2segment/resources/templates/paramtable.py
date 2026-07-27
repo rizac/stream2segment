@@ -155,8 +155,8 @@ def run_segment(
         accessible globally by all processed segments. The purpose of the `config`
         is to encourage decoupling of code and configuration for better and more
         maintainable code, avoiding, e.g., many similar processing functions differing
-        by few hard-coded parameters. For a couple of simple parameters, a custom config
-        is usually an overkill, and you can implement your parameters here
+        by few hard-coded parameters. For few of simple parameters, a custom config is
+        usually an overkill, and you can implement your parameters directly in the code
 
     :return: a row of the resulting table, as dict, pandas Series, or -
         if a single segment should produce several rows - a pandas DataFrame or a
@@ -169,7 +169,7 @@ def run_segment(
         segment will be silently skipped
 
         Note: When this function is called from `process_segments` with an output file,
-        the file format file will be inferred from the file extension.
+        the file format will be inferred from the file extension.
         Supported formats are 'csv' and 'hdf'. For details, see:
         - https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.to_csv.html
         - https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.to_hdf.html
@@ -379,8 +379,7 @@ def run_segment(
 
 
 def bandpass_remresp(trace: Trace, station: Inventory, magnitude: float, config: dict):
-    """
-    Preprocess the given segment waveform by filtering the signal and
+    """Preprocess the given segment waveform by filtering the signal and
     removing the instrumental response, returning a new Trace in acceleration units
     (meters/second**2)
 
@@ -503,8 +502,7 @@ def savitzky_golay(y, window_size, order, deriv=0, rate=1):
 
 
 def get_multievent_sg(cum_trace: Trace, tmin, tmax, sg_params, multievent_thresholds):
-    """
-    Return (score, duration, start_time, end_time) describing
+    """Return (score, duration, start_time, end_time) describing
     whether a possible double event was detected, where `score` can be
     :
     0: no double event
