@@ -37,10 +37,6 @@ from stream2segment.process.ndarrays import triangsmooth, snr
 def run():
     """Generate a parametric table"""
 
-    # Setup config: you can build your own dict of parameters or load it from a YAML
-    # file as in the example below (change path according to your needs):
-    config_path = Path(__file__).with_suffix('.yaml')
-    config = yaml.safe_load(config_path.read_text())
     # get the database URL. Do NOT TYPE anywhere URLs with passwords (e.g. postgres), or
     # if you do, do not COMMIT the file and keep it local. By default, we assume it is
     # the 1st argument passed to this script (python <this_file_path> <dburl> <outfile>):
@@ -55,11 +51,13 @@ def run():
     if Path(dburl).suffix.lower() in ('.yaml', '.yml'):
         # If the download config was passed as argument, read its db url:
         dburl = yaml.safe_load(Path(dburl).read_text())['db']
-    # segments to process
+
+    # segments to process from the chosen Database
     # For details, see https://github.com/rizac/stream2segment/wiki/the-segment-object#segments-selection
     segments_selection = {
         'gap_score_percent': '[-50, 50]',
     }
+
     # output file. We assume it is the 2nd argument passed to this script
     # (python <this_file_path> <dburl> <outfile>):
     outfile = sys.argv[2] if len(sys.argv) > 2 else ""
@@ -69,6 +67,11 @@ def run():
             f'(python {Path(__file__).name} <dburl> <outfile>), '
             'or modifying the code directly (variable `outfile` inside `def run()`)'
         )
+
+    # Setup config setting a dict of parameters available to the processing function
+    # (in the example below, we read the dict from a yaml file with the same name
+    # as this module):
+    config = yaml.safe_load(Path(__file__).with_suffix('.yaml').read_text())
 
     # execute `run_segment` on each segment selected from `dburl`:
     process_segments(
