@@ -22,6 +22,7 @@ from pathlib import Path
 from math import factorial  # for savitzky_golay function
 import sys
 import numpy as np
+import yaml
 from obspy import Trace, Stream, UTCDateTime
 from obspy.core.inventory.inventory import Inventory
 from obspy.core.event import Event
@@ -39,26 +40,35 @@ def run():
 
     # Setup config: you can build your own dict of parameters or load it from a YAML
     # file as in the example below (change path according to your needs):
-    import yaml
     config_path = Path(__file__).with_suffix('.yaml')
     config = yaml.safe_load(config_path.read_text())
     # get the database URL. Do NOT TYPE anywhere URLs with passwords (e.g. postgres), or
-    # if you do, do not COMMIT the file and keep it local. A good solution is to read
-    # the db URL used for downloading the data from its config. Example:
-    download_path = Path(__file__).parent / 'download.yaml'
-    dburl = yaml.safe_load(download_path.read_text())['db']
+    # if you do, do not COMMIT the file and keep it local. By default, we assume it is
+    # the 1st argument passed to this script (python <this_file_path> <dburl> <outfile>):
+    dburl = sys.argv[1] if len(sys.argv) > 1 else ""
+    if not dburl:
+        raise ValueError(
+            'Please provide a database url or the yaml file used for download the data,'
+            'either as command line argument '
+            f'(python {Path(__file__).name} <dburl> <outfile>), '
+            'or modifying the code directly (variable `dburl` inside `def run()`)'
+        )
+    if Path(dburl).suffix.lower() in ('.yaml', '.yml'):
+        # If the download config was passed as argument, read its db url:
+        dburl = yaml.safe_load(Path(dburl).read_text())['db']
     # segments to process
     # For details, see https://github.com/rizac/stream2segment/wiki/the-segment-object#segments-selection
     segments_selection = {
         'gap_score_percent': '[-50, 50]',
     }
-    # output file
-    outfile = sys.argv[1]  # argument passed to this script python <this_script> arg
+    # output file. We assume it is the 2nd argument passed to this script
+    # (python <this_file_path> <dburl> <outfile>):
+    outfile = sys.argv[2] if len(sys.argv) > 2 else ""
     if not outfile:
         raise ValueError(
-            'Please provide an output file path, either via the command line'
-            '(python <this_file>.py <output_file_path>, or modifying the code directly'
-            '(variable `outfile` inside `def run()`)'
+            'Please provide an output file path, either via the command line '
+            f'(python {Path(__file__).name} <dburl> <outfile>), '
+            'or modifying the code directly (variable `outfile` inside `def run()`)'
         )
 
     # execute `run_segment` on each segment selected from `dburl`:
