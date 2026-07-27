@@ -2,7 +2,8 @@
 Stream2segment processing module generating a parametric table
 based on the two horizontal components of a segment
 
-Modify `run()` and optionally `run_segment()` and execute `python <this_file_path>`
+Modify `run()` and optionally `run_segment()` and execute
+`python <this_file_path> <dburl> <outfile>`
 
 For a general overview on segment processing (applicable e.g., in custom code, Jupyter
 Notebook), see
@@ -49,8 +50,9 @@ def run():
             f'(python {Path(__file__).name} <dburl> <outfile>), '
             'or modifying the code directly (variable `dburl` inside `def run()`)'
         )
+    # If the download config was passed as argument (good practice to hide passwords),
+    # read its db url:
     if Path(dburl).suffix.lower() in ('.yaml', '.yml'):
-        # If the download config was passed as argument, read its db url:
         dburl = yaml.safe_load(Path(dburl).read_text())['db']
 
     # segments to process from the chosen Database
