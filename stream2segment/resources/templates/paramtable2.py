@@ -19,7 +19,7 @@ message that you want to appear in the log file for later inspection
 """
 from datetime import datetime
 from pathlib import Path
-from math import factorial  # for savitzky_golay function
+from math import factorial
 import sys
 import numpy as np
 import yaml
