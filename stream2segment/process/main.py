@@ -27,10 +27,10 @@ from obspy.core.event import Event
 from obspy import Stream, Inventory, read, read_events, read_inventory
 from obspy.geodetics import locations2degrees, degrees2kilometers
 
-from stream2segment.io.db import secure_dburl, create_engine, s2s_db_version, models
+from stream2segment.io.db import secure_dburl, create_engine, models
 from stream2segment.io.db.legacy import models as legacy_models
 from stream2segment.process.segments_selection import (
-    get_segments_count, build_select, get_orderby_columns
+    get_segments_count, build_select, get_orderby_columns, is_legacy_db
 )
 from stream2segment.io.utils import (
     get_progressbar, ascii_decorate, start_logging, BadParam, estimate_buffer_size
@@ -465,7 +465,8 @@ def get_segments(
     segments_selection: dict,
     group_components: bool = False,
     segments_only: bool = False,
-    chunksize: int | None = None
+    chunksize: int | None = None,
+    sort_ascending: bool = True,
 ) -> Iterable[tuple[Stream, Inventory | None, Event | None]]:
     """Yield (stream, inventory, event) tuples for every selected segment.
 
@@ -481,7 +482,7 @@ def get_segments(
     else:
         engine = db
 
-    is_legacy_db = s2s_db_version(engine) < 5
+    legacy_db = is_legacy_db(engine)
     orderby_columns = get_orderby_columns(db)
 
     def stream_key(db_row) -> tuple:
@@ -492,17 +493,20 @@ def get_segments(
     ) -> tuple[Stream, Inventory | None, Event | None]:
         sta = None
         if not segments_only:
-            sta = get_obspy_inventory(engine, station_id, is_legacy_db)
+            sta = get_obspy_inventory(engine, station_id, legacy_db)
         evt = None
         if not segments_only:
-            evt = get_obspy_event(engine, event_id, is_legacy_db)
+            evt = get_obspy_event(engine, event_id, legacy_db)
         return strm, sta, evt
 
     buffer = []
     last_key = None
+    orderby_cols = orderby_columns.values()
+    if not sort_ascending:
+        orderby_cols = (c.desc() for c in orderby_cols)
     stmt_base = build_select(
         db, segments_selection, group_components
-    ).order_by(*orderby_columns.values())
+    ).order_by(*orderby_cols)
 
     if chunksize is None:
         chunksize = estimate_buffer_size(5)  # 5 Mb per row
@@ -703,7 +707,7 @@ _inventory_cache_maxsize = estimate_buffer_size('stationxml')
 
 
 def get_obspy_inventory(
-    engine: Engine, stationxml_id: int | None, is_legacy_db: bool
+    engine: Engine, stationxml_id: int | None, legacy_db: bool
 ) -> Inventory:
     """
     return the tuple
@@ -713,7 +717,7 @@ def get_obspy_inventory(
     inventory = None
     station_table = models.StationXML
     station_data_col = models.StationXML.data
-    if is_legacy_db:
+    if legacy_db:
         station_table = legacy_models.Station
         station_data_col = legacy_models.Station.inventory_xml
 
@@ -742,9 +746,9 @@ _event_cache = {}
 _event_cache_maxsize = estimate_buffer_size('quakeml')
 
 
-def get_obspy_event(engine, quakeml_id: int | None, is_legacy_db):
+def get_obspy_event(engine, quakeml_id: int | None, legacy_db):
     event = None
-    if not is_legacy_db and quakeml_id is not None:
+    if not legacy_db and quakeml_id is not None:
         event = _event_cache.get(quakeml_id)
         if event is None:
             while len(_event_cache) >= _event_cache_maxsize:
@@ -766,7 +770,7 @@ def get_obspy_event(engine, quakeml_id: int | None, is_legacy_db):
 
 def get_default_segments_selection():
     """Return a dict with a default segments selection for processing"""
-    return {}  # 'gap_score_percent': '<=50'
+    return {}
 
 
 def execute_processing_functions(args: tuple[

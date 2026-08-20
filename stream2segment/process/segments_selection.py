@@ -224,7 +224,7 @@ def build_select(
         (this option did not exist in any legacy s2s version) - raises
         NotImplementedError if `db` is a legacy database.
     """
-    legacy = s2s_db_version(db) < 5
+    legacy = is_legacy_db(db)
 
     if legacy:
         if group_components:
@@ -335,7 +335,7 @@ def get_orderby_columns(db) -> dict[str, ColumnElement | hybrid_property]:
     if is_legacy_db(db):
         return {
             c: getattr(seg_attrs, c) for c in [
-                'station_id',
+                # 'station_id',
                 'id'
             ]
         }

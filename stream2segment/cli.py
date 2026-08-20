@@ -8,6 +8,7 @@ import warnings
 from collections import OrderedDict, defaultdict
 from contextlib import contextmanager
 from os.path import dirname
+from pathlib import Path
 
 import yaml
 import click
@@ -364,7 +365,6 @@ def copy_example_files(outpath, prompt=True, *filenames):
         other value will return without copying.
     """
     import jinja2, shutil
-    from stream2segment.resources import get_templates_fpaths
     from stream2segment.resources.templates import DOCVARS
 
     if not os.path.isdir(outpath):
@@ -542,9 +542,8 @@ def show(dburl, pyfile, configfile):
         ret = 0
         with warnings.catch_warnings():  # capture (ignore) warnings
             warnings.simplefilter("ignore")
-            if pyfile and not configfile and \
-                    os.path.isfile(os.path.splitext(pyfile)[0] + '.yaml'):
-                configfile = os.path.splitext(pyfile)[0] + '.yaml'
+            pyfile = Path(pyfile).resolve() if pyfile else None
+            configfile = Path(configfile).resolve() if configfile else None
             show_gui(dburl, pyfile, configfile)
     except BadParam as err:
         _print_badparam_and_exit(err)

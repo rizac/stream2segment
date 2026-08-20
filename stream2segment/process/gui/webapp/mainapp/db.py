@@ -7,20 +7,21 @@ Created on 16 Apr 2020
 """
 
 from sqlalchemy import func
+from sqlalchemy.orm import create_session
 from datetime import datetime
 
-from stream2segment.io.db import secure_dburl, sqlalchemy_version
-from stream2segment.io.db.models import get_classlabels
+from stream2segment.io.db import secure_dburl, sqlalchemy_version, create_engine
+# from stream2segment.io.db.models import get_classlabels
 from stream2segment.process.segments_selection import (
     build_where_clause, get_pytype, get_sqltype
 )
 
 # import atexit
 
-_session = None  # noqa
+_session: Engine = None  # noqa
 
 
-def init(app, session):
+def init(app, db_url: str):
     """Initialize the database. this method must be called after the Flask
     app has been created and before using it.
 
@@ -31,7 +32,7 @@ def init(app, session):
     # https://flask.palletsprojects.com/en/1.1.x/appcontext/#storing-data
 
     global _session  # noqa
-    _session = session
+    _session = create_session(create_engine(db_url, check_db_existence=True))
 
     # we add a listener that whn a request is ended, the session should be
     # removed (see get_session below)

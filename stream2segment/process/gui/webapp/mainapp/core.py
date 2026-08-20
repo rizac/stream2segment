@@ -12,11 +12,14 @@ import yaml
 import numpy as np
 from obspy import Stream, Trace
 from obspy.core.utcdatetime import UTCDateTime
+from sqlalchemy import Engine
 
-from stream2segment.process import gui
+from stream2segment.io.db import create_engine, secure_dburl
+from stream2segment.process import gui, segments_selection  # FIXE gui import what is it?!!!!
 from stream2segment.process.gui.introspection import scan_module
-from stream2segment.process.gui.webapp.mainapp import db
+# from stream2segment.process.gui.webapp.mainapp import db
 
+_engine: Engine = None
 
 # Note that the use of global variables like this should be investigated
 # in production (which is not the intended goal of the web GUI for the moment):
@@ -70,21 +73,28 @@ def _reset_global_functions():
 _reset_global_functions()  # just initialize global vars
 
 
-def init(app, session, pymodule=None, config=None, segments_selection=None):
+def init(
+    app,
+    db_url: str,
+    py_module=None,
+    config: dict | None = None,
+    segments_selection: dict| None =None):
     """Initialize global variables. This method must be called once
     after the Flask app has been created and before using it.
 
     :param session: a SQLAlchemy SCOPED session
-    :param pymodule: Python module
+    :param py_module: Python module
     :param config: dict of the current configuration
     :param segments_selection: dict[str, str] of segment attributes mapped to a
         selection expression (str)
     """
-    db.init(app, session)
+    # db.init(app, db_url)
+    global _engine
+    _engine = create_engine(db_url, check_same_thread=True)
 
-    if pymodule:
+    if py_module:
         _reset_global_functions()
-        for function in scan_module(pymodule, functions=True, classes=False):
+        for function in scan_module(py_module, functions=True, classes=False):
             att, pos, xaxis, yaxis = gui.get_func_attrs(function)
             if att == 'gui.preprocess':
                 global _preprocessfunc  # noqa
@@ -118,8 +128,8 @@ def reset_global_vars(config=None, segments_selection = None):
         g_selection = dict(segments_selection)
 
 
-def get_db_url(safe=True):
-    return db.get_db_url(safe=safe)
+def get_db_url():
+    return secure_dburl(str(_engine.url))
 
 
 def get_preprocess_function():
@@ -185,7 +195,7 @@ def get_select_conditions():
 
 
 def get_segments_count(select_conditions):
-    return db.get_segments_count(select_conditions)
+    return segments_selection.get_segments_count(_engine, select_conditions)
 
 
 def reset_segment_ids_array(segments_count):
