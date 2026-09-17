@@ -483,6 +483,14 @@ def get_segments(
         engine = db
 
     legacy_db = is_legacy_db(engine)
+
+    if legacy_db and group_components:
+        raise NotImplementedError(
+            "`group_components` is not supported on "
+            "legacy (v<=4) databases: Either omit `group_components` and handle it "
+            "in your code, or re-download the data with this program version"
+        )
+
     orderby_columns = get_orderby_columns(db)
 
     def stream_key(db_row) -> tuple:
@@ -504,9 +512,7 @@ def get_segments(
     orderby_cols = orderby_columns.values()
     if not sort_ascending:
         orderby_cols = (c.desc() for c in orderby_cols)
-    stmt_base = build_select(
-        db, segments_selection, group_components
-    ).order_by(*orderby_cols)
+    stmt_base = build_select(db, segments_selection).order_by(*orderby_cols)
 
     if chunksize is None:
         chunksize = estimate_buffer_size(5)  # 5 Mb per row

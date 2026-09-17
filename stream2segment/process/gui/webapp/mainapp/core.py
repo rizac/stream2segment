@@ -15,9 +15,9 @@ from obspy.core.utcdatetime import UTCDateTime
 from sqlalchemy import Engine
 
 from stream2segment.io.db import create_engine, secure_dburl
-from stream2segment.process import gui, segments_selection  # FIXE gui import what is it?!!!!
+from stream2segment.process import gui, segments_selection  # FIXME gui import what is it?!!!!
 from stream2segment.process.gui.introspection import scan_module
-# from stream2segment.process.gui.webapp.mainapp import db
+# from stream2segment.process.gui.webapp.mainapp import db  # FIXME REMOVE
 
 _engine: Engine = None
 
@@ -248,8 +248,15 @@ def set_class_id(seg_id, class_id, value):
     return db.get_classlabelling_count(class_id)
 
 
-def get_segment_data(seg_id, plot_names, all_components, preprocessed,
-                     zooms, attributes=False, classes=False):
+def get_segment_data(
+    seg_id,
+    plot_names,
+    all_components,
+    preprocessed,
+    zooms,
+    attributes=False,
+    classes=False
+):
     """Return the segment data, depending on the arguments
 
     :param seg_id: the segment id (int)
@@ -295,7 +302,7 @@ def get_segment_data(seg_id, plot_names, all_components, preprocessed,
 
 
 def get_plotly_data_and_layout(
-        seg_id, plot_names, preprocessed, all_components, zooms
+    seg_id, plot_names, preprocessed, all_components, zooms
 ):
     """Return the plots to display for the given segment, as the tuple:
 

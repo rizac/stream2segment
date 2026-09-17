@@ -210,7 +210,7 @@ def get_where_fields(db: Engine) -> WhereFields:
 def build_select(
     db: Engine,
     segments_selection: dict | None = None,
-    group_components: bool = False,
+    fields_to_select: list[str] | None = None,
 ) -> Select:
     """
     Build the segments-selection SELECT statement, transparently supporting
@@ -219,25 +219,16 @@ def build_select(
     :param db: an Engine. See sqlalchemy `create_engine(db_url)`
     :param segments_selection: optional dict of selection filters, forwarded
         to `build_where_clause` exactly as before.
-    :param group_components: if True, also selects per-component channel
-        codes (location/band/instrument). NOT supported on legacy databases
-        (this option did not exist in any legacy s2s version) - raises
-        NotImplementedError if `db` is a legacy database.
+    :param fields_to_select: optional list of columns to query. These must be fields of
+        the class SelectFields. If None, all fields are queried
     """
     legacy = is_legacy_db(db)
 
-    if legacy:
-        if group_components:
-            raise NotImplementedError(
-                "`group_components` is not supported on "
-                "legacy (v<=4) databases: Either omit `group_components` and handle it "
-                "in your code, or re-download the data with this program version"
-            )
-
     sel_attrs = get_select_fields(db)
-    select_cols = [
-        getattr(sel_attrs, f.name).label(f.name) for f in fields(sel_attrs)
-    ]
+    if fields_to_select is None:
+        fields_to_select = (f.name for f in fields(sel_attrs))
+    select_cols = [getattr(sel_attrs, c).label(c) for c in fields_to_select]
+
     if legacy:
         stmt = _build_select_legacy(select_cols)
     else:

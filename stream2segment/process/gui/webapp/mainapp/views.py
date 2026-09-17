@@ -1,10 +1,7 @@
 """
 Views for the web app (processing)
-
-:date: Jun 20, 2016
-
-.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
+# :date: Jun 20, 2016
 from flask import (render_template, request, jsonify, Blueprint)
 from werkzeug.exceptions import HTTPException
 
@@ -26,7 +23,7 @@ def handle_exception(e):
     exc_i = sys.exc_info()
     return jsonify({
         'message': str(exc_i[1].__class__.__name__) + ": " + str(exc_i[1]),
-        'traceback': ''  # do not rpovide it for the moment
+        'traceback': ''  # do not provide it for the moment
     }), 500
 
 
@@ -40,16 +37,18 @@ def main():
     b_plots = [{**p, 'name': n} for n, p in ud_plots.items() if p['position'] == 'b']
     pp_func = core.get_preprocess_function()
     pp_func_doc = core.get_func_doc(pp_func)
-    pp_func_defined = pp_func not in (core._default_preprocessfunc, None)
-    return render_template('mainapp.html',
-                           num_segments=len(core.g_segment_ids),
-                           title=core.get_db_url(safe=True),
-                           rightPlots=r_plots,
-                           bottomPlots=b_plots,
-                           metadata=metadata,
-                           classes=classes,
-                           preprocess_func_on=pp_func_defined,
-                           preprocessfunc_doc=pp_func_doc)
+    pp_func_defined = pp_func not in (core._default_preprocessfunc, None)  # noqa
+    return render_template(
+        'mainapp.html',
+        num_segments=len(core.g_segment_ids),
+        title=core.get_db_url(),
+        rightPlots=r_plots,
+        bottomPlots=b_plots,
+        metadata=metadata,
+        classes=classes,
+        preprocess_func_on=pp_func_defined,
+        preprocessfunc_doc=pp_func_doc
+    )
 
 
 @main_app.route("/get_config", methods=['POST'])
