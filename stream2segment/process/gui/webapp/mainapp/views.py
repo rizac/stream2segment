@@ -30,9 +30,10 @@ def handle_exception(e):
 @main_app.route("/")
 def main():
     ud_plots = core.userdefined_plots
-    data = core.get_init_data(metadata=True, classes=True)
-    classes = data['classes']
-    metadata = data['metadata']
+    classes = core.get_class_labels()
+    # data = core.get_init_data(metadata=True, classes=True)
+    # classes = data['classes']
+    # metadata = data['metadata']
     r_plots = [{**p, 'name': n} for n, p in ud_plots.items() if p['position'] == 'r']
     b_plots = [{**p, 'name': n} for n, p in ud_plots.items() if p['position'] == 'b']
     pp_func = core.get_preprocess_function()
@@ -44,7 +45,7 @@ def main():
         title=core.get_db_url(),
         rightPlots=r_plots,
         bottomPlots=b_plots,
-        metadata=metadata,
+        metadata=[],  # fixme remove
         classes=classes,
         preprocess_func_on=pp_func_defined,
         preprocessfunc_doc=pp_func_doc
@@ -77,11 +78,9 @@ def set_selection():
     if sel_conditions:
         # remove space-only and empty strings in expressions:
         sel_conditions = {k: v for k, v in sel_conditions.items() if v and v.strip()}
-    num_segments = core.get_segments_count(sel_conditions)
+    num_segments = core.reset_global_vars(None, sel_conditions)
     if num_segments < 1:
         raise ValueError('No segment matching the current selection')
-    core.reset_global_vars(None, sel_conditions)
-    core.reset_segment_ids_array(num_segments)
     return jsonify(num_segments)
 
 
@@ -90,8 +89,7 @@ def get_segment_data():
     """Return the response for the segment data (and/or metadata)"""
     data = request.get_json()
     seg_index = data['seg_index']
-    seg_count = data['seg_count']
-    seg_id = core.get_segment_id(seg_index, seg_count)
+    seg_id = core.get_segment_id(seg_index)
     plot_names = data.get('plot_names', {})
     preprocessed = data.get('pre_processed', False)
     zooms = data.get('zooms', None)
@@ -108,7 +106,6 @@ def get_segment_data():
 def set_class_id():
     data = request.get_json()
     seg_index = data['seg_index']
-    seg_count = data['seg_count']
-    seg_id = core.get_segment_id(seg_index, seg_count)
+    seg_id = core.get_segment_id(seg_index)
     return jsonify(core.set_class_id(seg_id, data['class_id'], data['value']))
 

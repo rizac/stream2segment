@@ -5,6 +5,7 @@ Core functionalities for the main GUI web application (show command)
 import math
 import contextlib
 import os
+from dataclasses import asdict
 from datetime import datetime, date
 
 from io import StringIO
@@ -12,14 +13,17 @@ import yaml
 import numpy as np
 from obspy import Stream, Trace
 from obspy.core.utcdatetime import UTCDateTime
-from sqlalchemy import Engine
+from sqlalchemy import Engine, select, func
+from sqlalchemy import insert, delete
+from sqlalchemy.exc import IntegrityError
 
 from stream2segment.io.db import create_engine, secure_dburl
-from stream2segment.process import gui, segments_selection  # FIXME gui import what is it?!!!!
+from stream2segment.process import gui  # FIXME gui import what is it?!!!!
 from stream2segment.process.gui.introspection import scan_module
-# from stream2segment.process.gui.webapp.mainapp import db  # FIXME REMOVE
+from stream2segment.process.main import get_obspy_stream, get_obspy_inventory
+from stream2segment.process.segments_selection import build_select, is_legacy_db
 
-_engine: Engine = None
+g_engine: Engine = None
 
 # Note that the use of global variables like this should be investigated
 # in production (which is not the intended goal of the web GUI for the moment):
@@ -89,8 +93,8 @@ def init(
         selection expression (str)
     """
     # db.init(app, db_url)
-    global _engine
-    _engine = create_engine(db_url, check_same_thread=True)
+    global g_engine
+    g_engine = create_engine(db_url)  # , check_same_thread=True)
 
     if py_module:
         _reset_global_functions()
@@ -113,23 +117,28 @@ def init(
                 )
                 g_functions[func_name] = function
 
-    reset_global_vars(config or {}, segments_selection or {})
-
-    return get_segments_count(g_selection)
+    return reset_global_vars(config or {}, segments_selection or {})
 
 
-def reset_global_vars(config=None, segments_selection = None):
+def reset_global_vars(config=None, segments_selection = None) -> int:
     """Reset global variables (both dicts). None means: skip"""
     if config is not None:
         global g_config
         g_config = dict(config)
+    global g_selection
     if segments_selection is not None:
-        global g_selection
         g_selection = dict(segments_selection)
+    # reset ids:
+    stmt = build_select(g_engine, g_selection, ['id'])
+    with g_engine.connect() as conn:
+        rows = conn.execute(stmt).scalars()
+    global g_segment_ids
+    g_segment_ids = np.fromiter(rows, dtype = int)
+    return len(g_segment_ids)
 
 
 def get_db_url():
-    return secure_dburl(str(_engine.url))
+    return secure_dburl(str(g_engine.url))
 
 
 def get_preprocess_function():
@@ -156,12 +165,6 @@ def _escapedoc(string):
     return string.replace('{', '&#123;').replace('}', '&#125;').\
         replace("\"", "&quot;").replace("'", '&amp;').replace("<", "&lt;").\
         replace(">", "&gt;")
-
-
-def get_init_data(metadata=True, classes=True):
-    classes = db.get_classes() if classes else []
-    metadata = db.get_metadata() if metadata else []
-    return {'classes': classes, 'metadata': metadata}
 
 
 def get_config(as_str=False):
@@ -194,43 +197,20 @@ def get_select_conditions():
     return dict(g_selection)
 
 
-def get_segments_count(select_conditions):
-    return segments_selection.get_segments_count(_engine, select_conditions)
-
-
-def reset_segment_ids_array(segments_count):
-    # Array caching the segment ids to select (or None if no selection condition is set):
-    global g_segment_ids
-    g_segment_ids = np.full((segments_count,), np.nan, dtype=np.float32)
-
-
-def get_segment(segment_id):
-    """Return  the Segment object of the given segment id"""
-    return db.get_segment(segment_id)
-
-
-def get_segment_id(segment_index, segment_count):
+def get_segment_id(segment_index):
     """Return the segment id corresponding to the given segment index in
     the GUI
 
     :param segment_index: the segment index
-    :param segment_count: the total number of segments, needed to make the db retrieval
-        faster (see `db.get_segment_id`). Note that if some selection condition is set,
-        then `g_segment_ids` is not None and `segment_count  equals `len(g_segment_ids)`
     """
-    seg_id = np.nan if g_segment_ids is None else g_segment_ids[segment_index]  # noqa
-    if np.isnan(seg_id):
-        seg_id = db.get_segment_id(segment_index, segment_count, get_select_conditions())
-        if g_segment_ids is not None:
-            g_segment_ids[segment_index] = seg_id  # noqa
-    return int(seg_id)
+    global g_segment_ids
+    return int(g_segment_ids[segment_index])
 
 
 def set_class_id(seg_id, class_id, value):
     """Set the given class to the given segment (value=True), or removes it
     from the given segment (value=False)
     """
-    segment = get_segment(seg_id)
     try:
         import getpass
         annotator = str(getpass.getuser())
@@ -241,11 +221,35 @@ def set_class_id(seg_id, class_id, value):
     except Exception:  # noqa
         annotator = 'anonymous labeller'
 
-    if value:
-        segment.label(class_id, annotator=annotator)
+    if is_legacy_db(g_engine):
+        from stream2segment.io.db.legacy.models import ClassLabelling as ClassLabeling
     else:
-        segment.label(class_id, remove=True)
-    return db.get_classlabelling_count(class_id)
+        from stream2segment.io.db.models import ClassLabeling
+
+    with g_engine.begin() as conn:  # noqa
+        if value:
+            try:
+                conn.execute(
+                    insert(ClassLabeling).values(
+                        segment_id=seg_id, class_label_id=class_id, annotator=annotator
+                    )
+                )
+            except IntegrityError:
+                pass  # pairing already exists
+        else:
+            conn.execute(
+                delete(ClassLabeling).where(
+                    ClassLabeling.segment_id == seg_id,
+                    ClassLabeling.class_label_id == class_id,
+                )
+            )
+
+    # return the class label count:
+    stmt = select(func.count()).select_from(ClassLabeling).where(
+        ClassLabeling.class_label_id == class_id
+    )
+    with g_engine.connect() as conn:
+        return conn.execute(stmt).scalar_one()
 
 
 def get_segment_data(
@@ -269,7 +273,7 @@ def get_segment_data(
         the pre-processing function defined in the config (if any), or on the
         raw ObsPy Stream
     :param zooms: the plot bounds, list or None. NOT used.
-        If list, each element is either None,  or a tuple of [xmin, xmax] values
+        If List, each element is either None,  or a tuple of [xmin, xmax] values
         (xmin and xmax can be both None, to conform python slicing behaviour).
         If None, defaults
         to a list of [None, None] elements (one for each plot)
@@ -279,6 +283,11 @@ def get_segment_data(
     :param classes: boolean, whether to return the integers classes ids (if
         any) of the given segment
     """
+    stmt = build_select(g_engine, {'id': str(seg_id)})
+    with g_engine.connect() as conn:
+        db_row = conn.execute(stmt).one()
+    stream = get_obspy_stream(db_row)
+    seg_meta = stream[0].stats.segment_metadata
 
     if zooms is None and plot_names:
         zooms = [(None, None) for _ in plot_names]
@@ -287,22 +296,25 @@ def get_segment_data(
     layouts = {}
     if plot_names:
         plots, layouts = get_plotly_data_and_layout(
-            seg_id, plot_names, preprocessed, all_components, zooms)
+            stream, plot_names, preprocessed, all_components, zooms
+        )
 
-    metadata = [] if not attributes else db.get_metadata(seg_id)
+    metadata = {}
+    if attributes:
+        metadata = asdict(seg_meta)
     desc = get_description_from_segment_attributes(metadata)
 
     return {
         'plotData': plots,
         'plotLayout': layouts,
-        'attributes': metadata,
-        'classes': [] if not classes else db.get_classes(seg_id),
+        'attributes': [(str(k), _jsonify(v)) for k, v in metadata.items()],
+        'classes': [] if not classes else get_segment_class_labels(seg_id),
         'description': desc
     }
 
 
 def get_plotly_data_and_layout(
-    seg_id, plot_names, preprocessed, all_components, zooms
+    stream: Stream, plot_names, preprocessed, all_components, zooms
 ):
     """Return the plots to display for the given segment, as the tuple:
 
@@ -323,29 +335,30 @@ def get_plotly_data_and_layout(
     :param zooms: list of x bounds to zoom or None, one for each plot (not used)
     :return the tuple: plots:dict[str, list[dict]], layout: dict[str, dict]
     """
-    segment = get_segment(seg_id)
+    seg_meta = stream[0].stats.segment_metadata
     plots = {}
     layouts = {}
     for name in plot_names:
         zoom = None
-        plot = get_plot(segment, preprocessed, name, zoom)
-        if not name and all_components and isinstance(plot, list):
-            for seg in segment.siblings(include_self=False):
-                plt = get_plot(seg, preprocessed, name, zoom)
-                if isinstance(plt, str):
-                    plot = plt
-                    break
-                else:
-                    plot.extend(plt)
+        plot = get_plot(stream, preprocessed, name, zoom)
+        # FIXME: fix here all components!
+        # if not name and all_components and isinstance(plot, list):
+        #     for seg in segment.siblings(include_self=False):
+        #         plt = get_plot(seg, preprocessed, name, zoom)
+        #         if isinstance(plt, str):
+        #             plot = plt
+        #             break
+        #         else:
+        #             plot.extend(plt)
         plots[name] = plot
         if name == main_function_label:
             # main plot: add arrival time vertical line:
             layouts[name] = {
                 'shapes': [{
                     'type': 'line',
-                    'x0': _jsonify(segment.arrival_time),
+                    'x0': _jsonify(seg_meta.arrival_time),
                     'y0': 0,
-                    'x1': _jsonify(segment.arrival_time),
+                    'x1': _jsonify(seg_meta.arrival_time),
                     'yref': 'paper',
                     'y1': 1,
                     'line': {
@@ -358,7 +371,7 @@ def get_plotly_data_and_layout(
                     'text': 'arrival<br>time',
                     'align': 'right',
                     'xanchor': "right",
-                    'x': _jsonify(segment.arrival_time),
+                    'x': _jsonify(seg_meta.arrival_time),
                     'y': 1,
                     'yref': 'paper',
                     'yanchor': 'top',
@@ -369,12 +382,12 @@ def get_plotly_data_and_layout(
     return plots, layouts
 
 
-def get_plot(segment, preprocessed, func_name, zoom):
+def get_plot(stream: Stream, preprocessed: bool, func_name, zoom):
     """Return a list of dicts where each dict represents a Plotly Trace.
     The dict is the result of applying the given function
     to the given segment
 
-    :param segment: a Segment instance
+    :param stream: an ObsPy Stream instance
     :param preprocessed: boolean, whether the function has to be applied on
         the pre-processed trace of the segment
     :param func_name: the name of the function to be called. It is one
@@ -383,84 +396,46 @@ def get_plot(segment, preprocessed, func_name, zoom):
         (just print print the trace)
     """
     try:
-        func = exec_func(segment, preprocessed, g_functions[func_name])
-        return convert2plotly(func, zoom)
+
+        if preprocessed:
+            inv = get_obspy_inventory(g_engine, stream[0].stats.segment_metadata.station_id)
+            stream = _preprocessfunc(stream, inv, g_config)
+        function = g_functions[func_name]
+        result = function(stream, g_config)
+        return convert2plotly(result, zoom)
     except Exception as exc:
         return str(exc)
 
 
-def exec_func(segment, preprocessed, function):
-    """Execute the given function, setting the internal stream
-    to the preprocessed one of needed and restoring to its original
-    before returning. `func` signature must be: func(segment, config)
-    (config is the global g_config variable)
-    """
-    with prepare_for_function(segment, preprocessed):
-        return function(segment, g_config)
-
-
-@contextlib.contextmanager
-def prepare_for_function(segment, preprocessed=False):
-    """contextmanager to be used before applying a custom function on a
-    segment, stores temporarily the original streams so that in case of modifications
-    we can restore it
-    """
-    # the Stream object (or the Exception raised while retrieving it) is cached in a
-    # private segment attr (same for inventory), here we do the same for the
-    # pre-processed stream. Consider anyway that when moving to another segment the
-    # current one is destroyed (see Flask sessions doc for details)
-    tmp_stream = segment.stream().copy()
-    try:
-        if preprocessed:
-            stream = getattr(segment, '_p_p_stream', None)
-            if stream is None:
-                try:
-                    stream = _preprocessfunc(segment, g_config)
-                    if isinstance(stream, Trace):
-                        stream = Stream([stream])
-                    elif not isinstance(stream, Stream):
-                        raise Exception(f"Trace or Stream object needed,\n"
-                                        f"found: {stream.__class__.__name__}")
-                except Exception as exc:
-                    stream = Exception(f"(@gui.preprocess):\n{str(exc)}")
-                setattr(segment, '_p_p_stream', stream)
-            if isinstance(stream, Exception):
-                raise stream from None
-            setattr(segment, '_stream', stream.copy())
-        yield
-    finally:
-        setattr(segment, '_stream', tmp_stream)  # tmp_stream surely a Stream (no exc)
-
-
-def convert2plotly(funcres, zoom=None):
+def convert2plotly(func_result, zoom=None):
     """Convert the result of a function to a plot. Raises if `funcres` is not
     in any valid format
 
-    :param funcres: the function result of :func:`exdc_func`
+    :param func_result: the function result of :func:`exdc_func`
     :param zoom: x bounds to zoom (not used)
     """
-    if isinstance(funcres, Trace):
-        return stream2plotly(Stream([funcres]))
-    elif isinstance(funcres, Stream):
-        return stream2plotly(funcres)
-    elif isinstance(funcres, dict):
-        funcres = [{k: _jsonify(v) for k, v in funcres.items()}]
-    elif isinstance(funcres, (list, tuple)):
-        old_funcres, funcres = funcres, []
+    if isinstance(func_result, Trace):
+        return stream2plotly(Stream([func_result]))
+    elif isinstance(func_result, Stream):
+        return stream2plotly(func_result)
+    elif isinstance(func_result, dict):
+        func_result = [{k: _jsonify(v) for k, v in func_result.items()}]
+    elif isinstance(func_result, (list, tuple)):
+        old_funcres, func_result = func_result, []
         for f in old_funcres:
-            funcres.extend(convert2plotly(f, zoom))
+            func_result.extend(convert2plotly(f, zoom))
 
-    err = not isinstance(funcres, (list, tuple))
+    err = not isinstance(func_result, (list, tuple))
     if not err:
-        err = any(not isinstance(_, dict) for _ in funcres)
+        err = any(not isinstance(_, dict) for _ in func_result)
     if not err:
-        err = any(('y' not in _ for _ in funcres))
+        err = any(('y' not in _ for _ in func_result))
     if err:
         raise ValueError('Plot function output must be an obspy Trace, Stream, dict '
                          '(or any list of those objects).\nDicts must have at least the '
                          'key "y"\n(full list of keys: '
                          'https://plotly.com/javascript/reference/)')
-    return funcres
+    return func_result
 
 
 def trace2plotly(trace):
@@ -533,3 +508,87 @@ def get_description_from_segment_attributes(attrs: dict):
     except (IndexError, KeyError):
         pass
     return " ".join(desc)
+
+
+def get_class_labels() -> list[tuple[str, int]]:
+    """Return [(label, count), ...] for every ClassLabel, including those with 0 segments."""
+    engine = g_engine
+    if is_legacy_db(engine):
+        from stream2segment.io.db.legacy.models import ClassLabelling as ClassLabeling
+        from stream2segment.io.db.legacy.models import Class as ClassLabel
+    else:
+        from stream2segment.io.db.models import ClassLabel, ClassLabeling
+
+    stmt = (
+        select(ClassLabel.label, func.count(ClassLabeling.id))
+        .select_from(ClassLabel)
+        .outerjoin(ClassLabeling, ClassLabeling.class_label_id == ClassLabel.id)
+        .group_by(ClassLabel.id)
+    )
+    with engine.connect() as conn:
+        return conn.execute(stmt).fetchall()
+
+
+def get_segment_class_labels(seg_id: int) -> list[str]:
+    """Return all ClassLabel rows (label, description) assigned to the given segment."""
+    engine = g_engine
+    if is_legacy_db(engine):
+        from stream2segment.io.db.legacy.models import ClassLabelling as ClassLabeling
+        from stream2segment.io.db.legacy.models import Class as ClassLabel
+    else:
+        from stream2segment.io.db.models import ClassLabel, ClassLabeling
+    stmt = (
+        select(ClassLabel.label, ClassLabel.description)
+        .join(ClassLabeling, ClassLabeling.class_label_id == ClassLabel.id)
+        .where(ClassLabeling.segment_id == seg_id)
+    )
+    with engine.connect() as conn:
+        return conn.execute(stmt).fetchall()
+
+
+# FIXME REMOVE
+# def exec_func(segment, preprocessed, function):
+#     """Execute the given function, setting the internal stream
+#     to the preprocessed one of needed and restoring to its original
+#     before returning. `func` signature must be: func(segment, config)
+#     (config is the global g_config variable)
+#     """
+#     with prepare_for_function(segment, preprocessed):
+#         return function(segment, g_config)
+#
+#
+# @contextlib.contextmanager
+# def prepare_for_function(segment, preprocessed=False):
+#     """contextmanager to be used before applying a custom function on a
+#     segment, stores temporarily the original streams so that in case of modifications
+#     we can restore it
+#     """
+#     # the Stream object (or the Exception raised while retrieving it) is cached in a
+#     # private segment attr (same for inventory), here we do the same for the
+#     # pre-processed stream. Consider anyway that when moving to another segment the
+#     # current one is destroyed (see Flask sessions doc for details)
+#     tmp_stream = segment.stream().copy()
+#     try:
+#         if preprocessed:
+#             stream = getattr(segment, '_p_p_stream', None)
+#             if stream is None:
+#                 try:
+#                     stream = _preprocessfunc(segment, g_config)
+#                     if isinstance(stream, Trace):
+#                         stream = Stream([stream])
+#                     elif not isinstance(stream, Stream):
+#                         raise Exception(f"Trace or Stream object needed,\n"
+#                                         f"found: {stream.__class__.__name__}")
+#                 except Exception as exc:
+#                     stream = Exception(f"(@gui.preprocess):\n{str(exc)}")
+#                 setattr(segment, '_p_p_stream', stream)
+#             if isinstance(stream, Exception):
+#                 raise stream from None
+#             setattr(segment, '_stream', stream.copy())
+#         yield
+#     finally:
+#         setattr(segment, '_stream', tmp_stream)  # tmp_stream surely a Stream (no exc)
+#
+# def get_segment(segment_id):
+#     """Return  the Segment object of the given segment id"""
+#     return db.get_segment(segment_id)

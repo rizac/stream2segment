@@ -27,7 +27,7 @@ def show_gui(
     config_file: Path | None
 ):
     """Show downloaded data plots in a system browser dynamic web page"""
-    seg_sel = get_default_segments_selection() | {'gap_score_percent': '[-50, 50]'}
+    seg_sel = get_default_segments_selection()
     # Add constraints on traces with gaps. This is not only to avoid plotting traces
     # with gaps, but to help users showing an example of segment selection expr.
     run_in_browser(
@@ -47,9 +47,9 @@ def create_s2s_show_app(
     `app.config.from_pyfile`.
     """
     if py_file is None:
-        py_file = get_templates_fpath('gui.py')
+        py_file = Path(get_templates_fpath('gui.py'))
         if config_file is None:
-            config_file = get_templates_fpath('gui.yaml')
+            config_file = Path(get_templates_fpath('gui.yaml'))
     py_module = load_source(py_file)
     config = {}
     if config_file is not None:
@@ -63,7 +63,6 @@ def create_s2s_show_app(
     seg_count = core.init(app, db_url, py_module, config, segments_selection)
     if seg_count < 1:
         raise ValueError('No plottable waveform found on the database')
-    core.reset_segment_ids_array(seg_count)
 
     # Note that the template_folder of the Blueprint and the static paths in
     # the HTML are relative to the path of THIS MODULE, so execute the lines
