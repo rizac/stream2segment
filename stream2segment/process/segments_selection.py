@@ -119,8 +119,8 @@ def get_select_fields(db: Engine) -> SelectFields:
 class WhereFields(CommonFields):
     event_distance_km: ColumnElement | hybrid_property
     event_distance_deg: ColumnElement | hybrid_property
-    noise_window_s: ColumnElement | hybrid_property
-    signal_window_s: ColumnElement | hybrid_property
+    # noise_window_s: ColumnElement | hybrid_property
+    # signal_window_s: ColumnElement | hybrid_property
     gap_score_percent: ColumnElement | hybrid_property
     network_code: ColumnElement
     station_code: ColumnElement

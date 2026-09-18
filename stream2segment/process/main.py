@@ -24,7 +24,8 @@ from typing import Any
 from sqlalchemy import select, tuple_, Engine
 import yaml
 from obspy.core.event import Event
-from obspy import Stream, Inventory, read, read_events, read_inventory
+from obspy import Stream, read, read_events, read_inventory
+from obspy.core.inventory import Inventory
 from obspy.geodetics import locations2degrees, degrees2kilometers
 
 from stream2segment.io.db import secure_dburl, create_engine, models

@@ -3,15 +3,17 @@ Core functionalities for the main GUI web application (show command)
 """
 # :date: Jul 31, 2016
 import math
-import contextlib
 import os
 from dataclasses import asdict, fields
 from datetime import datetime, date
 
 from io import StringIO
+from typing import Any
+
 import yaml
 import numpy as np
 from obspy import Stream, Trace
+from obspy.core.inventory import Inventory
 from obspy.core.utcdatetime import UTCDateTime
 from sqlalchemy import Engine, select, func
 from sqlalchemy import insert, delete
@@ -20,7 +22,9 @@ from sqlalchemy.exc import IntegrityError
 from stream2segment.io.db import create_engine, secure_dburl
 from stream2segment.process import gui  # FIXME gui import what is it?!!!!
 from stream2segment.process.gui.introspection import scan_module
-from stream2segment.process.main import get_obspy_stream, get_obspy_inventory
+from stream2segment.process.main import (
+    get_obspy_stream, get_obspy_inventory, SegmentMetadata
+)
 from stream2segment.process.segments_selection import build_select, is_legacy_db
 
 g_engine: Engine = None
@@ -38,30 +42,31 @@ g_selection = {}  # segments selection conditions
 g_segment_ids = None
 
 
-def _default_preprocessfunc(segment, config):
+def _default_preprocessfunc(trace, inventory, config):
     """Default pre-process function: remove the instrumental response with no pre_filt and
     water_level=60. If the channel instrument code is in ('N', 'G', 'L') output will be
     m/s**2 ('ACC'), otherwise m/s ('VEL')
     """
-    s = Stream()
-    inventory = segment.inventory()
-    i_code = segment.channel.instrument_code
+    i_code = trace.stats.segment_metadata.instrument_code
     output = 'VEL'
     if i_code in ('N', 'G', 'L'):
         output = 'ACC'
-    for t in segment.stream():
-        t.remove_response(inventory, water_level=60, output=output, pre_filt=None)
-        s.append(t)
-    return s[0] if len(s) == 1 else s
-    # raise Exception("No function decorated with '@gui.preprocess'")
+    trace.remove_response(inventory, water_level=60, output=output, pre_filt=None)
+    return trace
 
 
 # global variables (will be initialized in _reset_global_functions, see below):
 
 _preprocessfunc = _default_preprocessfunc
 g_functions = {}
+
 userdefined_plots = {}
+
 main_function_label = ""
+
+g_station_id: int | None = None
+
+g_station: Inventory | None = None
 
 
 def _reset_global_functions():
@@ -69,7 +74,7 @@ def _reset_global_functions():
     global _preprocessfunc
     _preprocessfunc = _default_preprocessfunc
     global g_functions
-    g_functions = {main_function_label: lambda seg, cfg: seg.stream()}
+    g_functions = {main_function_label: lambda trace, cfg: trace}
     global userdefined_plots
     userdefined_plots = {}
 
@@ -258,7 +263,6 @@ def get_segment_data(
     all_components,
     preprocessed,
     zooms,
-    attributes=False,
     classes=False
 ):
     """Return the segment data, depending on the arguments
@@ -277,9 +281,6 @@ def get_segment_data(
         (xmin and xmax can be both None, to conform python slicing behaviour).
         If None, defaults
         to a list of [None, None] elements (one for each plot)
-    :param attributes: boolean, whether or not to return a list of the segment
-        metadata. The list is a list of tuples ('column', value). A list is
-        used to preserve order for client-side javascript parsing
     :param classes: boolean, whether to return the integers classes ids (if
         any) of the given segment
     """
@@ -295,26 +296,58 @@ def get_segment_data(
     plots = {}
     layouts = {}
     if plot_names:
+        if preprocessed:
+            sta_id = stream[0].stats.segment_metadata.station_id
+            global g_station, g_station_id
+            if sta_id == g_station_id and g_station is not None:
+                inv = g_station
+            else:
+                inv = get_obspy_inventory(g_engine, sta_id, is_legacy_db(g_engine))
+                g_station = inv
+                g_station_id = sta_id
+            stream_p = Stream([_preprocessfunc(t, inv, g_config) for t in stream])
+        else:
+            stream_p = stream
         plots, layouts = get_plotly_data_and_layout(
-            stream, plot_names, preprocessed, all_components, zooms
+            stream_p, plot_names, all_components, zooms
         )
 
-    desc = get_description_from_segment_attributes(seg_meta)
+    desc = (
+        '&#9432; '
+        f'Event magnitude: <b>{seg_meta.event_magnitude} '
+        f'{seg_meta.event_magnitude_type}</b>. Recording station '
+        f'distance: &#8776; <b>{round(seg_meta.event_distance_km, 2):,} '
+        f'km</b>. ',
+        'Recorded segment metadata:'
+    )
 
     return {
         'plotData': plots,
         'plotLayout': layouts,
-        'attributes': [] if not attributes else [
-            (str(f.name), _jsonify(getattr(seg_meta, f.name)))
-            for f in fields(seg_meta)
-        ],
+        'attributes': [
+            {
+                'label': f.name,
+                'value': _jsonify(getattr(seg_meta, f.name))
+            } for f in fields(seg_meta)],
         'classes': [] if not classes else get_segment_class_labels(seg_id),
         'description': desc
     }
 
+def get_metadata(trace: Trace | None = None) -> list[dict[str, str]] | dict[str, Any]:
+    if trace is None:
+        sorted_fields = sorted(fields(SegmentMetadata), key=lambda f: f.name)
+        return [
+            {
+                'label': f.name,
+                'dtype': str(f.type)
+            }
+            for f in sorted_fields
+        ]
+    return asdict(trace.stats.segment_metadata)
+
 
 def get_plotly_data_and_layout(
-    stream: Stream, plot_names, preprocessed, all_components, zooms
+    stream: Stream, plot_names, all_components, zooms
 ):
     """Return the plots to display for the given segment, as the tuple:
 
@@ -340,7 +373,7 @@ def get_plotly_data_and_layout(
     layouts = {}
     for name in plot_names:
         zoom = None
-        plot = get_plot(stream, preprocessed, name, zoom)
+        plot = get_plot(stream, name, zoom)
         # FIXME: fix here all components!
         # if not name and all_components and isinstance(plot, list):
         #     for seg in segment.siblings(include_self=False):
@@ -382,26 +415,21 @@ def get_plotly_data_and_layout(
     return plots, layouts
 
 
-def get_plot(stream: Stream, preprocessed: bool, func_name, zoom):
+def get_plot(stream: Stream, func_name, zoom):
     """Return a list of dicts where each dict represents a Plotly Trace.
     The dict is the result of applying the given function
     to the given segment
 
     :param stream: an ObsPy Stream instance
-    :param preprocessed: boolean, whether the function has to be applied on
-        the pre-processed trace of the segment
     :param func_name: the name of the function to be called. It is one
         implemented in the python module with the relative decorator, and must
         have signature: func(segment, config). "" denotes the default function
         (just print print the trace)
     """
     try:
-
-        if preprocessed:
-            inv = get_obspy_inventory(g_engine, stream[0].stats.segment_metadata.station_id)
-            stream = _preprocessfunc(stream, inv, g_config)
+        stream = stream.copy()
         function = g_functions[func_name]
-        result = function(stream, g_config)
+        result = [function(t, g_config) for t in stream]
         return convert2plotly(result, zoom)
     except Exception as exc:
         return str(exc)
@@ -490,27 +518,6 @@ def _jsonify(obj):
         return obj
 
 
-def get_description_from_segment_attributes(attrs: dict):
-    """
-    :param attrs: the result of `db.get_metadata(segment)`
-    :return: a string description of the segment whose metadata is stored in `attrs`
-    """
-    return "here"
-    desc = ['&#9432;', '', 'Recorded segment metadata:']
-    try:
-        mag = [_ for _ in attrs if _['label'] == 'event.magnitude'][0]['value']
-        mag_type = [_ for _ in attrs if _['label'] == 'event.mag_type'][0]['value']
-        if not mag_type:
-            mag_type = 'magnitude'
-        dist_km = [_ for _ in attrs if _['label'] == 'event_distance_km'][0]['value']
-        if mag and mag_type and dist_km:
-            desc[1] = (f'Event magnitude: <b>{mag} {mag_type}</b>. Recording station '
-                       f'distance: &#8776; <b>{round(dist_km, 2):,} km</b>.')
-    except (IndexError, KeyError):
-        pass
-    return " ".join(desc)
-
-
 def get_class_labels() -> list[tuple[str, int]]:
     """Return [(label, count), ...] for every ClassLabel, including those with 0 segments."""
     engine = g_engine
@@ -545,51 +552,3 @@ def get_segment_class_labels(seg_id: int) -> list[str]:
     )
     with engine.connect() as conn:
         return conn.execute(stmt).fetchall()
-
-
-# FIXME REMOVE
-# def exec_func(segment, preprocessed, function):
-#     """Execute the given function, setting the internal stream
-#     to the preprocessed one of needed and restoring to its original
-#     before returning. `func` signature must be: func(segment, config)
-#     (config is the global g_config variable)
-#     """
-#     with prepare_for_function(segment, preprocessed):
-#         return function(segment, g_config)
-#
-#
-# @contextlib.contextmanager
-# def prepare_for_function(segment, preprocessed=False):
-#     """contextmanager to be used before applying a custom function on a
-#     segment, stores temporarily the original streams so that in case of modifications
-#     we can restore it
-#     """
-#     # the Stream object (or the Exception raised while retrieving it) is cached in a
-#     # private segment attr (same for inventory), here we do the same for the
-#     # pre-processed stream. Consider anyway that when moving to another segment the
-#     # current one is destroyed (see Flask sessions doc for details)
-#     tmp_stream = segment.stream().copy()
-#     try:
-#         if preprocessed:
-#             stream = getattr(segment, '_p_p_stream', None)
-#             if stream is None:
-#                 try:
-#                     stream = _preprocessfunc(segment, g_config)
-#                     if isinstance(stream, Trace):
-#                         stream = Stream([stream])
-#                     elif not isinstance(stream, Stream):
-#                         raise Exception(f"Trace or Stream object needed,\n"
-#                                         f"found: {stream.__class__.__name__}")
-#                 except Exception as exc:
-#                     stream = Exception(f"(@gui.preprocess):\n{str(exc)}")
-#                 setattr(segment, '_p_p_stream', stream)
-#             if isinstance(stream, Exception):
-#                 raise stream from None
-#             setattr(segment, '_stream', stream.copy())
-#         yield
-#     finally:
-#         setattr(segment, '_stream', tmp_stream)  # tmp_stream surely a Stream (no exc)
-#
-# def get_segment(segment_id):
-#     """Return  the Segment object of the given segment id"""
-#     return db.get_segment(segment_id)

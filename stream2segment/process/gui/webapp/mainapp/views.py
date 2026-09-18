@@ -45,7 +45,7 @@ def main():
         title=core.get_db_url(),
         rightPlots=r_plots,
         bottomPlots=b_plots,
-        metadata=[],  # fixme remove
+        metadata=core.get_metadata(),
         classes=classes,
         preprocess_func_on=pp_func_defined,
         preprocessfunc_doc=pp_func_doc
@@ -94,12 +94,17 @@ def get_segment_data():
     preprocessed = data.get('pre_processed', False)
     zooms = data.get('zooms', None)
     all_components = data.get('all_components', False)
-    attributes = data.get('attributes', False)
     classes = data.get('classes', False)
-    return jsonify(core.get_segment_data(seg_id,
-                                         plot_names, all_components,
-                                         preprocessed, zooms,
-                                         attributes, classes))
+    return jsonify(
+        core.get_segment_data(
+            seg_id,
+            plot_names,
+            all_components,
+            preprocessed,
+            zooms,
+            classes
+        )
+    )
 
 
 @main_app.route("/set_class_id", methods=['POST'])

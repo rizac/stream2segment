@@ -163,8 +163,7 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 							{%- endif %}
 							<tbody data-is-segment-metadata>
 							{% for class in classes -%}
-							<tr title="{{ class.label }}{%- if class.description -%}: {{ class.description }}{%- endif -%}"
-								data-metadata-type="class.label">
+							<tr title="{{ class.label }}{%- if class.description -%}: {{ class.description }}{%- endif -%}">
 								<td>
 									<label style="white-space: nowrap;">
 										<input type="checkbox" data-segment-class-id="{{ class.id }}"
@@ -179,8 +178,7 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 							{%- endfor -%}
 							{% for mdata in metadata -%}
 							{% set name = mdata.label %}
-							{% set type = mdata.dbmodel %}
-							<tr data-metadata-type="{{ type }}">
+							<tr>
 								<td>{{ name }}</td>
 								<td data-segment-attr="{{ name }}" style='width:100%'>N/A</td>
 							</tr>
@@ -225,8 +223,7 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 			{% for mdata in metadata -%}
 			{% set name = mdata.label %}
 			{% set dtype = mdata.dtype %}
-			{% set type = mdata.dbmodel %}
-			<tr data-metadata-type="{{ type }}">
+			<tr>
 				<td><span id="sss-{{ name }}">{{ name }}</span></td>
 				<td style='width:100%'>
 					<input style='width:100%' type=text
@@ -314,15 +311,6 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 				elm.click();
 			}
 		});
-
-		// arrange metadata tables by grouping different metadata types (event, station, ....) together:
-		for (var tbody of document.querySelectorAll('tbody[data-is-segment-metadata]')){
-			tbody.querySelectorAll('tr').forEach((tr, i, trs) => {
-				if (i > 0 && trs[i-1].getAttribute('data-metadata-type') != tr.getAttribute('data-metadata-type')){
-					tr.querySelectorAll('td').forEach(td => {td.style.paddingTop = '2rem';});
-				}
-			});
-		}
 	</script>
 	<script>
 		var SEGMENTS_COUNT = 0;  // real value will be set at the end of this script tag
