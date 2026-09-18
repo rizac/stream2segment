@@ -152,8 +152,10 @@ def sn_split(trace, arrival_time, win_length, return_windows=False):
         nsy, sig = (a_time-s_windows, a_time), (a_time, a_time+s_windows)
     if return_windows:
         return sig, nsy
-    return (trace.copy().trim(*sig, pad=True, fill_value=0),
-            trace.copy().trim(*nsy, pad=True, fill_value=0))
+    return (
+        trace.copy().trim(*sig, pad=True, fill_value=0),
+        trace.copy().trim(*nsy, pad=True, fill_value=0)
+    )
 
 
 def _parse_sn_windows(window):

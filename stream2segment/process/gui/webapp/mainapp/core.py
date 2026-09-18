@@ -5,7 +5,7 @@ Core functionalities for the main GUI web application (show command)
 import math
 import contextlib
 import os
-from dataclasses import asdict
+from dataclasses import asdict, fields
 from datetime import datetime, date
 
 from io import StringIO
@@ -299,15 +299,15 @@ def get_segment_data(
             stream, plot_names, preprocessed, all_components, zooms
         )
 
-    metadata = {}
-    if attributes:
-        metadata = asdict(seg_meta)
-    desc = get_description_from_segment_attributes(metadata)
+    desc = get_description_from_segment_attributes(seg_meta)
 
     return {
         'plotData': plots,
         'plotLayout': layouts,
-        'attributes': [(str(k), _jsonify(v)) for k, v in metadata.items()],
+        'attributes': [] if not attributes else [
+            (str(f.name), _jsonify(getattr(seg_meta, f.name)))
+            for f in fields(seg_meta)
+        ],
         'classes': [] if not classes else get_segment_class_labels(seg_id),
         'description': desc
     }
@@ -495,6 +495,7 @@ def get_description_from_segment_attributes(attrs: dict):
     :param attrs: the result of `db.get_metadata(segment)`
     :return: a string description of the segment whose metadata is stored in `attrs`
     """
+    return "here"
     desc = ['&#9432;', '', 'Recorded segment metadata:']
     try:
         mag = [_ for _ in attrs if _['label'] == 'event.magnitude'][0]['value']
