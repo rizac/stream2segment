@@ -25,7 +25,8 @@ from stream2segment.process.gui.introspection import scan_module
 from stream2segment.process.main import (
     get_obspy_stream, get_obspy_inventory, SegmentMetadata
 )
-from stream2segment.process.segments_selection import build_select, is_legacy_db
+from stream2segment.process.segments_selection import build_select, is_legacy_db, \
+    get_orderby_columns
 
 g_engine: Engine = None
 
@@ -46,7 +47,7 @@ def _default_preprocessfunc(trace, inventory, config):
     """Default pre-process function: remove the instrumental response with no pre_filt and
     water_level=60. If the channel instrument code is in ('N', 'G', 'L') output will be
     m/s**2 ('ACC'), otherwise m/s ('VEL')
-    """
+    """  # FIXME normalize i_code also in the templates?
     i_code = trace.stats.segment_metadata.instrument_code
     output = 'VEL'
     if i_code in ('N', 'G', 'L'):
@@ -87,11 +88,11 @@ def init(
     db_url: str,
     py_module=None,
     config: dict | None = None,
-    segments_selection: dict| None =None):
+    segments_selection: dict | None =None
+):
     """Initialize global variables. This method must be called once
     after the Flask app has been created and before using it.
 
-    :param session: a SQLAlchemy SCOPED session
     :param py_module: Python module
     :param config: dict of the current configuration
     :param segments_selection: dict[str, str] of segment attributes mapped to a
@@ -285,6 +286,9 @@ def get_segment_data(
         any) of the given segment
     """
     stmt = build_select(g_engine, {'id': str(seg_id)})
+    orderby_cols = get_orderby_columns(g_engine).values()
+    stmt = stmt.order_by(*orderby_cols)
+
     with g_engine.connect() as conn:
         db_row = conn.execute(stmt).one()
     stream = get_obspy_stream(db_row)

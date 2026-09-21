@@ -10,8 +10,10 @@ import shlex
 import warnings
 
 import numpy as np
-from sqlalchemy import and_, ColumnElement, select, func, tuple_, Engine, Select
+from sqlalchemy import and_, ColumnElement, select, func, Engine, Select
 from sqlalchemy.ext.hybrid import hybrid_property
+from sqlalchemy.orm.attributes import QueryableAttribute
+from sqlalchemy.sql.sqltypes import TypeEngine
 
 from stream2segment.io.db import s2s_db_version
 from stream2segment.io.db import models
@@ -287,7 +289,7 @@ def _build_select_legacy(select_cols) -> Select:
         .join(l_models.Channel, l_models.Channel.id == l_models.Segment.channel_id)
         .join(l_models.Station, l_models.Station.id == l_models.Channel.station_id)
         .join(l_models.Event, l_models.Event.id == l_models.Segment.event_id)
-        .where(l_models.Segment.has_valid_data)
+        # .where(l_models.Segment.has_valid_data)
     )
 
 
@@ -326,7 +328,7 @@ def get_orderby_columns(db) -> dict[str, ColumnElement | hybrid_property]:
     if is_legacy_db(db):
         return {
             c: getattr(seg_attrs, c) for c in [
-                # 'station_id',
+                'station_id',
                 'id'
             ]
         }
@@ -489,7 +491,7 @@ def _bool(val):
     return bool(val)
 
 
-def get_sqltype(obj):
+def get_sqltype(obj: QueryableAttribute) -> TypeEngine | None:
     """Return the sql type associated with `obj`.
 
     :param obj: an object with an 'expression' method, e.g.

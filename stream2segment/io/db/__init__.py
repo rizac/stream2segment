@@ -35,9 +35,7 @@ def create_engine(dbpath: str, check_db_existence=True, **kwargs) -> Engine:
         engine = sa_create_engine(dbpath, **kwargs)
     except (SQLAlchemyError, ValueError) as _:
         # ValueError: 'postgresql://4:a6gfds' (cannot create port)
-        raise ValueError('Cannot create a db engine. Possible reason: '
-                         'the URL is not well formed or contains typos '
-                         '(original error: %s)' % str(_))
+        raise ValueError(f'{str(_)} (hint: check URL for typos)')
 
     if check_db_existence:
         # (the only case when we don't care if the database exists is when
