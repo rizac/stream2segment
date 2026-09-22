@@ -1,14 +1,10 @@
 """
 s2s database ORM (legacy, v<=4)
 """
-import math
 # Jul 15, 2016
+import math
 import sqlite3
 import gzip
-import zipfile
-import zlib
-import bz2
-from io import BytesIO
 
 from sqlalchemy import (
     Column,
@@ -212,29 +208,6 @@ class Station(Base):
     end_time = Column(DateTime)
     data = Column("inventory_xml", CompressedBinary)
 
-    # @property
-    # def url(self):
-    #     qry_str = 'net=%s&sta=%s&start=%s' % \
-    #               (self.network_code, self.station_code, self.start_time.isoformat('T'))
-    #     return self.datacenter.station_url + '?%s' % qry_str
-
-    # @hybrid_property
-    # def has_inventory(self):
-    #     return bool(self.inventory_xml)
-    #
-    # @has_inventory.expression
-    # def has_inventory(cls):  # pylint:disable=no-self-argument
-    #     return withdata(cls.inventory_xml)
-
-    # @property
-    # def data(self):  # noqa
-    #     """Return the station inventory. See `Segment.inventory` for details"""
-    #     # inventory is lazy loaded. The output of the loading process
-    #     # (or the Exception raised, if any) is stored in the self._inventory
-    #     # attribute. When querying the inventory a further time, the stored value
-    #     # is returned, or raised (if it is an Exception)
-    #     return decompress(self.inventory_xml)
-
     @declared_attr
     def __table_args__(cls):  # noqa  # https://stackoverflow.com/a/43993950
         return (
@@ -242,41 +215,6 @@ class Station(Base):
                 'network', 'station', 'start_time', name='net_sta_stime_uc'
             ),
         )
-
-
-# def decompress(bytestr):
-#     """Decompress `bytestr` (a sequence of bytes) trying to guess the compression
-#     format. If no guess can be made, returns bytestr. Otherwise, returns the
-#     de-compressed sequence of bytes. Raises IOError, zipfile.BadZipfile, zlib.error if
-#     compression is detected but did not work. Note that this might happen if
-#     (accidentally) the sequence of bytes is not compressed but starts with bytes
-#     denoting a compression type. Thus function caller should not necessarily raise
-#     exceptions if this function does, but try to read `bytestr` as if it was not
-#     compressed
-#     """
-#     # check if the data is compressed (https://stackoverflow.com/a/19127748):
-#     if bytestr.startswith(b"\x1f\x8b\x08"):  # gzip
-#         # raises IOError in case
-#         with gzip.GzipFile(mode='rb', fileobj=BytesIO(bytestr)) as gzip_obj:
-#             bytestr = gzip_obj.read()
-#     elif bytestr.startswith(b"\x42\x5a\x68"):  # bz2
-#         bytestr = bz2.decompress(bytestr)  # raises IOError in case
-#     elif bytestr.startswith(b"\x50\x4b\x03\x04"):  # zip
-#         # raises zipfile.BadZipfile in case
-#         with zipfile.ZipFile(BytesIO(bytestr), 'r') as zip_obj:
-#             namelist = zip_obj.namelist()
-#             if len(namelist) != 1:
-#                 raise ValueError("Found zipped content with %d archives, "
-#                                  "can only uncompress single archive "
-#                                  "content" % len(namelist))
-#             bytestr = zip_obj.read(namelist[0])
-#     else:
-#         barray = bytearray(bytestr[:2])  # py 2+3 https://stackoverflow.com/a/41843740
-#         byte1 = barray[0]
-#         byte2 = barray[1]
-#         if (byte1 * 256 + byte2) % 31 == 0 and (byte1 & 143) == 8:  # zlib. 143=int('10001111', 2)
-#             bytestr = zlib.decompress(bytestr)  # raises zlib.error in case
-#     return bytestr
 
 
 class Channel(Base):
@@ -383,19 +321,6 @@ class Segment(Base):
     request_start = Column(DateTime, nullable=False)
     request_end = Column(DateTime, nullable=False)
     queryauth = Column(Boolean, nullable=False, server_default="0")  # note: null fails in sqlite!  # noqa
-
-    # @property
-    # def url(self):
-    #     """Return the full URL that can be used to (re)download the Segment
-    #     waveform data in miniSEED format (For details, see GET request here:
-    #     https://www.fdsn.org/webservices/fdsnws-dataselect-1.1.pdf)
-    #     """
-    #     net, sta = self.station.network, self.station.station
-    #     loc, cha = self.channel.location, self.channel.channel
-    #     qry_str = 'net=%s&sta=%s&loc=%s&cha=%s&start=%s&end=%s' % \
-    #               (net, sta, loc, cha, self.request_start.isoformat('T'),
-    #                self.request_end.isoformat('T'))
-    #     return self.datacenter.dataselect_url + '?%s' % qry_str
 
     @hybrid_property
     def event_distance_km(self):

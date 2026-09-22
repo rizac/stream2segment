@@ -278,10 +278,9 @@ def get_segment_data(
     desc = (
         '&#9432; '
         f'Event magnitude: <b>{seg_meta.event_magnitude} '
-        f'{seg_meta.event_magnitude_type}</b>. Recording station '
+        f'{seg_meta.event_magnitude_type}</b>, station '
         f'distance: &#8776; <b>{round(seg_meta.event_distance_km, 2):,} '
-        f'km</b>. ',
-        'Recorded segment metadata:'
+        f'km</b>. Segment metadata:'
     )
 
     return {
@@ -490,8 +489,7 @@ def get_segment_class_labels(seg_id: int) -> list[str]:
     """Return all ClassLabel rows (label, description) assigned to the given segment."""
     engine = g_engine
     if is_legacy_db(engine):
-        from stream2segment.io.db.legacy.models import ClassLabelling as ClassLabeling
-        from stream2segment.io.db.legacy.models import Class as ClassLabel
+        from stream2segment.io.db.legacy.models import ClassLabel, ClassLabeling
     else:
         from stream2segment.io.db.models import ClassLabel, ClassLabeling
     stmt = (

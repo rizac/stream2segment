@@ -11,7 +11,7 @@ import warnings
 from typing import Any
 
 import numpy as np
-from sqlalchemy import and_, ColumnElement, select, func, Engine, Select
+from sqlalchemy import and_, ColumnElement, select, func, Engine, Select, literal
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm.attributes import QueryableAttribute
 from sqlalchemy.sql.sqltypes import TypeEngine
@@ -526,11 +526,11 @@ def get_class_labels(
     db: Engine, include_count=False, include_description=False
 ) -> list[dict[str, Any]]:
     """
-    Return [{'id': ..., 'label': ..., 'count': ..., 'description': ...}, ...]
+    Return [{'id': ..., 'label': ..., 'segments': ..., 'description': ...}, ...]
     for every ClassLabel, including those with 0 segments
 
-    :param include_count: if True, each class label 'count' key reports the number of
-        labeled segments in the DB. If False, count is not computed and set to 0
+    :param include_count: if True, each class label 'segments' key reports the number of
+        labeled segments in the DB. If False, segments are not counted and the value is 0
     :param include_description: if True, each class label 'description' key reports the
         class label description. If False, description is not queried and set to ""
     """
@@ -539,16 +539,25 @@ def get_class_labels(
     else:
         from stream2segment.io.db.models import ClassLabel, ClassLabeling
 
-    count = func.count(ClassLabeling.id) if include_count else 0
-    description = ClassLabel.description if include_description else ''
-    stmt = (
-        select(ClassLabel.id, ClassLabel.label, count, description)
-        .select_from(ClassLabel)
-        .outerjoin(ClassLabeling, ClassLabeling.class_label_id == ClassLabel.id)
-        .group_by(ClassLabel.id)
-    )
+    stmt = select(ClassLabel.id, ClassLabel.label)
+
+    if include_count:
+        stmt = (
+            stmt
+            .outerjoin(ClassLabeling, ClassLabeling.class_label_id == ClassLabel.id)
+            .add_columns(func.count(ClassLabeling.id))
+            .group_by(ClassLabel.id)
+        )
+    else:
+        stmt = stmt.add_columns(literal(0))
+
+    if include_description:
+        stmt = stmt.add_columns(ClassLabel.description)
+    else:
+        stmt = stmt.add_columns(literal(""))
+
     with db.connect() as conn:
         return [
-            {'id': _[0], 'label': _[1], 'count': _[2], 'description': _[3]}
+            {'id': _[0], 'label': _[1], 'segments': _[2], 'description': _[3]}
             for _ in conn.execute(stmt).fetchall()
         ]

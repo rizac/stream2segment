@@ -161,7 +161,7 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 							{%- if rightPlots|length > 0 -%}
 							<thead><tr><th colspan="2" data-id='segment-description'></th></tr></thead>
 							{%- endif %}
-							<tbody data-is-segment-metadata>
+							<tbody>
 							{% for class in classes -%}
 							<tr title="{{ class.label }}{%- if class.description -%}: {{ class.description }}{%- endif -%}">
 								<td>
@@ -219,7 +219,7 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 				</th>
 			</tr>
 			</thead>
-			<tbody data-is-segment-metadata>
+			<tbody>
 			{% for mdata in metadata -%}
 			{% set name = mdata.label %}
 			{% set dtype = mdata.dtype %}
