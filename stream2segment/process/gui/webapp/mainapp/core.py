@@ -25,8 +25,12 @@ from stream2segment.process.gui.introspection import scan_module
 from stream2segment.process.main import (
     get_obspy_stream, get_obspy_inventory, SegmentMetadata
 )
-from stream2segment.process.segments_selection import build_select, is_legacy_db, \
-    get_orderby_columns
+from stream2segment.process.segments_selection import (
+    build_select,
+    is_legacy_db,
+    get_orderby_columns,
+    get_class_labels
+)
 
 g_engine: Engine = None
 
@@ -139,7 +143,7 @@ def reset_global_vars(config=None, segments_selection = None) -> int:
     with g_engine.connect() as conn:
         rows = conn.execute(stmt).scalars()
     global g_segment_ids
-    g_segment_ids = np.fromiter(rows, dtype = int)
+    g_segment_ids = np.fromiter(rows, dtype=int)
     return len(g_segment_ids)
 
 
@@ -211,51 +215,6 @@ def get_segment_id(segment_index):
     """
     global g_segment_ids
     return int(g_segment_ids[segment_index])
-
-
-def set_class_id(seg_id, class_id, value):
-    """Set the given class to the given segment (value=True), or removes it
-    from the given segment (value=False)
-    """
-    try:
-        import getpass
-        annotator = str(getpass.getuser())
-        if len(annotator) > 2:
-            annotator = annotator[0] + '*' * (len(annotator) - 2) + annotator[-1]
-        else:
-            annotator = 'user id ' + str(os.getuid())
-    except Exception:  # noqa
-        annotator = 'anonymous labeller'
-
-    if is_legacy_db(g_engine):
-        from stream2segment.io.db.legacy.models import ClassLabelling as ClassLabeling
-    else:
-        from stream2segment.io.db.models import ClassLabeling
-
-    with g_engine.begin() as conn:  # noqa
-        if value:
-            try:
-                conn.execute(
-                    insert(ClassLabeling).values(
-                        segment_id=seg_id, class_label_id=class_id, annotator=annotator
-                    )
-                )
-            except IntegrityError:
-                pass  # pairing already exists
-        else:
-            conn.execute(
-                delete(ClassLabeling).where(
-                    ClassLabeling.segment_id == seg_id,
-                    ClassLabeling.class_label_id == class_id,
-                )
-            )
-
-    # return the class label count:
-    stmt = select(func.count()).select_from(ClassLabeling).where(
-        ClassLabeling.class_label_id == class_id
-    )
-    with g_engine.connect() as conn:
-        return conn.execute(stmt).scalar_one()
 
 
 def get_segment_data(
@@ -336,6 +295,7 @@ def get_segment_data(
         'classes': [] if not classes else get_segment_class_labels(seg_id),
         'description': desc
     }
+
 
 def get_metadata(trace: Trace | None = None) -> list[dict[str, str]] | dict[str, Any]:
     if trace is None:
@@ -522,23 +482,8 @@ def _jsonify(obj):
         return obj
 
 
-def get_class_labels() -> list[tuple[str, int]]:
-    """Return [(label, count), ...] for every ClassLabel, including those with 0 segments."""
-    engine = g_engine
-    if is_legacy_db(engine):
-        from stream2segment.io.db.legacy.models import ClassLabelling as ClassLabeling
-        from stream2segment.io.db.legacy.models import Class as ClassLabel
-    else:
-        from stream2segment.io.db.models import ClassLabel, ClassLabeling
-
-    stmt = (
-        select(ClassLabel.label, func.count(ClassLabeling.id))
-        .select_from(ClassLabel)
-        .outerjoin(ClassLabeling, ClassLabeling.class_label_id == ClassLabel.id)
-        .group_by(ClassLabel.id)
-    )
-    with engine.connect() as conn:
-        return conn.execute(stmt).fetchall()
+def get_all_class_labels() -> list[dict[str, Any]]:
+    return get_class_labels(g_engine, include_count=True, include_description=True)
 
 
 def get_segment_class_labels(seg_id: int) -> list[str]:
@@ -556,3 +501,48 @@ def get_segment_class_labels(seg_id: int) -> list[str]:
     )
     with engine.connect() as conn:
         return conn.execute(stmt).fetchall()
+
+
+def set_class_id(seg_id, class_id, value):
+    """Set the given class to the given segment (value=True), or removes it
+    from the given segment (value=False)
+    """
+    try:
+        import getpass
+        annotator = str(getpass.getuser())
+        if len(annotator) > 2:
+            annotator = annotator[0] + '*' * (len(annotator) - 2) + annotator[-1]
+        else:
+            annotator = 'user id ' + str(os.getuid())
+    except Exception:  # noqa
+        annotator = 'anonymous labeller'
+
+    if is_legacy_db(g_engine):
+        from stream2segment.io.db.legacy.models import ClassLabelling as ClassLabeling
+    else:
+        from stream2segment.io.db.models import ClassLabeling
+
+    with g_engine.begin() as conn:  # noqa
+        if value:
+            try:
+                conn.execute(
+                    insert(ClassLabeling).values(
+                        segment_id=seg_id, class_label_id=class_id, annotator=annotator
+                    )
+                )
+            except IntegrityError:
+                pass  # pairing already exists
+        else:
+            conn.execute(
+                delete(ClassLabeling).where(
+                    ClassLabeling.segment_id == seg_id,
+                    ClassLabeling.class_label_id == class_id,
+                )
+            )
+
+    # return the class label count:
+    stmt = select(func.count()).select_from(ClassLabeling).where(
+        ClassLabeling.class_label_id == class_id
+    )
+    with g_engine.connect() as conn:
+        return conn.execute(stmt).scalar_one()

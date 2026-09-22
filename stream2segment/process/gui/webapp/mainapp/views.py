@@ -30,7 +30,6 @@ def handle_exception(e):
 @main_app.route("/")
 def main():
     ud_plots = core.userdefined_plots
-    classes = core.get_class_labels()
     # data = core.get_init_data(metadata=True, classes=True)
     # classes = data['classes']
     # metadata = data['metadata']
@@ -46,7 +45,7 @@ def main():
         rightPlots=r_plots,
         bottomPlots=b_plots,
         metadata=core.get_metadata(),
-        classes=classes,
+        classes=core.get_all_class_labels(),
         preprocess_func_on=pp_func_defined,
         preprocessfunc_doc=pp_func_doc
     )

@@ -11,14 +11,9 @@ import threading
 import yaml
 from flask import Flask
 
-
 from stream2segment.process import get_default_segments_selection
 from stream2segment.process.gui.introspection import load_source
 from stream2segment.resources import get_templates_fpath
-
-
-# from stream2segment.process.db import get_session
-
 
 
 def show_gui(

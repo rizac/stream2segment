@@ -8,6 +8,7 @@ from dataclasses import dataclass, fields
 from datetime import datetime
 import shlex
 import warnings
+from typing import Any
 
 import numpy as np
 from sqlalchemy import and_, ColumnElement, select, func, Engine, Select
@@ -289,7 +290,7 @@ def _build_select_legacy(select_cols) -> Select:
         .join(l_models.Channel, l_models.Channel.id == l_models.Segment.channel_id)
         .join(l_models.Station, l_models.Station.id == l_models.Channel.station_id)
         .join(l_models.Event, l_models.Event.id == l_models.Segment.event_id)
-        # .where(l_models.Segment.has_valid_data)
+        .where(l_models.Segment.has_valid_data)
     )
 
 
@@ -519,3 +520,35 @@ def get_pytype(sqltype):
         return sqltype.python_type
     except NotImplementedError:
         return None
+
+
+def get_class_labels(
+    db: Engine, include_count=False, include_description=False
+) -> list[dict[str, Any]]:
+    """
+    Return [{'id': ..., 'label': ..., 'count': ..., 'description': ...}, ...]
+    for every ClassLabel, including those with 0 segments
+
+    :param include_count: if True, each class label 'count' key reports the number of
+        labeled segments in the DB. If False, count is not computed and set to 0
+    :param include_description: if True, each class label 'description' key reports the
+        class label description. If False, description is not queried and set to ""
+    """
+    if is_legacy_db(db):
+        from stream2segment.io.db.legacy.models import ClassLabel, ClassLabeling
+    else:
+        from stream2segment.io.db.models import ClassLabel, ClassLabeling
+
+    count = func.count(ClassLabeling.id) if include_count else 0
+    description = ClassLabel.description if include_description else ''
+    stmt = (
+        select(ClassLabel.id, ClassLabel.label, count, description)
+        .select_from(ClassLabel)
+        .outerjoin(ClassLabeling, ClassLabeling.class_label_id == ClassLabel.id)
+        .group_by(ClassLabel.id)
+    )
+    with db.connect() as conn:
+        return [
+            {'id': _[0], 'label': _[1], 'count': _[2], 'description': _[3]}
+            for _ in conn.execute(stmt).fetchall()
+        ]

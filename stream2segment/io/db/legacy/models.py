@@ -21,6 +21,7 @@ from sqlalchemy import (
     LargeBinary,
     UniqueConstraint,
     event,
+    TypeDecorator,
     cast
 )
 from sqlalchemy.ext.compiler import compiles
@@ -38,6 +39,19 @@ except ImportError:
 
 
 Base = declarative_base()
+
+
+class CompressedBinary(TypeDecorator):
+    """Custom column type for compressed XML (QuakeML and StationXML)"""
+
+    impl = LargeBinary
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        return None if value is None else gzip.compress(value, compresslevel=9)
+
+    def process_result_value(self, value, dialect):
+        return None if value is None else gzip.decompress(value)
 
 
 @event.listens_for(Engine, "connect")
@@ -196,7 +210,7 @@ class Station(Base):
     site_name = Column(String)
     start_time = Column(DateTime, nullable=False)
     end_time = Column(DateTime)
-    inventory_xml = Column(LargeBinary)
+    data = Column("inventory_xml", CompressedBinary)
 
     # @property
     # def url(self):
@@ -212,14 +226,14 @@ class Station(Base):
     # def has_inventory(cls):  # pylint:disable=no-self-argument
     #     return withdata(cls.inventory_xml)
 
-    @property
-    def data(self):  # noqa
-        """Return the station inventory. See `Segment.inventory` for details"""
-        # inventory is lazy loaded. The output of the loading process
-        # (or the Exception raised, if any) is stored in the self._inventory
-        # attribute. When querying the inventory a further time, the stored value
-        # is returned, or raised (if it is an Exception)
-        return decompress(self.inventory_xml)
+    # @property
+    # def data(self):  # noqa
+    #     """Return the station inventory. See `Segment.inventory` for details"""
+    #     # inventory is lazy loaded. The output of the loading process
+    #     # (or the Exception raised, if any) is stored in the self._inventory
+    #     # attribute. When querying the inventory a further time, the stored value
+    #     # is returned, or raised (if it is an Exception)
+    #     return decompress(self.inventory_xml)
 
     @declared_attr
     def __table_args__(cls):  # noqa  # https://stackoverflow.com/a/43993950
@@ -230,39 +244,39 @@ class Station(Base):
         )
 
 
-def decompress(bytestr):
-    """Decompress `bytestr` (a sequence of bytes) trying to guess the compression
-    format. If no guess can be made, returns bytestr. Otherwise, returns the
-    de-compressed sequence of bytes. Raises IOError, zipfile.BadZipfile, zlib.error if
-    compression is detected but did not work. Note that this might happen if
-    (accidentally) the sequence of bytes is not compressed but starts with bytes
-    denoting a compression type. Thus function caller should not necessarily raise
-    exceptions if this function does, but try to read `bytestr` as if it was not
-    compressed
-    """
-    # check if the data is compressed (https://stackoverflow.com/a/19127748):
-    if bytestr.startswith(b"\x1f\x8b\x08"):  # gzip
-        # raises IOError in case
-        with gzip.GzipFile(mode='rb', fileobj=BytesIO(bytestr)) as gzip_obj:
-            bytestr = gzip_obj.read()
-    elif bytestr.startswith(b"\x42\x5a\x68"):  # bz2
-        bytestr = bz2.decompress(bytestr)  # raises IOError in case
-    elif bytestr.startswith(b"\x50\x4b\x03\x04"):  # zip
-        # raises zipfile.BadZipfile in case
-        with zipfile.ZipFile(BytesIO(bytestr), 'r') as zip_obj:
-            namelist = zip_obj.namelist()
-            if len(namelist) != 1:
-                raise ValueError("Found zipped content with %d archives, "
-                                 "can only uncompress single archive "
-                                 "content" % len(namelist))
-            bytestr = zip_obj.read(namelist[0])
-    else:
-        barray = bytearray(bytestr[:2])  # py 2+3 https://stackoverflow.com/a/41843740
-        byte1 = barray[0]
-        byte2 = barray[1]
-        if (byte1 * 256 + byte2) % 31 == 0 and (byte1 & 143) == 8:  # zlib. 143=int('10001111', 2)
-            bytestr = zlib.decompress(bytestr)  # raises zlib.error in case
-    return bytestr
+# def decompress(bytestr):
+#     """Decompress `bytestr` (a sequence of bytes) trying to guess the compression
+#     format. If no guess can be made, returns bytestr. Otherwise, returns the
+#     de-compressed sequence of bytes. Raises IOError, zipfile.BadZipfile, zlib.error if
+#     compression is detected but did not work. Note that this might happen if
+#     (accidentally) the sequence of bytes is not compressed but starts with bytes
+#     denoting a compression type. Thus function caller should not necessarily raise
+#     exceptions if this function does, but try to read `bytestr` as if it was not
+#     compressed
+#     """
+#     # check if the data is compressed (https://stackoverflow.com/a/19127748):
+#     if bytestr.startswith(b"\x1f\x8b\x08"):  # gzip
+#         # raises IOError in case
+#         with gzip.GzipFile(mode='rb', fileobj=BytesIO(bytestr)) as gzip_obj:
+#             bytestr = gzip_obj.read()
+#     elif bytestr.startswith(b"\x42\x5a\x68"):  # bz2
+#         bytestr = bz2.decompress(bytestr)  # raises IOError in case
+#     elif bytestr.startswith(b"\x50\x4b\x03\x04"):  # zip
+#         # raises zipfile.BadZipfile in case
+#         with zipfile.ZipFile(BytesIO(bytestr), 'r') as zip_obj:
+#             namelist = zip_obj.namelist()
+#             if len(namelist) != 1:
+#                 raise ValueError("Found zipped content with %d archives, "
+#                                  "can only uncompress single archive "
+#                                  "content" % len(namelist))
+#             bytestr = zip_obj.read(namelist[0])
+#     else:
+#         barray = bytearray(bytestr[:2])  # py 2+3 https://stackoverflow.com/a/41843740
+#         byte1 = barray[0]
+#         byte2 = barray[1]
+#         if (byte1 * 256 + byte2) % 31 == 0 and (byte1 & 143) == 8:  # zlib. 143=int('10001111', 2)
+#             bytestr = zlib.decompress(bytestr)  # raises zlib.error in case
+#     return bytestr
 
 
 class Channel(Base):
@@ -506,10 +520,12 @@ def _duration_postgres(start, end):
     # Note: we use round at the end to coerce to float with 3 decimal digits,
     # for safety and avoid integer divisions when needed but proper floating
     # point arithmentic
-    return "round(EXTRACT(EPOCH FROM ({1}-{0}))::numeric, 3)".format(start,
-                                                                     end)
+    return "round(EXTRACT(EPOCH FROM ({1}-{0}))::numeric, 3)".format(
+        start, end
+    )
 
-class Class(Base):
+
+class ClassLabel(Base):
     """Model representing a segment class label"""
 
     __tablename__ = 'classes'
@@ -523,14 +539,14 @@ class Class(Base):
         return (UniqueConstraint('label', name='class_label_uc'),)
 
 
-class ClassLabelling(Base):
+class ClassLabeling(Base):
     """Model representing a class labelling (or segment annotation), i.e. a
     pair (segment, class label)"""
     __tablename__ = 'class_labellings'
 
     id = Column('id', Integer, primary_key=True, autoincrement=True)
     segment_id = Column(Integer, ForeignKey("segments.id"), nullable=False)
-    class_id = Column(Integer, ForeignKey("classes.id"), nullable=False)
+    class_label_id = Column("class_id", Integer, ForeignKey("classes.id"), nullable=False)
     is_hand_labelled = Column(Boolean, server_default="1")  # "TRUE" fails in sqlite!
     annotator = Column(String)
 

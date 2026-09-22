@@ -723,10 +723,9 @@ def get_obspy_inventory(
     """
     inventory = None
     station_table = models.StationXML
-    station_data_col = models.StationXML.data
     if legacy_db:
         station_table = legacy_models.Station
-        station_data_col = legacy_models.Station.inventory_xml
+    station_data_col = station_table.data
 
     if stationxml_id is not None:
         inventory = _inventory_cache.get(stationxml_id)
