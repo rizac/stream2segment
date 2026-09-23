@@ -35,7 +35,7 @@ requests==2.30.0
 scipy==1.10.1
 six==1.16.0
 SQLAlchemy==2.0.13
--e git+https://github.com/rizac/stream2segment.git@ea3d7f4b7e4b89f9f58e93f375569272f50e8af2#egg=stream2segment
+# -e git+https://github.com/rizac/stream2segment.git@ea3d7f4b7e4b89f9f58e93f375569272f50e8af2#egg=stream2segment
 tables==3.8.0
 typing_extensions==4.5.0
 tzdata==2023.3

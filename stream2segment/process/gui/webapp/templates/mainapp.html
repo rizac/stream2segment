@@ -356,8 +356,7 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 				SELECTED_SEGMENT_INDEX = index;
 				document.getElementById('current_segment_index').innerHTML = (SELECTED_SEGMENT_INDEX + 1).toLocaleString('en-US');
 				var seedIdElm = document.getElementById('seed_id');
-				seedIdElm.innerHTML = segmentAttrs.seed_id || "";
-				seedIdElm.innerHTML ? seedIdElm.classList.remove('d-none') : seedIdElm.classList.add('d-none');
+				seedIdElm.innerHTML = `${segmentAttrs.network_code}.${segmentAttrs.station_code}.${segmentAttrs.location_code}.${segmentAttrs.channel_code}`;
 			});
 		};
 
