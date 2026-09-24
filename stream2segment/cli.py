@@ -13,7 +13,7 @@ from pathlib import Path
 import yaml
 import click
 
-from stream2segment.resources import get_templates_fpath
+from stream2segment.resources import get_templates_fpath, get_templates_fpaths
 from stream2segment.io.utils import BadParam
 from stream2segment.io.db import resolve_db_path
 
@@ -304,118 +304,107 @@ def cli():
 
 @cli.command(short_help='Create working example files with documentation to '
                         'start downloading and processing data')
-@click.argument('outdir')
-def init(outdir):
+@click.argument('dest_dir')
+@click.option('--no-prompt', is_flag=True,
+              help='Do not prompt before overwriting existing files.')
+def init(dest_dir, no_prompt):
     """Create template files for launching download,
     processing and visualization. OUTDIR will be created if it does not exist
     """
-    filenames = OrderedDict([
-        ("download.yaml",
-         "Download configuration settings.\n"
-         "Edit and execute: s2s download -c download.yaml"),
-        ("gui.py",
-         "Python module for displaying plots of downloaded data in the web browser.\n"
-         "Edit and execute: s2s -p gui.py -d download.yaml"),
-        ("gui.yaml",
-         "Configuration settings in YAML syntax used in the associated module"),
-        ("paramtable.py",
-         "Python module (runnable as script) illustrating how to produce\n"
-         "a parametric table (HDF, CSV) from downloaded data.\n"
-         "Edit and execute: python paramtable.py"),
-        ("paramtable.yaml",
-         "Configuration settings in YAMl syntax used in the associated module"),
-        ("Using-Stream2segment-in-your-Python-code.ipynb",
-         "Jupyter notebook illustrating\n"
-         "how to work with downloaded data\n"
-         "(requires the installation of jupyter)"),
-        ("example.db.sqlite",
-         "Example database used in the associated notebook")
-    ])
     # import here to improve slow click cli (at least when --help is invoked)
     # https://www.tomrochette.com/problems/2020/03/07
 
+    example_file_names = list(get_example_files().keys())
     try:
-        copied_files = copy_example_files(outdir, True, *filenames)
-        if not copied_files:
-            print("No file copied")
-        else:
-            print("%d file(s) copied in '%s':" % (len(copied_files), outdir))
-            for i, fcopied in enumerate(copied_files):
-                base_name = os.path.basename(fcopied)
-                desc = filenames.get(base_name, "")
-                print()
-                print(base_name)
-                for dsc in desc.split("\n"):
-                    print(dsc)
-            print("")
-            sys.exit(0)
+        default_mode = 2
+        dest_dir = Path(dest_dir)
+        if any((dest_dir / _).exists() for _ in example_file_names):
+            if not no_prompt:
+                default_mode = input(
+                    f"The following file(s) already exist on '{dest_dir}':\n" +
+                    f"{'\n'.join(_ for _ in example_file_names if (dest_dir / _).exists())}"
+                    "\n\n"
+                    "Type:\n"
+                    "1: overwrite all files\n"
+                    "2: write only non-existing\n"
+                    "any other value: do nothing (exit)"
+                    "\n"
+                )
+                if default_mode not in {'1', '2'}:
+                    print("No file copied")
+                    sys.exit(0)
+                default_mode = int(default_mode)
+
+        copied_files = copy_example_files(dest_dir, default_mode == 1)
+        example_files_desc = get_example_files()
+        print(f"{len(copied_files)} file(s) copied in '{dest_dir}':")
+        for copied in copied_files:
+            desc = example_files_desc.get(copied.name, "")
+            for dsc in [copied.name, ""] + desc.split("\n"):
+                print(dsc)
+        print("")
+        sys.exit(0)
     except Exception as exc:  # pylint: disable=broad-except
         print('')
         print("error: %s" % str(exc))
     sys.exit(1)
 
 
-def copy_example_files(outpath, prompt=True, *filenames):
+def copy_example_files(
+    dest_dir: Path, force_overwrite: bool = False
+):
     """Initialize an output directory writing therein the given template files
 
-    :param prompt: bool (default: True) telling if a prompt message (Python
-        `input` function) should be issued to warn the user when overwriting
-        files. The user should return a string or integer where '1' means
-        'overwrite all files', '2' means 'overwrite only non-existing', and any
-        other value will return without copying.
+    :param force_overwrite: if False (the default) writes only non-existing files
+        otherwise overwrite everything
     """
-    import jinja2, shutil
-    from stream2segment.resources.templates import DOCVARS
+    import shutil
 
-    if not os.path.isdir(outpath):
-        os.makedirs(outpath)
-        if not os.path.isdir(outpath):
-            raise Exception("Unable to create '%s'" % outpath)
+    if not os.path.isdir(dest_dir):
+        try:
+            os.makedirs(dest_dir)
+        except Exception as exc:
+            raise
 
-    existing_files = []
-    if prompt:
-        existing_files = [f for f in filenames
-                          if os.path.isfile(os.path.join(outpath, f))]
-        non_existing_files = [f for f in filenames if f not in existing_files]
-        if existing_files:
-            suffix = ("Type:\n1: overwrite all files\n2: write only non-existing\n"
-                      "0 or any other value: do nothing (exit)\n")
-            msg = ("The following file(s) "
-                   "already exist on '%s':\n%s"
-                   "\n\n%s") % (outpath, "\n".join([_ for _ in existing_files]), suffix)
-            val = input(msg)
-            try:
-                val = int(val)
-                if val == 2:
-                    if not non_existing_files:
-                        raise ValueError()  # fall back to "exit" case
-                    else:
-                        filenames = non_existing_files
-                elif val != 1:
-                    raise ValueError()  # fall back to "exit" case
-            except ValueError:
-                return []
-
-    if existing_files:
-        print()  # leave blank line between prompt and next printout
-
-    srcfilepaths = get_templates_fpaths(*filenames)
+    src_files = get_templates_fpaths(*list(get_example_files().keys()))
     copied_files = []
-    if srcfilepaths:
-        basedir = os.path.dirname(srcfilepaths[0])
-        env = jinja2.Environment(loader=jinja2.FileSystemLoader(basedir),
-                                 keep_trailing_newline=True)
-        for srcfilepath in srcfilepaths:
-            filename = os.path.basename(srcfilepath)
-            outfilepath = os.path.join(outpath, filename)
-            if os.path.splitext(filename)[1].lower() in ('.yaml', '.py'):
-                env.get_template(filename).stream(DOCVARS).dump(outfilepath)
-            else:
-                shutil.copyfile(srcfilepath, outfilepath)
-            copied_files.append(outfilepath)
+    for src_file in src_files:
+        dest_file = dest_dir / Path(src_file).name
+        if dest_file.exists() and not force_overwrite:
+            continue
+        shutil.copyfile(src_file, dest_file)
+        copied_files.append(dest_file)
     return copied_files
 
 
+def get_example_files() -> dict:
+    return {
+        "download.yaml":
+            "Download configuration settings.\n"
+            "Edit and execute: s2s download -c download.yaml",
+        # "gui.py":
+        #    "Python module for displaying plots of downloaded data in the web browser.\n"
+        #    "Edit and execute: s2s -p gui.py -d download.yaml",
+        #"gui.yaml":
+        #    "Configuration settings in YAML syntax used in the associated module",
+        "paramtable.py":
+            "Python module (runnable as script) illustrating how to produce\n"
+            "a parametric table (HDF, CSV) from downloaded data.\n"
+            "Edit and execute: python paramtable.py",
+        "paramtable.yaml":
+            "Configuration settings in YAMl syntax used in the associated module",
+        "paramtable2.py":
+            "similar to paramtable, exemplifies a case where we want to process all "
+            "3 segments components together",
+        "paramtable2.yaml":
+            "Configuration settings in YAMl syntax used in the associated module",
+        "Using-Stream2segment-in-your-Python-code.ipynb":
+            "Jupyter notebook illustrating\n"
+            "how to work with downloaded data\n"
+            "(requires the installation of jupyter)",
+        "example.db.sqlite":
+            "Example database used in the associated notebook"
+    }
 # Short recap here (READ IF YOU PLAN TO EDIT OPTIONS BELOW, SKIP OTHERWISE):
 # * option short name: any click option name starting with "-"
 # * option long name: any click option name starting with "--"

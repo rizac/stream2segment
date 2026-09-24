@@ -6,6 +6,7 @@ RUN apt-get update && apt-get install -y \
     libxml2-dev \
     libxslt1-dev \
     libpq-dev \
+    postgresql \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
@@ -17,4 +18,8 @@ RUN pip install --no-cache-dir -r requirements_py312.txt
 COPY . .
 RUN pip install .
 
-CMD ["s2s", "--help"]
+CMD ["bash"]
+
+# (cd tmp/docker && docker run -it --rm -v "$PWD:$PWD" -w "$PWD" s2s)
+# ... do your work normally inside docker shell
+# exit

@@ -1,9 +1,0 @@
-#!/bin/sh
-
-PROJECT_DIR="$1"
-shift
-
-docker run --rm -it \
-    -v "$PROJECT_DIR:/root" \
-    stream2segment \
-    s2s "$@"
