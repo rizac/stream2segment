@@ -318,11 +318,12 @@ def init(dest_dir, no_prompt):
     try:
         default_mode = 2
         dest_dir = Path(dest_dir)
-        if any((dest_dir / _).exists() for _ in example_file_names):
+        existing_files = [f for f in example_file_names if (dest_dir / f).exists()]
+        if len(existing_files) > 0:
             if not no_prompt:
                 default_mode = input(
                     f"The following file(s) already exist on '{dest_dir}':\n" +
-                    f"{'\n'.join(_ for _ in example_file_names if (dest_dir / _).exists())}"
+                    "\n".join(existing_files) +
                     "\n\n"
                     "Type:\n"
                     "1: overwrite all files\n"

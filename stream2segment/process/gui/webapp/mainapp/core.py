@@ -15,12 +15,13 @@ import numpy as np
 from obspy import Stream, Trace
 from obspy.core.inventory import Inventory
 from obspy.core.utcdatetime import UTCDateTime
-from sqlalchemy import Engine, select, func
+from sqlalchemy import Engine, select, func, literal
 from sqlalchemy import insert, delete
 from sqlalchemy.exc import IntegrityError
 
 from stream2segment.io.db import create_engine, secure_dburl
 from stream2segment.process import gui  # FIXME gui import what is it?!!!!
+from stream2segment.process.class_labels import get_class_labels
 from stream2segment.process.gui.introspection import scan_module
 from stream2segment.process.main import (
     get_obspy_stream, get_obspy_inventory, SegmentMetadata
@@ -28,8 +29,7 @@ from stream2segment.process.main import (
 from stream2segment.process.segments_selection import (
     build_select,
     is_legacy_db,
-    get_orderby_columns,
-    get_class_labels
+    get_orderby_columns
 )
 
 g_engine: Engine = None
@@ -291,7 +291,9 @@ def get_segment_data(
                 'label': f.name,
                 'value': _jsonify(getattr(seg_meta, f.name))
             } for f in fields(seg_meta)],
-        'classes': [] if not classes else get_segment_class_labels(seg_id),
+        'classes': (
+            [] if not classes else list(get_class_labels(g_engine, seg_id).keys())
+        ),
         'description': desc
     }
 
@@ -482,65 +484,34 @@ def _jsonify(obj):
 
 
 def get_all_class_labels() -> list[dict[str, Any]]:
-    return get_class_labels(g_engine, include_count=True, include_description=True)
+    """
+    Return [{'id': ..., 'label': ..., 'segments': ..., 'description': ...}, ...]
+    for every ClassLabel, including those with 0 segments
 
-
-def get_segment_class_labels(seg_id: int) -> list[str]:
-    """Return all ClassLabel rows (label, description) assigned to the given segment."""
-    engine = g_engine
-    if is_legacy_db(engine):
+    :param include_count: if True, each class label 'segments' key reports the number of
+        labeled segments in the DB. If False, segments are not counted and the value is 0
+    :param include_description: if True, each class label 'description' key reports the
+        class label description. If False, description is not queried and set to ""
+    """
+    db = g_engine
+    if is_legacy_db(db):
         from stream2segment.io.db.legacy.models import ClassLabel, ClassLabeling
     else:
         from stream2segment.io.db.models import ClassLabel, ClassLabeling
+
     stmt = (
-        select(ClassLabel.label, ClassLabel.description)
-        .join(ClassLabeling, ClassLabeling.class_label_id == ClassLabel.id)
-        .where(ClassLabeling.segment_id == seg_id)
+        select(
+            ClassLabel.id,
+            ClassLabel.label,
+            func.count(ClassLabeling.id),
+            ClassLabel.description
+        ).
+        outerjoin(ClassLabeling, ClassLabeling.class_label_id == ClassLabel.id)
+        .group_by(ClassLabel.id)
     )
-    with engine.connect() as conn:
-        return conn.execute(stmt).fetchall()
 
-
-def set_class_id(seg_id, class_id, value):
-    """Set the given class to the given segment (value=True), or removes it
-    from the given segment (value=False)
-    """
-    try:
-        import getpass
-        annotator = str(getpass.getuser())
-        if len(annotator) > 2:
-            annotator = annotator[0] + '*' * (len(annotator) - 2) + annotator[-1]
-        else:
-            annotator = 'user id ' + str(os.getuid())
-    except Exception:  # noqa
-        annotator = 'anonymous labeller'
-
-    if is_legacy_db(g_engine):
-        from stream2segment.io.db.legacy.models import ClassLabelling as ClassLabeling
-    else:
-        from stream2segment.io.db.models import ClassLabeling
-
-    with g_engine.begin() as conn:  # noqa
-        if value:
-            try:
-                conn.execute(
-                    insert(ClassLabeling).values(
-                        segment_id=seg_id, class_label_id=class_id, annotator=annotator
-                    )
-                )
-            except IntegrityError:
-                pass  # pairing already exists
-        else:
-            conn.execute(
-                delete(ClassLabeling).where(
-                    ClassLabeling.segment_id == seg_id,
-                    ClassLabeling.class_label_id == class_id,
-                )
-            )
-
-    # return the class label count:
-    stmt = select(func.count()).select_from(ClassLabeling).where(
-        ClassLabeling.class_label_id == class_id
-    )
-    with g_engine.connect() as conn:
-        return conn.execute(stmt).scalar_one()
+    with db.connect() as conn:
+        return [
+            {'id': _[0], 'label': _[1], 'segments': _[2], 'description': _[3]}
+            for _ in conn.execute(stmt).fetchall()
+        ]
