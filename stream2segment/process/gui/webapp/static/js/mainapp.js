@@ -71,8 +71,14 @@ function getSegmentsSelection(inputElements){
 	});
 }
 
-function get_segment_data(segmentIndex, segmentsCount, plots, tracesArePreprocessed, mainPlotShowsAllComponents,
- 						  attrElements, classElements, descElement){
+function getSegmentData(
+    segmentIndex,
+    segmentsCount,
+    plots,
+    tracesArePreprocessed,
+    mainPlotShowsAllComponents,
+    loadMetadata
+){
 	/**
 	* Main function to update the GUI from a given segment.
 	* plots: Array of 3-elements Arrays, where the 3 elements are:
@@ -104,8 +110,8 @@ function get_segment_data(segmentIndex, segmentsCount, plots, tracesArePreproces
 		zooms: null,  // not used
 		plot_names: Object.keys(funcName2ID),
 		all_components: mainPlotShowsAllComponents,
-		attributes: !!attrElements,
-		classes: !!classElements
+		attributes: loadMetadata,
+		classes: loadMetadata
 	}
 
 	setInfoMessage("Fetching and computing data (it might take a while) ...");
@@ -115,26 +121,7 @@ function get_segment_data(segmentIndex, segmentsCount, plots, tracesArePreproces
 			var layout = Object.assign({}, funcName2Layout[name], response.data.plotLayout[name] || {});
 			redrawPlot(funcName2ID[name], data, layout);
 		}
-		var ret = {};
-		// update metadata if needed:
-		if (attrElements){
-			for (var att of response.data.attributes){
-				attrElements[att.label].innerHTML = att.value;
-				ret[att.label] = att.value;
-			}
-			if (descElement){
-				descElement.innerHTML = response.data.description
-			}
-		}
-		ret['class.id'] = [];
-		// update classes if needed:
-		if (classElements){
-			for (var classId of response.data.classes){
-				ret['class.id'].push(classId);
-				classElements[classId].checked=true;
-			}
-		}
-		return ret;
+		return response.data
 	});
 }
 

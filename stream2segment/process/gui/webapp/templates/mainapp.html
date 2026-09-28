@@ -350,9 +350,27 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 				classElements[parseInt(elm.getAttribute('data-segment-class-id'))] = elm;
 			});
 			var descElement = document.querySelector('[data-id=segment-description]');
-			get_segment_data(index, SEGMENTS_COUNT,
-							 getPlotDataToRecompute(), tracesArePreprocessed(), mainPlotShowsAllComponents(),
-	 						 attrElements, classElements, descElement).then(segmentAttrs => {
+			getSegmentData(
+				index,
+				SEGMENTS_COUNT,
+				getPlotDataToRecompute(),
+				tracesArePreprocessed(),
+				mainPlotShowsAllComponents(),
+				true
+	 		).then(responseData => {
+				var segmentAttrs = responseData.attributes;
+				for (var att of segmentAttrs){
+					attrElements[att.label].innerHTML = att.value;
+				}
+				if (descElement){
+					descElement.innerHTML = responseData.description
+				}
+				// update classes if needed:
+				if (classElements){
+					for (var classId of responseData.classes){
+						classElements[classId].checked=true;
+					}
+				}
 				SELECTED_SEGMENT_INDEX = index;
 				document.getElementById('current_segment_index').innerHTML = (SELECTED_SEGMENT_INDEX + 1).toLocaleString('en-US');
 				var seedIdElm = document.getElementById('seed_id');
@@ -361,9 +379,14 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 		};
 
 		function recomputeAllPlots(){
-			get_segment_data(SELECTED_SEGMENT_INDEX, SEGMENTS_COUNT,
-							 getPlotDataToRecompute(), tracesArePreprocessed(), mainPlotShowsAllComponents(),
-	 						 null, null, null);
+			getSegmentData(
+				SELECTED_SEGMENT_INDEX,
+				SEGMENTS_COUNT,
+				getPlotDataToRecompute(),
+				tracesArePreprocessed(),
+				mainPlotShowsAllComponents(),
+				false
+			);
 		}
 
 		function getPlotDataToRecompute(){
@@ -377,9 +400,14 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 		}
 
 		function recomputePlot(funcName, divId, layout){
-			get_segment_data(SELECTED_SEGMENT_INDEX, SEGMENTS_COUNT,
-							 [[funcName, divId, layout]], tracesArePreprocessed(), mainPlotShowsAllComponents(),
-	 						 null, null, null);
+			getSegmentData(
+				SELECTED_SEGMENT_INDEX,
+				SEGMENTS_COUNT,
+				[[funcName, divId, layout]],
+				tracesArePreprocessed(),
+				mainPlotShowsAllComponents(),
+				false
+			);
 		}
 
 		function setClassLabel(classId, value){
