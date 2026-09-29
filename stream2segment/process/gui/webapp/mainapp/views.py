@@ -106,10 +106,36 @@ def get_segment_data():
     )
 
 
-@main_app.route("/set_class_id", methods=['POST'])
-def set_class_id():
+@main_app.route("/add_class_labeling", methods=['POST'])
+def add_class_labeling():
     data = request.get_json()
     seg_index = data['seg_index']
     seg_id = core.get_segment_id(seg_index)
-    return jsonify(core.set_class_id(seg_id, data['class_id'], data['value']))
+    if data['value']:
+        return jsonify(
+            core.class_labels.set_class_labeling(
+                core.g_engine, seg_id, data['class_id']
+            )
+        )
+    else:
+        return jsonify(
+            core.class_labels.delete_class_labeling(
+                core.g_engine, seg_id, data['class_id']
+            )
+        )
 
+
+
+@main_app.route("/update_class_labels", methods=['POST'])
+def manage_class_labels():
+    """Optionally adds new class labels, returns all class labels"""
+    data = request.get_json()
+    if data and 'label' in data:
+        val = core.class_labels.add_class_label(
+            core.g_engine, data['label'], data.get('description', '')
+        )
+        if not val:
+            return []
+    return core.get_all_class_labels()
+    # asstr = (request.get_json() or {}).get('as_str', False)
+    # return jsonify(core.get_config(asstr))

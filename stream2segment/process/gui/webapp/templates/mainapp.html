@@ -27,7 +27,7 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 	-webkit-background-clip: padding-box;
 	background-clip: padding-box;
 	border: 1px solid #ccc;
-	border: 1px solid rgba(0,0,0,.33);
+	/*border: 1px solid rgba(0,0,0,.33);*/
 	border-radius: 4px;
 	-webkit-box-shadow: 0 6px 12px rgba(0,0,0,.175);
 	box-shadow: 0 6px 12px rgba(0,0,0,.175);
@@ -148,44 +148,44 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 		<!--RIGHT COLUMN PLOTS -->
 		<div class='d-flex flex-column' style="flex: 0 0 50%">
 			 <!-- RIGHT TOP PLOT PANEL (WITH BUTTONS) -->
-			<div class="{%- if rightPlots|length < 1 -%}d-none{%- else -%}d-flex{%- endif %} flex-row" style="flex:1 1 50%">
+			<div class="{%- if rightPlots|length < 1 -%}d-none{%- else -%}d-flex{%- endif %} flex-row" style="flex:0 0 50%">
 				<div style="flex: 1 1 auto; position:relative">
 					<div id="right-plot" style="position:absolute;top:0;right:1rem;bottom:1rem;left:0;overflow:auto"></div>
 				</div>
 			</div>
 			<!-- RIGHT BOTTOM PANEL (SEGMENT METADATA) -->
-			<div class="d-flex flex-column" style="flex: 1 1 50%; margin-left:1rem">
-				<div style="flex:1 1 auto; position:relative">
-					<div style="position:absolute;top:0;right:0;bottom:0;left:0;overflow:auto">
-						<table class='mt-2' style="width:100%;">
-							{%- if rightPlots|length > 0 -%}
-							<thead><tr><th colspan="2" data-id='segment-description'></th></tr></thead>
-							{%- endif %}
-							<tbody>
-							{% for class in classes -%}
-							<tr title="{{ class.label }}{%- if class.description -%}: {{ class.description }}{%- endif -%}">
-								<td>
-									<label style="white-space: nowrap;">
-										<input type="checkbox" data-segment-class-id="{{ class.id }}"
-											   onclick="setClassLabel(parseInt(this.getAttribute('data-segment-class-id')), this.checked)">
-										{{ class.label }}
-									</label>
-								</td>
-								<td style="text-overflow: ellipsis;white-space:nowrap;max-width:0;overflow:hidden">
-									(DB segments labelled: <span id="class-{{class.id}}-segments-count">{{ class.segments }}</span>)
-								</td>
-							</tr>
-							{%- endfor -%}
-							{% for mdata in metadata -%}
-							{% set name = mdata.label %}
-							<tr>
-								<td>{{ name }}</td>
-								<td data-segment-attr="{{ name }}" style='width:100%'>N/A</td>
-							</tr>
-							{%- endfor -%}
-							</tbody>
-						</table>
+			<div class="d-flex flex-row align-items-stretch gap-2" style="flex: 0 0 50%; margin-left:1rem; min-height:0">
+				<div style="flex:1 1 50%; min-height:0; overflow-y: auto; border: 1px solid #ccc;" class="p-2">
+					{%- if rightPlots|length > 0 -%}<span data-id='segment-description'></span>{%- endif %}
+					<table class='mt-2' style="width:100%;">
+						{% for mdata in metadata -%}
+						{% set name = mdata.label %}
+						<tr>
+							<td>{{ name }}</td>
+							<td data-segment-attr="{{ name }}" style='width:100%'>N/A</td>
+						</tr>
+						{%- endfor -%}
+						</tbody>
+					</table>
+				</div>
+				<div style="min-height:0;max-width:50%; border: 1px solid #ccc;" class="d-flex flex-column p-2">
+					<div style="flex:1 1 auto; overflow-y: auto" id="class_labels">
+						<!-- here we will populate the class labels, see <script> below -->
 					</div>
+					<table id="add_class_label" style="width:100%">
+						<tr><td>Class Label</td><td><input type="text" id="new-class-label"></td></tr>
+						<tr><td>Description</td><td><input type="text" id="new-class-description"></td></tr>
+						<tr><td colspan="2">
+						<button type="button" class="btn btn-outline-secondary"
+								style="width:100%"
+								onclick="updateClassLabels(
+									document.getElementById('new-class-label').value,
+									document.getElementById('new-class-description').value
+								)">
+							Add
+						</button>
+						</td></tr>
+					</table>
 				</div>
 			</div>
 		 </div>
@@ -417,7 +417,7 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 				class_id: classId,
 				value: value
 			};
-			axios.post("/set_class_id", params, {headers: {'Content-Type': 'application/json'}}).then(response => {
+			axios.post("/add_class_labeling", params, {headers: {'Content-Type': 'application/json'}}).then(response => {
 				document.getElementById(`class-${classId}-segments-count`).innerHTML = response.data;
 			});
 		}
@@ -466,7 +466,52 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 			setSegment(0);
 		}
 
-		updateSegmentsCount({{ num_segments }});
+		function updateClassLabels(newLabel, newDescription) {
+			const parent = document.getElementById('class_labels');
+
+			const checked = {};
+			parent.querySelectorAll('input[data-segment-class-id]').forEach(cb => {
+				checked[cb.dataset.segmentClassId] = cb.checked;
+			});
+
+			var data = {}
+			if (newLabel){
+				data = {
+					label: newLabel,
+					description: newDescription
+				}
+			}
+			return axios.post('/update_class_labels', data)
+				.then(response => {
+					const classes = response.data;
+
+					parent.innerHTML = classes.map(cls => `
+						<tr title="${cls.label}${cls.description ? ': ' + cls.description : ''}">
+							<td>
+								<label style="white-space: nowrap;">
+									<input type="checkbox"
+										   data-segment-class-id="${cls.id}"
+										   onclick="setClassLabel(${cls.id}, this.checked)"
+										   ${checked[cls.id] ? 'checked' : ''}>
+									${cls.label}
+								</label>
+							</td>
+							<td style="text-overflow: ellipsis;white-space:nowrap;max-width:0;overflow:hidden">
+								(DB segments labelled:
+								<span id="class-${cls.id}-segments-count">${cls.segments}</span>)
+							</td>
+						</tr>
+					`).join('');
+
+					return classes;
+				});
+		}
+
+		updateClassLabels().then(classes => {
+			// runs after the AJAX request and DOM update
+			updateSegmentsCount({{ num_segments }});
+		});
+
 
 	</script>
 {% endblock %}

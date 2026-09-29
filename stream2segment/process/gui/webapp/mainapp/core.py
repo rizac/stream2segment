@@ -15,13 +15,9 @@ import numpy as np
 from obspy import Stream, Trace
 from obspy.core.inventory import Inventory
 from obspy.core.utcdatetime import UTCDateTime
-from sqlalchemy import Engine, select, func, literal
-from sqlalchemy import insert, delete
-from sqlalchemy.exc import IntegrityError
-
+from sqlalchemy import Engine, select, func
 from stream2segment.io.db import create_engine, secure_dburl
-from stream2segment.process import gui  # FIXME gui import what is it?!!!!
-from stream2segment.process.class_labels import get_class_labels
+from stream2segment.process import gui, class_labels  # FIXME gui import what is it?!!!!
 from stream2segment.process.gui.introspection import scan_module
 from stream2segment.process.main import (
     get_obspy_stream, get_obspy_inventory, SegmentMetadata
@@ -92,7 +88,7 @@ def init(
     db_url: str,
     py_module=None,
     config: dict | None = None,
-    segments_selection: dict | None =None
+    segments_selection: dict | None = None
 ):
     """Initialize global variables. This method must be called once
     after the Flask app has been created and before using it.
@@ -130,7 +126,7 @@ def init(
     return reset_global_vars(config or {}, segments_selection or {})
 
 
-def reset_global_vars(config=None, segments_selection = None) -> int:
+def reset_global_vars(config=None, segments_selection=None) -> int:
     """Reset global variables (both dicts). None means: skip"""
     if config is not None:
         global g_config
@@ -172,8 +168,8 @@ def _escapedoc(string):
             string = string[:string.index(char)]
             break
     string = string.strip()
-    return string.replace('{', '&#123;').replace('}', '&#125;').\
-        replace("\"", "&quot;").replace("'", '&amp;').replace("<", "&lt;").\
+    return string.replace('{', '&#123;').replace('}', '&#125;'). \
+        replace("\"", "&quot;").replace("'", '&amp;').replace("<", "&lt;"). \
         replace(">", "&gt;")
 
 
@@ -292,7 +288,7 @@ def get_segment_data(
                 'value': _jsonify(getattr(seg_meta, f.name))
             } for f in fields(seg_meta)],
         'classes': (
-            [] if not classes else list(get_class_labels(g_engine, seg_id).keys())
+            [] if not classes else list(class_labels.get_class_labels(g_engine, seg_id).keys())
         ),
         'description': desc
     }
@@ -511,7 +507,9 @@ def get_all_class_labels() -> list[dict[str, Any]]:
     )
 
     with db.connect() as conn:
-        return [
-            {'id': _[0], 'label': _[1], 'segments': _[2], 'description': _[3]}
-            for _ in conn.execute(stmt).fetchall()
-        ]
+        return sorted(
+            (
+                {'id': _[0], 'label': _[1], 'segments': _[2], 'description': _[3]}
+                for _ in conn.execute(stmt).fetchall()
+            ), key=lambda _: _['label']
+        )

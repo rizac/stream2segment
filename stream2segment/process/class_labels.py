@@ -32,16 +32,17 @@ def _edit_class_label(
     else:
         from stream2segment.io.db.models import ClassLabel
 
-    add = description_or_none_to_delete is not None
+    class_id = None
+    if description_or_none_to_delete is not None:  # adding class
+        class_id = get_col_max(db, ClassLabel.id) + 1
 
     with db.begin() as conn:  # noqa
         try:
             with conn.begin_nested():
-                if add:
-                    _max = get_col_max(conn, ClassLabel.id)
+                if class_id is not None:  # adding class
                     conn.execute(
                         insert(ClassLabel).values(
-                            id=_max + 1,
+                            id=class_id,
                             label=label,
                             description=str(description_or_none_to_delete)
                         )
@@ -67,7 +68,7 @@ def _edit_class_label(
             stmt = select(ClassLabel.id).where((ClassLabel.id == label))
         else:
             stmt = select(ClassLabel.id).where((ClassLabel.label == label))
-        return (conn.execute(stmt).scalar_one_or_none() is not None) == add
+        return (conn.execute(stmt).scalar_one_or_none() is None) == class_id is None
 
 
 def get_class_labels(
