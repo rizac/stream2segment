@@ -3,7 +3,6 @@ Core functionalities for the main GUI web application (show command)
 """
 # :date: Jul 31, 2016
 import math
-import os
 from dataclasses import asdict, fields
 from datetime import datetime, date
 
@@ -25,7 +24,7 @@ from stream2segment.process.main import (
 from stream2segment.process.segments_selection import (
     build_select,
     is_legacy_db,
-    get_orderby_columns
+    get_orderby_columns, get_where_fields
 )
 
 g_engine: Engine = None
@@ -247,7 +246,7 @@ def get_segment_data(
     with g_engine.connect() as conn:
         db_row = conn.execute(stmt).one()
     stream = get_obspy_stream(db_row)
-    seg_meta = stream[0].stats.segment_metadata
+    seg_meta: SegmentMetadata = stream[0].stats.segment_metadata
 
     if zooms is None and plot_names:
         zooms = [(None, None) for _ in plot_names]
@@ -276,17 +275,13 @@ def get_segment_data(
         f'Event magnitude: <b>{seg_meta.event_magnitude} '
         f'{seg_meta.event_magnitude_type}</b>, station '
         f'distance: &#8776; <b>{round(seg_meta.event_distance_km, 2):,} '
-        f'km</b>. Segment metadata:'
+        f'km</b>'
     )
 
     return {
         'plotData': plots,
         'plotLayout': layouts,
-        'attributes': [
-            {
-                'label': f.name,
-                'value': _jsonify(getattr(seg_meta, f.name))
-            } for f in fields(seg_meta)],
+        'attributes': get_metadata(seg_meta),
         'classes': (
             [] if not classes else list(class_labels.get_class_labels(g_engine, seg_id).keys())
         ),
@@ -294,17 +289,23 @@ def get_segment_data(
     }
 
 
-def get_metadata(trace: Trace | None = None) -> list[dict[str, str]] | dict[str, Any]:
-    if trace is None:
-        sorted_fields = sorted(fields(SegmentMetadata), key=lambda f: f.name)
-        return [
-            {
-                'label': f.name,
-                'dtype': str(f.type)
-            }
-            for f in sorted_fields
-        ]
-    return asdict(trace.stats.segment_metadata)
+def get_metadata(src: Engine | SegmentMetadata) -> dict[str, str]:
+    if isinstance(src, Engine):
+        where_fields = get_where_fields(src)
+        ret = {}
+        for f in fields(where_fields):
+            expression = getattr(where_fields, f.name)
+            try:
+                python_type = expression.type.python_type
+            except NotImplementedError:
+                if f.name.endswith("_code"):
+                    python_type = str
+                else:
+                    python_type = "unknown"
+            ret[f.name] = str(python_type)
+        return ret
+
+    return asdict(src)
 
 
 def get_plotly_data_and_layout(

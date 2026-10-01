@@ -10,7 +10,7 @@ import sys
 import logging
 from collections.abc import Callable, Iterable
 from contextlib import contextmanager, nullcontext
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from datetime import timedelta, datetime, UTC
 import warnings
 from io import BytesIO

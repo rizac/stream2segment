@@ -106,9 +106,6 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 			<label class="btn btn-sm btn-outline-secondary me-2" for="show-all-components-btn">Show all orientations</label>
 		</div>
 		<div class="d-flex flex-row align-items-baseline" style="flex: 1 1 50%">  <!-- right plot controls -->
-			{%- if rightPlots|length < 1 -%}
-			<span data-id='segment-description'></span>
-			{%- else -%}
 			{% for plot in rightPlots %}
 			<input type="radio" class="btn-check"
 				   name="right-plot-option" id="right-plot-{{ plot.name }}"
@@ -118,7 +115,6 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 				   title="{{plot.doc}}" autocomplete="off">
 			<label class="btn btn-sm btn-outline-secondary me-2" for="right-plot-{{ plot.name }}">{{ plot.name }}</label>
 			{% endfor %}
-			{%- endif %}
 		</div>
 	</div>
 	<!-- PLOTS CONTAINER -->
@@ -156,19 +152,13 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 			<!-- RIGHT BOTTOM PANEL (SEGMENT METADATA) -->
 			<div class="d-flex flex-row align-items-stretch gap-2" style="flex: 0 0 50%; margin-left:1rem; min-height:0">
 				<div style="flex:1 1 50%; min-height:0; overflow-y: auto; border: 1px solid #ccc;" class="p-2">
-					{%- if rightPlots|length > 0 -%}<span data-id='segment-description'></span>{%- endif %}
-					<table class='mt-2' style="width:100%;">
-						{% for mdata in metadata -%}
-						{% set name = mdata.label %}
-						<tr>
-							<td>{{ name }}</td>
-							<td data-segment-attr="{{ name }}" style='width:100%'>N/A</td>
-						</tr>
-						{%- endfor -%}
-						</tbody>
+					<span id='segment-description'></span>
+					<table class='mt-2' style="width:100%;" id="segment_attributes">
+						<!-- here we will populate the class labels, see <script> below -->
 					</table>
 				</div>
-				<div style="min-height:0;max-width:50%; border: 1px solid #ccc;" class="d-flex flex-column p-2">
+				<div style="min-height:0;max-width:50%; border: 1px solid #ccc;overflow-y: auto;" class="d-flex flex-column p-2">
+					<div>Label as:</div>
 					<div style="flex:1 1 auto; overflow-y: auto" id="class_labels">
 						<!-- here we will populate the class labels, see <script> below -->
 					</div>
@@ -182,7 +172,7 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 									document.getElementById('new-class-label').value,
 									document.getElementById('new-class-description').value
 								)">
-							Add
+							Create new class label
 						</button>
 						</td></tr>
 					</table>
@@ -220,9 +210,7 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 			</tr>
 			</thead>
 			<tbody>
-			{% for mdata in metadata -%}
-			{% set name = mdata.label %}
-			{% set dtype = mdata.dtype %}
+			{% for name, dtype in metadata.items() -%}
 			<tr>
 				<td><span id="sss-{{ name }}">{{ name }}</span></td>
 				<td style='width:100%'>
@@ -339,17 +327,7 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 			}else if (index >= SEGMENTS_COUNT){
 				index = index % SEGMENTS_COUNT;
 			}
-			var attrElements = {};
-			document.querySelectorAll(`[data-segment-attr]`).forEach(elm => {
-				elm.innerHTML = "";
-				attrElements[elm.getAttribute('data-segment-attr')] = elm;
-			});
-			var classElements = {};
-			document.querySelectorAll(`[data-segment-class-id]`).forEach(elm => {
-				elm.checked = false;
-				classElements[parseInt(elm.getAttribute('data-segment-class-id'))] = elm;
-			});
-			var descElement = document.querySelector('[data-id=segment-description]');
+
 			getSegmentData(
 				index,
 				SEGMENTS_COUNT,
@@ -358,19 +336,23 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 				mainPlotShowsAllComponents(),
 				true
 	 		).then(responseData => {
-				var segmentAttrs = responseData.attributes;
-				for (var att of segmentAttrs){
-					attrElements[att.label].innerHTML = att.value;
+	 			// update segment attributes table:
+	 			var attrsHTML = ''
+	 			var segmentAttrs = responseData.attributes;
+	 			for (const [name, value] of Object.entries(segmentAttrs)) {
+    				attrsHTML += `<tr><td>${name}</td><td>${value}</td></tr>`;
 				}
-				if (descElement){
-					descElement.innerHTML = responseData.description
-				}
+				document.querySelector('#segment_attributes').innerHTML = `<tbody>${attrsHTML}</tbody>`;
+
+				// update description:
+				document.querySelector('#segment-description').innerHTML = responseData.description;
+
 				// update classes if needed:
-				if (classElements){
-					for (var classId of responseData.classes){
-						classElements[classId].checked=true;
-					}
-				}
+				var segClasses = new Set(responseData.classes);
+				document.querySelectorAll(`[data-segment-class-id]`).forEach(elm => {
+					elm.checked = segClasses.has(parseInt(elm.getAttribute('data-segment-class-id')));
+				});
+
 				SELECTED_SEGMENT_INDEX = index;
 				document.getElementById('current_segment_index').innerHTML = (SELECTED_SEGMENT_INDEX + 1).toLocaleString('en-US');
 				var seedIdElm = document.getElementById('seed_id');

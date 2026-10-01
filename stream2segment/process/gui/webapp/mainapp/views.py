@@ -44,7 +44,7 @@ def main():
         title=core.get_db_url(),
         rightPlots=r_plots,
         bottomPlots=b_plots,
-        metadata=core.get_metadata(),
+        metadata=core.get_metadata(core.g_engine),
         classes=core.get_all_class_labels(),
         preprocess_func_on=pp_func_defined,
         preprocessfunc_doc=pp_func_doc

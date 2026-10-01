@@ -118,7 +118,7 @@ def get_select_fields(db: Engine) -> SelectFields:
         )
 
 
-@dataclass(frozen = True, slots = True, kw_only=True)
+@dataclass(frozen=True, slots = True, kw_only=True)
 class WhereFields(CommonFields):
     event_distance_km: ColumnElement | hybrid_property
     event_distance_deg: ColumnElement | hybrid_property
