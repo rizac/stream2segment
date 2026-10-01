@@ -106,8 +106,8 @@ def get_segment_data():
     )
 
 
-@main_app.route("/add_class_labeling", methods=['POST'])
-def add_class_labeling():
+@main_app.route("/manage_class_labeling", methods=['POST'])
+def manage_class_labeling():
     data = request.get_json()
     seg_index = data['seg_index']
     seg_id = core.get_segment_id(seg_index)
@@ -123,7 +123,6 @@ def add_class_labeling():
                 core.g_engine, seg_id, data['class_id']
             )
         )
-
 
 
 @main_app.route("/update_class_labels", methods=['POST'])

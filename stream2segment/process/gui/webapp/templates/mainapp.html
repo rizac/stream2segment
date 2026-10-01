@@ -159,9 +159,10 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 				</div>
 				<div style="min-height:0;max-width:50%; border: 1px solid #ccc;overflow-y: auto;" class="d-flex flex-column p-2">
 					<div>Label as:</div>
-					<div style="flex:1 1 auto; overflow-y: auto" id="class_labels">
+					<table style="width:100%;" id="class_labels">
 						<!-- here we will populate the class labels, see <script> below -->
-					</div>
+					</table>
+					<div  style="flex:1 1 auto;"></div>
 					<table id="add_class_label" style="width:100%">
 						<tr><td>Class Label</td><td><input type="text" id="new-class-label"></td></tr>
 						<tr><td>Description</td><td><input type="text" id="new-class-description"></td></tr>
@@ -392,15 +393,24 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 			);
 		}
 
-		function setClassLabel(classId, value){
+		function manageClassLabeling(classId, value){
 			var params = {
 				seg_index: SELECTED_SEGMENT_INDEX,
 				seg_count: SEGMENTS_COUNT,
 				class_id: classId,
 				value: value
 			};
-			axios.post("/add_class_labeling", params, {headers: {'Content-Type': 'application/json'}}).then(response => {
-				document.getElementById(`class-${classId}-segments-count`).innerHTML = response.data;
+			axios.post("/manage_class_labeling", params, {headers: {'Content-Type': 'application/json'}}).then(response => {
+				var elm = document.getElementById(`class-${classId}-segments-count`);
+				if (response.data){
+					var newValue = parseInt(elm.innerHTML);
+					if (value){
+						newValue += 1;
+					}else{
+						newValue -= 1;
+					}
+				}
+				elm.innerHTML = newValue;
 			});
 		}
 
@@ -473,14 +483,13 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 								<label style="white-space: nowrap;">
 									<input type="checkbox"
 										   data-segment-class-id="${cls.id}"
-										   onclick="setClassLabel(${cls.id}, this.checked)"
+										   onclick="manageClassLabeling(${cls.id}, this.checked)"
 										   ${checked[cls.id] ? 'checked' : ''}>
 									${cls.label}
 								</label>
 							</td>
-							<td style="text-overflow: ellipsis;white-space:nowrap;max-width:0;overflow:hidden">
-								(DB segments labelled:
-								<span id="class-${cls.id}-segments-count">${cls.segments}</span>)
+							<td style="text-overflow: ellipsis;white-space:nowrap;overflow:hidden; text-align:right">
+								<span id="class-${cls.id}-segments-count">${cls.segments}</span> total segment(s) labelled
 							</td>
 						</tr>
 					`).join('');
