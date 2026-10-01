@@ -393,16 +393,10 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 			);
 		}
 
-		function manageClassLabeling(classId, value){
-			var params = {
-				seg_index: SELECTED_SEGMENT_INDEX,
-				seg_count: SEGMENTS_COUNT,
-				class_id: classId,
-				value: value
-			};
-			axios.post("/manage_class_labeling", params, {headers: {'Content-Type': 'application/json'}}).then(response => {
+		function updateClassLabeling(classId, value){
+			return manageClassLabeling(classId, value, SELECTED_SEGMENT_INDEX, SEGMENTS_COUNT).then(responseOk => {
 				var elm = document.getElementById(`class-${classId}-segments-count`);
-				if (response.data){
+				if (responseOk){
 					var newValue = parseInt(elm.innerHTML);
 					if (value){
 						newValue += 1;
@@ -466,16 +460,8 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 				checked[cb.dataset.segmentClassId] = cb.checked;
 			});
 
-			var data = {}
-			if (newLabel){
-				data = {
-					label: newLabel,
-					description: newDescription
-				}
-			}
-			return axios.post('/update_class_labels', data)
-				.then(response => {
-					const classes = response.data;
+			return manageClassLabels(newLabel, newDescription)
+				.then(classes => {
 
 					parent.innerHTML = classes.map(cls => `
 						<tr title="${cls.label}${cls.description ? ': ' + cls.description : ''}">
@@ -483,12 +469,12 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 								<label style="white-space: nowrap;">
 									<input type="checkbox"
 										   data-segment-class-id="${cls.id}"
-										   onclick="manageClassLabeling(${cls.id}, this.checked)"
+										   onclick="updateClassLabeling(${cls.id}, this.checked)"
 										   ${checked[cls.id] ? 'checked' : ''}>
 									${cls.label}
 								</label>
 							</td>
-							<td style="text-overflow: ellipsis;white-space:nowrap;overflow:hidden; text-align:right">
+							<td style="text-overflow: ellipsis;white-space:nowrap;overflow:hidden; text-align:right" class='text-muted'>
 								<span id="class-${cls.id}-segments-count">${cls.segments}</span> total segment(s) labelled
 							</td>
 						</tr>

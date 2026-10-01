@@ -125,7 +125,7 @@ def manage_class_labeling():
         )
 
 
-@main_app.route("/update_class_labels", methods=['POST'])
+@main_app.route("/manage_class_labels", methods=['POST'])
 def manage_class_labels():
     """Optionally adds new class labels, returns all class labels"""
     data = request.get_json()

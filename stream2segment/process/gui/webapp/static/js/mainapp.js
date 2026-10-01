@@ -227,3 +227,29 @@ function setConfig(aceEditor){
 		return response;
 	});
 }
+
+
+function manageClassLabels(newLabel, newDescription) {
+    // Optionally creates and returns all class labels. (create a new one only if newLabel is not empty or missing)
+    var data = {}
+    if (newLabel){
+        data = {
+            label: newLabel,
+            description: newDescription
+        }
+    }
+    return axios.post('/manage_class_labels', data).then(response => { return response.data});
+}
+
+
+function manageClassLabeling(classId, value, segIndex, segCount){
+    var params = {
+        seg_index: segIndex,
+        seg_count: segCount,
+        class_id: classId,
+        value: value
+    };
+    return axios.post("/manage_class_labeling", params, {headers: {'Content-Type': 'application/json'}}).then(response => {
+        return response.data;
+    });
+}
