@@ -1,3 +1,38 @@
+// Returns {data, status} (like axios' response) so existing callers using `response.data` keep working.
+async function postJSON(url, body){
+	var response;
+	try {
+		response = await fetch(url, {
+			method: 'POST',
+			headers: {'Content-Type': 'application/json'},
+			body: JSON.stringify(body)
+		});
+	} catch (error) {
+		setErrorMessage('Network error: ' + escapeHtml(error.message));
+		return Promise.reject(error.message);
+	}
+	var text = await response.text();
+	var data;
+	try { data = text ? JSON.parse(text) : null; } catch (e) { data = text; }
+	if (!response.ok){
+		var msg = 'Internal Server Error';
+		if (data && typeof data === 'object' && data.message){
+			msg = escapeHtml(data.message).replace(/\n/g, "<br>");
+			if (data.traceback){
+				msg += "<div class='small'>Traceback: " + escapeHtml(data.traceback) + '</div>';
+			}
+		}
+		setErrorMessage(msg);
+		return Promise.reject('Request failed with status code ' + response.status);
+	}
+	setInfoMessage("");
+	return {data: data, status: response.status};
+}
+
+function escapeHtml(str){
+	return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 function setInfoMessage(msg){
 	var elm = document.getElementById('message-dialog');
 	elm.style.color = 'inherit';
@@ -30,22 +65,6 @@ function setDivVisible(div, value){
 	}
 }
 
-axios.interceptors.response.use((response) => {
-	setInfoMessage("");
-	return response;
-}, (error) => {
-	var msg = 'Internal Server Error';
-	var response = error.response;
-	if(response.data && response.data.message){
-		msg = response.data.message.replaceAll("\n", "<br>");
-		if (response.data.traceback){
-			msg += "<div class='small'>Traceback: " + response.data.traceback + '</div>'
-		}
-	}
-	setErrorMessage(msg);
-	return Promise.reject(error.message);
-});
-
 function setSegmentsSelection(inputElements){
 	setInfoMessage("Selecting segments ... (it might take a while for large databases)");
 	var segmentsSelection = {};
@@ -55,14 +74,12 @@ function setSegmentsSelection(inputElements){
 			segmentsSelection[att] = val;
 		}
 	}
-	return axios.post("/set_selection", segmentsSelection, {headers: {'Content-Type': 'application/json'}}).then(response => {
-		return response;
-	});
+	return postJSON("/set_selection", segmentsSelection);
 }
 
 function getSegmentsSelection(inputElements){
 	// queries the current segments selection and puts the selection expressions into the given input elements
-	return axios.post("/get_selection", {}, {headers: {'Content-Type': 'application/json'}}).then(response => {
+	return postJSON("/get_selection", {}).then(response => {
 		for(var attname of Object.keys(inputElements)){
 			inputElements[attname].value = response.data[attname] || "";
 			inputElements[attname].dispatchEvent(new Event("input")); // notify listeners
@@ -73,7 +90,6 @@ function getSegmentsSelection(inputElements){
 
 function getSegmentData(
     segmentIndex,
-    segmentsCount,
     plots,
     tracesArePreprocessed,
     mainPlotShowsAllComponents,
@@ -82,20 +98,12 @@ function getSegmentData(
 	/**
 	* Main function to update the GUI from a given segment.
 	* plots: Array of 3-elements Arrays, where the 3 elements are:
-	* 	[Python function name (string), destination <div> id (string), plotlty layout (Object)]
+	* 	[Python function name (string), destination <div> id (string), plotly layout (Object)]
 	* tracesArePreprocessed: boolean denoting if the traces should be pre-processed
 	* mainPlotShowsAllComponents: boolean denoting if the main trace should plot all 3 components / orientations
-	* attrElements: Object of segment attributes (string) mapped to the HTML element whose
-	*	innerHTML should be set to the relative segment attr value (each element innerHTML is assumed
-	*   to be empty). If null / undefined, segment
-	* 	attr are not fetched and nothing is set
-	* classElements: Object of DB classes ids (integer) mapped to the input[type=checkbox]
-	* 	element whose checked state should be set true or false depending on whether the segment
-	* 	has the relative class label assigned or not (each input.checked property is assumed to be false).
-	*   If null / undefined, segment classes are not fetched and nothing happens
-	* this method returns a Promise with argument an Object of metadata (e.g. 'id', 'event.latiture')
-	* mapped to their value. The Object 'class.id' is mapped to an Array of ids. If attrElements and
-	* classElements are null, the returned Object is empty
+	* loadMetadata: boolean denoting if segment attributes and classes should be fetched and returned
+	* this method returns a Promise whose resolved value is the response data Object (with keys
+	* 'plotData', 'plotLayout' and, if loadMetadata is true, the segment metadata, e.g. 'id', 'event.latitude')
 	*/
 	var funcName2ID = {};
 	var funcName2Layout = {};
@@ -105,7 +113,6 @@ function getSegmentData(
 	}
 	var params = {
 		seg_index: segmentIndex,
-		seg_count: segmentsCount,
 		pre_processed: tracesArePreprocessed,
 		zooms: null,  // not used
 		plot_names: Object.keys(funcName2ID),
@@ -115,7 +122,7 @@ function getSegmentData(
 	}
 
 	setInfoMessage("Fetching and computing data (it might take a while) ...");
-	return axios.post("/get_segment_data", params, {headers: {'Content-Type': 'application/json'}}).then(response => {
+	return postJSON("/get_segment_data", params).then(response => {
 		for (var name of Object.keys(response.data.plotData)){
 			var data = response.data.plotData[name];
 			var layout = Object.assign({}, funcName2Layout[name], response.data.plotLayout[name] || {});
@@ -139,7 +146,7 @@ function redrawPlot(divId, plotlyData, plotlyLayout){
 	var div = document.getElementById(divId);
 	var initialized = !!div.layout;
 	var font = getPageFontInfo();
-	var _ff = window.getComputedStyle(document.body).getPropertyValue('font-family');
+	plotlyLayout = plotlyLayout || {};
 	var layout = {  // set default layout (and merge later with plotlyLayout, if given)
 		margin:{'l': 10, 't':10, 'b':10, 'r':10},
 		pad: 0,
@@ -177,10 +184,12 @@ function redrawPlot(divId, plotlyData, plotlyLayout){
 	while (objs.length){
 		var [src, dest] = objs.shift(); // remove 1st element
 		Object.keys(src).forEach(key => {
-			if ((typeof src[key] === 'object') && (typeof dest[key] === 'object')){
-				objs.push([src[key], dest[key]]);
+			var s = src[key], d = dest[key];
+			var isObj = v => v !== null && typeof v === 'object' && !Array.isArray(v);
+			if (isObj(s) && isObj(d)){
+				objs.push([s, d]);
 			}else{
-				dest[key] = src[key];
+				dest[key] = s;
 			}
 		})
 	}
@@ -194,7 +203,7 @@ function redrawPlot(divId, plotlyData, plotlyLayout){
 			xanchor: 'center',
 			y: 0.5, //.98,
 			yanchor: 'middle',
-			text: plotlyData.replace("\n", "<br>"),
+			text: plotlyData.replace(/\n/g, "<br>"),
 			showarrow: false,
 			bordercolor: '#ffffff', // '#c7c7c7',
 			bgcolor: '#C0392B',
@@ -219,13 +228,15 @@ function redrawPlot(divId, plotlyData, plotlyLayout){
 	}
 }
 
-function setConfig(aceEditor){
+function getConfig(){
 	// query config and show form only upon successful response:
-	return axios.post("/get_config", {as_str: true}, {headers: {'Content-Type': 'application/json'}}).then(response => {
-		aceEditor.setValue(response.data);
-		aceEditor.clearSelection();
-		return response;
+	return postJSON("/get_config", {as_str: true}).then(response => {
+		return response.data;
 	});
+}
+
+function setConfig(newConfig){
+	return postJSON("/set_config", {data: newConfig});
 }
 
 
@@ -238,7 +249,7 @@ function manageClassLabels(newLabel, newDescription) {
             description: newDescription
         }
     }
-    return axios.post('/manage_class_labels', data).then(response => { return response.data});
+    return postJSON('/manage_class_labels', data).then(response => { return response.data});
 }
 
 
@@ -249,7 +260,7 @@ function manageClassLabeling(classId, value, segIndex, segCount){
         class_id: classId,
         value: value
     };
-    return axios.post("/manage_class_labeling", params, {headers: {'Content-Type': 'application/json'}}).then(response => {
+    return postJSON("/manage_class_labeling", params).then(response => {
         return response.data;
     });
 }

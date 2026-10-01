@@ -1,5 +1,4 @@
 {% extends "base.html" %}
-{% set use_axios = true %}
 {% set use_plotly = true %}
 {% set use_leaflet = false %}
 {% set use_bootstrap_css = true %}
@@ -265,11 +264,11 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 
 {% block after_body %}
 	{{ super() }}
-	<script src="static/js/mainapp.js"></script>
+	<script src="{{ url_for('static', filename='js/mainapp.js') }}"></script>
 	<script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.17.0/ace.min.js"></script>
 	<script type="text/javascript">
 		var configEditor = ace.edit("config-editor");
-		ace.config.set('basePath', 'https://pagecdn.io/lib/ace/1.4.8');
+		ace.config.set('basePath', 'https://pagecdn.io/lib/ace/1.17.0');
 		// instead of doing so:
 		// configEditor.setTheme("ace/theme/idle_fingers");
 		// configEditor.session.setMode("ace/mode/yaml");
@@ -290,9 +289,9 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 			var eType = (e.target.getAttribute('type') || "").toLowerCase();
 			if((eTag == 'textarea') || (eTag == 'input' && eType == 'text')){ return; }
 			var elm = null;
-			if (e.keyCode + "" == '37') {  // left arrow
+			if (e.key === 'ArrowLeft') {
 				elm = document.getElementById("prev-segment-btn");
-			}else if (e.keyCode + "" == '39') {  // right arrow
+			}else if (e.key === 'ArrowRight') {
 				elm = document.getElementById("next-segment-btn");
 			}
 			if (elm){
@@ -331,7 +330,6 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 
 			getSegmentData(
 				index,
-				SEGMENTS_COUNT,
 				getPlotDataToRecompute(),
 				tracesArePreprocessed(),
 				mainPlotShowsAllComponents(),
@@ -364,7 +362,6 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 		function recomputeAllPlots(){
 			getSegmentData(
 				SELECTED_SEGMENT_INDEX,
-				SEGMENTS_COUNT,
 				getPlotDataToRecompute(),
 				tracesArePreprocessed(),
 				mainPlotShowsAllComponents(),
@@ -385,7 +382,6 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 		function recomputePlot(funcName, divId, layout){
 			getSegmentData(
 				SELECTED_SEGMENT_INDEX,
-				SEGMENTS_COUNT,
 				[[funcName, divId, layout]],
 				tracesArePreprocessed(),
 				mainPlotShowsAllComponents(),
@@ -403,8 +399,8 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 					}else{
 						newValue -= 1;
 					}
+					elm.innerHTML = newValue;
 				}
-				elm.innerHTML = newValue;
 			});
 		}
 
@@ -430,7 +426,11 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 			var isVisible = isDivVisible(div);
 			if (!isVisible && divId == 'config-dialog'){
 				// query config and show form only upon successful response:
-				setConfig(configEditor).then(response => { setDivVisible(div, true) });
+				getConfig().then(configData => {
+					configEditor.setValue(configData);
+					configEditor.clearSelection();
+					setDivVisible(div, true)
+				});
 			}else if (!isVisible && divId == 'segments-selection-dialog'){
 				// query segment selection and show form only upon successful response:
 				getSegmentsSelection(getSegmentSelectionInputElements()).then(response => { setDivVisible(div, true) });
@@ -440,7 +440,7 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 		}
 
 		function updateConfig(){
-			return axios.post("/set_config", {data: configEditor.getValue()}, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
+			return setConfig(configEditor.getValue()).then(response => {
 				recomputeAllPlots();
 				return response;
 			});
@@ -460,28 +460,27 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 				checked[cb.dataset.segmentClassId] = cb.checked;
 			});
 
-			return manageClassLabels(newLabel, newDescription)
-				.then(classes => {
+			return manageClassLabels(newLabel, newDescription).then(classes => {
 
-					parent.innerHTML = classes.map(cls => `
-						<tr title="${cls.label}${cls.description ? ': ' + cls.description : ''}">
-							<td>
-								<label style="white-space: nowrap;">
-									<input type="checkbox"
-										   data-segment-class-id="${cls.id}"
-										   onclick="updateClassLabeling(${cls.id}, this.checked)"
-										   ${checked[cls.id] ? 'checked' : ''}>
-									${cls.label}
-								</label>
-							</td>
-							<td style="text-overflow: ellipsis;white-space:nowrap;overflow:hidden; text-align:right" class='text-muted'>
-								<span id="class-${cls.id}-segments-count">${cls.segments}</span> total segment(s) labelled
-							</td>
-						</tr>
-					`).join('');
+				parent.innerHTML = classes.map(cls => `
+					<tr title="${cls.label}${cls.description ? ': ' + cls.description : ''}">
+						<td>
+							<label style="white-space: nowrap;">
+								<input type="checkbox"
+									   data-segment-class-id="${cls.id}"
+									   onclick="updateClassLabeling(${cls.id}, this.checked)"
+									   ${checked[cls.id] ? 'checked' : ''}>
+								${cls.label}
+							</label>
+						</td>
+						<td style="text-overflow: ellipsis;white-space:nowrap;overflow:hidden; text-align:right" class='text-muted'>
+							<span id="class-${cls.id}-segments-count">${cls.segments}</span> total segment(s) labelled
+						</td>
+					</tr>
+				`).join('');
 
-					return classes;
-				});
+				return classes;
+			});
 		}
 
 		updateClassLabels().then(classes => {
