@@ -77,7 +77,7 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 			&rang; <!--&rarr; -->
 		</button>
 		<button class='btn btn-outline-secondary ms-1'
-				onclick="toggleVisibility('segments-selection-dialog')">
+				onclick="populateSelectionEditor().then(segSel => {setDivVisible('segments-selection-dialog', true)})">
 			Select
 		</button>
 		<div class="ms-2">Plots</div>
@@ -87,7 +87,7 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 			   onclick="recomputeAllPlots()">
 		<label class="btn btn-sm btn-outline-secondary ms-1" for="preprocess-plots-btn">Pre-process</label>
 		<button class='btn btn-outline-secondary ms-1'
-				onclick="toggleVisibility('config-dialog')">
+				onclick="populateConfigEditor().then(configData => {setDivVisible('config-dialog', true)})">
 			Config
 		</button>
 		<div class="ms-2">DB Url</div>
@@ -189,7 +189,7 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 	<!-- Select segments where: -->
 	<div class="bg-secondary-subtle text-end small mb-2">
 		<button type="button" class="btn-close" aria-label="Close"
-				onclick="toggleVisibility('segments-selection-dialog')"></button>
+				onclick="setDivVisible('segments-selection-dialog', false)"></button>
 	</div>
 	<div style="flex: 1 1 auto; overflow:auto">
 		<table>
@@ -227,7 +227,7 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 	</div>
 	<div class='text-center pt-2'>
 		<button class='btn btn-outline-secondary'
-				onclick="updateSegmentSelection().then(response => { toggleVisibility('segments-selection-dialog') })">
+				onclick="updateSegmentSelection().then(response => { setDivVisible('segments-selection-dialog', false) })">
 			Select
 		</button>
 	</div>
@@ -238,13 +238,13 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 	<!-- Config (.yaml file) -->
 	<div class="text-end small bg-secondary-subtle mb-2">
 		<button type="button" class="btn-close" aria-label="Close"
-				onclick="toggleVisibility('config-dialog')"></button>
+				onclick="setDivVisible('config-dialog', false)"></button>
 	</div>
 	<div>Configuration editor (YAML syntax):</div>
 	<div id='config-editor' style="flex: 1 1 auto; overflow:auto; min-height:75vh; min-width:50vw;"></div>
 	<div class='text-center pt-2'>
 		<button class='btn btn-outline-secondary'
-				onclick="updateConfig().then(response => { toggleVisibility('config-dialog') })">
+				onclick="updateConfig().then(response => { setDivVisible('config-dialog', false) })">
 			Update
 		</button>
 	</div>
@@ -252,11 +252,11 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 
 <div id="message-dialog" class="popup d-none flex-column align-items-center"
 	 style="z-index:1000; top:50%; left: 50%; transform: translate(-50%, -50%);">
-	<span class="loader"></span>
+	<span class="loader"></span> <!-- only needed when we display info messages waiting for POST data -->
 	<div class="d-flex flex-row align-items-start">
 		<div class="message" style="margin-top:.5rem;max-height: 80vh;overflow: auto;"></div>
 		<button type="button" class="btn-close ms-2" aria-label="Close"
-				onclick="toggleVisibility('message-dialog')">
+				onclick="setDivVisible('message-dialog', false)">
 		</button>
 	</div>
 </div>
@@ -421,22 +421,23 @@ table thead tr th { padding-bottom: 2rem; font-weight: normal; }
 			});
 		}
 
-		function toggleVisibility(divId){
-			var div = document.getElementById(divId);
-			var isVisible = isDivVisible(div);
-			if (!isVisible && divId == 'config-dialog'){
-				// query config and show form only upon successful response:
-				getConfig().then(configData => {
-					configEditor.setValue(configData);
-					configEditor.clearSelection();
-					setDivVisible(div, true)
-				});
-			}else if (!isVisible && divId == 'segments-selection-dialog'){
-				// query segment selection and show form only upon successful response:
-				getSegmentsSelection(getSegmentSelectionInputElements()).then(response => { setDivVisible(div, true) });
-			}else{
-				setDivVisible(div, !isVisible);
-			}
+		function populateConfigEditor(){
+			return getConfig().then(configData => {
+				configEditor.setValue(configData);
+				configEditor.clearSelection();
+				return configData;
+			});
+		}
+
+		function populateSelectionEditor(){
+			return getSegmentsSelection().then(fields => {
+				const inputElements = getSegmentSelectionInputElements();
+				for(var attname of Object.keys(inputElements)){
+					inputElements[attname].value = fields[attname] || "";
+					inputElements[attname].dispatchEvent(new Event("input"));  // notify listeners (e.g., highlighting inputs with text seet)
+				}
+				return fields;
+			});
 		}
 
 		function updateConfig(){

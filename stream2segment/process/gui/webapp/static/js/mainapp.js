@@ -51,13 +51,12 @@ function setErrorMessage(msg){
 	setDivVisible(elm, !!msg);
 }
 
-function isDivVisible(div){
-	if (typeof div === 'string') {div = document.getElementById(div); }
-	return !div.classList.contains('d-none');
-}
-
 function setDivVisible(div, value){
+    // value: true, false or 'toggle' (=invert visible state)
 	if (typeof div === 'string') {div = document.getElementById(div); }
+	if (value === 'toggle'){
+	    value = !div.classList.contains('d-none');
+	}
 	if (value){
 		div.classList.remove('d-none');
 	}else{
@@ -80,11 +79,7 @@ function setSegmentsSelection(inputElements){
 function getSegmentsSelection(inputElements){
 	// queries the current segments selection and puts the selection expressions into the given input elements
 	return postJSON("/get_selection", {}).then(response => {
-		for(var attname of Object.keys(inputElements)){
-			inputElements[attname].value = response.data[attname] || "";
-			inputElements[attname].dispatchEvent(new Event("input")); // notify listeners
-		}
-		return response;
+		return response.data;
 	});
 }
 
